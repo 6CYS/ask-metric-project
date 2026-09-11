@@ -164,17 +164,25 @@ def sm3_hexdigest(data: bytes) -> str:
 
 
 def hash_password_sm3(password: str, *, salt: bytes | None = None) -> str:
+    if not isinstance(password, str) or not password:
+        raise GmCryptoError("password must be non-empty text")
     salt = salt if salt is not None else secrets.token_bytes(16)
+    if not isinstance(salt, bytes) or len(salt) != 16:
+        raise GmCryptoError("password salt must contain exactly 16 bytes")
     digest = sm3_hexdigest(salt + password.encode("utf-8"))
     return f"{PASSWORD_SCHEME_SM3}${salt.hex()}${digest}"
 
 
 def verify_password_sm3(password: str, encoded: str) -> bool:
+    if not isinstance(password, str) or not password or not isinstance(encoded, str):
+        return False
     try:
         scheme, salt_hex, digest = encoded.split("$", 2)
     except ValueError:
         return False
     if scheme != PASSWORD_SCHEME_SM3:
+        return False
+    if not re.fullmatch(r"[0-9a-fA-F]{32}", salt_hex) or not re.fullmatch(r"[0-9a-f]{64}", digest):
         return False
     try:
         salt = bytes.fromhex(salt_hex)

@@ -12,6 +12,7 @@ import json
 import os
 import secrets
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -88,7 +89,7 @@ def read_xlsx(
     path: Path, sheet_name: str | None, header_row: int
 ) -> list[tuple[int, dict[str, Any]]]:
     if path.suffix.lower() != ".xlsx":
-        raise SystemExit(f"仅支持 .xlsx，请先另存为 xlsx：{path}")
+        raise SystemExit("仅支持 .xlsx，请先另存为 xlsx")
     try:
         from openpyxl import load_workbook
     except ImportError as exc:
@@ -96,14 +97,14 @@ def read_xlsx(
     workbook = load_workbook(path, read_only=True, data_only=True)
     try:
         if sheet_name and sheet_name not in workbook.sheetnames:
-            raise SystemExit(f"工作表不存在：{sheet_name}；可选：{workbook.sheetnames}")
+            raise SystemExit("指定工作表不存在，请在源文件中核对工作表名称")
         sheet = workbook[sheet_name] if sheet_name else workbook[workbook.sheetnames[0]]
         header_values = next(
             sheet.iter_rows(min_row=header_row, max_row=header_row, values_only=True)
         )
         headers = [text_cell(value).upper() for value in header_values]
         if len(headers) != len(set(filter(None, headers))):
-            raise SystemExit(f"表头存在重复列：{path}")
+            raise SystemExit("表头存在重复列，请核对源文件")
         rows: list[tuple[int, dict[str, Any]]] = []
         for row_number, values in enumerate(
             sheet.iter_rows(min_row=header_row + 1, values_only=True),
@@ -197,7 +198,7 @@ def build_sources(
         if not user_name:
             errors.append(f"用户 Excel 第 {row_number} 行 USER_NAME 为空")
         if org is None:
-            errors.append(f"用户 Excel 第 {row_number} 行 ORG_ID={org_id} 无法关联机构")
+            errors.append(f"用户 Excel 第 {row_number} 行 ORG_ID 无法关联机构")
         if len(login_code) > 64 or len(user_name) > 128 or len(user_code) > 128:
             errors.append(f"用户 Excel 第 {row_number} 行字段超过应用库长度")
         if user_code in user_codes:
@@ -231,13 +232,13 @@ def configure_backend(args: argparse.Namespace) -> str:
     backend_dir = args.backend_dir.expanduser().resolve()
     source_dir = backend_dir / "src"
     if not (source_dir / "ask_metric").is_dir():
-        raise SystemExit(f"--backend-dir 不正确，未找到 src/ask_metric：{backend_dir}")
+        raise SystemExit("--backend-dir 不正确，未找到 src/ask_metric")
     sys.path.insert(0, str(source_dir))
     from dotenv import dotenv_values
 
     config_file = args.config.expanduser().resolve()
     if not config_file.is_file():
-        raise SystemExit(f"配置文件不存在：{config_file}")
+        raise SystemExit("配置文件不存在，请核对 --config")
     for name, value in dotenv_values(config_file).items():
         if value is not None:
             os.environ[name] = value
@@ -250,9 +251,26 @@ def configure_backend(args: argparse.Namespace) -> str:
     source_system = (args.source_system or configured_source).strip()
     if args.source_system and source_system != configured_source:
         raise SystemExit(
-            f"--source-system={source_system} 与配置 SSO_SOURCE_SYSTEM={configured_source} 不一致"
+            "--source-system 与配置 SSO_SOURCE_SYSTEM 不一致"
         )
     return source_system
+
+
+def password_hash_factory(mode: str) -> Callable[[], str]:
+    """Credentials originate from secure randomness or hidden operator input only."""
+    from ask_metric.core.security import hash_password
+
+    if mode == "random-unrecoverable":
+        return lambda: hash_password(secrets.token_urlsafe(48))
+    if mode != "shared-prompt":
+        raise SystemExit("不支持的初始密码策略")
+    supplied = getpass.getpass("请输入共享初始密码（不会显示）：")
+    confirmation = getpass.getpass("请再次输入共享初始密码：")
+    if supplied != confirmation:
+        raise SystemExit("两次密码输入不一致")
+    if len(supplied) < 12:
+        raise SystemExit("共享初始密码至少 12 个字符")
+    return lambda: hash_password(supplied)
 
 
 def synchronize(
@@ -265,7 +283,6 @@ def synchronize(
     from sqlalchemy import select
 
     from ask_metric.application.integration_identity import external_user_id
-    from ask_metric.core.security import hash_password
     from ask_metric.infrastructure.db.models import AppUser, OrgTerm
     from ask_metric.infrastructure.db.session import get_app_session_factory
 
@@ -283,13 +300,11 @@ def synchronize(
             owner = usernames.get(user.login_code.casefold())
             if owner is not None and owner.id != user_id:
                 errors.append(
-                    f"用户 Excel 第 {user.row} 行 LOGIN_CODE={user.login_code} "
-                    f"已属于本地用户 {owner.id}"
+                    f"用户 Excel 第 {user.row} 行 LOGIN_CODE 已被其他本地用户占用"
                 )
 
         summary = {
             "mode": "apply" if args.apply else "dry-run",
-            "source_system": source_system,
             "source_organizations": len(source_orgs),
             "source_users": len(users),
             "enabled_source_users": sum(user.enabled for user in users),
@@ -325,14 +340,7 @@ def synchronize(
             session.rollback()
             raise SystemExit("拒绝写库：--confirm 必须为 SYNC_BANK_IDENTITY")
 
-        shared_password: str | None = None
-        if args.password_mode == "shared-prompt":
-            shared_password = getpass.getpass("请输入共享初始密码（不会显示）：")
-            confirmation = getpass.getpass("请再次输入共享初始密码：")
-            if shared_password != confirmation:
-                raise SystemExit("两次密码输入不一致")
-            if len(shared_password) < 12:
-                raise SystemExit("共享初始密码至少 12 个字符")
+        next_password_hash = password_hash_factory(args.password_mode)
 
         for org in source_orgs.values():
             target = existing_orgs.get(org.org_code)
@@ -352,11 +360,10 @@ def synchronize(
             user_id = user_ids[source.user_code]
             target = existing_users.get(user_id)
             if target is None:
-                clear_password = shared_password or secrets.token_urlsafe(48)
                 target = AppUser(
                     id=user_id,
                     username=source.login_code,
-                    password_hash=hash_password(clear_password),
+                    password_hash=next_password_hash(),
                     display_name=source.user_name,
                     org_code=source.org_code,
                     role_code="USER",
@@ -391,9 +398,14 @@ def main() -> None:
     args = parse_args()
     if args.org_header_row < 1 or args.user_header_row < 1:
         raise SystemExit("表头行号必须大于等于 1")
-    orgs, users, errors = build_sources(args)
-    source_system = configure_backend(args)
-    raise SystemExit(synchronize(args, orgs, users, source_system, errors))
+    try:
+        orgs, users, errors = build_sources(args)
+        source_system = configure_backend(args)
+        result = synchronize(args, orgs, users, source_system, errors)
+    except Exception:
+        raise SystemExit("同步失败：请核对输入文件、配置和数据库可用性；"
+                         "未完成的事务已回滚。") from None
+    raise SystemExit(result)
 
 
 if __name__ == "__main__":

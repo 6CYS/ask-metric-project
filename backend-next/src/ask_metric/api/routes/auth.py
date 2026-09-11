@@ -20,12 +20,18 @@ class LoginRequest(BaseModel):
 
     username: str = Field(min_length=1, max_length=64)
     encrypted_key: str = Field(
-        min_length=194,
-        max_length=1024,
-        pattern=r"^(?:[0-9A-Fa-f]{2}){97,512}$",
+        default=...,
+        strict=True,
+        repr=False,
+        min_length=256,
+        max_length=256,
+        pattern=r"^[0-9A-Fa-f]{256}$",
     )
     iv: str = Field(pattern=r"^[0-9A-Fa-f]{32}$")
     password: str = Field(
+        default=...,
+        strict=True,
+        repr=False,
         min_length=32,
         max_length=4096,
         pattern=r"^(?:[0-9A-Fa-f]{32}){1,128}$",
