@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import os
+from collections import defaultdict, deque
 from collections.abc import Callable
 from pathlib import Path
 from threading import BoundedSemaphore, Semaphore
@@ -363,13 +364,22 @@ def _normalize_rerank_response(
             reason = "scores_type"
         elif len(scores) != len(documents):
             reason = "scores_count"
-        elif not isinstance(texts, list) or texts != documents:
-            # The bank contract scores the input texts in order. Reject partial,
-            # reordered or substituted echoes rather than assign a wrong metric.
-            reason = "texts_alignment"
+        elif not isinstance(texts, list):
+            reason = "texts_type"
+        elif len(texts) != len(documents):
+            reason = "texts_count"
         else:
+            # Bank responses may be sorted by relevance. Each score belongs to
+            # its returned text, not to the candidate at that response position.
+            # Keep occurrences separate so duplicate texts cannot reuse an index.
+            indices: dict[str, deque[int]] = defaultdict(deque)
+            for index, document in enumerate(documents):
+                indices[document].append(index)
             normalized: list[dict[str, Any]] = []
-            for index, score in enumerate(scores):
+            for text, score in zip(texts, scores, strict=True):
+                if not isinstance(text, str) or not indices.get(text):
+                    reason = "texts_alignment"
+                    break
                 try:
                     valid = (
                         isinstance(score, (int, float))
@@ -381,7 +391,7 @@ def _normalize_rerank_response(
                 if not valid:
                     reason = "score_non_finite_or_non_numeric"
                     break
-                normalized.append({"index": index, "relevance_score": score})
+                normalized.append({"index": indices[text].popleft(), "relevance_score": score})
             else:
                 return normalized
     # Only fixed diagnostic categories are logged; never include response text.
