@@ -37,6 +37,7 @@ from ask_metric.infrastructure.model.provider import (
     InvalidModelResponse,
     ModelServiceUnavailable,
     credential_resolver_from_env_file,
+    model_failure_category,
 )
 from ask_metric.infrastructure.query.templates import (
     QueryTemplateRead,
@@ -384,7 +385,7 @@ def test_model_connection(
                     "allowed_intents_json": '["metric_query"]',
                 },
             )
-            summary = f"JSON fields: {', '.join(sorted(result)) or 'none'}"
+            summary = f"JSON field count: {len(result)}"
         elif role == "embedding":
             vectors = tested_service.embed(["指标问数连接测试"])
             dimensions = len(vectors[0]) if vectors else 0
@@ -398,19 +399,20 @@ def test_model_connection(
             summary = f"results={len(results)}"
     except ModelServiceUnavailable as exc:
         error_reference = uuid4().hex
+        category = model_failure_category(exc.category)
         logger.warning(
             "model_connection_test_failed role=%s category=%s error_reference=%s",
             role,
-            exc.category,
+            category,
             error_reference,
         )
         raise ApplicationError(
             "MODEL_CONNECTION_FAILED",
             f"{role} 模型连接失败，请检查服务端配置。",
-            status_code=422 if exc.category == "configuration" else 502,
+            status_code=422 if category == "configuration" else 502,
             details={
                 "role": role,
-                "category": exc.category,
+                "category": category,
                 "error_reference": error_reference,
             },
         ) from exc

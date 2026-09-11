@@ -26,6 +26,15 @@ from ask_metric.infrastructure.model.configuration import (
 )
 
 
+def model_failure_category(value: object) -> str:
+    """Only public diagnostic codes may leave the provider boundary."""
+    if isinstance(value, str) and value in {
+        "unavailable", "configuration", "concurrency", "timeout", "http_status", "connection",
+    }:
+        return value
+    return "unavailable"
+
+
 class ModelServiceUnavailable(RuntimeError):
     def __init__(
         self,
@@ -37,7 +46,7 @@ class ModelServiceUnavailable(RuntimeError):
         duration_ms: int | None = None,
     ) -> None:
         super().__init__(message)
-        self.category = category
+        self.category = model_failure_category(category)
         self.endpoint = endpoint
         self.status_code = status_code
         self.duration_ms = duration_ms
@@ -387,14 +396,18 @@ def _log_model_request(
     status_code: int | None = None,
     error: str | None = None,
 ) -> None:
+    safe_path = path if path in {
+        "/v1/chat/completions", "/v1/embeddings", "/v1/rerank",
+    } else "custom"
+    safe_error = model_failure_category(error) if error else "-"
     log_method = logger.error if error else logger.info
     log_method(
         "model_api endpoint=%s status=%s duration_ms=%s error=%s",
-        path,
+        safe_path,
         status_code or "-",
         duration_ms,
-        error or "-",
-        extra={"trans_api": path, "exception_type": "ModelServiceError" if error else "-"},
+        safe_error,
+        extra={"trans_api": safe_path, "exception_type": "ModelServiceError" if error else "-"},
     )
 
 
