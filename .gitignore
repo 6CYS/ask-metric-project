@@ -1,0 +1,94 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.python-version
+.venv/
+venv/
+env/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Node / frontend
+node_modules/
+.next/
+out/
+dist/
+build/
+.vite/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local databases and data dumps
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.sql.gz
+
+# Local SIT database sandbox
+/infra/local-sit/
+
+# Logs
+logs/
+*.log
+
+# Locally exported deployment images
+deploy/*.tar
+deploy/*.tar.gz
+deploy/*.sha256
+deploy/.tmp-ask-metric-images-*
+deploy/IMAGE_TAG
+deploy/bundle-*/
+deploy/backend.env
+/deploy/artifacts/
+/deploy/.build-package/
+/deploy/.cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+~$*
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local Codex / Superpowers runtime artifacts
+.codex/
+.codex_tmp/
+.superpowers/
+/ai-temp/
+backend-next/.runtime/
+/.runtime/
+backend-next/.test-tmp/
+backend-next/tmp*/
+outputs/
+/deliverables/
+
+# Local presentation and document authoring artifacts
+/ppt_relayout_tmp/
+/tmp_ppt/
+/projects/*ppt*/
+/.tmp/
+/.tmp-*/
+/docx_revision_work/
+/tmp_*.docx
+/*.pptx
+/*.pptx.inspect.ndjson
+/docs/问数系统统一对外API设计方案.docx
+
+# Local Docker repack scratch file
+/backend-next/Dockerfile.repack

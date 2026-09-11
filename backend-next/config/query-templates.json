@@ -1,0 +1,45 @@
+{
+  "version": "5",
+  "dialects": {
+    "mysql": {
+      "metric_value_latest": "mysql/metric_value_latest.sql",
+      "metric_value_as_of": "mysql/metric_value_as_of.sql",
+      "metric_value_in_range": "mysql/metric_value_in_range.sql",
+      "metric_value_at_dates": "mysql/metric_value_at_dates.sql",
+      "metric_value_at_periods": "mysql/metric_value_at_periods.sql",
+      "metric_value_exact": "mysql/metric_value_exact.sql",
+      "metric_value_compare_latest": "mysql/metric_value_compare_latest.sql",
+      "metric_value_compare_as_of": "mysql/metric_value_compare_as_of.sql",
+      "metric_trend": "mysql/metric_trend.sql",
+      "metric_period_compare": "mysql/metric_period_compare.sql",
+      "metric_ranking_latest_asc": "mysql/metric_ranking_latest_asc.sql",
+      "metric_ranking_latest_desc": "mysql/metric_ranking_latest_desc.sql",
+      "metric_ranking_exact_asc": "mysql/metric_ranking_exact_asc.sql",
+      "metric_ranking_exact_desc": "mysql/metric_ranking_exact_desc.sql",
+      "metric_ranking_in_range_asc": "mysql/metric_ranking_in_range_asc.sql",
+      "metric_ranking_in_range_desc": "mysql/metric_ranking_in_range_desc.sql",
+      "metric_ranking_as_of_asc": "mysql/metric_ranking_as_of_asc.sql",
+      "metric_ranking_as_of_desc": "mysql/metric_ranking_as_of_desc.sql"
+    },
+    "inceptor": {
+      "metric_value_latest": "inceptor/metric_value_latest.sql",
+      "metric_value_as_of": "inceptor/metric_value_as_of.sql",
+      "metric_value_in_range": "inceptor/metric_value_in_range.sql",
+      "metric_value_at_dates": "inceptor/metric_value_at_dates.sql",
+      "metric_value_at_periods": "inceptor/metric_value_at_periods.sql",
+      "metric_value_exact": "inceptor/metric_value_exact.sql",
+      "metric_value_compare_latest": "inceptor/metric_value_compare_latest.sql",
+      "metric_value_compare_as_of": "inceptor/metric_value_compare_as_of.sql",
+      "metric_trend": "inceptor/metric_trend.sql",
+      "metric_period_compare": "inceptor/metric_period_compare.sql",
+      "metric_ranking_latest_asc": "inceptor/metric_ranking_latest_asc.sql",
+      "metric_ranking_latest_desc": "inceptor/metric_ranking_latest_desc.sql",
+      "metric_ranking_exact_asc": "inceptor/metric_ranking_exact_asc.sql",
+      "metric_ranking_exact_desc": "inceptor/metric_ranking_exact_desc.sql",
+      "metric_ranking_in_range_asc": "inceptor/metric_ranking_in_range_asc.sql",
+      "metric_ranking_in_range_desc": "inceptor/metric_ranking_in_range_desc.sql",
+      "metric_ranking_as_of_asc": "inceptor/metric_ranking_as_of_asc.sql",
+      "metric_ranking_as_of_desc": "inceptor/metric_ranking_as_of_desc.sql"
+    }
+  }
+}

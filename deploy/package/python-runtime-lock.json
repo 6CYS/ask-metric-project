@@ -1,0 +1,11 @@
+{
+  "provider": "astral-sh/python-build-standalone",
+  "release": "20260814",
+  "python_version": "3.12.14",
+  "target": "x86_64-unknown-linux-gnu",
+  "variant": "install_only_stripped",
+  "minimum_glibc": "2.17",
+  "filename": "cpython-3.12.14+20260814-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+  "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260814/cpython-3.12.14%2B20260814-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+  "sha256": "5acfa3e9ba26b51ae161c83aff278da915b590d22373a424b2ba55b8afe91fcc"
+}

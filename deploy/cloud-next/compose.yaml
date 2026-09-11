@@ -1,0 +1,44 @@
+name: ask-metric-next
+services:
+  backend:
+    image: ask-metric-next-backend:${RELEASE_TAG:?set RELEASE_TAG}
+    container_name: ask-metric-next-backend
+    restart: unless-stopped
+    mem_limit: 512m
+    env_file: [./backend.env]
+    volumes:
+      - ./runtime-config:/app/runtime-config
+      - ./model-secrets:/app/model-secrets
+      - ./state:/app/state
+      - ./logs:/app/logs
+    secrets: [config_sm4_key]
+    networks: [web, databases]
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+  frontend:
+    image: ask-metric-next-frontend:${FRONTEND_RELEASE_TAG:-${RELEASE_TAG:?set RELEASE_TAG}}
+    container_name: ask-metric-next-frontend
+    restart: unless-stopped
+    mem_limit: 64m
+    ports:
+      - "${WEB_PORT:-18080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [web]
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+networks:
+  web:
+  databases:
+    external: true
+    name: ask-metric-cloud-db
+secrets:
+  config_sm4_key:
+    file: ./secrets/config-sm4.key

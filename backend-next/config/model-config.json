@@ -1,0 +1,70 @@
+{
+  "schema_version": 2,
+  "provider": "bank_intranet_openai_compatible",
+  "models": {
+    "chat": {
+      "enabled": true,
+      "base_url": "",
+      "base_url_env": "MODEL_CHAT_BASE_URL",
+      "path": "/v1/chat/completions",
+      "model": "Qwen3.6-35B-A3B",
+      "send_model": true,
+      "api_key_env": "MODEL_CHAT_API_KEY",
+      "authentication": {
+        "type": "header",
+        "header": "accessKey",
+        "prefix": ""
+      },
+      "timeout_seconds": 60.0,
+      "extra_body": {},
+      "temperature": 0.0,
+      "max_tokens": 1024,
+      "response_format": "text",
+      "send_response_format": false,
+      "enable_thinking": false,
+      "send_enable_thinking": false,
+      "user_message_suffix": "\n/no_think",
+      "chat_template_kwargs": {}
+    },
+    "embedding": {
+      "enabled": true,
+      "base_url": "",
+      "base_url_env": "MODEL_EMBEDDING_BASE_URL",
+      "path": "/v1/embeddings",
+      "model": "atom",
+      "send_model": true,
+      "api_key_env": "",
+      "authentication": {
+        "type": "none",
+        "header": "Authorization",
+        "prefix": ""
+      },
+      "timeout_seconds": 60.0,
+      "extra_body": {},
+      "dimensions": null,
+      "encoding_format": "float",
+      "user": "user"
+    },
+    "reranker": {
+      "enabled": true,
+      "base_url": "",
+      "base_url_env": "MODEL_RERANK_BASE_URL",
+      "path": "/v1/rerank",
+      "model": "bge-reranker-v2-m3",
+      "send_model": false,
+      "api_key_env": "",
+      "authentication": {
+        "type": "none",
+        "header": "Authorization",
+        "prefix": ""
+      },
+      "timeout_seconds": 60.0,
+      "extra_body": {},
+      "top_n": 20,
+      "return_documents": false,
+      "send_top_n": false,
+      "send_return_documents": false,
+      "documents_field": "texts"
+    }
+  }
+}

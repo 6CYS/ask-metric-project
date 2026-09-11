@@ -1,0 +1,366 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import os
+from collections.abc import Callable
+from pathlib import Path
+from threading import BoundedSemaphore, Semaphore
+from time import perf_counter
+from typing import Any, Literal
+
+import httpx
+from dotenv import dotenv_values
+
+from ask_metric.core.config_crypto import (
+    CONFIG_SM4_KEY_FILE_ENV,
+    decrypt_config_value,
+    load_config_sm4_key,
+)
+from ask_metric.infrastructure.model.configuration import (
+    ModelConfigRepository,
+    ModelEndpointConfig,
+    PromptConfigRepository,
+)
+
+
+class ModelServiceUnavailable(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        category: str = "unavailable",
+        endpoint: str | None = None,
+        status_code: int | None = None,
+        duration_ms: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.category = category
+        self.endpoint = endpoint
+        self.status_code = status_code
+        self.duration_ms = duration_ms
+
+
+class InvalidModelResponse(ValueError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        endpoint: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.endpoint = endpoint
+
+
+logger = logging.getLogger(__name__)
+ModelRole = Literal["chat", "embedding", "reranker"]
+
+
+def credential_resolver_from_env_file(path: Path) -> Callable[[str], str | None]:
+    """Resolve secrets from the process first, then the configured external env file."""
+
+    def resolve(name: str) -> str | None:
+        process_value = os.getenv(name)
+        if process_value:
+            return decrypt_config_value(process_value)
+        file_values = dotenv_values(path)
+        file_value = file_values.get(name)
+        if not file_value:
+            return None
+        key_file = file_values.get(CONFIG_SM4_KEY_FILE_ENV)
+        key = load_config_sm4_key(environ={}, key_file=Path(str(key_file))) if key_file else None
+        return decrypt_config_value(str(file_value), key)
+
+    return resolve
+
+
+class ConfigurableModelService:
+    """OpenAI-compatible model client with independently configured model roles."""
+
+    def __init__(
+        self,
+        *,
+        model_config_repository: ModelConfigRepository,
+        prompt_config_repository: PromptConfigRepository,
+        credential_resolver: Callable[[str], str | None] = os.getenv,
+        client: httpx.Client | None = None,
+        max_concurrency: int = 8,
+        concurrency_wait_seconds: float = 30,
+        semaphore: Semaphore | None = None,
+        analysis_enable_thinking: bool = False,
+        analysis_max_tokens: int = 2048,
+    ) -> None:
+        self.model_configs = model_config_repository
+        self.prompts = prompt_config_repository
+        self._credential_resolver = credential_resolver
+        self._client = client
+        self._semaphore = semaphore or BoundedSemaphore(max_concurrency)
+        self._concurrency_wait_seconds = concurrency_wait_seconds
+        self._analysis_enable_thinking = analysis_enable_thinking
+        self._analysis_max_tokens = analysis_max_tokens
+
+    def is_enabled(self, role: ModelRole) -> bool:
+        return bool(getattr(self.model_configs.load().models, role).enabled)
+
+    def embedding_cache_key(self) -> str:
+        """Fingerprint effective embedding configuration without retaining raw secrets."""
+        endpoint = self.model_configs.load().models.embedding
+        config = endpoint.model_dump(mode="json")
+        if endpoint.base_url_env:
+            config["base_url"] = (
+                self._credential_resolver(endpoint.base_url_env) or endpoint.base_url
+            ).rstrip("/")
+        config["authentication_headers"] = self._authentication_headers(endpoint)
+        return hashlib.sha256(
+            json.dumps(config, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+
+    def analyze(self, *, prompt: str, context: dict[str, Any]) -> dict[str, Any]:
+        chat = self.model_configs.load().models.chat
+        self._require_enabled("chat", chat)
+        messages = self.prompts.render(prompt, context)
+        if chat.user_message_suffix:
+            messages = [dict(message) for message in messages]
+            user_message = next(
+                (message for message in reversed(messages) if message.get("role") == "user"),
+                None,
+            )
+            if user_message is None:
+                raise InvalidModelResponse(
+                    "Chat prompt does not contain a user message",
+                    endpoint=chat.path,
+                )
+            user_message["content"] = f"{user_message.get('content', '')}{chat.user_message_suffix}"
+        payload: dict[str, Any] = {
+            "messages": messages,
+            "stream": False,
+        }
+        if chat.send_model:
+            payload["model"] = chat.model
+        if chat.temperature is not None:
+            payload["temperature"] = chat.temperature
+        if chat.max_tokens is not None:
+            payload["max_tokens"] = chat.max_tokens
+        if chat.response_format == "json_object" and chat.send_response_format:
+            payload["response_format"] = {"type": "json_object"}
+        if chat.send_enable_thinking:
+            payload["enable_thinking"] = self.prompts.thinking_enabled(
+                prompt, default=chat.enable_thinking
+            )
+        if chat.chat_template_kwargs:
+            payload["chat_template_kwargs"] = chat.chat_template_kwargs
+        payload.update(chat.extra_body)
+        if prompt in {"analysis_target", "analysis_action"}:
+            payload["max_tokens"] = self._analysis_max_tokens
+            if chat.send_enable_thinking:
+                payload["enable_thinking"] = self._analysis_enable_thinking
+        response = self._post(chat, payload)
+        try:
+            content = response["choices"][0]["message"]["content"]
+            if chat.response_format == "json_object":
+                return json.loads(content)
+            return {"text": content}
+        except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise InvalidModelResponse(
+                "Chat model returned an invalid response",
+                endpoint=chat.path,
+            ) from exc
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        embedding = self.model_configs.load().models.embedding
+        self._require_enabled("embedding", embedding)
+        payload: dict[str, Any] = {"input": texts}
+        if embedding.send_model:
+            payload["model"] = embedding.model
+        if embedding.dimensions is not None:
+            payload["dimensions"] = embedding.dimensions
+        if embedding.encoding_format is not None:
+            payload["encoding_format"] = embedding.encoding_format
+        if embedding.user:
+            payload["user"] = embedding.user
+        payload.update(embedding.extra_body)
+        response = self._post(embedding, payload)
+        try:
+            ordered = sorted(response["data"], key=lambda item: item["index"])
+            if (any(type(item["index"]) is not int for item in ordered)
+                    or [item["index"] for item in ordered] != list(range(len(texts)))):
+                raise ValueError("Embedding response indices do not match request")
+            return [item["embedding"] for item in ordered]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise InvalidModelResponse(
+                "Embedding model returned an invalid response",
+                endpoint=embedding.path,
+            ) from exc
+
+    def rerank(
+        self,
+        *,
+        query: str,
+        documents: list[str],
+        top_n: int | None = None,
+    ) -> list[dict[str, Any]]:
+        if not documents:
+            return []
+        reranker = self.model_configs.load().models.reranker
+        self._require_enabled("reranker", reranker)
+        payload: dict[str, Any] = {
+            "query": query,
+            reranker.documents_field: documents,
+        }
+        if reranker.send_model:
+            payload["model"] = reranker.model
+        if reranker.send_top_n:
+            payload["top_n"] = min(top_n or reranker.top_n, len(documents))
+        if reranker.send_return_documents:
+            payload["return_documents"] = reranker.return_documents
+        payload.update(reranker.extra_body)
+        response = self._post(reranker, payload)
+        results = response.get("results")
+        if not isinstance(results, list):
+            raise InvalidModelResponse(
+                "Reranker returned an invalid response",
+                endpoint=reranker.path,
+            )
+        return results
+
+    def _require_enabled(self, role: ModelRole, endpoint: ModelEndpointConfig) -> None:
+        if not endpoint.enabled:
+            raise ModelServiceUnavailable(
+                f"The {role} model role is disabled",
+                category="configuration",
+                endpoint=endpoint.path,
+            )
+
+    def _post(
+        self,
+        endpoint: ModelEndpointConfig,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        headers = self._authentication_headers(endpoint)
+        base_url = endpoint.base_url
+        if endpoint.base_url_env:
+            configured_base_url = self._credential_resolver(endpoint.base_url_env)
+            if configured_base_url:
+                base_url = configured_base_url.rstrip("/")
+        if not base_url or not base_url.startswith(("http://", "https://")):
+            raise ModelServiceUnavailable(
+                "Model endpoint URL is not configured",
+                category="configuration",
+                endpoint=endpoint.path,
+            )
+        url = f"{base_url}{endpoint.path}"
+        started = perf_counter()
+        acquired = self._semaphore.acquire(timeout=self._concurrency_wait_seconds)
+        if not acquired:
+            raise ModelServiceUnavailable(
+                "Model concurrency limit reached; please retry later",
+                category="concurrency",
+                endpoint=endpoint.path,
+            )
+        try:
+            client = self._client or httpx.Client()
+            try:
+                response = client.post(
+                    url,
+                    json=payload,
+                    headers=headers,
+                    timeout=endpoint.timeout_seconds,
+                )
+            finally:
+                if self._client is None:
+                    client.close()
+            response.raise_for_status()
+        except httpx.TimeoutException as exc:
+            duration_ms = _duration_ms(started)
+            _log_model_request(endpoint.path, duration_ms=duration_ms, error="timeout")
+            raise ModelServiceUnavailable(
+                f"Model provider request {endpoint.path} timed out after "
+                f"{endpoint.timeout_seconds:g} seconds",
+                category="timeout",
+                endpoint=endpoint.path,
+                duration_ms=duration_ms,
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            duration_ms = _duration_ms(started)
+            _log_model_request(
+                endpoint.path,
+                duration_ms=duration_ms,
+                status_code=exc.response.status_code,
+                error="http_status",
+            )
+            raise ModelServiceUnavailable(
+                f"Model provider request {endpoint.path} failed with HTTP "
+                f"{exc.response.status_code}",
+                category="http_status",
+                endpoint=endpoint.path,
+                status_code=exc.response.status_code,
+                duration_ms=duration_ms,
+            ) from exc
+        except httpx.RequestError as exc:
+            duration_ms = _duration_ms(started)
+            _log_model_request(endpoint.path, duration_ms=duration_ms, error="connection")
+            raise ModelServiceUnavailable(
+                f"Model provider request {endpoint.path} could not connect",
+                category="connection",
+                endpoint=endpoint.path,
+                duration_ms=duration_ms,
+            ) from exc
+        finally:
+            self._semaphore.release()
+        duration_ms = _duration_ms(started)
+        _log_model_request(
+            endpoint.path,
+            duration_ms=duration_ms,
+            status_code=response.status_code,
+        )
+        try:
+            value = response.json()
+        except json.JSONDecodeError as exc:
+            raise InvalidModelResponse(
+                "Model provider returned invalid JSON",
+                endpoint=endpoint.path,
+            ) from exc
+        if not isinstance(value, dict):
+            raise InvalidModelResponse(
+                "Model provider returned a non-object response",
+                endpoint=endpoint.path,
+            )
+        return value
+
+    def _authentication_headers(self, endpoint: ModelEndpointConfig) -> dict[str, str]:
+        authentication = endpoint.authentication
+        if authentication.type == "none":
+            return {}
+        secret = self._credential_resolver(endpoint.api_key_env) if endpoint.api_key_env else None
+        if not secret:
+            raise ModelServiceUnavailable(
+                "Model credential is not configured",
+                category="configuration",
+                endpoint=endpoint.path,
+            )
+        return {authentication.header: f"{authentication.prefix}{secret}"}
+
+
+def _log_model_request(
+    path: str,
+    *,
+    duration_ms: int,
+    status_code: int | None = None,
+    error: str | None = None,
+) -> None:
+    log_method = logger.error if error else logger.info
+    log_method(
+        "model_api endpoint=%s status=%s duration_ms=%s error=%s",
+        path,
+        status_code or "-",
+        duration_ms,
+        error or "-",
+        extra={"trans_api": path, "exception_type": "ModelServiceError" if error else "-"},
+    )
+
+
+def _duration_ms(started: float) -> int:
+    return max(0, round((perf_counter() - started) * 1000))

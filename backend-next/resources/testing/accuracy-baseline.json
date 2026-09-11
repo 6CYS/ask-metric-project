@@ -1,0 +1,93 @@
+[
+  {
+    "id": 1,
+    "category": "单值查询",
+    "question": "信贷客户数量当日数，江苏农商联合银行，查2026年3月末。",
+    "expected_status": "succeeded",
+    "expected_value": 4042932,
+    "value_tolerance": 0.01
+  },
+  {
+    "id": 2,
+    "category": "单值查询",
+    "question": "个人活期存款余额当日数紫金银行是多少，时间2026年4月末？",
+    "expected_status": "succeeded",
+    "expected_org_names": ["紫金农商行"],
+    "expected_value": 1491256.7886664684,
+    "value_tolerance": 0.01
+  },
+  {
+    "id": 3,
+    "category": "环比查询",
+    "question": "个人活期存款余额较上月，2026年4月末，江阴，是多少？",
+    "expected_status": "succeeded",
+    "expected_org_names": ["江阴农商行"],
+    "expected_value": 42811.1946241715,
+    "value_tolerance": 0.01
+  },
+  {
+    "id": 4,
+    "category": "同比查询",
+    "question": "常熟银行个人经营性贷款余额较同期查2026年4月末",
+    "expected_status": "succeeded",
+    "expected_org_names": ["常熟农商行"],
+    "expected_value": 6487698.947771,
+    "value_tolerance": 0.01
+  },
+  {
+    "id": 5,
+    "category": "增幅查询",
+    "question": "查无锡2026年4月末的个人活期存款余额较上月增幅",
+    "expected_status": "succeeded",
+    "expected_value": 0.017251,
+    "value_tolerance": 0.000001
+  },
+  {
+    "id": 6,
+    "category": "别名识别",
+    "question": "2026年4月末省联社信贷客户数量较同期",
+    "expected_status": "succeeded",
+    "expected_org_names": ["江苏农商联合银行"]
+  },
+  {
+    "id": 7,
+    "category": "机构排名",
+    "question": "信贷客户数量当日数前3名，各家农商行，时间是2026年4月末",
+    "expected_status": "succeeded",
+    "expected_row_count": 3
+  },
+  {
+    "id": 8,
+    "category": "机构排名",
+    "question": "个人活期存款余额当日数最低的5家农商行，查2026年4月份",
+    "expected_status": "succeeded",
+    "expected_row_count": 5
+  },
+  {
+    "id": 9,
+    "category": "机构澄清",
+    "question": "火星农商行2026年4月末信贷客户数量当日数是多少？",
+    "expected_status": "clarification",
+    "expected_missing": ["orgs"]
+  },
+  {
+    "id": 10,
+    "category": "日期澄清",
+    "question": "2026年4月36日江阴个人活期存款余额较上月是多少？",
+    "expected_status": "clarification",
+    "expected_missing": ["time"]
+  },
+  {
+    "id": 11,
+    "category": "指标澄清",
+    "question": "2026年4月末紫金存款余额是多少？",
+    "expected_status": "clarification",
+    "expected_missing": ["metrics"]
+  },
+  {
+    "id": 12,
+    "category": "范围边界",
+    "question": "2026年4月末紫金农商行信贷客户数量明细有哪些？",
+    "expected_status": "out_of_scope"
+  }
+]

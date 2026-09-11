@@ -1,0 +1,261 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * 将设计令牌暴露给 Tailwind 工具类。变量名与原 Next.js 工程保持一致，
+ * 这样迁移组件时颜色、字体和圆角无需重新换算。
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --font-sans: var(--font-family-sans);
+  --font-mono: var(--font-family-mono);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+}
+
+:root {
+  /* 浅色主题设计令牌，数值同步自原 Next.js 的 globals.css。 */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.5rem;
+  --font-family-sans: "Avenir Next", "Helvetica Neue", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-family-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  /* 深色主题沿用同一套语义令牌，组件无需感知具体色值。 */
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: var(--font-family-sans);
+  }
+
+  body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    margin: 0;
+    color: var(--foreground);
+    background: var(--background);
+    text-rendering: optimizeLegibility;
+  }
+
+  #app {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  button,
+  input,
+  textarea {
+    /* 表单控件默认不会完整继承字体，这里统一导航与正文的字形和行高来源。 */
+    font: inherit;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+}
+
+.app-workspace-bg {
+  /* 对齐原应用内容区右上角的低对比度品牌色光晕。 */
+  background-image: radial-gradient(circle at top right, color-mix(in oklch, var(--primary), transparent 92%), transparent 36rem);
+}
+
+@layer components {
+  /* 管理页表单与表格共用规格，确保三个目录页面的密度和焦点状态完全一致。 */
+  .form-field {
+    display: grid;
+    gap: 0.375rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .form-control {
+    min-height: 2.25rem;
+    width: 100%;
+    border: 1px solid var(--input);
+    border-radius: var(--radius);
+    background: var(--background);
+    padding-inline: 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 400;
+    outline: none;
+  }
+
+  .form-control:focus {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 70%);
+  }
+
+  .form-control:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  .field-help {
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+    font-weight: 400;
+    color: var(--muted-foreground);
+  }
+
+  .table-head {
+    height: 2.5rem;
+    padding-inline: 0.75rem;
+    text-align: left;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .table-cell {
+    padding: 0.75rem;
+    vertical-align: middle;
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dialog-in {
+  /*
+   * Tailwind 4 的 -translate-x/y-1/2 使用独立 translate 属性完成居中。
+   * 动画不能再次写入 translate，否则首帧会产生双重位移并从左上角闪回中心。
+   */
+  from { opacity: 0; scale: 0.97; }
+  to { opacity: 1; scale: 1; }
+}
+
+@keyframes execution-dot {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+
+.execution-dot {
+  animation: execution-dot 1.2s ease-in-out infinite;
+}
+
+/* Chrome 83 predates the standalone `translate` property used by Tailwind 4. */
+@supports not (translate: 1px) {
+  .-translate-x-1\/2 {
+    transform: translateX(-50%);
+  }
+
+  .-translate-y-1\/2 {
+    transform: translateY(-50%);
+  }
+
+  .-translate-x-1\/2.-translate-y-1\/2 {
+    transform: translate(-50%, -50%);
+  }
+}

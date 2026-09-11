@@ -1,0 +1,22 @@
+[Unit]
+Description=Ask Metric GoldenDB backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Group=@SERVICE_GROUP@
+WorkingDirectory=@INSTALL_ROOT@/current/backend
+EnvironmentFile=@CONFIG_FILE@
+ExecStart=@INSTALL_ROOT@/current/venv/bin/python -m uvicorn ask_metric.main:app --host ${HOST} --port ${PORT} --no-access-log
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=@STATE_ROOT@ @LOG_ROOT@
+
+[Install]
+WantedBy=multi-user.target

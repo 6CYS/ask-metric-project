@@ -1,0 +1,358 @@
+行内用户机构同步脚本使用说明
+============================
+
+一、用途
+--------
+
+脚本名称：sync_bank_identity.py
+
+脚本读取两份行内 Excel：
+
+1. 机构 Excel（对应 admin_sm_org 数据）
+2. 用户 Excel（对应 admin_sm_user 数据）
+
+脚本通过“用户 Excel.ORG_ID = 机构 Excel.ORG_ID”取得实际 ORG_CODE，随后把机构
+写入问数应用库 org_terms，把用户写入 app_users。
+
+脚本默认仅执行 dry-run，不写数据库。只有同时使用 --apply 和确认口令时才会提交。
+Excel 中的 USER_PASSWORD 永远不会读取或写入。
+
+
+二、与数字农商单点登录的关系
+----------------------------
+
+用户 Excel 的 USER_CODE 是数字农商外部身份主键，LOGIN_CODE 是问数系统本地登录名。
+脚本使用与问数 SSO 完全相同的规则，根据以下内容生成 app_users.id：
+
+    SSO_SOURCE_SYSTEM + USER_CODE
+
+因此，Excel 预同步用户以后通过数字农商 SSO 登录时会命中同一条 app_users 记录，
+不会再创建一条重复影子用户。
+
+执行前必须确认数字农商 /userInfo 返回字段关系如下：
+
+    data.userCode  = Excel.USER_CODE
+    data.loginCode = Excel.LOGIN_CODE
+    data.org.code  = 机构 Excel.ORG_CODE
+
+SSO_SOURCE_SYSTEM 必须保持稳定。脚本默认从后端配置文件读取该值；如命令行传入
+--source-system，脚本会检查它是否与配置一致，不一致时拒绝运行。
+
+
+三、当前密码策略限制
+--------------------
+
+当前问数系统没有“首次登录强制修改密码”字段、接口和页面。
+
+推荐模式：
+
+    --password-mode random-unrecoverable
+
+它为每个新用户生成不同的不可知随机密码，只存密码哈希。普通用户通过数字农商 SSO
+登录；Excel 原密码不进入问数系统。该模式也是脚本默认值。
+
+如果内网测试明确需要所有用户用同一个初始密码登录，可使用：
+
+    --password-mode shared-prompt
+
+脚本会在 apply 阶段交互输入两次密码，不在命令行、日志和 Excel 中保存明文。共享密码
+至少 12 个字符。由于当前系统不能强制首次改密，不建议在生产使用共享密码。
+
+无论选择哪种模式，重复同步都不会重置已有用户的 password_hash。
+
+
+四、Excel 文件要求
+------------------
+
+仅支持 .xlsx。不支持旧版 .xls；请先在内网另存为 .xlsx。
+
+机构 Excel 必填列：
+
+    ORG_ID
+    ORG_CODE
+    ORG_NAME
+
+机构 Excel 可选列：
+
+    ORG_STS
+
+用户 Excel 必填列：
+
+    USER_CODE
+    LOGIN_CODE
+    USER_NAME
+    ORG_ID
+
+用户 Excel 可选列：
+
+    USER_STS
+
+默认状态 A 表示有效，可通过 --active-user-status 和 --active-org-status 修改。
+
+必须在 Excel 中把以下列设置为“文本”，不能设置为数值或科学计数法：
+
+    ORG_ID、ORG_CODE、USER_CODE、LOGIN_CODE
+
+脚本发现这些单元格不是文本格式时会拒绝 apply，因为数值单元格可能已经丢失前导零。
+如果表头不在第 1 行，使用 --org-header-row 和 --user-header-row 指定实际行号。
+如果数据不在第一个工作表，使用 --org-sheet 和 --user-sheet 指定工作表名称。
+
+
+五、运行环境准备
+----------------
+
+1. Python 版本必须为 3.11 或以上。
+2. 必须使用已经能够运行 ask-metric 后端的 Python 环境。
+3. 必须安装 openpyxl。
+4. 必须准备后端配置文件，其中 APP_DATABASE_URL 指向目标应用库。
+
+联网环境安装方式：
+
+    cd /path/to/backend-next
+    python -m pip install -e ".[identity-sync]"
+
+内网离线环境应提前准备 openpyxl 及其依赖 et_xmlfile 的 wheel，然后执行：
+
+    python -m pip install --no-index --find-links /path/to/wheels openpyxl
+
+不要把数据库密码写进脚本。数据库连接统一读取 --config 指定的 backend.env/.env。
+
+
+六、运行前备份
+--------------
+
+在执行 apply 前，由 DBA 按行内规范备份应用库。至少备份：
+
+    org_terms
+    app_users
+
+本地 Docker SIT 示例（在 PowerShell 中执行；实际账号以环境为准）：
+
+    docker exec ask-metric-sit-app-db sh -lc \
+      'mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" znws org_terms app_users \
+      > /tmp/bank_identity_before_sync.sql'
+
+    docker cp \
+      ask-metric-sit-app-db:/tmp/bank_identity_before_sync.sql \
+      .\bank_identity_before_sync.sql
+
+检查备份文件非空后再执行 apply。生产 GoldenDB 使用 DBA 审批后的备份命令，不应直接
+照抄本地 Docker 示例。
+
+
+七、第一次必须先 dry-run
+------------------------
+
+Windows PowerShell 示例：
+
+    cd E:\ask-metric-intent-goldendb-sit\backend-next
+
+    python "C:\Users\96145\Desktop\指标问数用到的脚本\sync_bank_identity.py" `
+      --backend-dir "E:\ask-metric-intent-goldendb-sit\backend-next" `
+      --config "E:\ask-metric-intent-goldendb-sit\backend-next\.env" `
+      --org-file "D:\行内数据\admin_sm_org.xlsx" `
+      --user-file "D:\行内数据\admin_sm_user.xlsx"
+
+不写 --apply 时就是 dry-run。成功时最后显示：
+
+    dry-run 完成：未修改数据库。
+
+输出摘要包含：
+
+    source_organizations
+    source_users
+    enabled_source_users
+    organizations_to_create
+    organizations_to_update
+    users_to_create
+    users_to_update
+    validation_errors
+
+validation_errors 必须为 0，才能进入 apply。
+
+如果内网配置文件在 /etc/ask-metric/backend.env，Linux 示例为：
+
+    cd /opt/ask-metric/current/backend-next
+    python /path/to/sync_bank_identity.py \
+      --backend-dir /opt/ask-metric/current/backend-next \
+      --config /etc/ask-metric/backend.env \
+      --org-file /secure/input/admin_sm_org.xlsx \
+      --user-file /secure/input/admin_sm_user.xlsx
+
+
+八、常用 Excel 参数
+------------------
+
+指定工作表：
+
+    --org-sheet "机构"
+    --user-sheet "用户"
+
+指定表头行：
+
+    --org-header-row 2
+    --user-header-row 3
+
+指定有效状态（仅当行内实际字典不是 A 时使用）：
+
+    --active-org-status A
+    --active-user-status A
+
+
+九、dry-run 通过后执行 apply
+---------------------------
+
+推荐的 SSO 用户模式：
+
+    python "C:\Users\96145\Desktop\指标问数用到的脚本\sync_bank_identity.py" `
+      --backend-dir "E:\ask-metric-intent-goldendb-sit\backend-next" `
+      --config "E:\ask-metric-intent-goldendb-sit\backend-next\.env" `
+      --org-file "D:\行内数据\admin_sm_org.xlsx" `
+      --user-file "D:\行内数据\admin_sm_user.xlsx" `
+      --password-mode random-unrecoverable `
+      --apply `
+      --confirm SYNC_BANK_IDENTITY
+
+测试环境共享初始密码模式：
+
+    python "C:\Users\96145\Desktop\指标问数用到的脚本\sync_bank_identity.py" `
+      --backend-dir "E:\ask-metric-intent-goldendb-sit\backend-next" `
+      --config "E:\ask-metric-intent-goldendb-sit\backend-next\.env" `
+      --org-file "D:\行内数据\admin_sm_org.xlsx" `
+      --user-file "D:\行内数据\admin_sm_user.xlsx" `
+      --password-mode shared-prompt `
+      --apply `
+      --confirm SYNC_BANK_IDENTITY
+
+脚本会先完成全部校验，再开始事务；任何异常都会 rollback。
+
+
+十、同步规则
+------------
+
+机构：
+
+1. ORG_CODE 不存在时新增 org_terms。
+2. ORG_CODE 已存在时更新机构名称和 enabled。
+3. 已有 aliases 保留。
+4. Excel 中未出现的机构不会删除或禁用。
+
+用户：
+
+1. 根据 SSO_SOURCE_SYSTEM + USER_CODE 计算稳定 app_users.id。
+2. LOGIN_CODE 写入 username。
+3. USER_NAME 写入 display_name。
+4. 用户 ORG_ID 关联出的机构 ORG_CODE 写入 app_users.org_code。
+5. 只有用户状态和机构状态均有效时 enabled=true。
+6. 新用户 role_code=USER。
+7. 已存在用户的 password_hash 和 role_code 保留。
+8. 用户名、机构或启用状态变化时 session_version 加 1，使旧登录令牌失效。
+9. Excel 中未出现的用户不会删除或禁用。
+10. 状态为无效的用户如果仍在 Excel 中，会更新为 enabled=false，不物理删除。
+
+
+十一、常见校验错误
+------------------
+
+“ORG_ID/ORG_CODE/USER_CODE/LOGIN_CODE 不是文本格式”：
+
+    回到 Excel，把整列设置为文本，确认原始值前导零没有丢失后重新导出。仅修改显示
+    格式不能恢复已经丢失的零，必要时从源库重新导出。
+
+“用户 ORG_ID 无法关联机构”：
+
+    机构 Excel 不完整、用户引用了失效历史机构，或者 ORG_ID 格式被 Excel 改写。
+    不要随便给这类用户填默认机构，应由行内确认真实机构。
+
+“LOGIN_CODE 已属于其他本地用户”：
+
+    本地已有随机 UUID 用户占用了相同用户名。不能直接覆盖；先核对是否为同一人，
+    再制定保留历史数据的身份合并方案。
+
+“source-system 与配置不一致”：
+
+    检查 backend.env 的 SSO_SOURCE_SYSTEM。不要为了通过脚本临时改值，否则 Excel 用户
+    与 SSO 登录会生成不同用户 ID。
+
+“ORGANIZATION_NOT_FOUND”：
+
+    SSO 返回的 data.org.code 不在启用的 org_terms 中，或者它返回了内部 ORG_ID 而不是
+    实际 ORG_CODE。先核对真实 /userInfo 响应。
+
+
+十二、同步后的验证
+------------------
+
+至少抽取以下账号验证：
+
+1. 总行或管理机构普通用户。
+2. 法人机构普通用户。
+3. 支行或网点用户。
+4. 已失效用户。
+5. 保留的本地 SYSTEM_ADMIN 应急账号。
+
+数据库核对：
+
+    SELECT COUNT(*) FROM org_terms;
+    SELECT COUNT(*) FROM app_users;
+    SELECT COUNT(*) FROM app_users WHERE enabled = 1;
+
+    SELECT u.username, u.display_name, u.org_code, o.org_name,
+           u.role_code, u.enabled
+      FROM app_users u
+      JOIN org_terms o ON o.org_code = u.org_code
+     ORDER BY u.username
+     LIMIT 100;
+
+    SELECT COUNT(*) AS broken_org_refs
+      FROM app_users u
+      LEFT JOIN org_terms o ON o.org_code = u.org_code
+     WHERE o.org_code IS NULL;
+
+broken_org_refs 必须为 0。
+
+功能核对：
+
+1. 本地登录（仅对已发放本地密码的测试账号）。
+2. 同一用户通过数字农商 SSO 登录。
+3. 两种登录返回的 user.id、username、org_code 应一致。
+4. 查询本人机构指标应成功。
+5. 查询其他机构应被拒绝。
+6. 失效用户应无法登录。
+7. SSO 登录后数据库不应新增 external_xxx 重复用户。
+
+
+十三、机构权限口径特别检查
+--------------------------
+
+当前系统按 app_users.org_code 做精确机构权限，不根据 UP_ORG_ID 自动继承上级权限。
+上线前必须比较：
+
+    用户最终 ORG_CODE
+    org_terms.org_code
+    指标事实表机构字段 SIT_FACT_ORG_CODE_FIELD
+
+如果用户属于网点，而指标事实数据只按上级法人机构存储，直接导入网点 ORG_CODE 会造成
+登录成功但查询不到数据。该情况不能通过伪造机构号解决，必须明确业务授权映射或后续
+增加机构层级权限设计。
+
+
+十四、回滚
+----------
+
+脚本运行失败会自动 rollback。脚本显示“事务已提交”以后，如业务核验不通过，应停止
+相关登录入口，并由 DBA 使用执行前备份恢复 org_terms、app_users。
+
+恢复时要考虑外键和在线会话，生产环境不得未经审批直接执行 DROP、TRUNCATE 或覆盖导入。
+恢复完成后应重启后端或使相关用户 session_version 增加，再重新验证登录和机构权限。
+
+
+十五、安全要求
+--------------
+
+1. Excel 含姓名、账号和机构信息，只能保存在行内受控目录。
+2. 不要把 Excel、数据库备份和 backend.env 提交到 Git。
+3. 不要通过聊天、邮件或命令行参数传递数据库密码和共享初始密码。
+4. 不要使用 Excel 中的 USER_PASSWORD。
+5. 生产 apply 前必须完成 dry-run、数据库备份和 DBA 审批。
+6. 保留一个受控的本地 SYSTEM_ADMIN 应急账号，不要由 Excel 自动授予管理员权限。
