@@ -43,6 +43,7 @@ import { useAuth } from "@/composables/useAuth"
 import { copyText } from "@/lib/clipboard"
 import { activeClarificationMessageIds, archiveClarificationResponse, clarificationTranscript, visibleConversationMessages } from "@/lib/conversationMessages"
 import { composeClarification, composeQuestion, type ComposerEntity } from "@/lib/composerEntities"
+import { friendlyQueryError } from "@/lib/queryErrors"
 import { needsSemanticResume } from "@/lib/taskAdvance"
 
 type TaskStatus = BackendNextTaskResult["status"]
@@ -467,34 +468,6 @@ function responseFromClarification(task: BackendNextTaskResult): ChatResponse {
     debug: { slot_frame: task.slot_frame, logical_dsl: task.logical_dsl, missing },
   }
 }
-
-/** 将基础设施和第三方服务错误转换为面向业务用户的简短提示，技术细节仍保留在调试信息中。 */
-function friendlyQueryError(message?: string | null, errorCode?: string | null) {
-  const raw = `${errorCode ?? ""} ${message ?? ""}`.trim()
-  const normalized = raw.toLowerCase()
-  if (/failed to fetch|networkerror|load failed|econnrefused|connection refused|network request/.test(normalized)) {
-    return "暂时无法连接问数服务。请检查网络连接，稍后重新查询。"
-  }
-  if (/timeout|timed out|deadline|504|gateway time-out/.test(normalized)) {
-    if (/model|llm|模型/.test(normalized)) return "模型服务响应超时。请稍后重新查询。"
-    if (/database|postgres|mysql|sql|数据库/.test(normalized)) return "数据服务响应超时。请稍后重新查询。"
-    return "服务响应超时。请稍后重新查询。"
-  }
-  if (/model|llm|模型服务/.test(normalized)) {
-    return "模型服务暂时繁忙。请稍后重新查询。"
-  }
-  if (/database|postgres|mysql|sqlalchemy|connection pool|数据库连接/.test(normalized)) {
-    return "数据服务暂时不可用。请稍后重新查询。"
-  }
-  if (/502|503|bad gateway|service unavailable/.test(normalized)) {
-    return "问数服务暂时繁忙。请稍后重新查询。"
-  }
-  const containsChinese = /[\u3400-\u9fff]/.test(message ?? "")
-  const looksTechnical = /[a-z]{3,}[\s_:/.()-]+[a-z0-9]|traceback|exception|error|http\s*\d/i.test(message ?? "")
-  if (containsChinese && !looksTechnical) return message!.trim()
-  return "本次查询暂未完成。请稍后重新查询。"
-}
-
 function responseFromExecution(result: BackendNextExecutionResult): ChatResponse {
   // comparisons 是供答案生成使用的派生计算结果（左右值、差值、比值等），
   // 数据明细必须始终展示 SQL 返回的逐条业务记录。
