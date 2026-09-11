@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -218,13 +219,7 @@ class ConfigurableModelService:
             payload["return_documents"] = reranker.return_documents
         payload.update(reranker.extra_body)
         response = self._post(reranker, payload)
-        results = response.get("results")
-        if not isinstance(results, list):
-            raise InvalidModelResponse(
-                "Reranker returned an invalid response",
-                endpoint=reranker.path,
-            )
-        return results
+        return _normalize_rerank_response(response, documents, endpoint=reranker.path)
 
     def _require_enabled(self, role: ModelRole, endpoint: ModelEndpointConfig) -> None:
         if not endpoint.enabled:
@@ -342,6 +337,47 @@ class ConfigurableModelService:
                 endpoint=endpoint.path,
             )
         return {authentication.header: f"{authentication.prefix}{secret}"}
+
+
+def _normalize_rerank_response(
+    response: dict[str, Any], documents: list[str], *, endpoint: str
+) -> list[dict[str, Any]]:
+    """Normalize the indexed and bank parallel-array response contracts."""
+    if "results" in response:
+        if isinstance(response["results"], list):
+            return response["results"]
+        reason = "results_type"
+    else:
+        scores = response.get("scores")
+        texts = response.get("texts")
+        if not isinstance(scores, list):
+            reason = "scores_type"
+        elif len(scores) != len(documents):
+            reason = "scores_count"
+        elif not isinstance(texts, list) or texts != documents:
+            # The bank contract scores the input texts in order. Reject partial,
+            # reordered or substituted echoes rather than assign a wrong metric.
+            reason = "texts_alignment"
+        else:
+            normalized: list[dict[str, Any]] = []
+            for index, score in enumerate(scores):
+                try:
+                    valid = (
+                        isinstance(score, (int, float))
+                        and not isinstance(score, bool)
+                        and math.isfinite(score)
+                    )
+                except OverflowError:
+                    valid = False
+                if not valid:
+                    reason = "score_non_finite_or_non_numeric"
+                    break
+                normalized.append({"index": index, "relevance_score": score})
+            else:
+                return normalized
+    # Only fixed diagnostic categories are logged; never include response text.
+    logger.warning("model_rerank_response_invalid reason=%s", reason)
+    raise InvalidModelResponse("Reranker returned an invalid response", endpoint=endpoint)
 
 
 def _log_model_request(

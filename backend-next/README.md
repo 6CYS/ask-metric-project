@@ -158,9 +158,17 @@ python scripts/verify_model_provider.py
 当前行内测试接口使用以下兼容配置：Chat 通过自定义 `accessKey` 请求头认证，发送
 `chat_template_kwargs.enable_thinking=false`，并在用户消息末尾追加 `/no_think`；Embedding
 发送 `model=atom`、`encoding_format=float` 和 `user=user`；
-Reranker 只发送 `query` 与 `texts`。这些差异都是 `model-config.json` 中的开关，后续接口变化
-可在管理员页面修改，无需调整调用代码。真实 accessKey 只填写到 `MODEL_CHAT_API_KEY`，不得
+Reranker 只发送 `query` 与 `texts`。上述请求参数差异由 `model-config.json` 中的开关控制，
+可在管理员页面修改。真实 accessKey 只填写到 `MODEL_CHAT_API_KEY`，不得
 提交到 Git。
+
+重排响应兼容两种格式：标准 `results: [{index, relevance_score}]`，以及行内
+`scores: [分数, ...]` 与 `texts: [候选文本, ...]` 并列数组。行内格式要求两个数组
+与请求候选数量一致，`texts` 与请求文本顺序、内容完全一致，分数必须是有限数值；
+后端按原候选位置转换为 `index/relevance_score`，由语义引擎按分数排序和筛选。
+不接受缺失、重排或替换文本的响应，避免将分数关联到错误指标。该适配无需新增配置，
+不影响内存向量缓存。结构不符时记录 `model_rerank_response_invalid reason=...`，
+不记录原始响应或候选正文；HTTP 200 日志仅表示传输成功，不能代替响应校验。
 
 ### 指标目录内存向量缓存
 
