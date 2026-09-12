@@ -1,6 +1,13 @@
 import type { BackendNextClarification, BackendNextConversationMessage, BackendNextConversationTask, ChatResponse } from "@/types/api"
 import { clarificationDisplayField } from "@/lib/clarificationOptions"
 
+/** Prefer the persisted message timestamp; keep compatibility with older snapshots. */
+export function conversationMessageTime(message: BackendNextConversationMessage) {
+  return [message.created_at, message.payload?.created_at].find(
+    (value): value is string => typeof value === "string" && Boolean(value.trim()) && !Number.isNaN(Date.parse(value)),
+  )
+}
+
 export function clarificationTranscript(clarification: Partial<BackendNextClarification>, fallback = "") {
   const messages = [...new Set((clarification.fields ?? []).map((field) => clarificationDisplayField(field).message.trim()).filter(Boolean))]
   return messages.join("\n") || clarification.prompt || fallback || "请补充查询条件。"

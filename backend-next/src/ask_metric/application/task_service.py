@@ -961,6 +961,7 @@ class QueryTaskApplicationService:
                         id=message.id,
                         role=message.role,
                         content=message.content,
+                        created_at=message.created_at.isoformat() if message.created_at else None,
                         task_id=message.task_id,
                         payload=message.payload,
                     )

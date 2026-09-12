@@ -321,6 +321,7 @@ export type BackendNextConversationMessage = {
   id: string
   role: "user" | "assistant"
   content: string
+  created_at?: string | null
   task_id?: string | null
   payload?: Record<string, unknown> | null
 }

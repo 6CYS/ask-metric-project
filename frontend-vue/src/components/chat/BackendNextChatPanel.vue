@@ -41,7 +41,7 @@ import type {
 } from "@/types/api"
 import { useAuth } from "@/composables/useAuth"
 import { copyText } from "@/lib/clipboard"
-import { activeClarificationMessageIds, archiveClarificationResponse, clarificationTranscript, visibleConversationMessages } from "@/lib/conversationMessages"
+import { activeClarificationMessageIds, archiveClarificationResponse, clarificationTranscript, conversationMessageTime, visibleConversationMessages } from "@/lib/conversationMessages"
 import { composeClarification, composeQuestion, type ComposerEntity } from "@/lib/composerEntities"
 import { friendlyQueryError } from "@/lib/queryErrors"
 import { needsSemanticResume } from "@/lib/taskAdvance"
@@ -559,7 +559,7 @@ function conversationFromSnapshot(snapshot: BackendNextConversationSnapshot): Di
         role: item.role,
         content: item.content,
         kind: typeof item.payload?.kind === "string" ? item.payload.kind : undefined,
-        createdAt: typeof item.payload?.created_at === "string" ? item.payload.created_at : undefined,
+        createdAt: conversationMessageTime(item),
         response: item.role === "assistant" ? responseFromPersistedMessage(item, activeClarifications.has(item.id)) : undefined,
         status: item.role === "assistant" ? "done" : undefined,
         taskId: task?.id,
@@ -1310,8 +1310,8 @@ async function scrollToBottom() {
               <template v-else>
                 <div class="group/assistant min-w-0 px-1 text-sm">
                 <div class="mb-2 flex min-h-9 items-center gap-2" role="status" aria-live="polite">
-                  <span class="flex size-9 items-center justify-center rounded-xl bg-[#F7F9FC] text-[#52789C]" aria-label="智能问数助手"><Bot class="size-4.5" /></span>
-                  <time v-if="formatMessageTime(chatMessage.createdAt)" class="text-xs text-muted-foreground/50">{{ formatMessageTime(chatMessage.createdAt) }}</time>
+                  <span class="flex size-9 items-center justify-center rounded-xl bg-muted/40 text-foreground" aria-label="智能问数助手"><Bot class="size-4.5" /></span>
+                  <time v-if="formatMessageTime(chatMessage.createdAt)" :datetime="chatMessage.createdAt" class="text-xs text-muted-foreground">{{ formatMessageTime(chatMessage.createdAt) }}</time>
                   <template v-if="executionStatus(chatMessage).kind !== 'running' && executionStatus(chatMessage).kind !== 'success'">
                     <span v-if="formatMessageTime(chatMessage.createdAt)" class="text-muted-foreground/30">·</span>
                     <AlertTriangle v-if="executionStatus(chatMessage).kind === 'failed'" class="size-3.5 text-muted-foreground" />
@@ -1372,7 +1372,7 @@ async function scrollToBottom() {
           </div>
         </div>
         <div v-else class="mx-auto flex h-full max-w-3xl flex-col items-center justify-center gap-5 px-3 text-center">
-          <Bot class="size-10 text-muted-foreground" />
+          <Bot class="size-10 text-foreground" />
           <div><h2 class="text-xl font-semibold">开始指标问数</h2><p class="mt-2 text-sm text-muted-foreground">输入经营指标问题，系统将按指标口径、时间和机构范围查询数据库。</p></div>
           <div class="grid w-full gap-3 sm:grid-cols-3">
             <button v-for="example in exampleQuestions" :key="example" type="button" class="min-h-24 rounded-xl border border-border bg-background px-4 py-3 text-left text-sm leading-6 text-foreground shadow-sm transition-colors hover:border-primary/50 hover:bg-primary/[0.03]" @click="message = example">{{ example }}</button>

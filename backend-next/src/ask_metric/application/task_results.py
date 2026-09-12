@@ -29,6 +29,7 @@ class ConversationMessageResult(BaseModel):
     id: str
     role: str
     content: str
+    created_at: str | None = None
     task_id: str | None = None
     payload: dict[str, Any] | None = None
 
