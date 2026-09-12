@@ -147,11 +147,11 @@ const activeClarificationMessage = computed(() => [...(activeConversation.value?
 ))
 const composerPlaceholder = computed(() => {
   const clarification = activeClarificationMessage.value?.clarification
-  if (!clarification) return "输入问题，或用 /指标、/机构 搜索添加"
+  if (!clarification) return "输入问题，或选择指标、机构"
   if (clarification.fields?.length && clarification.fields.every((field) => field.type === "date_range")) {
     return "补充查询日期，例如：2026年7月末"
   }
-  return "补充查询条件，可用 /指标、/机构 搜索添加"
+  return "选择候选项或直接补充查询条件"
 })
 const conversationRoundCount = computed(() => activeConversation.value
   ? activeConversation.value.messages.filter((item) => item.role === "user" && item.kind !== "clarification_answer").length

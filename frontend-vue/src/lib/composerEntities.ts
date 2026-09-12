@@ -4,6 +4,17 @@ export type ComposerEntity = { kind: "metric" | "organization"; code: string; na
 export type ComposerAnswer = SemanticPatch & { text?: string; catalog_selection_mode?: "append" }
 export type ComposerMention = { entity: ComposerEntity; start: number; end: number }
 
+export function clarificationCatalogKinds(clarification?: BackendNextClarification): ComposerEntity["kind"][] {
+  if (!clarification) return []
+  const kinds: string[] = (clarification.fields ?? []).map((field) => field.type)
+  if (!kinds.length) {
+    kinds.push(clarification.type)
+    if (clarification.missing?.includes("metrics")) kinds.push("metric")
+    if (clarification.missing?.includes("orgs")) kinds.push("organization")
+  }
+  return [...new Set(kinds.filter((kind): kind is ComposerEntity["kind"] => kind === "metric" || kind === "organization"))]
+}
+
 export function consumeCatalogCommand(value: string, cursor: number) {
   const before = value.slice(0, cursor)
   const match = /(?<![/:])\/(指标|机构)$/.exec(before)
