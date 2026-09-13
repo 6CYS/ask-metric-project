@@ -10,10 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from ask_metric.application.context_diagnostics import log_context_failure
 from ask_metric.application.conversation_entities import ConversationEntityProtection
+from ask_metric.application.legacy_analysis import is_legacy_analysis
 from ask_metric.application.ports import ModelService, PermissionService
 from ask_metric.application.requests import ActorContext
 from ask_metric.application.result_repository import result_inventory
-from ask_metric.domain.analysis import AnalysisIntent
 from ask_metric.domain.conversation_context import (
     CONTEXT_FIELDS,
     AnchorResolution,
@@ -114,7 +114,6 @@ class ModelConversationUnderstanding(BaseModel):
     result_action: ResultReference | None = None
     patch_evidence: dict[str, str | None] = Field(default_factory=dict)
     task_goal: Literal["metric_query", "attribution_analysis"] = "metric_query"
-    analysis_intent: AnalysisIntent | None = None
     condition_sources: dict[str, Literal["input", "history", "missing"]] = Field(
         default_factory=dict,
     )
@@ -131,6 +130,9 @@ class ModelConversationUnderstanding(BaseModel):
         # This is schema normalization, never a lexical classification of input.
         if isinstance(value, dict) and value.get("patch") is None:
             value = {**value, "patch": {}}
+        # Old persisted prompts may emit this retired field; it cannot affect execution.
+        if isinstance(value, dict) and "analysis_intent" in value:
+            value = {k: v for k, v in value.items() if k != "analysis_intent"}
         # Some providers emit an empty nested optional field at the top level.
         # Discard only the empty form; nonempty misplaced filters remain invalid.
         if isinstance(value, dict) and "filter_evidence" in value and (
@@ -158,6 +160,8 @@ class ModelConversationUnderstanding(BaseModel):
             and self.task_goal != "attribution_analysis"
         ):
             raise ValueError("follow-up understanding requires an anchor task")
+        if self.task_goal == "attribution_analysis":
+            return self  # Recognize the unsupported goal without creating query conditions.
         if self.conversation_act == ConversationAct.NEW_QUERY and self.anchor_task_id:
             raise ValueError("new-query understanding cannot reference a history task")
         if self.conversation_act == ConversationAct.NEW_QUERY and self.inherit:
@@ -764,11 +768,8 @@ class MultiturnGrayExecutionPolicy:
 
 
 class ConversationShadowService:
-    def __init__(
-        self, model_service: ModelService | None = None, *, analysis_enabled: bool = True,
-    ) -> None:
+    def __init__(self, model_service: ModelService | None = None) -> None:
         self.model_service = model_service
-        self.analysis_enabled = analysis_enabled
         self.act_resolver = ConversationActResolver()
         self.task_resolver = HistoricalTaskResolver()
         self.patch_generator = ContextPatchGenerator()
@@ -788,14 +789,9 @@ class ConversationShadowService:
     ) -> tuple[ConversationTurnResolution, ContextPatch | None, list[str], list[str]]:
         """Use the model for semantics; return only catalog-normalized patch values."""
 
-        if not self.analysis_enabled:
-            # Retain normal query anchors without reviving an earlier experiment's goal.
-            tasks = [task for task in tasks if not (
-                (task.state_json or {}).get("analysis_started")
-                or (task.state_json or {}).get("analysis_target")
-                or (task.state_json or {}).get("internal_analysis_id")
-                or task.query_shape == "attribution_analysis"
-            )]
+        # Old analysis targets and internal evidence must never become query anchors.
+        tasks = [task for task in tasks
+                 if not is_legacy_analysis(task.state_json or {}, task.query_shape)]
         if not tasks and not reply_to_task_id:
             return (
                 ConversationTurnResolution(
@@ -889,49 +885,6 @@ class ConversationShadowService:
             ensure_ascii=False,
         )
         model_context["result_focus_id"] = result_focus_id or ""
-        analysis_history = [
-            {
-                "analysis_id": t.id,
-                "question": t.original_question,
-                "target": (t.state_json or {}).get("analysis_target"),
-                "status": t.status,
-                "stop_reason": (t.state_json or {}).get("analysis_stop_reason"),
-            }
-            for t in tasks
-            if (t.state_json or {}).get("analysis_target")
-        ][-_MODEL_HISTORY_LIMIT:]
-        # Analysis metadata never contains result cells or model reasoning.
-        model_context["analysis_context_json"] = json.dumps(analysis_history, ensure_ascii=False)
-        if analysis_history:
-            latest = tasks[-1]
-            latest_raw = latest.state_json or {}
-            current = json.loads(model_context["current_focus_json"]) or {}
-            current.update(
-                {
-                    "latest_user_task_id": latest.id,
-                    "active_task_goal": "attribution_analysis"
-                    if latest_raw.get("analysis_started")
-                    else "metric_query",
-                    "active_analysis_target": latest_raw.get("analysis_target"),
-                    "query_focus_is_independent": True,
-                }
-            )
-            if latest_raw.get("analysis_target"):
-                current = {
-                    "task_id": latest.id,
-                    "task_goal": "attribution_analysis",
-                    "intent": "attribution_analysis",
-                    "original_question": latest.original_question,
-                    "active_analysis_target": latest_raw["analysis_target"],
-                    "latest_user_task_id": latest.id,
-                    "active_task_goal": "attribution_analysis",
-                }
-                for item in reusable:
-                    item["is_current_focus"] = False
-                model_context["history_json"] = json.dumps(
-                    reusable, ensure_ascii=False, default=str
-                )
-            model_context["current_focus_json"] = json.dumps(current, ensure_ascii=False)
         protection = ConversationEntityProtection(message, metrics)
         for attempt in range(2):
             try:
@@ -948,10 +901,11 @@ class ConversationShadowService:
                 )
                 source = next((task for task in tasks
                                if task.id == understanding.anchor_task_id), None)
-                protection.validate(
-                    understanding, has_history=bool(reusable),
-                    base=_reusable_snapshot(source) if source is not None else None,
-                )
+                if understanding.task_goal == "metric_query":
+                    protection.validate(
+                        understanding, has_history=bool(reusable),
+                        base=_reusable_snapshot(source) if source is not None else None,
+                    )
                 if understanding.task_goal == "attribution_analysis":
                     return (
                         ConversationTurnResolution(
@@ -960,7 +914,6 @@ class ConversationShadowService:
                             anchor=_empty_anchor(),
                             evidence=["model_conversation_understanding", understanding.reason],
                             task_goal=understanding.task_goal,
-                            analysis_intent=understanding.analysis_intent,
                         ),
                         None,
                         understanding.ambiguities,

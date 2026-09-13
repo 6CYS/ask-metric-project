@@ -19,6 +19,7 @@ from ask_metric.application.conversation_context_service import (
     MultiturnGrayExecutionPolicy,
     MultiturnShadowEvaluator,
 )
+from ask_metric.application.legacy_analysis import require_query_task
 from ask_metric.application.ports import PermissionService, ScopedOrganizationPermissionService
 from ask_metric.application.query_execution_service import _add_result_message
 from ask_metric.application.result_action_service import prepare_result_action
@@ -99,7 +100,6 @@ class SemanticTaskApplicationService:
         multiturn_gray_policy: MultiturnGrayExecutionPolicy | None = None,
         result_permission_service: PermissionService | None = None,
         result_query_planner: QueryPlanner | None = None,
-        analysis_service_factory: Callable | None = None,
     ) -> None:
         self.semantic_engine = semantic_engine
         self.model_service = semantic_engine.model_service
@@ -119,7 +119,6 @@ class SemanticTaskApplicationService:
             result_permission_service or ScopedOrganizationPermissionService()
         )
         self.result_query_planner = result_query_planner or QueryPlanner(dialect="mysql")
-        self.analysis_service_factory = analysis_service_factory
 
     def analyze(self, command: AnalyzeSemanticCommand) -> TaskCommandResult:
         analyze_started = perf_counter()
@@ -133,19 +132,12 @@ class SemanticTaskApplicationService:
                 raise SemanticTaskNotFoundError(command.task_id)
             raw_state = task.state_json or {}
             shadow = raw_state.get("debug", {}).get("multiturn_shadow", {})
-            analysis_requested = (raw_state.get("analysis_started") or
-                                  shadow.get("task_goal") == "attribution_analysis")
-            if analysis_requested and self.analysis_service_factory:
-                # Graph resume and replay are authorized and version checked by its service.
-                pass
-            else:
-                _require_version(task, command.expected_version)
-                _require_analyzable(task)
+            require_query_task(raw_state, task.query_shape)
+            _require_version(task, command.expected_version)
+            _require_analyzable(task)
             original_question = task.original_question
 
-        if analysis_requested:
-            if self.analysis_service_factory:
-                return self.analysis_service_factory().run(command)
+        if shadow.get("task_goal") == "attribution_analysis":
             return self._finish_intent_boundary(
                 command, original_question,
                 intent=IntentClassification(intent=RoutedIntent.ATTRIBUTION_ANALYSIS, confidence=1),
@@ -172,9 +164,7 @@ class SemanticTaskApplicationService:
                     retryable=False,
                     analyze_started=analyze_started,
                 )
-            if routed == "ANALYSIS_HANDOFF":
-                if self.analysis_service_factory:
-                    return self.analysis_service_factory().run(command)
+            if routed == "UNSUPPORTED_ATTRIBUTION":
                 return self._finish_intent_boundary(
                     command, original_question,
                     intent=IntentClassification(intent=RoutedIntent.ATTRIBUTION_ANALYSIS,
@@ -228,8 +218,6 @@ class SemanticTaskApplicationService:
             )
         intent_model_ms = _elapsed_ms(intent_started)
 
-        if intent.intent is RoutedIntent.ATTRIBUTION_ANALYSIS and self.analysis_service_factory:
-            return self.analysis_service_factory().run(command)
         if intent.intent is not RoutedIntent.METRIC_QUERY:
             return self._finish_intent_boundary(
                 command,
@@ -821,10 +809,7 @@ class SemanticTaskApplicationService:
                    and t.created_at.replace(tzinfo=UTC) <= task.created_at.replace(tzinfo=UTC)
                    and ((t.state_json or {}).get("actor_context") or {}).get("tenant_id")
                    == state.actor_context.get("tenant_id")]
-        service = ConversationShadowService(
-            model_service=self.model_service,
-            analysis_enabled=self.analysis_service_factory is not None,
-        )
+        service = ConversationShadowService(model_service=self.model_service)
         metrics = uow.metric_catalog.list_enabled()
         organizations = uow.organization_catalog.list_enabled()
         answers = [entry["answers"] for entry in state.clarification_answers]
@@ -880,7 +865,7 @@ class SemanticTaskApplicationService:
         command: AnalyzeSemanticCommand,
         *,
         analyze_started: float,
-    ) -> TaskCommandResult | Literal["ANALYSIS_HANDOFF"] | None:
+    ) -> TaskCommandResult | Literal["UNSUPPORTED_ATTRIBUTION"] | None:
         """Route a validated follow-up directly, without running the V1 semantic path."""
 
         with self.uow_factory() as uow:
@@ -898,11 +883,10 @@ class SemanticTaskApplicationService:
                 self._resume_context_clarification(uow=uow, task=task, state=state, command=command)
             shadow = state.debug.get("multiturn_shadow")
             if isinstance(shadow, dict) and shadow.get("task_goal") == "attribution_analysis":
-                # A clarification can reveal an analysis goal. Release the task lock before
-                # handing execution to the graph, without another semantic classification.
+                # A clarified unsupported goal must not become an executable query.
                 task.state_json = state.model_dump(mode="json")
                 uow.commit()
-                return "ANALYSIS_HANDOFF"
+                return "UNSUPPORTED_ATTRIBUTION"
             if state.debug.get("multiturn_shadow_error"):
                 return self._hold_multiturn_follow_up(
                     uow=uow, task=task, state=state, command=command,
@@ -1445,7 +1429,7 @@ def _intent_boundary_message(intent: RoutedIntent) -> tuple[str, str]:
     }
     label = labels.get(intent, intent.value)
     return (
-        f"已识别为{label}。该能力不在当前阶段规划范围内，敬请期待。",
+        f"已识别为{label}。当前版本暂不支持该能力，仅支持指标查询、多轮条件修改和历史结果操作。",
         "INTENT_NOT_AVAILABLE",
     )
 

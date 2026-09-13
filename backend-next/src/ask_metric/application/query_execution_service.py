@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from ask_metric.application.commands import ExecuteQueryCommand
 from ask_metric.application.conversation_context_service import QueryContextSnapshotFactory
+from ask_metric.application.legacy_analysis import require_query_task
 from ask_metric.application.ports import (
     DataSourceAdapter,
     ModelService,
@@ -246,6 +247,7 @@ class QueryExecutionApplicationService:
                     status_code=404,
                 )
             state = QueryTaskState.model_validate(task.state_json or {})
+            require_query_task(task.state_json or {}, task.query_shape)
             replay = _execution_replay(state, command.request_id)
             if replay is not None:
                 return replay

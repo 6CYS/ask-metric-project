@@ -99,8 +99,6 @@ class ConfigurableModelService:
         max_concurrency: int = 8,
         concurrency_wait_seconds: float = 30,
         semaphore: Semaphore | None = None,
-        analysis_enable_thinking: bool = False,
-        analysis_max_tokens: int = 2048,
     ) -> None:
         self.model_configs = model_config_repository
         self.prompts = prompt_config_repository
@@ -108,8 +106,6 @@ class ConfigurableModelService:
         self._client = client
         self._semaphore = semaphore or BoundedSemaphore(max_concurrency)
         self._concurrency_wait_seconds = concurrency_wait_seconds
-        self._analysis_enable_thinking = analysis_enable_thinking
-        self._analysis_max_tokens = analysis_max_tokens
 
     def is_enabled(self, role: ModelRole) -> bool:
         return bool(getattr(self.model_configs.load().models, role).enabled)
@@ -162,10 +158,6 @@ class ConfigurableModelService:
         if chat.chat_template_kwargs:
             payload["chat_template_kwargs"] = chat.chat_template_kwargs
         payload.update(chat.extra_body)
-        if prompt in {"analysis_target", "analysis_action"}:
-            payload["max_tokens"] = self._analysis_max_tokens
-            if chat.send_enable_thinking:
-                payload["enable_thinking"] = self._analysis_enable_thinking
         response = self._post(chat, payload)
         try:
             content = response["choices"][0]["message"]["content"]

@@ -124,18 +124,6 @@ class Settings(BaseSettings):
         PROJECT_DIR / "resources" / "testing" / "accuracy-baseline.json"
     )
     query_result_limit: int = Field(default=1000, gt=0, le=10_000)
-    analysis_enabled: bool = False
-    analysis_enable_thinking: bool = False
-    analysis_model_max_tokens: int = Field(default=2048, ge=256, le=8192)
-    analysis_max_model_calls: int = Field(default=12, ge=1, le=30)
-    analysis_max_queries: int = Field(default=24, ge=1, le=60)
-    analysis_max_seconds: float = Field(default=120, gt=0, le=600)
-    analysis_max_evidence_bytes: int = Field(default=64000, ge=1000, le=256000)
-    analysis_max_depth: int = Field(default=2, ge=0, le=5)
-    analysis_relations_path: Path = PROJECT_DIR / "config" / "analysis-relations.json"
-    analysis_skill_path: Path = (
-        PROJECT_DIR / "resources" / "skills" / "metric-change-attribution" / "1.1.0.json"
-    )
     query_statement_timeout_ms: int = Field(default=30_000, gt=0, le=600_000)
     model_admin_write_enabled: bool | None = None
     model_admin_token_required: bool | None = None

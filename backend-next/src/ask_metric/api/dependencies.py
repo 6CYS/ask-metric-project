@@ -15,7 +15,6 @@ from ask_metric.application.result_enrichment import CatalogResultEnricher
 from ask_metric.application.semantic_task_service import SemanticTaskApplicationService
 from ask_metric.application.task_service import QueryTaskApplicationService
 from ask_metric.core.config import PROJECT_DIR, Settings
-from ask_metric.core.errors import ApplicationError
 from ask_metric.core.security import AuthenticationError, decode_access_token
 from ask_metric.domain.conversation_context import MultiturnRolloutThresholds
 from ask_metric.domain.query_execution import QueryPlanner
@@ -97,12 +96,10 @@ def get_query_task_service(request: Request) -> QueryTaskApplicationService:
             resolve_config_path(PROJECT_DIR, settings.semantic_config_path)
         ),
         multiturn_shadow_enabled=(
-            settings.multiturn_v2_enabled
-            or settings.multiturn_shadow_mode
-            or settings.analysis_enabled
+            settings.multiturn_v2_enabled or settings.multiturn_shadow_mode
         ),
         conversation_shadow_service=ConversationShadowService(
-            model_service=get_model_service(request), analysis_enabled=settings.analysis_enabled,
+            model_service=get_model_service(request),
         ),
         candidate_permission_service=ScopedOrganizationPermissionService(
             organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
@@ -148,8 +145,6 @@ def get_model_service(request: Request) -> ConfigurableModelService:
         max_concurrency=settings.model_max_concurrency,
         concurrency_wait_seconds=settings.model_concurrency_wait_seconds,
         semaphore=request.app.state.model_semaphore,
-        analysis_enable_thinking=settings.analysis_enable_thinking,
-        analysis_max_tokens=settings.analysis_model_max_tokens,
     )
 
 
@@ -169,9 +164,7 @@ def get_semantic_task_service(request: Request) -> SemanticTaskApplicationServic
         ),
         continuation_token_codec=token_codec,
         multiturn_shadow_evaluation_enabled=settings.multiturn_shadow_mode,
-        multiturn_routed_execution_enabled=(
-            settings.multiturn_v2_enabled or settings.analysis_enabled
-        ),
+        multiturn_routed_execution_enabled=settings.multiturn_v2_enabled,
         result_permission_service=ScopedOrganizationPermissionService(
             organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
             allow_unscoped_development=settings.app_env.lower() in {"development", "test"},
@@ -182,9 +175,6 @@ def get_semantic_task_service(request: Request) -> SemanticTaskApplicationServic
         ),
         multiturn_gray_execution_enabled=settings.multiturn_gray_execution_enabled,
         multiturn_gray_user_ids=settings.multiturn_gray_user_ids,
-        analysis_service_factory=(
-            (lambda: get_analysis_service(request)) if settings.analysis_enabled else None
-        ),
     )
 
 
@@ -224,42 +214,11 @@ def get_query_execution_service(request: Request) -> QueryExecutionApplicationSe
         ),
         model_service=get_model_service(request),
         context_snapshot_enabled=(
-            settings.multiturn_v2_enabled
-            or settings.multiturn_shadow_mode
-            or settings.analysis_enabled
+            settings.multiturn_v2_enabled or settings.multiturn_shadow_mode
         ),
         result_enricher=(
             CatalogResultEnricher(get_app_session_factory())
             if settings.query_database_dialect == "inceptor"
             else None
-        ),
-    )
-
-
-def get_analysis_service(request: Request):
-    settings = request.app.state.settings
-    if not settings.analysis_enabled:
-        raise ApplicationError(
-            "ANALYSIS_DISABLED", "归因分析当前未启用，请使用指标查询或多轮问答。",
-            status_code=409,
-        )
-    from ask_metric.application.analysis_service import AnalysisApplicationService
-    from ask_metric.domain.analysis import AnalysisBudget
-
-    return AnalysisApplicationService(
-        model=get_model_service(request),
-        execution=get_query_execution_service(request),
-        uow_factory=SqlAlchemyUnitOfWork,
-        skill_path=resolve_config_path(PROJECT_DIR, settings.analysis_skill_path),
-        relations_path=resolve_config_path(PROJECT_DIR, settings.analysis_relations_path),
-        budget=AnalysisBudget(
-            model_calls=settings.analysis_max_model_calls,
-            queries=settings.analysis_max_queries,
-            seconds=settings.analysis_max_seconds,
-            evidence_bytes=settings.analysis_max_evidence_bytes,
-            depth=settings.analysis_max_depth,
-        ),
-        token_codec=ContinuationTokenCodec(
-            settings.continuation_token_secret, ttl_seconds=settings.continuation_token_ttl_seconds
         ),
     )

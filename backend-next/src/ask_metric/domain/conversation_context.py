@@ -6,7 +6,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ask_metric.domain.analysis import AnalysisIntent
 from ask_metric.domain.result_context import ResultReference
 from ask_metric.domain.semantics import LogicalDSL, SlotOperation, TaskType
 
@@ -109,7 +108,6 @@ class ConversationTurnResolution(StrictContextModel):
     result_action: ResultReference | None = None
     patch_evidence: dict[str, str | None] = Field(default_factory=dict)
     task_goal: Literal["metric_query", "attribution_analysis"] = "metric_query"
-    analysis_intent: AnalysisIntent | None = None
 
 
 class ContextMetric(StrictContextModel):

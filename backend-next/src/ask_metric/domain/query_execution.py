@@ -68,6 +68,7 @@ class QueryExecutionResult(BaseModel):
     idempotent_replay: bool = False
     timings_ms: dict[str, int] = Field(default_factory=dict)
     debug: dict[str, Any] = Field(default_factory=dict)
+    # Read-only compatibility with persisted reports from the retired prototype.
     analysis: dict[str, Any] | None = None
 
 

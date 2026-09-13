@@ -379,16 +379,6 @@ export function analyzeBackendNextTask(taskId: string, expectedVersion: number) 
   })
 }
 
-export function getAnalysisProgress(taskId: string) {
-  return request<{ analysis_id?: string; version: number; events: Array<{ message: string }>; cancel_requested?: boolean }>(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}/analysis-progress`))
-}
-
-export function cancelAnalysis(taskId: string, expectedVersion: number) {
-  return request(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}/analysis-cancel`), {
-    method: "POST", body: JSON.stringify({ expected_version: expectedVersion }),
-  })
-}
-
 export function submitBackendNextClarification(
   taskId: string,
   payload: { expected_version: number; clarification_id: string; answers: unknown },

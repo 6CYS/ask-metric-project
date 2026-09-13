@@ -172,8 +172,6 @@ MODEL_SECRET_ENV_PATH=/etc/ask-metric/backend.env
 CONFIG_HISTORY_DIR=/var/lib/ask-metric/config-history
 TEST_CENTER_DATA_DIR=/var/lib/ask-metric/test-center
 TEST_CENTER_BASELINE_PATH=/opt/ask-metric/current/backend/resources/testing/accuracy-baseline.json
-ANALYSIS_RELATIONS_PATH=/opt/ask-metric/current/backend/config/analysis-relations.json
-ANALYSIS_SKILL_PATH=/opt/ask-metric/current/backend/resources/skills/metric-change-attribution/1.1.0.json
 MULTITURN_V2_ENABLED=true
 ```
 
@@ -306,3 +304,5 @@ sudo /opt/ask-metric/current/ops/rollback.sh --release 20260824.1
 - `QUERY_DATABASE_URL` 必须使用数据库侧只读账号；
 - 不要在真实行内库上运行开发测试；
 - 本文维护原生部署；已有 [腾讯云 Compose 部署](../cloud-next/README.md) 是另一套依赖预置双库的编排，不应混用两者的目录与初始化命令。
+
+旧归因原型已退出运行链，升级原试验环境须同步前后端并合并持久提示词；详见 [后端升级说明](../../backend-next/README.md#旧归因原型退出与升级)。已有数据库迁移链不回退。

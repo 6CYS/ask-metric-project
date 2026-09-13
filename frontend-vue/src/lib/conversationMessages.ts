@@ -20,10 +20,11 @@ export function archiveClarificationResponse(response?: ChatResponse): ChatRespo
 
 /** 同一任务可以多次澄清，仅最后一条未结束的澄清允许交互。 */
 export function activeClarificationMessageIds(messages: BackendNextConversationMessage[], tasks: BackendNextConversationTask[]) {
-  const waiting = new Set(tasks.filter((task) => task.status === "WAITING_USER").map((task) => task.id))
+  const waiting = new Set(tasks.filter((task) => task.status === "WAITING_USER" && task.query_shape !== "attribution_analysis").map((task) => task.id))
   const latest = new Map<string, string>()
   for (const message of orderConversationMessages(messages, tasks)) {
-    if (message.role === "assistant" && message.payload?.kind === "clarification" && message.task_id && waiting.has(message.task_id)) {
+    if (message.role === "assistant" && message.payload?.kind === "clarification" && message.task_id && waiting.has(message.task_id)
+      && (message.payload.clarification as { type?: string } | undefined)?.type !== "analysis") {
       latest.set(message.task_id, message.id)
     }
   }

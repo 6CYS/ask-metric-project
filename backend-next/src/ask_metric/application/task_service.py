@@ -26,6 +26,7 @@ from ask_metric.application.conversation_context_service import (
     MultiturnRolloutReadinessPolicy,
     MultiturnShadowMetricsAggregator,
 )
+from ask_metric.application.legacy_analysis import require_query_task
 from ask_metric.application.ports import NoopPermissionService, PermissionService
 from ask_metric.application.requests import ActorContext
 from ask_metric.application.result_repository import hydrate_legacy_results, result_inventory
@@ -620,6 +621,7 @@ class QueryTaskApplicationService:
 
             _require_version(task, command.expected_version)
             clarification = state.clarification or {}
+            require_query_task(task.state_json or {}, task.query_shape)
             active_clarification_id = clarification.get("id")
             if active_clarification_id != command.clarification_id:
                 raise TaskConflictError(
@@ -676,11 +678,7 @@ class QueryTaskApplicationService:
             result_message_id = message_id
             next_intent = task.intent
             next_query_shape = task.query_shape
-            if clarification.get("type") == "analysis":
-                state.analysis_resume = command.answers
-                state.missing_slots = []
-                next_stage = QueryTaskStage.SLOT_EXTRACTION
-            elif clarification.get("type") == "result_reference":
+            if clarification.get("type") == "result_reference":
                 answers = command.answers
                 selected_id = None
                 if isinstance(answers, dict):
@@ -932,17 +930,19 @@ class QueryTaskApplicationService:
         return message_id, token
 
     def get_task(self, task_id: str, actor: ActorContext) -> TaskCommandResult:
-        from ask_metric.application.analysis_access import authorize_analysis
+        from ask_metric.application.legacy_analysis import authorize_legacy_analysis
 
         with self.uow_factory() as uow:
             task = uow.tasks.get_owned(task_id, actor.user_id or "")
             if task is None:
                 raise TaskNotFoundError(task_id)
-            authorize_analysis(task.state_json or {}, actor, self.candidate_permission_service)
+            authorize_legacy_analysis(
+                task.state_json or {}, actor, self.candidate_permission_service
+            )
             return _task_result(task)
 
     def get_conversation(self, conversation_id: str, actor: ActorContext) -> ConversationSnapshot:
-        from ask_metric.application.analysis_access import authorize_analysis
+        from ask_metric.application.legacy_analysis import authorize_legacy_analysis
 
         with self.uow_factory() as uow:
             conversation = uow.conversations.get_owned(conversation_id, actor.user_id or "")
@@ -951,7 +951,9 @@ class QueryTaskApplicationService:
             messages = uow.messages.list_for_conversation(conversation_id)
             tasks = uow.tasks.list_for_conversation(conversation_id)
             for task in tasks:
-                authorize_analysis(task.state_json or {}, actor, self.candidate_permission_service)
+                authorize_legacy_analysis(
+                    task.state_json or {}, actor, self.candidate_permission_service
+                )
             return ConversationSnapshot(
                 id=conversation.id,
                 title=conversation.title,
@@ -1135,7 +1137,7 @@ class QueryTaskApplicationService:
             )
 
     def export_conversation(self, conversation_id: str, actor: ActorContext) -> tuple[str, bytes]:
-        from ask_metric.application.analysis_access import authorize_analysis
+        from ask_metric.application.legacy_analysis import authorize_legacy_analysis
 
         with self.uow_factory() as uow:
             conversation = uow.conversations.get_owned(conversation_id, actor.user_id or "")
@@ -1144,7 +1146,9 @@ class QueryTaskApplicationService:
             messages = uow.messages.list_for_conversation(conversation_id)
             tasks = uow.tasks.list_for_conversation(conversation_id)
             for task in tasks:
-                authorize_analysis(task.state_json or {}, actor, self.candidate_permission_service)
+                authorize_legacy_analysis(
+                    task.state_json or {}, actor, self.candidate_permission_service
+                )
             workbook = build_xlsx(
                 [
                     (
@@ -1183,13 +1187,15 @@ class QueryTaskApplicationService:
             return conversation.title, workbook
 
     def export_task_result(self, task_id: str, actor: ActorContext) -> tuple[str, bytes]:
-        from ask_metric.application.analysis_access import authorize_analysis
+        from ask_metric.application.legacy_analysis import authorize_legacy_analysis
 
         with self.uow_factory() as uow:
             task = uow.tasks.get_owned(task_id, actor.user_id or "")
             if task is None:
                 raise TaskNotFoundError(task_id)
-            authorize_analysis(task.state_json or {}, actor, self.candidate_permission_service)
+            authorize_legacy_analysis(
+                task.state_json or {}, actor, self.candidate_permission_service
+            )
             messages = uow.messages.list_for_conversation(task.conversation_id)
             result_payload = next(
                 (

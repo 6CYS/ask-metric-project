@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ask_metric.api.dependencies import (
     get_actor_provider,
-    get_analysis_service,
     get_channel_clarification_service,
     get_query_execution_service,
     get_query_task_service,
@@ -79,33 +78,6 @@ class CancelClarificationRequest(BaseModel):
 
 class AnalyzeSemanticRequest(BaseModel):
     expected_version: int = Field(ge=0)
-
-
-@router.get("/query-tasks/{task_id}/analysis-progress")
-def analysis_progress(
-    task_id: str, request: Request, actor: Annotated[ActorContext, Depends(require_actor)]
-):
-    # Ordinary queries never load the graph, Skill or checkpoint tables while being polled.
-    task = get_query_task_service(request).get_task(task_id, actor)
-    if not request.app.state.settings.analysis_enabled:
-        return {"version": task.version, "events": []}
-    from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
-
-    with SqlAlchemyUnitOfWork() as uow:
-        raw = uow.tasks.get_owned(task_id, actor.user_id or "").state_json or {}
-        if not raw.get("analysis_started"):
-            return {"version": task.version, "events": []}
-    return get_analysis_service(request).progress(task_id, actor)
-
-
-@router.post("/query-tasks/{task_id}/analysis-cancel")
-def cancel_analysis(
-    task_id: str,
-    body: AnalyzeSemanticRequest,
-    request: Request,
-    actor: Annotated[ActorContext, Depends(require_actor)],
-):
-    return get_analysis_service(request).cancel(task_id, actor, body.expected_version)
 
 
 class ExecuteQueryRequest(BaseModel):

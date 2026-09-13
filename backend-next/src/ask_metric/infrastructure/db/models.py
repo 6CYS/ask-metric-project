@@ -26,6 +26,8 @@ from ask_metric.infrastructure.db.base import Base, TimestampMixin
 JSON_DOCUMENT = JSON()
 
 
+# Legacy schema mappings only: retain Alembic metadata without reviving the retired runtime.
+# Historical tables and data are changed exclusively through the governed migration process.
 class AnalysisThread(Base):
     __tablename__ = "analysis_threads"
 

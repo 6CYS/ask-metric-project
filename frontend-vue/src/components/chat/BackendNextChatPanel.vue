@@ -15,8 +15,6 @@ import BaseModal from "@/components/ui/BaseModal.vue"
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue"
 import {
   analyzeBackendNextTask,
-  getAnalysisProgress,
-  cancelAnalysis,
   cancelBackendNextClarification,
   cleanupBackendNextConversations,
   createBackendNextQuestion,
@@ -49,8 +47,6 @@ import { needsSemanticResume } from "@/lib/taskAdvance"
 type TaskStatus = BackendNextTaskResult["status"]
 
 type DisplayMessage = {
-  analysisRunning?: boolean
-  analysisProgress?: string
   id: string
   role: "user" | "assistant"
   content: string
@@ -939,7 +935,7 @@ async function runQuestion(conversationId: string, question: string) {
     }
     persistActiveConversation()
     attachTask(conversationId, assistantId, created)
-    const analyzed = await analyzeWithProgress(created, conversationId, assistantId)
+    const analyzed = await analyzeBackendNextTask(created.task_id, created.version)
     await handleTaskAdvance(conversationId, assistantId, analyzed)
     persistActiveConversation()
   } catch (error) {
@@ -991,7 +987,7 @@ async function handleTaskAdvance(conversationId: string, messageId: string, task
     return
   }
   if (needsSemanticResume(task)) {
-    const analyzed = await analyzeWithProgress(task, conversationId, messageId)
+    const analyzed = await analyzeBackendNextTask(task.task_id, task.version)
     await handleTaskAdvance(conversationId, messageId, analyzed)
     return
   }
@@ -1024,45 +1020,6 @@ async function handleTaskAdvance(conversationId: string, messageId: string, task
     return
   }
   throw new Error(task.status === "FAILED" ? taskFailureMessage(task) : task.error_message ?? "查询任务当前无法继续，请稍后重试。")
-}
-
-async function analyzeWithProgress(task: BackendNextTaskResult, conversationId: string, messageId: string) {
-  let stopped = false
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const poll = async () => {
-    try {
-      const progress = await getAnalysisProgress(task.task_id)
-      if (!stopped && progress.analysis_id) {
-        updateConversation(conversationId, (conversation) => ({ ...conversation,
-          messages: conversation.messages.map((item) => item.id === messageId ? {
-            ...item, analysisRunning: !progress.cancel_requested, taskVersion: progress.version,
-            analysisProgress: progress.cancel_requested ? "已请求停止，等待当前步骤结束" : progress.events[progress.events.length - 1]?.message,
-          } : item),
-        }))
-      }
-    } catch { /* Progress polling must not replace the task's authoritative result. */ }
-    if (!stopped) timer = setTimeout(poll, 1500)
-  }
-  timer = setTimeout(poll, 1500)
-  try { return await analyzeBackendNextTask(task.task_id, task.version) }
-  finally {
-    stopped = true
-    if (timer) clearTimeout(timer)
-    updateConversation(conversationId, (conversation) => ({ ...conversation,
-      messages: conversation.messages.map((item) => item.id === messageId ? { ...item, analysisRunning: false } : item),
-    }))
-  }
-}
-
-async function stopAnalysis(message: DisplayMessage) {
-  if (!message.taskId || message.taskVersion === undefined) return
-  try {
-    await cancelAnalysis(message.taskId, message.taskVersion)
-    message.analysisRunning = false
-    message.analysisProgress = "已请求停止，等待当前步骤结束"
-  } catch (error) {
-    message.analysisProgress = error instanceof Error ? error.message : "取消请求未成功，请重试"
-  }
 }
 
 async function executeTask(conversationId: string, messageId: string, task: BackendNextTaskResult) {
@@ -1342,8 +1299,7 @@ async function scrollToBottom() {
                   </div>
                 </div>
                 <div v-if="executionStatus(chatMessage).kind === 'running'" class="mb-2 flex items-center gap-2 text-xs text-muted-foreground/60" role="status" aria-live="polite">
-                  <span>{{ chatMessage.analysisProgress || executionStatus(chatMessage).title }}</span>
-                  <BaseButton v-if="chatMessage.analysisRunning" variant="ghost" size="sm" @click="stopAnalysis(chatMessage)">停止分析</BaseButton>
+                  <span>{{ executionStatus(chatMessage).title }}</span>
                   <span class="flex items-center gap-1" aria-hidden="true">
                     <span class="execution-dot size-1.5 rounded-full bg-[#7C9CDB]" />
                     <span class="execution-dot size-1.5 rounded-full bg-[#7C9CDB] [animation-delay:160ms]" />
