@@ -84,6 +84,7 @@ class SemanticModelResponseError(ApplicationError):
 
 
 class SemanticTaskApplicationService:
+    """编排问数的语义解析、澄清与多轮分流；analyze 指语义解析，不是旧归因。"""
     def __init__(
         self,
         *,
@@ -121,6 +122,8 @@ class SemanticTaskApplicationService:
         self.result_query_planner = result_query_planner or QueryPlanner(dialect="mysql")
 
     def analyze(self, command: AnalyzeSemanticCommand) -> TaskCommandResult:
+        # 先验证归属、版本和可执行阶段。读完状态即离开 with，首次意图模型调用
+        # 不占用这个数据库工作单元；结果落库时还需再次检查版本，防止覆盖新状态。
         analyze_started = perf_counter()
         with self.uow_factory() as uow:
             task = (

@@ -86,11 +86,14 @@ class QueryExecutionApplicationService:
         self.result_enricher = result_enricher
 
     def execute(self, command: ExecuteQueryCommand) -> QueryExecutionResult:
+        """先登记执行，再只读查询，最后持久化结果；跨数据库不假定是同一事务。"""
         execution_total_started = perf_counter()
         prepared = self._prepare(command)
+        # 返回结果对象说明准备阶段已结束（如幂等重放或规划失败），不能再次执行 SQL。
         if isinstance(prepared, QueryExecutionResult):
             return prepared
         run_id, plan, sql, execution_version, timings_ms = prepared
+        # 元数据事务已提交 RUNNING 状态并释放连接，再访问独立的业务查询数据库。
         sql_started = perf_counter()
         try:
             execution = self.data_source.execute_readonly(
@@ -383,6 +386,7 @@ class QueryExecutionApplicationService:
         logical_dsl: dict[str, Any] | None,
         query_shape: str,
     ) -> tuple[LogicalDSL, QueryExecutionPlan, str]:
+        # 执行前按当前权限和正式目录再校验一次；历史保存的 DSL 不能直接当作授权。
         dsl = LogicalDSL.model_validate(logical_dsl)
         authorized = self.permission_service.authorize_logical_dsl(
             actor=actor,

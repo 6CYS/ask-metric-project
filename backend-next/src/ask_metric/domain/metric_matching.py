@@ -62,6 +62,8 @@ class MetricMatcher:
                     break
                 candidates.append((position, position + len(term.normalized), term))
                 start = position + 1
+        # lambda value: (...) 是返回排序键的小函数；元组各项从左到右比较。
+        # 负长度让长名称排前面，再按正式名称优先、出现位置、指标编码稳定排序。
         candidates.sort(
             key=lambda value: (
                 -(value[1] - value[0]),
@@ -164,6 +166,7 @@ class MetricMatcher:
         return deduplicate_metrics(candidates)
 
     def protect(self, text: str, matches: list[MetricMatch]) -> str:
+        """标记已确认的指标名称，避免名称中的“排名”等文字被误读为查询操作。"""
         output: list[str] = []
         cursor = 0
         for match in sorted(matches, key=lambda item: item.start):
@@ -207,7 +210,9 @@ def _normalize_with_index(text: str) -> tuple[str, list[int]]:
 
 
 def deduplicate_metrics(items: list[MetricCatalogItem]) -> list[MetricCatalogItem]:
+    """按正式编码去重，保留第一次出现的对象及顺序，不改变候选优先级。"""
     values: dict[str, MetricCatalogItem] = {}
     for item in items:
+        # setdefault 只在键不存在时写入；直接赋值则会覆盖前面优先级更高的对象。
         values.setdefault(item.code, item)
     return list(values.values())

@@ -52,6 +52,7 @@ def advance_slot_frame(
     today: date,
     metric_candidates: list[MetricCatalogItem] | None = None,
 ) -> SemanticAdvance:
+    """把候选槽位推进到“待补充”或 LogicalDSL；缺失/非法日期必须澄清，不能猜值。"""
     normalized = normalize_slot_frame(frame, metrics=metrics, organizations=organizations)
     if normalized.time:
         try:
@@ -63,8 +64,7 @@ def advance_slot_frame(
             normalized.options["missing_time_reason"] = "invalid_date"
             if "time" not in normalized.missing:
                 normalized.missing.append("time")
-    # Required slots are a business rule, separate from metric ambiguity.
-    # Keep them in SlotFrame.missing so the existing clarification/resume path applies.
+    # 必填项缺失与指标歧义是两类问题，都写入 missing，复用同一澄清与恢复流程。
     if normalized.task.value == "metric_query":
         for slot in config.required_slots:
             if slot == "time" and not normalized.time and slot not in normalized.missing:

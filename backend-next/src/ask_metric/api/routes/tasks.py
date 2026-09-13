@@ -1,3 +1,9 @@
+"""问数 HTTP 入口：接收并校验请求，交给应用服务，再序列化返回结果。
+
+提交、语义解析和执行是分开的接口；expected_version 防止旧页面覆盖新状态，
+幂等键用于识别同一次操作的重试。二者不能互相替代。
+"""
+
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
@@ -105,6 +111,7 @@ class SubmitChannelClarificationRequest(BaseModel):
 
 @router.post(
     "/questions", response_model=TaskCommandResult,
+    # 装饰器登记 URL；依赖在处理请求时执行，认证与就绪检查都通过才进入业务。
     dependencies=[Depends(require_actor), Depends(require_query_ready)],
 )
 def submit_question(

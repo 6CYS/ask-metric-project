@@ -52,7 +52,7 @@ def set_focus(state: QueryTaskState, artifact: ResultArtifact, *, task_id: str) 
 
 
 def hydrate_legacy_results(tasks, messages):
-    """Read old persisted result messages without modifying historical task rows."""
+    """将旧消息中的查询结果补成内存快照，不更新历史任务表，也不重新执行查询。"""
     by_task = {}
     for message in messages:
         payload = message.payload or {}
@@ -104,7 +104,7 @@ def hydrate_legacy_results(tasks, messages):
 
 
 def result_inventory(tasks) -> tuple[list[dict[str, Any]], str | None]:
-    """Model receives metadata only; neither result cells nor SQL enter its prompt."""
+    """供历史引用模型选择结果的目录摘要；不把结果单元格或 SQL 填进这个提示词。"""
     summaries = []
     focus_id = None
     for index, task in enumerate(tasks):

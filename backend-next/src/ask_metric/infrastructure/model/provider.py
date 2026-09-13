@@ -187,6 +187,8 @@ class ConfigurableModelService:
         payload.update(embedding.extra_body)
         response = self._post(embedding, payload)
         try:
+            # lambda 取每条结果的 index 作为排序键：按输入次序还原向量，不能假定
+            # 模型响应数组天然有序，否则目录名称可能对应到别的指标向量。
             ordered = sorted(response["data"], key=lambda item: item["index"])
             if (any(type(item["index"]) is not int for item in ordered)
                     or [item["index"] for item in ordered] != list(range(len(texts)))):
@@ -236,6 +238,7 @@ class ConfigurableModelService:
         endpoint: ModelEndpointConfig,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
+        """统一模型 HTTP 边界：取配置、限制并发、设置超时并归类失败原因。"""
         headers = self._authentication_headers(endpoint)
         base_url = endpoint.base_url
         if endpoint.base_url_env:
@@ -267,6 +270,7 @@ class ConfigurableModelService:
                     timeout=endpoint.timeout_seconds,
                 )
             finally:
+                # 只关闭本次临时创建的客户端；共享客户端由应用关闭流程统一释放。
                 if self._client is None:
                     client.close()
             response.raise_for_status()
@@ -306,6 +310,7 @@ class ConfigurableModelService:
                 duration_ms=duration_ms,
             ) from exc
         finally:
+            # finally 无论成功还是异常都会运行，避免失败请求永久占用并发名额。
             self._semaphore.release()
         duration_ms = _duration_ms(started)
         _log_model_request(

@@ -94,6 +94,7 @@ def _result_column_label(column: object) -> str:
     value = str(column)
     return _RESULT_COLUMN_LABELS.get(value, value)
 
+# Callable[[], T] 表示“无参数、返回 T 的函数”；每次调用工厂才创建新的数据库单元。
 UnitOfWorkFactory = Callable[[], SqlAlchemyUnitOfWork]
 _PROCESSED_REQUEST_LIMIT = 50
 
@@ -128,6 +129,7 @@ class ConversationLimitReachedError(ApplicationError):
 
 
 class QueryTaskApplicationService:
+    """管理问题提交、澄清和历史结果；模型理解与 SQL 执行分别交给对应服务。"""
     def __init__(
         self,
         uow_factory: UnitOfWorkFactory | None = None,
@@ -172,6 +174,7 @@ class QueryTaskApplicationService:
         )
 
     def submit_question(self, command: SubmitQuestionCommand) -> TaskCommandResult:
+        """在会话归属范围内创建任务；相同幂等键及内容的重试复用已有任务。"""
         conversation_id = _resolve_conversation_id(command)
         fingerprint = _question_fingerprint(command, conversation_id)
 
@@ -180,7 +183,8 @@ class QueryTaskApplicationService:
         except IntegrityError as exc:
             if not _is_recoverable_idempotency_race(exc):
                 raise
-            # A concurrent request may have won the unique idempotency race.
+            # 两个请求可能同时查到“尚无任务”；数据库唯一约束决定谁先创建成功。
+            # 只恢复已识别的幂等竞争，其他完整性错误仍抛出，避免掩盖真实故障。
             return self._recover_concurrent_question(command, conversation_id, fingerprint)
 
     def _submit_question_once(

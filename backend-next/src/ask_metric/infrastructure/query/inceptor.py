@@ -32,6 +32,8 @@ class InceptorDataSourceAdapter:
         self.session_init_statements = tuple(session_init_statements or ())
 
     def execute_readonly(self, *, sql: str, parameters: dict[str, Any]) -> InceptorExecution:
+        # 模板仍要校验只读并绑定参数；数据库账号的只读权限须由部署配置保证。
+        # 此适配器未接入 QUERY_STATEMENT_TIMEOUT_MS，现场超时须核对驱动/服务端配置。
         validate_readonly_sql(sql)
         execution_parameters = _normalize_optional_expanding_parameters(parameters)
         _reject_empty_expanding_parameters(sql, execution_parameters)

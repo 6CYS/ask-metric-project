@@ -1,3 +1,9 @@
+"""依赖装配入口：将配置、模型、权限及数据库实现交给各业务服务。
+
+路由中的 Depends(get_xxx) 由 FastAPI 调用；这里主要创建服务，不执行用户查询。
+身份来自认证依赖，模型连接和目录缓存则复用 app.state 中的进程级资源。
+"""
+
 from typing import Annotated
 
 from fastapi import Depends, Request
@@ -40,7 +46,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def initialize_query_catalog(request: Request) -> None:
-    """Share the online model adapter, configuration and catalog text construction."""
+    """复用在线问数的模型配置、目录文本与缓存，避免预热和实际检索使用不同输入。"""
     initialization = request.app.state.query_initialization
     initialization.progress(0, 0)
     model = get_model_service(request)
@@ -52,9 +58,11 @@ def initialize_query_catalog(request: Request) -> None:
     ).load().metric_matching
     with SqlAlchemyUnitOfWork() as uow:
         corpus = catalog_embedding_texts(uow.metric_catalog.list_enabled())
+    # 先读目录再释放数据库会话；后面的分批模型请求不占用此处的数据库连接。
     if not corpus:
         raise ValueError("Enabled metric catalog is empty")
     request.app.state.catalog_vector_cache.warmup(
+        # 传入绑定方法作为回调，缓存每完成一批便调用它更新公共初始化状态。
         model, corpus, batch_size=config.embedding_batch_size,
         wait_seconds=config.embedding_cache_wait_seconds, progress=initialization.progress,
     )
@@ -68,6 +76,7 @@ def require_actor(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ) -> ActorContext:
+    """验证令牌后再核对当前账号，防止停用账号或旧登录凭证继续访问。"""
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise AuthenticationError("AUTH_TOKEN_INVALID", "请先登录")
     settings: Settings = request.app.state.settings
@@ -103,6 +112,7 @@ def require_actor(
 
 
 def get_actor_provider(actor: Annotated[ActorContext, Depends(require_actor)]) -> ActorProvider:
+    # Annotated 的第一个参数是类型，Depends 告诉框架如何取得已验证的身份。
     return ContextActorProvider(actor)
 
 

@@ -81,6 +81,11 @@ class UnsupportedQueryError(QueryPlanError):
 
 
 class QueryPlanner:
+    """将受校验的 LogicalDSL 转成已登记的模板编号、绑定参数及结果操作。
+
+    DSL 是指标、机构、时间等结构化查询条件，并非 SQL；不支持的条件必须报错，
+    不能删掉条件后扩大查询范围。SQL 文本由模板仓库提供，模型不参与拼接。
+    """
     def __init__(
         self,
         *,
@@ -137,8 +142,7 @@ class QueryPlanner:
             "metric_codes": metric_codes,
             organization_parameter: normalized_orgs,
             "filter_orgs": bool(normalized_orgs),
-            # Fetch one sentinel row so callers can distinguish a complete result
-            # from a result capped by the configured display limit.
+            # 多取一行作截断标志：否则恰好返回上限行数时无法判断是否还有数据。
             "limit": self.max_limit + 1,
         }
         result_operations = [

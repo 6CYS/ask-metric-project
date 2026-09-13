@@ -768,6 +768,11 @@ class MultiturnGrayExecutionPolicy:
 
 
 class ConversationShadowService:
+    """产生多轮理解候选，供影子评估或启用后的多轮执行使用。
+
+    类名保留历史命名，但它仍被当前运行链调用；不能因为含 Shadow 就作为旧原型删除。
+    模型决定本轮修改和历史指代，代码校验实体、合并条件并判断候选能否执行。
+    """
     def __init__(self, model_service: ModelService | None = None) -> None:
         self.model_service = model_service
         self.act_resolver = ConversationActResolver()
@@ -787,9 +792,9 @@ class ConversationShadowService:
         today: date,
         clarification_context: dict[str, Any] | None = None,
     ) -> tuple[ConversationTurnResolution, ContextPatch | None, list[str], list[str]]:
-        """Use the model for semantics; return only catalog-normalized patch values."""
+        """返回本轮意图、条件补丁及目录候选；补丁中的实体须转换为正式目录值。"""
 
-        # Old analysis targets and internal evidence must never become query anchors.
+        # 列表推导式相当于 for + if + append；旧归因任务不能成为多轮问数的历史锚点。
         tasks = [task for task in tasks
                  if not is_legacy_analysis(task.state_json or {}, task.query_shape)]
         if not tasks and not reply_to_task_id:
@@ -808,6 +813,8 @@ class ConversationShadowService:
             raise ValueError(
                 "Conversation understanding requires a model; lexical fallback is disabled"
             )
+        # := 先计算快照再判断是否可复用，避免计算两次；** 将快照字段展开到新字典，
+        # 后面的同名键会覆盖前面的值。尾部切片仅保留最近若干条，控制模型上下文长度。
         reusable = [
             {
                 **snapshot.model_dump(mode="json"),
@@ -1256,6 +1263,7 @@ class QueryContextSnapshotFactory:
     def __init__(
         self,
         *,
+        # 默认值是函数，每次调用才取当前时间；写成 datetime.now(UTC) 会固定在加载时。
         now_provider: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.now_provider = now_provider

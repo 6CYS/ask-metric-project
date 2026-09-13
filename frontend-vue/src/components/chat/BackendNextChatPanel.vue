@@ -913,6 +913,8 @@ function handleSubmit(text: string, entities: ComposerEntity[] = []) {
 }
 
 async function runQuestion(conversationId: string, question: string) {
+  // 创建任务 → 用返回的版本进行语义解析 → 根据状态进入澄清、执行或结果展示。
+  // 分开调用可保留中间状态；不能在解析后无条件执行，否则会跳过待补充和历史结果分支。
   if (!queryReady.value) return
   const assistantId = createId()
   const questionRequestId = createId()
@@ -1027,6 +1029,7 @@ async function handleTaskAdvance(conversationId: string, messageId: string, task
 }
 
 async function executeTask(conversationId: string, messageId: string, task: BackendNextTaskResult) {
+  // 同一任务使用稳定执行键识别重试；版本号用于拒绝过期状态，两者职责不同。
   const executionRequestId = `execute:${task.task_id}`
   const result = await executeBackendNextTask(task.task_id, task.version, executionRequestId)
   const response = responseFromExecution(result)

@@ -18,6 +18,11 @@ from ask_metric.domain.result_context import ResultReference
 
 
 def prepare_result_action(*, uow, task, state, actor, permission_service, planner):
+    """解析历史结果引用并准备找回、裁剪或机构选择；返回值供语义服务继续处理。
+
+    先核对用户和原文依据，再由 ResultRepository 复核结果归属及当前权限。
+    模型只能提出引用候选，不能凭空构造可访问的结果编号或修改已保存的证据。
+    """
     if actor is None:
         raise ResultReferenceError("历史结果操作需要可信用户身份")
     shadow = state.debug["multiturn_shadow"]

@@ -42,6 +42,11 @@ class QueryTemplateConfig(BaseModel):
 
 
 class QueryTemplateRepository:
+    """加载受管理的 SQL 模板；区分配置中的标识符与用户查询的业务参数。
+
+    表名、字段名等模板变量经白名单格式校验后替换；指标、机构、日期等业务值
+    由数据库适配器绑定，不能用字符串格式化塞进 SQL。
+    """
     def __init__(
         self,
         config_path: Path,

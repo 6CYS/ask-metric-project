@@ -73,6 +73,11 @@ _STAGE_TRANSITIONS: dict[QueryTaskStage, frozenset[QueryTaskStage]] = {
 
 
 class QueryTaskStateMachine:
+    """集中校验允许的状态/阶段迁移；frozenset 是不可修改的允许值集合。
+
+    状态回答“任务运行中还是已结束”，阶段回答“正在做语义解析还是执行查询”。
+    校验通过只表示允许迁移，实际更新和版本竞争控制仍由应用服务及仓库完成。
+    """
     @staticmethod
     def require_transition(
         *,

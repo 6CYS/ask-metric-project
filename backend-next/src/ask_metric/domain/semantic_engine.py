@@ -76,6 +76,11 @@ class MetricCandidateSearch(Protocol):
 
 
 class SemanticEngine:
+    """理解问题并生成候选槽位：目录名称保护 → 模型抽取 → 规范化与指标消歧。
+
+    向量检索及重排只提供候选；相似度不是业务正确率。这里不执行 SQL，输出还要
+    经过澄清、目录/权限校验和查询规划才能执行。
+    """
     def __init__(
         self,
         model_service: ModelService,
@@ -593,10 +598,13 @@ class SemanticEngine:
         }
         if len(vectors) != len(corpus) + 1:
             return []
-        # Reuse the query's Python floats and norm across all catalog rows. Only
-        # this short-lived query is materialized; catalog vectors remain float32.
+        # 只把当前问题向量转成 tuple，供所有余弦计算复用；目录矩阵仍为 float32。
+        # 范数是向量长度，提前计算可避免对一万个候选重复计算同一个问题的范数。
         query_vector = tuple(vectors[0])
         query_norm = math.sqrt(sum(value * value for value in query_vector))
+        # zip 按顺序配对“指标、向量”；strict=True 在数量不一致时直接报错。
+        # lambda item: -item[1] 返回负相似度，令默认升序排序变成按相似度降序。
+        # 最后的切片 [:top_k] 只保留召回上限，不代表这些指标都能自动确认。
         scored = sorted(
             ((item, _cosine(query_vector, vector, left_norm=query_norm))
              for item, vector in zip(metrics, vectors[1:], strict=True)),

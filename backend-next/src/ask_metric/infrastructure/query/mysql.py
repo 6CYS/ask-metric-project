@@ -43,6 +43,8 @@ class MySqlDataSourceAdapter:
             if isinstance(value, (list, tuple)) and name in statement._bindparams
         ]
         if expanding_names:
+            # expanding 将 IN 条件的列表展开成多个绑定参数；* 将生成的参数逐个传入。
+            # 仍由驱动绑定业务值，不把用户输入拼入 SQL 字符串。
             statement = statement.bindparams(
                 *(bindparam(name, expanding=True) for name in expanding_names)
             )
@@ -60,6 +62,7 @@ class MySqlDataSourceAdapter:
                     result = connection.execute(statement, prepared_parameters)
                     rows = [dict(row) for row in result.mappings().all()]
             finally:
+                # 连接将回到池中，必须清理本次超时设置；重置失败就丢弃该连接。
                 connection.rollback()
                 try:
                     connection.exec_driver_sql("SET SESSION MAX_EXECUTION_TIME = 0")

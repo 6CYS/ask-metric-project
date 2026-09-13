@@ -1,3 +1,5 @@
+"""应用入口：装配 HTTP 服务，并管理模型连接、向量预热及关闭顺序。"""
+
 import asyncio
 import logging
 from contextlib import asynccontextmanager
@@ -23,8 +25,7 @@ def create_app(
     settings: Settings | None = None, *, initialize_catalog_on_startup: bool | None = None,
 ) -> FastAPI:
     resolved_settings = settings or get_settings()
-    # Isolated API tests do not contact the real model/database. Tests of startup
-    # explicitly enable initialization and replace its dependencies with fixtures.
+    # 隔离测试默认跳过真实数据库和模型；启动流程测试会显式开启预热并替换依赖。
     initialize_catalog = (
         resolved_settings.app_env.lower() != "test"
         if initialize_catalog_on_startup is None else initialize_catalog_on_startup
@@ -52,6 +53,8 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # lifespan 是异步上下文管理器：yield 前准备资源，yield 后在关闭时释放。
+        # app.state 由当前服务进程共享；多 worker 部署时每个进程各有一份缓存。
         logger.info("application_started")
         app.state.model_http_client = httpx.Client(
             limits=httpx.Limits(
@@ -59,6 +62,7 @@ def create_app(
                 max_keepalive_connections=resolved_settings.model_max_keepalive_connections,
             )
         )
+        # 信号量限制同时调用模型的请求数，与 HTTP 连接池大小是两个独立限制。
         app.state.model_semaphore = BoundedSemaphore(resolved_settings.model_max_concurrency)
         app.state.catalog_vector_cache = CatalogVectorCache()
         nacos_registry = NacosRegistry(resolved_settings)
@@ -67,10 +71,16 @@ def create_app(
 
         initialization = QueryInitialization(enabled=initialize_catalog)
         app.state.query_initialization = initialization
-        warmup = asyncio.create_task(asyncio.to_thread(
-            initialization.run,
-            lambda: initialize_query_catalog(Request({"type": "http", "app": app})),
-        )) if initialize_catalog else None
+
+        def warm_catalog() -> None:
+            # 只借用 Request 读取同一份应用配置和连接，不发送内部 HTTP 请求。
+            initialize_query_catalog(Request({"type": "http", "app": app}))
+
+        warmup = None
+        if initialize_catalog:
+            # 传函数名而非 warm_catalog()：让后台线程稍后调用，并在失败后重试。
+            # to_thread 承接同步数据库/模型 I/O，主事件循环仍能响应初始化状态查询。
+            warmup = asyncio.create_task(asyncio.to_thread(initialization.run, warm_catalog))
         try:
             await nacos_registry.start()
             yield
@@ -78,8 +88,8 @@ def create_app(
             logger.info("application_stopping")
             initialization.stop()
             if warmup is not None:
-                # A cancelled to_thread task would leave HTTP calls using a closed
-                # client. Stop between batches and wait before disposing that client.
+                # 取消 asyncio 任务不会终止线程中的 HTTP 请求，因此先通知停止，
+                # 等后台线程退出后再关闭它仍可能使用的共享客户端。
                 await warmup
             await nacos_registry.stop()
             app.state.model_http_client.close()
@@ -102,6 +112,7 @@ def create_app(
         from ask_metric.application.actor_provider import DevelopmentActorProvider
         from ask_metric.application.requests import ActorContext
 
+        # lambda: ... 是无参小函数；每次依赖调用都创建测试身份，仅 test 环境启用。
         app.dependency_overrides[require_actor] = lambda: ActorContext(
             subject="developer",
             tenant_id="development",

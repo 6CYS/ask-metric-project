@@ -1,3 +1,9 @@
+"""业务所需的接口约定及机构权限边界。
+
+Protocol 中的 ... 表示只声明方法签名，不是待补的运行逻辑；实际实现由
+api/dependencies.py 装配。这样固定响应测试可以替换模型和数据库而不联网。
+"""
+
 from typing import Any, Protocol
 
 from ask_metric.application.requests import ActorContext
@@ -95,6 +101,8 @@ class ScopedOrganizationPermissionService:
             raise PermissionDeniedError("用户所属机构不存在或已停用")
         requested = list(logical_dsl.get("orgs") or [])
         authorized = dict(logical_dsl)
+        # 明确指定越权机构时拒绝；仅正式目录展开的全机构范围允许取权限交集。
+        # 因此模型提出的机构集合不是最终授权结果，执行前仍须经过这里复核。
         if requested and any(value not in allowed for value in requested):
             options = logical_dsl.get("options") or {}
             if options.get("organization_scope") != "synchronized_catalog":
@@ -102,6 +110,6 @@ class ScopedOrganizationPermissionService:
             requested = [value for value in requested if value in allowed]
             if not requested:
                 raise PermissionDeniedError("请求的机构范围与用户权限没有交集")
-        # An omitted organization always defaults to the user's own organization.
+        # 未指定机构时只默认到本人机构，不能把空条件解释成查询所有机构。
         authorized["orgs"] = requested or [actor.org_id]
         return authorized
