@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from ask_metric.application.context_diagnostics import log_context_failure
+from ask_metric.application.conversation_entities import ConversationEntityProtection
 from ask_metric.application.ports import ModelService, PermissionService
 from ask_metric.application.requests import ActorContext
 from ask_metric.application.result_repository import result_inventory
@@ -114,6 +115,9 @@ class ModelConversationUnderstanding(BaseModel):
     patch_evidence: dict[str, str | None] = Field(default_factory=dict)
     task_goal: Literal["metric_query", "attribution_analysis"] = "metric_query"
     analysis_intent: AnalysisIntent | None = None
+    condition_sources: dict[str, Literal["input", "history", "missing"]] = Field(
+        default_factory=dict,
+    )
 
     @field_validator("patch_evidence", mode="before")
     @classmethod
@@ -158,6 +162,13 @@ class ModelConversationUnderstanding(BaseModel):
             raise ValueError("new-query understanding cannot reference a history task")
         if self.conversation_act == ConversationAct.NEW_QUERY and self.inherit:
             raise ValueError("NEW_QUERY must not inherit history fields")
+        if self.conversation_act == ConversationAct.NEW_QUERY:
+            if "history" in self.condition_sources.values():
+                raise ValueError("NEW_QUERY conflicts with history-dependent condition_sources")
+            if self.patch.set or self.patch.add or self.patch.remove:
+                raise ValueError("NEW_QUERY must not modify a historical query patch")
+        if set(self.condition_sources) - {"metrics", "orgs", "time"}:
+            raise ValueError("condition_sources contains unsupported fields")
         # Partial date inheritance is explanatory metadata. Execution still uses
         # the normalized, validated absolute date in patch.set.time.
         unsupported_inherit = set(self.inherit) - (
@@ -921,17 +932,26 @@ class ConversationShadowService:
                     reusable, ensure_ascii=False, default=str
                 )
             model_context["current_focus_json"] = json.dumps(current, ensure_ascii=False)
+        protection = ConversationEntityProtection(message, metrics)
         for attempt in range(2):
             try:
                 raw = self.model_service.analyze(
                     prompt="multiturn_context_patch",
-                    context=model_context,
+                    context=protection.context(model_context),
                 )
             except Exception as exc:
                 log_context_failure(exc, stage="model_call", attempt=attempt + 1)
                 raise
             try:
-                understanding = ModelConversationUnderstanding.model_validate(raw)
+                understanding = ModelConversationUnderstanding.model_validate(
+                    protection.restore(raw),
+                )
+                source = next((task for task in tasks
+                               if task.id == understanding.anchor_task_id), None)
+                protection.validate(
+                    understanding, has_history=bool(reusable),
+                    base=_reusable_snapshot(source) if source is not None else None,
+                )
                 if understanding.task_goal == "attribution_analysis":
                     return (
                         ConversationTurnResolution(
