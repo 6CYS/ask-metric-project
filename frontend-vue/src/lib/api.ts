@@ -1,4 +1,5 @@
 import type {
+  QueryReadiness,
   BackendNextConversationSnapshot,
   BackendNextExecutionResult,
   BackendNextTaskResult,
@@ -97,6 +98,10 @@ async function downloadAuthenticated(path: string, fallbackName: string) {
 }
 
 let cachedSm2PublicKey: string | null = null
+
+export function getBackendNextQueryReadiness(signal?: AbortSignal) {
+  return request<QueryReadiness>(apiUrl(backendNextBase, "/api/v1/query-readiness"), { signal, cache: "no-store" }, false)
+}
 
 /** 登录前获取后端 SM2 公钥（模块级缓存；重启后端更换临时密钥时会随页面刷新失效）。 */
 async function getSm2PublicKey(): Promise<string> {

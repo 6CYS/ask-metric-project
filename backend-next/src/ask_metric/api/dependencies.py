@@ -22,6 +22,7 @@ from ask_metric.domain.semantic_engine import SemanticEngine
 from ask_metric.infrastructure.db.organization_scope import SqlAlchemyOrganizationScopeProvider
 from ask_metric.infrastructure.db.session import get_app_session_factory, get_query_engine
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
+from ask_metric.infrastructure.model.catalog_vectors import catalog_embedding_texts
 from ask_metric.infrastructure.model.configuration import (
     ModelConfigRepository,
     PromptConfigRepository,
@@ -36,6 +37,27 @@ from ask_metric.infrastructure.query.templates import QueryTemplateRepository
 from ask_metric.infrastructure.semantic.configuration import SemanticConfigRepository
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def initialize_query_catalog(request: Request) -> None:
+    """Share the online model adapter, configuration and catalog text construction."""
+    initialization = request.app.state.query_initialization
+    initialization.progress(0, 0)
+    model = get_model_service(request)
+    if not model.is_enabled("embedding"):
+        return
+    settings = request.app.state.settings
+    config = SemanticConfigRepository(
+        resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
+    ).load().metric_matching
+    with SqlAlchemyUnitOfWork() as uow:
+        corpus = catalog_embedding_texts(uow.metric_catalog.list_enabled())
+    if not corpus:
+        raise ValueError("Enabled metric catalog is empty")
+    request.app.state.catalog_vector_cache.warmup(
+        model, corpus, batch_size=config.embedding_batch_size,
+        wait_seconds=config.embedding_cache_wait_seconds, progress=initialization.progress,
+    )
 
 
 def get_authentication_service(request: Request) -> AuthenticationService:

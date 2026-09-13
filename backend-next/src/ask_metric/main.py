@@ -1,9 +1,10 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from threading import BoundedSemaphore
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from ask_metric.api.router import api_router
@@ -13,12 +14,21 @@ from ask_metric.core.logging import LoggingConfig, configure_logging
 from ask_metric.core.request_context import RequestIdMiddleware
 from ask_metric.infrastructure.discovery.nacos_registry import NacosRegistry
 from ask_metric.infrastructure.model.catalog_vectors import CatalogVectorCache
+from ask_metric.infrastructure.model.query_initialization import QueryInitialization
 
 logger = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, *, initialize_catalog_on_startup: bool | None = None,
+) -> FastAPI:
     resolved_settings = settings or get_settings()
+    # Isolated API tests do not contact the real model/database. Tests of startup
+    # explicitly enable initialization and replace its dependencies with fixtures.
+    initialize_catalog = (
+        resolved_settings.app_env.lower() != "test"
+        if initialize_catalog_on_startup is None else initialize_catalog_on_startup
+    )
     configure_logging(
         LoggingConfig(
             level=resolved_settings.log_level,
@@ -53,16 +63,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.catalog_vector_cache = CatalogVectorCache()
         nacos_registry = NacosRegistry(resolved_settings)
         app.state.nacos_registry = nacos_registry
+        from ask_metric.api.dependencies import initialize_query_catalog
+
+        initialization = QueryInitialization(enabled=initialize_catalog)
+        app.state.query_initialization = initialization
+        warmup = asyncio.create_task(asyncio.to_thread(
+            initialization.run,
+            lambda: initialize_query_catalog(Request({"type": "http", "app": app})),
+        )) if initialize_catalog else None
         try:
             await nacos_registry.start()
             yield
         finally:
             logger.info("application_stopping")
+            initialization.stop()
+            if warmup is not None:
+                # A cancelled to_thread task would leave HTTP calls using a closed
+                # client. Stop between batches and wait before disposing that client.
+                await warmup
             await nacos_registry.stop()
             app.state.model_http_client.close()
 
     app = FastAPI(title=resolved_settings.app_name, version="0.1.3", lifespan=lifespan)
     app.state.settings = resolved_settings
+    app.state.query_initialization = QueryInitialization(enabled=initialize_catalog)
     app.add_middleware(RequestIdMiddleware)
     app.add_middleware(
         CORSMiddleware,

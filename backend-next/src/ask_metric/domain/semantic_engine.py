@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from difflib import SequenceMatcher
@@ -27,7 +28,10 @@ from ask_metric.domain.semantics import (
     TaskType,
 )
 from ask_metric.domain.slot_frame_adapter import adapt_model_slot_frame, slot_frame_json_schema
-from ask_metric.infrastructure.model.catalog_vectors import CatalogVectorCache
+from ask_metric.infrastructure.model.catalog_vectors import (
+    CatalogVectorCache,
+    catalog_embedding_texts,
+)
 from ask_metric.infrastructure.semantic.configuration import SemanticConfig
 
 _CALENDAR_MONTH_TOKEN = r"(?:\d{1,2}|[一二三四五六七八九十]{1,3})"
@@ -559,7 +563,7 @@ class SemanticEngine:
                 lexical,
                 limit=config.metric_matching.max_candidates,
             )
-        corpus = [f"{item.name} {' '.join(item.aliases)} {item.description}" for item in metrics]
+        corpus = catalog_embedding_texts(metrics)
         embedding_started = perf_counter()
         vectors = self.catalog_vector_cache.embed(
             self.model_service, question, corpus,
@@ -576,17 +580,21 @@ class SemanticEngine:
         }
         if len(vectors) != len(corpus) + 1:
             return []
+        # Reuse the query's Python floats and norm across all catalog rows. Only
+        # this short-lived query is materialized; catalog vectors remain float32.
+        query_vector = tuple(vectors[0])
+        query_norm = math.sqrt(sum(value * value for value in query_vector))
         scored = sorted(
-            zip(metrics, vectors[1:], strict=True),
-            key=lambda item: -_cosine(vectors[0], item[1]),
+            ((item, _cosine(query_vector, vector, left_norm=query_norm))
+             for item, vector in zip(metrics, vectors[1:], strict=True)),
+            key=lambda item: -item[1],
         )[: config.metric_matching.embedding_top_k]
         recalled = [item for item, _ in scored]
         if not self._model_role_enabled("reranker"):
             debug["rerank"] = {"status": "disabled", "fallback": "embedding"}
             timings_ms["rerank_ms"] = 0
             return [
-                _ScoredMetricCandidate(item, _cosine(vectors[0], vector))
-                for item, vector in scored
+                _ScoredMetricCandidate(item, score) for item, score in scored
             ][: config.metric_matching.max_candidates]
         return self._rerank_candidates(
             question,
@@ -1196,9 +1204,13 @@ def _is_operation_only_metric_text(text: str, matcher: MetricMatcher) -> bool:
     }
 
 
-def _cosine(left: list[float], right: list[float]) -> float:
+def _cosine(
+    left: Sequence[float], right: Sequence[float], *, left_norm: float | None = None,
+) -> float:
     numerator = sum(a * b for a, b in zip(left, right, strict=False))
-    denominator = math.sqrt(sum(value * value for value in left)) * math.sqrt(
+    if left_norm is None:
+        left_norm = math.sqrt(sum(value * value for value in left))
+    denominator = left_norm * math.sqrt(
         sum(value * value for value in right)
     )
     return numerator / denominator if denominator else 0

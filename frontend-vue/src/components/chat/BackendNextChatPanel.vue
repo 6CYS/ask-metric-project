@@ -38,6 +38,7 @@ import type {
   SemanticPatch,
 } from "@/types/api"
 import { useAuth } from "@/composables/useAuth"
+import { useQueryReadiness } from "@/composables/useQueryReadiness"
 import { copyText } from "@/lib/clipboard"
 import { activeClarificationMessageIds, archiveClarificationResponse, clarificationTranscript, conversationMessageTime, visibleConversationMessages } from "@/lib/conversationMessages"
 import { composeClarification, composeQuestion, type ComposerEntity } from "@/lib/composerEntities"
@@ -78,6 +79,7 @@ type DisplayConversation = {
 
 const props = withDefaults(defineProps<{ initialMessage?: string }>(), { initialMessage: "" })
 const auth = useAuth()
+const { state: queryReadiness, ready: queryReady } = useQueryReadiness()
 const activeConversationStorageKey = computed(() => `ask-metric.backend-next.active-conversation:${auth.user.value?.id ?? "anonymous"}`)
 const exampleQuestions = computed(() => {
   const currentUser = auth.user.value
@@ -895,6 +897,7 @@ async function handleExportConversation(conversation: DisplayConversation) {
 }
 
 function handleSubmit(text: string, entities: ComposerEntity[] = []) {
+  if (!queryReady.value) return
   const label = composeQuestion(text, entities)
   if (!activeConversation.value) handleNewConversation()
   const conversation = activeConversation.value
@@ -910,6 +913,7 @@ function handleSubmit(text: string, entities: ComposerEntity[] = []) {
 }
 
 async function runQuestion(conversationId: string, question: string) {
+  if (!queryReady.value) return
   const assistantId = createId()
   const questionRequestId = createId()
   updateConversation(conversationId, (conversation) => ({
@@ -1113,6 +1117,7 @@ async function handleCancelClarification(messageId: string) {
 }
 
 async function resumeClarificationWithAnswers(conversationId: string, target: DisplayMessage, answers: SemanticPatch | string, answerLabel: string) {
+  if (!queryReady.value) return
   markConversationSending(conversationId, true)
   historyError.value = ""
   let executionMessageId: string | undefined
@@ -1306,10 +1311,10 @@ async function scrollToBottom() {
                     <span class="execution-dot size-1.5 rounded-full bg-[#7C9CDB] [animation-delay:320ms]" />
                   </span>
                 </div>
-                <ChatResultContent v-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" :clarification-disabled="activeConversationIsSending || (Boolean(chatMessage.response.clarification) && chatMessage.taskStatus !== 'WAITING_USER')" :clarification-loading="activeConversationIsSending && chatMessage.taskStatus === 'WAITING_USER'" :enable-metric-catalog="chatMessage.clarification?.missing?.length === 1 && chatMessage.clarification.missing[0] === 'metrics'" :stream-answer="chatMessage.streamAnswer" @clarification="handleClarification(chatMessage.id, $event)" @answer-stream-complete="finishAnswerStream(chatMessage.id)" />
+                <ChatResultContent v-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" :clarification-disabled="!queryReady || activeConversationIsSending || (Boolean(chatMessage.response.clarification) && chatMessage.taskStatus !== 'WAITING_USER')" :clarification-loading="activeConversationIsSending && chatMessage.taskStatus === 'WAITING_USER'" :enable-metric-catalog="chatMessage.clarification?.missing?.length === 1 && chatMessage.clarification.missing[0] === 'metrics'" :stream-answer="chatMessage.streamAnswer" @clarification="handleClarification(chatMessage.id, $event)" @answer-stream-complete="finishAnswerStream(chatMessage.id)" />
                 <p v-else-if="chatMessage.status !== 'pending' && !chatMessage.response" class="whitespace-pre-wrap break-words leading-6">{{ chatMessage.content }}</p>
                 <div v-if="chatMessage.taskStatus === 'WAITING_USER' && chatMessage.clarification?.fields?.length" class="mt-1">
-                  <StructuredClarificationForm v-if="chatMessage.clarification.fields?.length" :clarification="chatMessage.clarification" :disabled="activeConversationIsSending" @submit="(patch, label) => handleStructuredClarification(chatMessage.id, patch, label)" />
+                  <StructuredClarificationForm v-if="chatMessage.clarification.fields?.length" :clarification="chatMessage.clarification" :disabled="!queryReady || activeConversationIsSending" @submit="(patch, label) => handleStructuredClarification(chatMessage.id, patch, label)" />
                 </div>
                 <div v-if="openTimingMessageId === chatMessage.id" class="mt-3 border-t border-border/70 pt-3">
                   <div class="mb-1.5 flex items-center justify-between gap-3">
@@ -1343,7 +1348,12 @@ async function scrollToBottom() {
         </div>
       </div>
       <div class="border-t bg-background p-4">
-        <CatalogQuestionComposer :key="auth.user.value?.id" v-model="message" :context-key="`${activeConversationId}:${activeClarificationMessage?.clarification?.id ?? activeConversation?.messages.length ?? 0}`" :clarification="activeClarificationMessage?.clarification" :auto-open-clarification-id="autoOpenClarificationId" :is-submitting="activeConversationIsSending" :placeholder="composerPlaceholder" @submit="handleSubmit" />
+        <div v-if="!queryReady" role="status" aria-live="polite" class="mb-3 flex items-center gap-2 text-sm text-muted-foreground">
+          <LoaderCircle v-if="queryReadiness.status === 'initializing'" class="size-4 shrink-0 animate-spin" />
+          <AlertTriangle v-else class="size-4 shrink-0" />
+          <span>{{ queryReadiness.message }}<span v-if="queryReadiness.total > 0">（{{ queryReadiness.completed }}/{{ queryReadiness.total }}）</span></span>
+        </div>
+        <CatalogQuestionComposer :key="auth.user.value?.id" v-model="message" :context-key="`${activeConversationId}:${activeClarificationMessage?.clarification?.id ?? activeConversation?.messages.length ?? 0}`" :clarification="activeClarificationMessage?.clarification" :auto-open-clarification-id="autoOpenClarificationId" :is-submitting="activeConversationIsSending" :disabled="!queryReady" :placeholder="composerPlaceholder" @submit="handleSubmit" />
       </div>
     </div>
   </section>

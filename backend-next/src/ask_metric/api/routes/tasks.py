@@ -12,6 +12,7 @@ from ask_metric.api.dependencies import (
     get_semantic_task_service,
     require_actor,
 )
+from ask_metric.api.query_readiness import require_query_ready
 from ask_metric.application.actor_provider import ActorProvider
 from ask_metric.application.channel_service import ChannelClarificationService
 from ask_metric.application.commands import (
@@ -102,7 +103,10 @@ class SubmitChannelClarificationRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-@router.post("/questions", response_model=TaskCommandResult)
+@router.post(
+    "/questions", response_model=TaskCommandResult,
+    dependencies=[Depends(require_actor), Depends(require_query_ready)],
+)
 def submit_question(
     payload: SubmitQuestionRequest,
     request: Request,
@@ -138,7 +142,10 @@ def submit_question(
     )
 
 
-@router.post("/query-tasks/{task_id}/analyze", response_model=TaskCommandResult)
+@router.post(
+    "/query-tasks/{task_id}/analyze", response_model=TaskCommandResult,
+    dependencies=[Depends(require_actor), Depends(require_query_ready)],
+)
 def analyze_query_task(
     task_id: str,
     payload: AnalyzeSemanticRequest,
@@ -154,7 +161,10 @@ def analyze_query_task(
     )
 
 
-@router.post("/query-tasks/{task_id}/execute", response_model=QueryExecutionResult)
+@router.post(
+    "/query-tasks/{task_id}/execute", response_model=QueryExecutionResult,
+    dependencies=[Depends(require_actor), Depends(require_query_ready)],
+)
 def execute_query_task(
     task_id: str,
     payload: ExecuteQueryRequest,
@@ -179,7 +189,10 @@ def execute_query_task(
     )
 
 
-@router.post("/query-tasks/{task_id}/clarifications", response_model=TaskCommandResult)
+@router.post(
+    "/query-tasks/{task_id}/clarifications", response_model=TaskCommandResult,
+    dependencies=[Depends(require_actor), Depends(require_query_ready)],
+)
 def submit_clarification(
     task_id: str,
     payload: SubmitClarificationRequest,
@@ -237,7 +250,10 @@ def cancel_clarification(
     )
 
 
-@router.post("/clarifications", response_model=TaskCommandResult)
+@router.post(
+    "/clarifications", response_model=TaskCommandResult,
+    dependencies=[Depends(require_actor), Depends(require_query_ready)],
+)
 def submit_channel_clarification(
     payload: SubmitChannelClarificationRequest,
     request: Request,

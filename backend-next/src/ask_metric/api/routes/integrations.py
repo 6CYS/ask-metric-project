@@ -10,6 +10,7 @@ from ask_metric.api.dependencies import (
     get_query_task_service,
     get_semantic_task_service,
 )
+from ask_metric.api.query_readiness import require_query_ready
 from ask_metric.application.channel_service import ChannelClarificationService
 from ask_metric.application.integration_identity import (
     ExternalUserProfile,
@@ -86,7 +87,10 @@ def get_integration_ask_service(
     )
 
 
-@router.post("/ask", response_model=IntegrationAskResult)
+@router.post(
+    "/ask", response_model=IntegrationAskResult,
+    dependencies=[Depends(require_query_ready)],
+)
 def ask(
     payload: IntegrationAskRequest,
     request: Request,

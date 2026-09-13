@@ -17,6 +17,7 @@ import BaseAlert from "@/components/ui/BaseAlert.vue"
 import BaseBadge from "@/components/ui/BaseBadge.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton.vue"
+import { useQueryReadiness } from "@/composables/useQueryReadiness"
 import {
   createAccuracySuite,
   confirmAccuracyImport,
@@ -34,6 +35,7 @@ import type { AccuracyImportPreview, AccuracyRun, AccuracySuite } from "@/types/
 type Tab = "overview" | "accuracy" | "datasets" | "runs"
 
 const activeTab = ref<Tab>("overview")
+const { state: queryReadiness, ready: queryReady } = useQueryReadiness()
 const suites = ref<AccuracySuite[]>([])
 const runs = ref<AccuracyRun[]>([])
 const selectedSuiteId = ref("")
@@ -132,7 +134,7 @@ function schedulePoll() {
 }
 
 async function runSuite() {
-  if (!selectedSuite.value || starting.value) return
+  if (!queryReady.value || !selectedSuite.value || starting.value) return
   starting.value = true
   error.value = ""
   try {
@@ -302,9 +304,14 @@ onBeforeUnmount(() => { if (pollTimer) window.clearTimeout(pollTimer) })
         <select v-model="selectedSuiteId" class="form-control min-w-56" @change="selectSuite(selectedSuiteId)">
           <option v-for="suite in suites" :key="suite.id" :value="suite.id">{{ suite.name }}（{{ suite.cases.length }}条）</option>
         </select>
-        <BaseButton :disabled="!selectedSuite || starting || Boolean(activeRun)" @click="runSuite"><LoaderCircle v-if="starting" class="animate-spin" /><Play v-else />开始测试</BaseButton>
+        <BaseButton :disabled="!queryReady || !selectedSuite || starting || Boolean(activeRun)" @click="runSuite"><LoaderCircle v-if="starting" class="animate-spin" /><Play v-else />开始测试</BaseButton>
       </div>
     </header>
+
+    <p v-if="!queryReady" role="status" aria-live="polite" class="flex items-center gap-2 text-sm text-muted-foreground">
+      <LoaderCircle v-if="queryReadiness.status === 'initializing'" class="size-4 shrink-0 animate-spin" />
+      {{ queryReadiness.message }}<span v-if="queryReadiness.total > 0">（{{ queryReadiness.completed }}/{{ queryReadiness.total }}）</span>
+    </p>
 
     <nav class="flex flex-wrap gap-1 border-b" aria-label="测试中心导航">
       <button v-for="tab in tabs" :key="tab.id" type="button" class="border-b-2 px-4 py-2.5 text-sm transition-colors" :class="activeTab === tab.id ? 'border-foreground font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'" @click="activeTab = tab.id">{{ tab.label }}</button>

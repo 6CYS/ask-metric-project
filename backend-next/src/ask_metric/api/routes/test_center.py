@@ -7,6 +7,7 @@ from urllib.parse import quote, unquote
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 
 from ask_metric.api.dependencies import require_actor
+from ask_metric.api.query_readiness import require_query_ready
 from ask_metric.application.requests import ActorContext
 from ask_metric.application.test_case_import import (
     AccuracyImportConfirm,
@@ -172,7 +173,10 @@ def get_run(run_id: str, request: Request, actor: Annotated[ActorContext, Depend
     return run
 
 
-@router.post("/runs", response_model=AccuracyRun, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/runs", response_model=AccuracyRun, status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_actor), Depends(require_query_ready)],
+)
 def start_run(
     suite_id: str,
     request: Request,
