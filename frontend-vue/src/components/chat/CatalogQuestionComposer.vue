@@ -6,7 +6,7 @@ import { listBackendNextMetrics, listOrgs } from "@/lib/api"
 import { clarificationCatalogKinds, consumeCatalogCommand, entityKey, insertComposerEntity, updateComposerMentions, type ComposerEntity, type ComposerMention } from "@/lib/composerEntities"
 import type { BackendNextClarification } from "@/types/api"
 
-const props = defineProps<{ modelValue: string; contextKey: string; placeholder?: string; isSubmitting?: boolean; clarification?: BackendNextClarification }>()
+const props = defineProps<{ modelValue: string; contextKey: string; placeholder?: string; isSubmitting?: boolean; clarification?: BackendNextClarification; autoOpenClarificationId?: string }>()
 const emit = defineEmits<{ "update:modelValue": [value: string]; submit: [text: string, entities: ComposerEntity[]] }>()
 const input = ref<HTMLTextAreaElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
@@ -56,8 +56,9 @@ watch(() => props.modelValue, (value) => {
   mentionText = value
 })
 watch(() => props.modelValue, () => resizeInput(), { flush: "post" })
-watch([() => props.contextKey, () => props.clarification, () => props.isSubmitting, mounted], () => {
+watch([() => props.contextKey, () => props.clarification, () => props.autoOpenClarificationId, () => props.isSubmitting, mounted], () => {
   if (!props.clarification) { autoOpenedContext = null; closePicker(); return }
+  if (props.autoOpenClarificationId !== props.clarification.id) return
   const context = `${props.contextKey}:${props.clarification.id}`
   if (!mounted.value || props.isSubmitting || autoOpenedContext === context) return
   const nextKind = clarificationCatalogKinds(props.clarification)[0]

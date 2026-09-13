@@ -102,6 +102,8 @@ const exampleQuestions = computed(() => {
 const message = ref(props.initialMessage.trim())
 const conversations = ref<DisplayConversation[]>([])
 const activeConversationId = ref("")
+const autoOpenClarificationId = ref<string>()
+watch(activeConversationId, () => { autoOpenClarificationId.value = undefined }, { flush: "sync" })
 const sendingConversationIds = ref(new Set<string>())
 const isHistoryLoading = ref(true)
 const isConversationLoading = ref(false)
@@ -612,6 +614,7 @@ async function loadHistory(expectedUserId = auth.user.value?.id ?? null) {
 }
 
 async function selectConversation(conversationId: string) {
+  autoOpenClarificationId.value = undefined
   activeConversationId.value = conversationId
   persistActiveConversation()
   const conversation = conversations.value.find((item) => item.id === conversationId)
@@ -965,6 +968,9 @@ function attachTask(conversationId: string, messageId: string, task: BackendNext
 async function handleTaskAdvance(conversationId: string, messageId: string, task: BackendNextTaskResult) {
   attachTask(conversationId, messageId, task)
   if (task.status === "WAITING_USER" && task.clarification) {
+    if (activeConversationId.value === conversationId && sendingConversationIds.value.has(conversationId)) {
+      autoOpenClarificationId.value = task.clarification.id
+    }
     updateConversation(conversationId, (conversation) => ({
       ...conversation,
       preview: task.clarification!.prompt,
@@ -1168,6 +1174,7 @@ async function resumeClarificationWithAnswers(conversationId: string, target: Di
       ],
     }))
     if (resumed.status === "WAITING_USER" && resumed.clarification) {
+      if (activeConversationId.value === conversationId) autoOpenClarificationId.value = resumed.clarification.id
       const assistantId = resumed.message_id ?? createId()
       updateConversation(conversationId, (conversation) => ({
         ...conversation,
@@ -1380,7 +1387,7 @@ async function scrollToBottom() {
         </div>
       </div>
       <div class="border-t bg-background p-4">
-        <CatalogQuestionComposer :key="auth.user.value?.id" v-model="message" :context-key="`${activeConversationId}:${activeClarificationMessage?.clarification?.id ?? activeConversation?.messages.length ?? 0}`" :clarification="activeClarificationMessage?.clarification" :is-submitting="activeConversationIsSending" :placeholder="composerPlaceholder" @submit="handleSubmit" />
+        <CatalogQuestionComposer :key="auth.user.value?.id" v-model="message" :context-key="`${activeConversationId}:${activeClarificationMessage?.clarification?.id ?? activeConversation?.messages.length ?? 0}`" :clarification="activeClarificationMessage?.clarification" :auto-open-clarification-id="autoOpenClarificationId" :is-submitting="activeConversationIsSending" :placeholder="composerPlaceholder" @submit="handleSubmit" />
       </div>
     </div>
   </section>
