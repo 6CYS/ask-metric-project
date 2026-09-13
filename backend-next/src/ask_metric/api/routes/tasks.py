@@ -87,6 +87,8 @@ def analysis_progress(
 ):
     # Ordinary queries never load the graph, Skill or checkpoint tables while being polled.
     task = get_query_task_service(request).get_task(task_id, actor)
+    if not request.app.state.settings.analysis_enabled:
+        return {"version": task.version, "events": []}
     from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
 
     with SqlAlchemyUnitOfWork() as uow:

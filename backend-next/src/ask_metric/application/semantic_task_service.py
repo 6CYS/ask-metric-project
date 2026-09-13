@@ -821,7 +821,10 @@ class SemanticTaskApplicationService:
                    and t.created_at.replace(tzinfo=UTC) <= task.created_at.replace(tzinfo=UTC)
                    and ((t.state_json or {}).get("actor_context") or {}).get("tenant_id")
                    == state.actor_context.get("tenant_id")]
-        service = ConversationShadowService(model_service=self.model_service)
+        service = ConversationShadowService(
+            model_service=self.model_service,
+            analysis_enabled=self.analysis_service_factory is not None,
+        )
         metrics = uow.metric_catalog.list_enabled()
         organizations = uow.organization_catalog.list_enabled()
         answers = [entry["answers"] for entry in state.clarification_answers]

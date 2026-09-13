@@ -15,6 +15,7 @@ from ask_metric.application.result_enrichment import CatalogResultEnricher
 from ask_metric.application.semantic_task_service import SemanticTaskApplicationService
 from ask_metric.application.task_service import QueryTaskApplicationService
 from ask_metric.core.config import PROJECT_DIR, Settings
+from ask_metric.core.errors import ApplicationError
 from ask_metric.core.security import AuthenticationError, decode_access_token
 from ask_metric.domain.conversation_context import MultiturnRolloutThresholds
 from ask_metric.domain.query_execution import QueryPlanner
@@ -101,7 +102,7 @@ def get_query_task_service(request: Request) -> QueryTaskApplicationService:
             or settings.analysis_enabled
         ),
         conversation_shadow_service=ConversationShadowService(
-            model_service=get_model_service(request)
+            model_service=get_model_service(request), analysis_enabled=settings.analysis_enabled,
         ),
         candidate_permission_service=ScopedOrganizationPermissionService(
             organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
@@ -236,10 +237,15 @@ def get_query_execution_service(request: Request) -> QueryExecutionApplicationSe
 
 
 def get_analysis_service(request: Request):
+    settings = request.app.state.settings
+    if not settings.analysis_enabled:
+        raise ApplicationError(
+            "ANALYSIS_DISABLED", "归因分析当前未启用，请使用指标查询或多轮问答。",
+            status_code=409,
+        )
     from ask_metric.application.analysis_service import AnalysisApplicationService
     from ask_metric.domain.analysis import AnalysisBudget
 
-    settings = request.app.state.settings
     return AnalysisApplicationService(
         model=get_model_service(request),
         execution=get_query_execution_service(request),

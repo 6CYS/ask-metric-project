@@ -753,8 +753,11 @@ class MultiturnGrayExecutionPolicy:
 
 
 class ConversationShadowService:
-    def __init__(self, model_service: ModelService | None = None) -> None:
+    def __init__(
+        self, model_service: ModelService | None = None, *, analysis_enabled: bool = True,
+    ) -> None:
         self.model_service = model_service
+        self.analysis_enabled = analysis_enabled
         self.act_resolver = ConversationActResolver()
         self.task_resolver = HistoricalTaskResolver()
         self.patch_generator = ContextPatchGenerator()
@@ -774,6 +777,14 @@ class ConversationShadowService:
     ) -> tuple[ConversationTurnResolution, ContextPatch | None, list[str], list[str]]:
         """Use the model for semantics; return only catalog-normalized patch values."""
 
+        if not self.analysis_enabled:
+            # Retain normal query anchors without reviving an earlier experiment's goal.
+            tasks = [task for task in tasks if not (
+                (task.state_json or {}).get("analysis_started")
+                or (task.state_json or {}).get("analysis_target")
+                or (task.state_json or {}).get("internal_analysis_id")
+                or task.query_shape == "attribution_analysis"
+            )]
         if not tasks and not reply_to_task_id:
             return (
                 ConversationTurnResolution(
