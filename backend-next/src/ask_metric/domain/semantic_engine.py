@@ -13,7 +13,11 @@ from typing import Any, Protocol
 from pydantic import ValidationError
 
 from ask_metric.application.ports import ModelService
-from ask_metric.domain.metric_matching import MetricMatcher, normalize_semantic_text
+from ask_metric.domain.metric_matching import (
+    MetricMatcher,
+    deduplicate_metrics,
+    normalize_semantic_text,
+)
 from ask_metric.domain.semantic_normalization import (
     SemanticValidationError,
     normalize_slot_frame,
@@ -291,8 +295,8 @@ class SemanticEngine:
                 if has_metric_evidence or not selected_metrics
             ]
             decision = _MetricDecision(
-                _deduplicate(selected_metrics),
-                _deduplicate(candidate_metrics),
+                deduplicate_metrics(selected_metrics),
+                deduplicate_metrics(candidate_metrics),
                 _deduplicate_scored(scored_candidates),
                 "phrase_list",
             )
@@ -462,7 +466,7 @@ class SemanticEngine:
     ) -> _MetricDecision:
         by_code = {item.code: item for item in metrics}
         if len(deterministic_matches) > 1 and not ambiguous_candidates:
-            selected = _deduplicate(
+            selected = deduplicate_metrics(
                 [by_code[match.code] for match in deterministic_matches]
             )
             return _MetricDecision(selected, selected, [], "exact_multiple")
@@ -478,7 +482,7 @@ class SemanticEngine:
                 "exact_question_longest_match",
             )
         if ambiguous_candidates:
-            candidates = _deduplicate(ambiguous_candidates)[
+            candidates = deduplicate_metrics(ambiguous_candidates)[
                 : config.metric_matching.max_candidates
             ]
             return _MetricDecision([], candidates, [], "exact_ambiguous")
@@ -490,7 +494,7 @@ class SemanticEngine:
                 candidates = exact[: config.metric_matching.max_candidates]
                 return _MetricDecision([], candidates, [], "exact_ambiguous")
         elif deterministic_matches and not ambiguous_candidates:
-            selected = _deduplicate(
+            selected = deduplicate_metrics(
                 [by_code[match.code] for match in deterministic_matches]
             )
             return _MetricDecision(selected, selected, [], "exact_question_fallback")
@@ -549,7 +553,7 @@ class SemanticEngine:
                 "input": {"question": question, "index": "configured_catalog_search"},
                 "output": {"candidate_count": len(recalled)},
             }
-            recalled = _deduplicate([*recalled, *(item.item for item in lexical)])
+            recalled = deduplicate_metrics([*recalled, *(item.item for item in lexical)])
             debug["embedding"]["output"]["lexical_candidate_count"] = len(lexical)
             reranked = self._rerank_candidates(
                 question,
@@ -984,29 +988,6 @@ def _requests_synchronized_organization_scope(model_scope: Any) -> bool:
     return False
 
 
-def _contains_organization_expression(text: str) -> bool:
-    return bool(re.search(r"[\u4e00-\u9fff]{2,}(?:农商行|银行|农信|联社)", text))
-
-
-def _extract_unknown_organization_text(text: str) -> str | None:
-    value_without_time = text
-    time_expression = extract_time_expression(text)
-    if time_expression and time_expression in value_without_time:
-        value_without_time = value_without_time.replace(time_expression, " ", 1)
-    match = re.search(
-        r"[\u4e00-\u9fff]{2,}(?:农商行|银行|农信|联社)",
-        value_without_time,
-    )
-    if not match:
-        return None
-    value = re.sub(
-        r"^(?:请|帮我|麻烦|查询|查一下|查)+",
-        "",
-        match.group(0),
-    ).strip()
-    return value or None
-
-
 def _extract_organization_mentions(text: str) -> list[str]:
     time_expression = extract_time_expression(text)
     if time_expression:
@@ -1079,19 +1060,6 @@ def _merge_scored_metric_candidates(
         by_code.values(),
         key=lambda item: (-item.score, item.item.code),
     )[:limit]
-
-
-def _term_is_mentioned(text: str, term: str) -> bool:
-    start = 0
-    while True:
-        position = text.find(term, start)
-        if position < 0:
-            return False
-        if position == 0 or text[position - 1] in "和与、，, ":
-            return True
-        if not re.match(r"[\u4e00-\u9fff]", text[position - 1]):
-            return True
-        start = position + 1
 
 
 def _extract_requested_metric_text(
@@ -1214,13 +1182,6 @@ def _cosine(
         sum(value * value for value in right)
     )
     return numerator / denominator if denominator else 0
-
-
-def _deduplicate(items: list[MetricCatalogItem]) -> list[MetricCatalogItem]:
-    values: dict[str, MetricCatalogItem] = {}
-    for item in items:
-        values.setdefault(item.code, item)
-    return list(values.values())
 
 
 def _deduplicate_scored(

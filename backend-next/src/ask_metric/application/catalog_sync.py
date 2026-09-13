@@ -447,14 +447,6 @@ def _as_date(value: Any) -> date | None:
         return None
 
 
-def _as_optional_text(value: Any) -> str | None:
-    return None if value is None or str(value).strip() == "" else str(value)
-
-
-def _json_value(value: Any) -> Any:
-    return value.isoformat() if isinstance(value, (date, datetime)) else value
-
-
 def _metric_state(term: MetricTerm) -> tuple[Any, ...]:
     return (term.metric_name, term.enabled)
 

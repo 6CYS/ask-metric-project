@@ -44,7 +44,7 @@ class MetricMatcher:
             for term in self.terms
             if term.source_priority == 1 and term.normalized == normalized
         ]
-        return _deduplicate_items(standard + aliases)
+        return deduplicate_metrics(standard + aliases)
 
     def match(self, text: str) -> list[MetricMatch]:
         return self.resolve(text).matches
@@ -161,7 +161,7 @@ class MetricMatcher:
                 elif extension and extension == strongest_extension:
                     candidates.append(term.item)
                 offset = term.normalized.find(matched.normalized, offset + 1)
-        return _deduplicate_items(candidates)
+        return deduplicate_metrics(candidates)
 
     def protect(self, text: str, matches: list[MetricMatch]) -> str:
         output: list[str] = []
@@ -206,7 +206,7 @@ def _normalize_with_index(text: str) -> tuple[str, list[int]]:
     return "".join(normalized_chars), index_map
 
 
-def _deduplicate_items(items: list[MetricCatalogItem]) -> list[MetricCatalogItem]:
+def deduplicate_metrics(items: list[MetricCatalogItem]) -> list[MetricCatalogItem]:
     values: dict[str, MetricCatalogItem] = {}
     for item in items:
         values.setdefault(item.code, item)
