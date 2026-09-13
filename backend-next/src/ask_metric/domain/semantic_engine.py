@@ -180,6 +180,15 @@ class SemanticEngine:
             adaptation = adapt_model_slot_frame(raw)
             debug["chat_model"]["adapted_output"] = adaptation.adapted
             debug["chat_model"]["field_validation_errors"] = adaptation.field_errors
+            # 适配器可修复非关键展示字段，但操作/筛选/维度/参数不能“丢弃后继续”。
+            # 否则格式错误的复杂请求会被缩成普通取值，甚至丢失限定条件。
+            blocking_errors = [
+                error for error in adaptation.field_errors
+                if str(error["field"]).split("[", 1)[0]
+                in {"task", "ops", "filters", "dimensions", "options"}
+            ]
+            if blocking_errors:
+                raise InvalidSlotFrameError(blocking_errors)
             frame = SlotFrame.model_validate(adaptation.adapted)
         except (TypeError, ValidationError) as exc:
             errors = (

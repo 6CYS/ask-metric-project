@@ -56,7 +56,16 @@ def adapt_model_slot_frame(raw: Any) -> SlotFrameAdaptation:
 
 
 def slot_frame_json_schema() -> dict[str, Any]:
-    return SlotFrame.model_json_schema()
+    schema = SlotFrame.model_json_schema()
+    # 仅收紧外部模型协议；历史 SlotFrame 的默认值与读取兼容保持不变。
+    schema["required"] = [*schema.get("required", []), "ops"]
+    schema["properties"]["ops"]["description"] = (
+        "必须显式输出操作数组；只有纯指标取值时才返回空数组。"
+        "逐项保留实体占位符之外的请求，不能因为当前系统不支持就省略操作、维度或筛选。"
+        "请求原始记录用detail，按其他维度展开用drill_down；名称占位符内文字不是操作。"
+        "后端根据结构判断是否支持，不要擅自把这些请求改成指标取值。"
+    )
+    return schema
 
 
 def _scalar(
@@ -147,7 +156,8 @@ def _time(value: Any, errors: list[dict[str, Any]]) -> str | None:
 
 
 def _operations(raw: dict[str, Any], errors: list[dict[str, Any]]) -> list[Any]:
-    value = raw.get("ops", [])
+    # 缺少 ops 与明确返回 [] 不同：前者不能证明模型已检查过查询操作。
+    value = raw.get("ops")
     if not isinstance(value, list):
         errors.append(_error("ops", "invalid_type", "Expected an array; used []"))
         return []

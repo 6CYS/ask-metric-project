@@ -227,15 +227,8 @@ class SemanticTaskApplicationService:
                 intent_model_ms=intent_model_ms,
                 analyze_started=analyze_started,
             )
-        if _looks_beyond_initial_scope(original_question):
-            return self._finish_unsupported(
-                command,
-                original_question,
-                intent=intent,
-                intent_raw=intent_raw,
-                intent_model_ms=intent_model_ms,
-                analyze_started=analyze_started,
-            )
+        # 不按原句关键词猜查询能力：先保护目录名称并提取操作，再由 QueryPlanner
+        # 在执行前统一校验。名称里的“明细”等词不能直接让正式指标失去查询资格。
         config = self.config_repository.load()
         with self.uow_factory() as uow:
             metrics = uow.metric_catalog.list_enabled()
@@ -624,81 +617,6 @@ class SemanticTaskApplicationService:
                 error_code=code,
                 error_message=user_message,
                 completed_at=datetime.now(UTC),
-            )
-            if updated is None:
-                raise _version_conflict(task.id, command.expected_version)
-            uow.commit()
-            return _result(updated, message_id=message_id, continuation_token=None)
-
-    def _finish_unsupported(
-        self,
-        command: AnalyzeSemanticCommand,
-        original_question: str,
-        *,
-        intent: IntentClassification,
-        intent_raw: dict[str, Any] | None,
-        intent_model_ms: int,
-        analyze_started: float,
-    ) -> TaskCommandResult:
-        message = "该问题涉及明细查询或多条件筛选、计算、组合排名，超出一期单指标问数建设范围。"
-        with self.uow_factory() as uow:
-            task = (
-                uow.tasks.get_owned_for_update(command.task_id, command.actor.user_id or "")
-                if command.actor is not None
-                else uow.tasks.get_for_update(command.task_id)
-            )
-            if task is None:
-                raise SemanticTaskNotFoundError(command.task_id)
-            _require_version(task, command.expected_version)
-            state = QueryTaskState.model_validate(task.state_json or {})
-            _record_intent_routing(
-                state,
-                intent=intent,
-                raw_output=intent_raw,
-                duration_ms=intent_model_ms,
-            )
-            state.timings_ms["analyze_total_ms"] = _elapsed_ms(analyze_started)
-            state.timings_ms["total_ms"] = _terminal_total_ms(state.timings_ms)
-            state.debug.update({"question": original_question, "unsupported_scope": message})
-            append_task_trace(
-                state,
-                stage=QueryTaskStage.VALIDATION.value,
-                status=QueryTaskStatus.FAILED.value,
-                node="unsupported_scope",
-            )
-            _add_terminal_run(
-                uow,
-                task=task,
-                intent="metric_query",
-                query_shape="unsupported_initial_scope",
-                status="unsupported",
-                failed_node="VALIDATION",
-                error_type="UnsupportedScope",
-                error_message=message,
-                state=state,
-            )
-            message_id = str(uuid4())
-            uow.messages.add(
-                ChatMessage(
-                    id=message_id,
-                    conversation_id=task.conversation_id,
-                    task_id=task.id,
-                    role="assistant",
-                    content=message,
-                    created_at=datetime.now(UTC),
-                    payload={"kind": "unsupported_scope", "message": message},
-                )
-            )
-            updated = uow.tasks.update_optimistically(
-                task_id=task.id,
-                expected_version=command.expected_version,
-                status=QueryTaskStatus.FAILED.value,
-                current_stage=QueryTaskStage.VALIDATION.value,
-                state_json=state.model_dump(mode="json"),
-                intent="metric_query",
-                query_shape="unsupported_initial_scope",
-                error_code="INITIAL_SCOPE_UNSUPPORTED",
-                error_message=message,
             )
             if updated is None:
                 raise _version_conflict(task.id, command.expected_version)
@@ -1371,13 +1289,6 @@ def _model_service_user_message(error: ModelServiceUnavailable) -> str:
         "configuration": "大模型服务尚未正确配置，请联系管理员。",
         "concurrency": "当前问数请求较多，请稍后重试。",
     }.get(error.category, "大模型服务暂时不可用，请稍后重试。")
-
-
-def _looks_beyond_initial_scope(question: str) -> bool:
-    # Terms such as “均值” and “排名” may be part of official metric names.
-    # Unsupported operations are rejected later from resolved slots and DSL,
-    # where catalog-confirmed metric spans are already available.
-    return any(token in question for token in ("明细", "详情", "逐笔", "流水"))
 
 
 def _record_intent_routing(
