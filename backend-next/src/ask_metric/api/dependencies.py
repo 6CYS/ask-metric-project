@@ -13,7 +13,6 @@ from ask_metric.application.actor_provider import ActorProvider, ContextActorPro
 from ask_metric.application.auth_service import AuthenticationService
 from ask_metric.application.channel_service import ChannelClarificationService
 from ask_metric.application.continuation_tokens import ContinuationTokenCodec
-from ask_metric.application.conversation_context_service import ConversationShadowService
 from ask_metric.application.ports import ScopedOrganizationPermissionService
 from ask_metric.application.query_execution_service import QueryExecutionApplicationService
 from ask_metric.application.requests import ActorContext
@@ -22,7 +21,6 @@ from ask_metric.application.semantic_task_service import SemanticTaskApplication
 from ask_metric.application.task_service import QueryTaskApplicationService
 from ask_metric.core.config import PROJECT_DIR, Settings
 from ask_metric.core.security import AuthenticationError, decode_access_token
-from ask_metric.domain.conversation_context import MultiturnRolloutThresholds
 from ask_metric.domain.query_execution import QueryPlanner
 from ask_metric.domain.semantic_engine import SemanticEngine
 from ask_metric.infrastructure.db.organization_scope import SqlAlchemyOrganizationScopeProvider
@@ -132,26 +130,9 @@ def get_query_task_service(request: Request) -> QueryTaskApplicationService:
         semantic_config_repository=SemanticConfigRepository(
             resolve_config_path(PROJECT_DIR, settings.semantic_config_path)
         ),
-        multiturn_shadow_enabled=(
-            settings.multiturn_v2_enabled or settings.multiturn_shadow_mode
-        ),
-        conversation_shadow_service=ConversationShadowService(
-            model_service=get_model_service(request),
-        ),
         candidate_permission_service=ScopedOrganizationPermissionService(
             organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
             allow_unscoped_development=settings.app_env.lower() in {"development", "test"},
-        ),
-        candidate_query_planner=QueryPlanner(
-            dialect=settings.query_database_dialect,
-            max_limit=settings.query_result_limit,
-        ),
-        multiturn_rollout_thresholds=MultiturnRolloutThresholds(
-            min_reviewed_samples=settings.multiturn_rollout_min_reviewed_samples,
-            min_approval_rate=settings.multiturn_rollout_min_approval_rate,
-            min_gray_success_rate=settings.multiturn_rollout_min_gray_success_rate,
-            max_fallback_rate=settings.multiturn_rollout_max_fallback_rate,
-            max_failure_rate=settings.multiturn_rollout_max_failure_rate,
         ),
     )
 
@@ -200,18 +181,6 @@ def get_semantic_task_service(request: Request) -> SemanticTaskApplicationServic
             resolve_config_path(PROJECT_DIR, settings.semantic_config_path)
         ),
         continuation_token_codec=token_codec,
-        multiturn_shadow_evaluation_enabled=settings.multiturn_shadow_mode,
-        multiturn_routed_execution_enabled=settings.multiturn_v2_enabled,
-        result_permission_service=ScopedOrganizationPermissionService(
-            organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
-            allow_unscoped_development=settings.app_env.lower() in {"development", "test"},
-        ),
-        result_query_planner=QueryPlanner(
-            dialect=settings.query_database_dialect,
-            max_limit=settings.query_result_limit,
-        ),
-        multiturn_gray_execution_enabled=settings.multiturn_gray_execution_enabled,
-        multiturn_gray_user_ids=settings.multiturn_gray_user_ids,
     )
 
 
@@ -250,9 +219,6 @@ def get_query_execution_service(request: Request) -> QueryExecutionApplicationSe
             allow_unscoped_development=settings.app_env.lower() in {"development", "test"},
         ),
         model_service=get_model_service(request),
-        context_snapshot_enabled=(
-            settings.multiturn_v2_enabled or settings.multiturn_shadow_mode
-        ),
         result_enricher=(
             CatalogResultEnricher(get_app_session_factory())
             if settings.query_database_dialect == "inceptor"

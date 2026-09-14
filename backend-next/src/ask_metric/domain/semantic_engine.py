@@ -100,7 +100,6 @@ class SemanticEngine:
         organizations: list[OrganizationCatalogItem],
         config: SemanticConfig,
         current_date: date,
-        existing_slot_frame: SlotFrame | None = None,
     ) -> SemanticAnalysis:
         total_started = perf_counter()
         timings_ms: dict[str, int] = {}
@@ -153,11 +152,7 @@ class SemanticEngine:
                 }
                 for item in organizations
             ],
-            "existing_slot_frame": (
-                existing_slot_frame.model_dump(mode="json")
-                if existing_slot_frame
-                else None
-            ),
+            "existing_slot_frame": None,  # 兼容旧模板占位符，不注入其他任务的槽位。
         }
         chat_started = perf_counter()
         raw = self.model_service.analyze(

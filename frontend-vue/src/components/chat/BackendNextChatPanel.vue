@@ -43,7 +43,7 @@ import { copyText } from "@/lib/clipboard"
 import { activeClarificationMessageIds, archiveClarificationResponse, clarificationTranscript, conversationMessageTime, visibleConversationMessages } from "@/lib/conversationMessages"
 import { composeClarification, composeQuestion, type ComposerEntity } from "@/lib/composerEntities"
 import { friendlyQueryError } from "@/lib/queryErrors"
-import { needsSemanticResume } from "@/lib/taskAdvance"
+import { isRetiredContextTask, needsSemanticResume } from "@/lib/taskAdvance"
 
 type TaskStatus = BackendNextTaskResult["status"]
 
@@ -142,12 +142,15 @@ let historyLoadVersion = 0
 
 const activeConversation = computed(() => conversations.value.find((item) => item.id === activeConversationId.value) ?? conversations.value[0])
 const activeConversationIsSending = computed(() => Boolean(activeConversation.value && sendingConversationIds.value.has(activeConversation.value.id)))
-const activeClarificationMessage = computed(() => [...(activeConversation.value?.messages ?? [])].reverse().find((item) =>
-  item.role === "assistant" && item.taskStatus === "WAITING_USER" && Boolean(item.clarification),
-))
+const activeClarificationMessage = computed(() => {
+  const latestFirst = [...(activeConversation.value?.messages ?? [])].reverse()
+  const currentTaskId = latestFirst.find((item) => item.taskId)?.taskId
+  return latestFirst.find((item) => item.taskId === currentTaskId && item.role === "assistant"
+    && item.taskStatus === "WAITING_USER" && Boolean(item.clarification))
+})
 const composerPlaceholder = computed(() => {
   const clarification = activeClarificationMessage.value?.clarification
-  if (!clarification) return "输入问题，或选择指标、机构"
+  if (!clarification) return "请输入本次查询的日期、机构和指标"
   if (clarification.fields?.length && clarification.fields.every((field) => field.type === "date_range")) {
     return "补充查询日期，例如：2026年7月末"
   }
@@ -694,6 +697,8 @@ async function refreshRunningTasks() {
     .map((item) => item.taskId!))]
   await Promise.all(runningTaskIds.map(async (taskId) => {
     const task = await getBackendNextTask(taskId)
+    // 读取历史不应重新发起旧追问的解析或查询；后端也会拒绝其执行命令。
+    if (isRetiredContextTask(task)) return
     updateTaskMessages(task)
     if ((task.current_stage === "LOGICAL_DSL" && task.logical_dsl) || needsSemanticResume(task)) {
       const conversation = conversations.value.find((candidate) => candidate.messages.some((message) => message.taskId === task.task_id))

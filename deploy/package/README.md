@@ -172,7 +172,6 @@ MODEL_SECRET_ENV_PATH=/etc/ask-metric/backend.env
 CONFIG_HISTORY_DIR=/var/lib/ask-metric/config-history
 TEST_CENTER_DATA_DIR=/var/lib/ask-metric/test-center
 TEST_CENTER_BASELINE_PATH=/opt/ask-metric/current/backend/resources/testing/accuracy-baseline.json
-MULTITURN_V2_ENABLED=true
 ```
 
 自定义安装路径时对应替换。持久状态由服务账号写入；首次安装后核对权限：

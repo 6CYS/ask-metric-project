@@ -4,11 +4,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ask_metric.domain.conversation_context import (
-    MultiturnGrayExecutionState,
-    MultiturnHumanReview,
-)
-
 
 def append_task_trace(
     state: "QueryTaskState",
@@ -78,8 +73,6 @@ class QueryTaskState(BaseModel):
     clarification_answers: list[dict[str, Any]] = Field(default_factory=list)
     resolved_question: str | None = None
     execution: dict[str, Any] | None = None
-    multiturn_execution: MultiturnGrayExecutionState | None = None
-    multiturn_review: MultiturnHumanReview | None = None
     timings_ms: dict[str, int] = Field(default_factory=dict)
     debug: dict[str, Any] = Field(default_factory=dict)
 
@@ -90,18 +83,3 @@ class QueryTaskState(BaseModel):
             value = dict(value)
             value.pop("query_spec", None)
         return value
-
-
-def is_pending_context_clarification(state: dict[str, Any]) -> bool:
-    """Include answers persisted by the older, incomplete VALIDATION resume path."""
-    debug = state.get("debug") or {}
-    return bool(
-        state.get("clarification_answers")
-        and not state.get("clarification")
-        and not state.get("logical_dsl")
-        and (debug.get("context_clarification_pending") or (
-            (debug.get("execution_route") or {}).get("selected_pipeline")
-            == "MULTITURN_CLARIFICATION"
-            and "multiturn_context" in (state.get("missing_slots") or [])
-        ))
-    )

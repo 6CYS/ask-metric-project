@@ -4,11 +4,11 @@
 幂等键用于识别同一次操作的重试。二者不能互相替代。
 """
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 from ask_metric.api.dependencies import (
     get_actor_provider,
@@ -44,12 +44,6 @@ from ask_metric.application.task_results import (
     TaskCommandResult,
 )
 from ask_metric.application.task_service import QueryTaskApplicationService
-from ask_metric.domain.conversation_context import (
-    MultiturnHumanReview,
-    MultiturnReviewSample,
-    MultiturnRolloutReadiness,
-    MultiturnShadowMetrics,
-)
 from ask_metric.domain.query_execution import QueryExecutionResult
 
 router = APIRouter(prefix="/api/v1", tags=["query-tasks"])
@@ -329,38 +323,6 @@ class RenameConversationRequest(BaseModel):
         return title
 
 
-class MultiturnReviewRequest(BaseModel):
-    expected_version: int = Field(ge=0)
-    decision: Literal["APPROVED", "REJECTED"]
-    reason_codes: list[str] = Field(default_factory=list, max_length=20)
-    notes: str | None = Field(default=None, max_length=1000)
-
-    @field_validator("reason_codes")
-    @classmethod
-    def validate_reason_codes(cls, values: list[str]) -> list[str]:
-        normalized = [value.strip() for value in values]
-        if any(not value or len(value) > 128 for value in normalized):
-            raise ValueError("reason codes must be non-empty and at most 128 characters")
-        if len(set(normalized)) != len(normalized):
-            raise ValueError("reason codes must not contain duplicates")
-        return normalized
-
-    @model_validator(mode="after")
-    def require_rejection_reason(self) -> "MultiturnReviewRequest":
-        if (
-            self.decision == "REJECTED"
-            and not self.reason_codes
-            and not (self.notes and self.notes.strip())
-        ):
-            raise ValueError("rejected review requires a reason code or notes")
-        return self
-
-
-class MultiturnReviewSampleListResponse(BaseModel):
-    items: list[MultiturnReviewSample]
-    has_more: bool
-
-
 @router.get("/conversations", response_model=ConversationListResponse)
 def list_conversations(
     service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
@@ -370,62 +332,6 @@ def list_conversations(
 ) -> ConversationListResponse:
     items, has_more = service.list_conversations(actor, limit=limit, offset=offset)
     return ConversationListResponse(items=items, has_more=has_more)
-
-
-@router.get("/multiturn/metrics", response_model=MultiturnShadowMetrics)
-def get_multiturn_metrics(
-    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-) -> MultiturnShadowMetrics:
-    return service.get_multiturn_metrics(actor)
-
-
-@router.get("/multiturn/readiness", response_model=MultiturnRolloutReadiness)
-def get_multiturn_readiness(
-    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-) -> MultiturnRolloutReadiness:
-    return service.get_multiturn_readiness(actor)
-
-
-@router.get(
-    "/multiturn/review-samples",
-    response_model=MultiturnReviewSampleListResponse,
-)
-def list_multiturn_review_samples(
-    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    offset: Annotated[int, Query(ge=0)] = 0,
-    reviewed: bool | None = None,
-) -> MultiturnReviewSampleListResponse:
-    items, has_more = service.list_multiturn_review_samples(
-        actor,
-        limit=limit,
-        offset=offset,
-        reviewed=reviewed,
-    )
-    return MultiturnReviewSampleListResponse(items=items, has_more=has_more)
-
-
-@router.put(
-    "/query-tasks/{task_id}/multiturn-review",
-    response_model=MultiturnHumanReview,
-)
-def review_multiturn_task(
-    task_id: str,
-    payload: MultiturnReviewRequest,
-    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-) -> MultiturnHumanReview:
-    return service.review_multiturn_task(
-        task_id=task_id,
-        expected_version=payload.expected_version,
-        decision=payload.decision,
-        reason_codes=payload.reason_codes,
-        notes=payload.notes,
-        actor=actor,
-    )
 
 
 @router.delete("/conversations", response_model=ConversationCleanupResult)

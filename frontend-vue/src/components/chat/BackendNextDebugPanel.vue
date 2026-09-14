@@ -8,9 +8,9 @@ const emit = defineEmits<{ close: [] }>()
 const labels: Record<string, string> = {
   question: "问题输入",
   execution_route: "本次正式执行链路",
-  multiturn_understanding: "多轮模型理解（正式输入）",
-  multiturn_context_merge: "多轮上下文合并结果",
-  multiturn_candidate_dsl: "多轮候选 DSL（校验后）",
+  multiturn_understanding: "历史多轮模型输入（已退出）",
+  multiturn_context_merge: "历史多轮条件合并（已退出）",
+  multiturn_candidate_dsl: "历史多轮候选 DSL（已退出）",
   task_create: "QueryTask 创建",
   intent_routing: "大模型意图识别",
   semantic: "语义分析",
@@ -74,19 +74,19 @@ function routeNotice() {
   if (!route || typeof route !== "object") return null
   const value = route as Record<string, unknown>
   if (value.selected_pipeline === "MULTITURN_CONTEXT") {
-    return "本次正式采用多轮上下文链路；单轮语义模型未执行。下方最终 DSL 来自多轮上下文合并。"
+    return "此为旧版多轮执行记录，仅供历史查看；当前版本不再执行这条链路。"
   }
   if (value.selected_pipeline === "SINGLE_TURN_QUERY") {
-    return "本次识别为新问题，正式采用单轮指标查询链路。"
+    return "本次采用独立指标查询链路，不继承其他任务的条件。"
   }
   if (value.selected_pipeline === "MULTITURN_CLARIFICATION") {
-    return "本次识别为追问，但多轮上下文未达到安全执行条件；系统已请求澄清，未执行单轮语义模型，也未生成最终 DSL。"
+    return "此为旧版跨任务澄清，已退出运行链。请重新提问并补齐指标、机构和日期。"
   }
   if (value.selected_pipeline === "SINGLE_TURN_FALLBACK") {
-    return "本次多轮上下文未达到执行条件，已进入单轮兼容链路；请结合澄清或错误信息判断。"
+    return "此为旧版多轮回退记录，仅供历史查看，当前已无该路由。"
   }
   if (value.selected_pipeline === "LEGACY_GRAY_MULTITURN_OVERRIDE") {
-    return "当前环境仍在旧灰度模式：单轮与多轮均已运行，最终 DSL 采用多轮候选。"
+    return "此为旧版灰度执行记录，仅供历史查看；当前已移除灰度执行和恢复开关。"
   }
   return null
 }

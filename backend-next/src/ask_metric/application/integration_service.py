@@ -9,7 +9,6 @@ from ask_metric.application.commands import (
     ExecuteQueryCommand,
     SubmitQuestionCommand,
 )
-from ask_metric.application.ports import ModelService
 from ask_metric.application.query_execution_service import QueryExecutionApplicationService
 from ask_metric.application.requests import (
     ActorContext,
@@ -52,13 +51,11 @@ class IntegrationAskApplicationService:
         semantic_service: SemanticTaskApplicationService,
         execution_service: QueryExecutionApplicationService,
         clarification_service: ChannelClarificationService,
-        model_service: ModelService | None = None,
     ) -> None:
         self.task_service = task_service
         self.semantic_service = semantic_service
         self.execution_service = execution_service
         self.clarification_service = clarification_service
-        self.model_service = model_service
 
     def ask(
         self,
@@ -74,6 +71,7 @@ class IntegrationAskApplicationService:
         history: list[dict[str, str]] | None = None,
         user_context: dict[str, Any] | None = None,
     ) -> IntegrationAskResult:
+        # history 仅兼容旧请求协议，不参与条件继承；澄清必须显式关联 clarification_id。
         internal_conversation_id = _internal_conversation_id(
             source_system, external_user_id, external_conversation_id
         )
@@ -81,7 +79,6 @@ class IntegrationAskApplicationService:
         channel_context = {
             "source_system": source_system,
             "external_conversation_id": external_conversation_id,
-            "history": history or [],
             "user": user_context or {},
         }
         if clarification_id:
@@ -100,7 +97,7 @@ class IntegrationAskApplicationService:
             command = self.clarification_service.build_command(incoming, actor)
             current = self.task_service.submit_clarification(command)
         else:
-            resolved_input = self._resolve_question(user_input, history or [])
+            resolved_input = user_input
             incoming = IncomingRequest(
                 request_id=request_id,
                 idempotency_key=idempotency_key,
@@ -112,7 +109,6 @@ class IntegrationAskApplicationService:
                 text=resolved_input,
                 channel_context=channel_context,
                 metadata={
-                    "history": history or [],
                     "original_user_input": user_input,
                     "resolved_user_input": resolved_input,
                 },
@@ -179,24 +175,6 @@ class IntegrationAskApplicationService:
             external_conversation_id=external_conversation_id,
         )
 
-    def _resolve_question(self, user_input: str, history: list[dict[str, str]]) -> str:
-        if not history or self.model_service is None:
-            return user_input
-        try:
-            response = self.model_service.analyze(
-                prompt="conversation_contextualization",
-                context={
-                    "history_json": _json(history[-12:]),
-                    "user_input": user_input,
-                },
-            )
-        except Exception:
-            return user_input
-        standalone = response.get("standalone_question")
-        if not isinstance(standalone, str) or not standalone.strip():
-            return user_input
-        return standalone.strip()[:1000]
-
 
 def _internal_conversation_id(source_system: str, user_id: str, conversation_id: str) -> str:
     return str(
@@ -205,12 +183,6 @@ def _internal_conversation_id(source_system: str, user_id: str, conversation_id:
             f"ask-metric:integration:{source_system}:{user_id}:{conversation_id}",
         )
     )
-
-
-def _json(value: Any) -> str:
-    import json
-
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
 def _clarification_result(

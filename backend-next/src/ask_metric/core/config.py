@@ -153,15 +153,6 @@ class Settings(BaseSettings):
     model_concurrency_wait_seconds: float = Field(default=30, gt=0)
     metric_catalog_cache_ttl_seconds: float = Field(default=60, gt=0)
     max_conversations_per_user: int = Field(default=500, gt=0, le=1000)
-    multiturn_v2_enabled: bool = False
-    multiturn_shadow_mode: bool = False
-    multiturn_gray_execution_enabled: bool = False
-    multiturn_gray_user_ids: Annotated[list[str], NoDecode] = Field(default_factory=list)
-    multiturn_rollout_min_reviewed_samples: int = Field(default=30, ge=1, le=10_000)
-    multiturn_rollout_min_approval_rate: float = Field(default=0.95, ge=0, le=1)
-    multiturn_rollout_min_gray_success_rate: float = Field(default=0.98, ge=0, le=1)
-    multiturn_rollout_max_fallback_rate: float = Field(default=0.05, ge=0, le=1)
-    multiturn_rollout_max_failure_rate: float = Field(default=0.01, ge=0, le=1)
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_DIR / ".env",
@@ -227,12 +218,6 @@ class Settings(BaseSettings):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
-    @field_validator("multiturn_gray_user_ids", mode="before")
-    @classmethod
-    def parse_multiturn_gray_user_ids(cls, value: object) -> object:
-        if isinstance(value, str):
-            return list(dict.fromkeys(item.strip() for item in value.split(",") if item.strip()))
-        return value
 
     @field_validator("query_session_init_statements", mode="before")
     @classmethod
@@ -387,14 +372,6 @@ class Settings(BaseSettings):
             raise ValueError("SM2_PRIVATE_KEY must be configured outside development")
         if self.model_max_keepalive_connections > self.model_max_connections:
             raise ValueError("MODEL_MAX_KEEPALIVE_CONNECTIONS cannot exceed MODEL_MAX_CONNECTIONS")
-        if self.multiturn_gray_execution_enabled and not self.multiturn_shadow_mode:
-            raise ValueError(
-                "MULTITURN_SHADOW_MODE must be enabled before gray execution"
-            )
-        if self.multiturn_gray_execution_enabled and not self.multiturn_gray_user_ids:
-            raise ValueError(
-                "MULTITURN_GRAY_USER_IDS is required when gray execution is enabled"
-            )
         if self.nacos_enabled:
             required_nacos_settings = {
                 "NACOS_SERVER_ADDR": self.nacos_server_addr,

@@ -29,7 +29,7 @@
 | JWT登录 | 已实现 | 本地账号换取Bearer Token |
 | 任务式问数JSON API | 已实现 | 创建、分析、澄清、执行分步调用 |
 | 会话与任务查询 | 已实现 | 查询任务状态和会话快照 |
-| 多轮灰度指标查询 | 已实现 | 仅汇总当前登录用户自己的任务 |
+| 独立问数与当前任务澄清 | 已实现 | 新问题不继承历史条件，补充回答通过澄清标识关联当前任务 |
 | 指标/机构目录读取 | 已实现 | 需要Bearer Token |
 | 请求幂等 | 已实现 | `Idempotency-Key`和任务内请求记录 |
 | 机构权限 | 已实现 | 普通用户限定所属机构，管理员可全行 |
@@ -42,14 +42,11 @@
 `frontend-vue/src/lib/api.ts`中仍有旧后端SSE客户端代码，但正式`backend-next`没有对应路由，
 该代码不能作为外部对接合同。
 
-### 多轮灰度指标
+### 独立查询边界
 
-```http
-GET /api/v1/multiturn/metrics
-Authorization: Bearer <access_token>
-```
-
-该接口只读，并且只统计当前登录用户拥有的会话任务，不返回其他用户或全局指标。响应包含影子任务数、锚点解析率、候选 DSL 有效率、灰度提升数、回退数、执行成功率和回退率。
+同一会话中的每个新问题独立解析。完成查询后仅问“那江阴呢？”，会新建任务并澄清缺失的指标、日期，
+不继承上一轮条件。当前未完成任务仍通过任务版本和澄清编号继续；历史结果使用读取/下载接口。
+不支持自然语言历史指代、结果裁剪或跨任务追问执行，也不接入新的上层框架。
 
 ## 2. 基础约定
 
@@ -616,31 +613,13 @@ RESULT_FORMATTING
 
 这些是管理接口，不建议开放给数字农商或鼎鼎普通问数调用方。
 
-### 6.4 多轮灰度复核
+### 6.4 已退出的跨任务接口
 
-以下接口只读取当前登录用户拥有的任务，不返回 SQL 或查询结果明细：
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/v1/multiturn/metrics` | 影子评估、灰度执行和人工复核汇总 |
-| GET | `/api/v1/multiturn/readiness` | 按配置门槛返回 `READY` 或 `HOLD` 建议 |
-| GET | `/api/v1/multiturn/review-samples` | 分页获取已完成影子评估的复核样本，可用 `reviewed=true/false` 过滤 |
-| PUT | `/api/v1/query-tasks/{task_id}/multiturn-review` | 写入或覆盖人工复核结果 |
-
-复核请求示例：
-
-```json
-{
-  "expected_version": 2,
-  "decision": "REJECTED",
-  "reason_codes": ["WRONG_ANCHOR"],
-  "notes": "历史任务锚点选择错误"
-}
-```
-
-`decision` 只能是 `APPROVED` 或 `REJECTED`；拒绝时必须填写原因码或备注。
-写入使用任务乐观锁，版本过期返回 `TASK_VERSION_CONFLICT`。`readiness` 仅给出扩大灰度建议，
-不会自动修改灰度开关或用户白名单。
+`/api/v1/multiturn/metrics`、`/api/v1/multiturn/readiness`、`/api/v1/multiturn/review-samples`
+以及 `PUT /api/v1/query-tasks/{task_id}/multiturn-review` 已移除，返回 404。
+旧跨任务追问、历史指代任务的分析、澄清、执行返回 `CROSS_TASK_CONTEXT_RETIRED`（409），
+提示新建完整问题；任务和会话的历史读取、导出不受该执行限制影响，仍需校验用户归属。
+`MULTITURN_*` 不再是有效运行开关。升级须同步前后端和实际持久提示词。
 
 ## 7. 幂等、并发和重试
 
@@ -763,7 +742,8 @@ Content-Type: application/json
 ```
 
 兼容字段：`messages`也可写作`history`，`user_info`也可写作`user`。历史消息最多50条，
-系统仅取最近12条进行当前问题的省略和指代补全；原始输入和改写结果都保存在任务上下文中。
+这些字段仅为旧客户端协议兼容而接收，不参与解析、改写或继承条件，也不保存为任务的推理上下文。
+`user_input` 每次按独立问题解析；当前任务的补充回答必须传 `clarification_id`。
 
 `message_id`当前为可选字段：
 

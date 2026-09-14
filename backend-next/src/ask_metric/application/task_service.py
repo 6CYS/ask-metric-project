@@ -16,20 +16,13 @@ from ask_metric.application.commands import (
     SubmitClarificationCommand,
     SubmitQuestionCommand,
 )
-from ask_metric.application.context_diagnostics import context_failure, log_context_failure
 from ask_metric.application.continuation_tokens import (
     ContinuationTarget,
     ContinuationTokenCodec,
 )
-from ask_metric.application.conversation_context_service import (
-    ConversationShadowService,
-    MultiturnRolloutReadinessPolicy,
-    MultiturnShadowMetricsAggregator,
-)
 from ask_metric.application.legacy_analysis import require_query_task
 from ask_metric.application.ports import NoopPermissionService, PermissionService
 from ask_metric.application.requests import ActorContext
-from ask_metric.application.result_repository import hydrate_legacy_results, result_inventory
 from ask_metric.application.semantic_workflow import (
     advance_slot_frame,
     apply_clarification_answers,
@@ -44,14 +37,6 @@ from ask_metric.application.task_results import (
     TaskCommandResult,
 )
 from ask_metric.core.errors import ApplicationError
-from ask_metric.domain.conversation_context import (
-    MultiturnHumanReview,
-    MultiturnReviewSample,
-    MultiturnRolloutReadiness,
-    MultiturnRolloutThresholds,
-    MultiturnShadowMetrics,
-)
-from ask_metric.domain.query_execution import QueryPlanner
 from ask_metric.domain.task import (
     QueryTaskStage,
     QueryTaskState,
@@ -137,40 +122,15 @@ class QueryTaskApplicationService:
         semantic_config_repository: SemanticConfigRepository | None = None,
         today_provider: Callable[[], date] = date.today,
         max_conversations_per_user: int = 500,
-        multiturn_shadow_enabled: bool = False,
-        conversation_shadow_service: ConversationShadowService | None = None,
         candidate_permission_service: PermissionService | None = None,
-        candidate_query_planner: QueryPlanner | None = None,
-        multiturn_metrics_aggregator: MultiturnShadowMetricsAggregator | None = None,
-        multiturn_rollout_thresholds: MultiturnRolloutThresholds | None = None,
     ) -> None:
         self.uow_factory = uow_factory or SqlAlchemyUnitOfWork
         self.continuation_token_codec = continuation_token_codec
         self.semantic_config_repository = semantic_config_repository
         self.today_provider = today_provider
         self.max_conversations_per_user = max_conversations_per_user
-        self.multiturn_shadow_enabled = multiturn_shadow_enabled
-        self.conversation_shadow_service = (
-            conversation_shadow_service or ConversationShadowService()
-        )
         self.candidate_permission_service = (
             candidate_permission_service or NoopPermissionService()
-        )
-        self.candidate_query_planner = candidate_query_planner or QueryPlanner(
-            dialect="mysql"
-        )
-        self.multiturn_metrics_aggregator = (
-            multiturn_metrics_aggregator or MultiturnShadowMetricsAggregator()
-        )
-        self.multiturn_rollout_policy = MultiturnRolloutReadinessPolicy(
-            multiturn_rollout_thresholds
-            or MultiturnRolloutThresholds(
-                min_reviewed_samples=30,
-                min_approval_rate=0.95,
-                min_gray_success_rate=0.98,
-                max_fallback_rate=0.05,
-                max_failure_rate=0.01,
-            )
         )
 
     def submit_question(self, command: SubmitQuestionCommand) -> TaskCommandResult:
@@ -209,102 +169,6 @@ class QueryTaskApplicationService:
                 )
 
             task_id = str(uuid4())
-            shadow_started = perf_counter()
-            shadow_resolution = None
-            shadow_context_candidate = None
-            shadow_dsl_validation = None
-            shadow_error: dict[str, Any] | None = None
-            shadow_context_error: str | None = None
-            shadow_patch = None
-            shadow_ambiguities: list[str] = []
-            shadow_inherited_fields: list[str] = []
-            historical_tasks: list[QueryTask] = []
-            if self.multiturn_shadow_enabled:
-                try:
-                    historical_tasks = (
-                        uow.tasks.list_for_conversation(conversation_id)
-                        if conversation is not None
-                        else []
-                    )
-                    historical_tasks = [t for t in historical_tasks if
-                        not (t.state_json or {}).get("internal_analysis_id") and
-                        ((t.state_json or {}).get("actor_context") or {}).get("tenant_id")
-                        == command.actor.tenant_id]
-                    has_legacy_results = any(
-                        t.status == "SUCCEEDED"
-                        and not (t.state_json or {}).get("result_artifact")
-                        and not (t.state_json or {}).get("conversation_focus")
-                        for t in historical_tasks
-                    )
-                    if has_legacy_results and hasattr(uow.messages, "list_for_conversation"):
-                        historical_tasks = hydrate_legacy_results(
-                            historical_tasks, uow.messages.list_for_conversation(conversation_id),
-                        )
-                    metric_catalog = getattr(uow, "metric_catalog", None)
-                    organization_catalog = getattr(uow, "organization_catalog", None)
-                    metrics = (
-                        metric_catalog.list_enabled() if metric_catalog is not None else []
-                    )
-                    organizations = (
-                        organization_catalog.list_enabled()
-                        if organization_catalog is not None
-                        else []
-                    )
-                    (
-                        shadow_resolution,
-                        shadow_patch,
-                        shadow_ambiguities,
-                        shadow_inherited_fields,
-                    ) = self.conversation_shadow_service.understand(
-                        message=command.request.text,
-                        reply_to_task_id=command.request.reply_to_task_id,
-                        tasks=historical_tasks,
-                        metrics=metrics,
-                        organizations=organizations,
-                        today=self.today_provider(),
-                    )
-                except Exception as exc:  # pragma: no cover - defensive shadow isolation
-                    shadow_error = log_context_failure(
-                        exc, stage="submit_understanding", task_id=task_id,
-                        conversation_id=conversation_id, request_id=command.request.request_id,
-                    )
-                if (
-                    shadow_resolution is not None
-                    and shadow_resolution.conversation_act.value == "FOLLOW_UP"
-                    and shadow_resolution.anchor.selected_task_id is not None
-                    and not shadow_ambiguities
-                ):
-                    try:
-                        shadow_context_candidate = (
-                            self.conversation_shadow_service.build_context_candidate(
-                                resolution=shadow_resolution,
-                                message=command.request.text,
-                                tasks=historical_tasks,
-                                metrics=metrics,
-                                organizations=organizations,
-                                today=self.today_provider(),
-                                patch=shadow_patch,
-                            )
-                        )
-                        if shadow_context_candidate is not None:
-                            shadow_dsl_validation = (
-                                self.conversation_shadow_service.validate_context_candidate(
-                                    context_merge=shadow_context_candidate,
-                                    actor=command.actor,
-                                    metrics=metrics,
-                                    organizations=organizations,
-                                    permission_service=self.candidate_permission_service,
-                                    planner=self.candidate_query_planner,
-                                )
-                            )
-                    except Exception as exc:  # pragma: no cover - shadow isolation
-                        shadow_context_error = type(exc).__name__
-                        log_context_failure(
-                            exc, stage="context_candidate", task_id=task_id,
-                            conversation_id=conversation_id, request_id=command.request.request_id,
-                        )
-                        shadow_error = context_failure(exc, stage="context_candidate")
-
             now = datetime.now(UTC)
             if conversation is None:
                 if not command.actor.user_id:
@@ -382,47 +246,6 @@ class QueryTaskApplicationService:
             state.timings_ms["task_creation_ms"] = max(
                 0, round((perf_counter() - creation_started) * 1000)
             )
-            if self.multiturn_shadow_enabled:
-                state.timings_ms["multiturn_shadow_ms"] = max(
-                    0, round((perf_counter() - shadow_started) * 1000)
-                )
-                if shadow_resolution is not None:
-                    shadow_payload = shadow_resolution.model_dump(mode="json")
-                    if shadow_resolution.conversation_act.value == "REFERENCE_ACTION":
-                        summaries, focus_id = result_inventory(historical_tasks)
-                        state.result_reference_scope = {
-                            "result_ids": [s["result_id"] for s in summaries],
-                            "focus_result_id": focus_id,
-                        }
-                    shadow_payload["understanding"] = {
-                        "source": (
-                            "model"
-                            if self.conversation_shadow_service.model_service is not None
-                            else "deterministic_legacy"
-                        ),
-                        "patch": (
-                            shadow_patch.model_dump(mode="json")
-                            if shadow_patch is not None
-                            else None
-                        ),
-                        "inherit": shadow_inherited_fields,
-                        "ambiguities": shadow_ambiguities,
-                    }
-                    if shadow_context_candidate is not None:
-                        shadow_payload["context_merge"] = (
-                            shadow_context_candidate.model_dump(mode="json")
-                        )
-                    if shadow_dsl_validation is not None:
-                        shadow_payload["candidate_dsl_validation"] = (
-                            shadow_dsl_validation.model_dump(mode="json")
-                        )
-                    if shadow_context_error is not None:
-                        shadow_payload["context_merge_error"] = {
-                            **(shadow_error or {}), "type": shadow_context_error
-                        }
-                    state.debug["multiturn_shadow"] = shadow_payload
-                elif shadow_error is not None:
-                    state.debug["multiturn_shadow_error"] = shadow_error
             state.debug["task_create"] = {
                 "input": {
                     "question": command.request.text,
@@ -444,28 +267,6 @@ class QueryTaskApplicationService:
                 node="task_created",
                 detail={"message_id": message_id},
             )
-            if shadow_resolution is not None:
-                append_task_trace(
-                    state,
-                    stage=QueryTaskStage.INTENT_ROUTING.value,
-                    status=QueryTaskStatus.RUNNING.value,
-                    node="multiturn_shadow_evaluated",
-                    detail={
-                        "conversation_act": shadow_resolution.conversation_act.value,
-                        "anchor_status": shadow_resolution.anchor.status.value,
-                        "anchor_selection": shadow_resolution.anchor.selection.value,
-                        "context_merge_status": (
-                            shadow_context_candidate.status
-                            if shadow_context_candidate is not None
-                            else "NOT_APPLICABLE"
-                        ),
-                        "candidate_dsl_status": (
-                            shadow_dsl_validation.status
-                            if shadow_dsl_validation is not None
-                            else "NOT_APPLICABLE"
-                        ),
-                    },
-                )
             task.state_json = state.model_dump(mode="json")
             uow.commit()
             return _task_result(task, message_id=message_id)
@@ -682,32 +483,7 @@ class QueryTaskApplicationService:
             result_message_id = message_id
             next_intent = task.intent
             next_query_shape = task.query_shape
-            if clarification.get("type") == "result_reference":
-                answers = command.answers
-                selected_id = None
-                if isinstance(answers, dict):
-                    selected_id = (answers.get("set") or {}).get("result_id")
-                elif isinstance(answers, str) and self.conversation_shadow_service.model_service:
-                    selection = self.conversation_shadow_service.model_service.analyze(
-                        prompt="result_reference_selection",
-                        context={"user_input": answers, "candidates_json": json.dumps(
-                            clarification.get("options", []), ensure_ascii=False,
-                        )},
-                    )
-                    selected_id = selection.get("result_id")
-                if selected_id not in clarification.get("candidate_result_ids", []):
-                    raise TaskConflictError(
-                        "RESULT_SELECTION_REQUIRED", "请从本次澄清候选中明确选择一条历史结果",
-                        details={"task_id": task.id},
-                    )
-                state.selected_result_id = selected_id
-                state.missing_slots = []
-                next_stage = QueryTaskStage.SLOT_EXTRACTION
-            elif clarification.get("type") == "multiturn_context":
-                state.debug["context_clarification_pending"] = True
-                state.debug["context_clarification_prompt"] = clarification.get("prompt")
-                next_stage = QueryTaskStage.SLOT_EXTRACTION
-            elif clarification.get("type") == "semantic_slots":
+            if clarification.get("type") == "semantic_slots":
                 if self.semantic_config_repository is None:
                     raise RuntimeError("Semantic configuration is not available")
                 metrics = uow.metric_catalog.list_enabled()
@@ -1010,117 +786,6 @@ class QueryTaskApplicationService:
             ]
             return items, len(rows) > limit
 
-    def get_multiturn_metrics(self, actor: ActorContext) -> MultiturnShadowMetrics:
-        with self.uow_factory() as uow:
-            tasks = uow.tasks.list_owned(actor.user_id or "")
-            return self.multiturn_metrics_aggregator.summarize(tasks)
-
-    def get_multiturn_readiness(self, actor: ActorContext) -> MultiturnRolloutReadiness:
-        metrics = self.get_multiturn_metrics(actor)
-        return self.multiturn_rollout_policy.evaluate(metrics)
-
-    def list_multiturn_review_samples(
-        self,
-        actor: ActorContext,
-        *,
-        limit: int,
-        offset: int,
-        reviewed: bool | None,
-    ) -> tuple[list[MultiturnReviewSample], bool]:
-        with self.uow_factory() as uow:
-            tasks = reversed(uow.tasks.list_owned(actor.user_id or ""))
-            samples: list[MultiturnReviewSample] = []
-            for task in tasks:
-                state = _load_state(task)
-                shadow = state.debug.get("multiturn_shadow")
-                if not isinstance(shadow, dict) or not isinstance(
-                    shadow.get("evaluation"), dict
-                ):
-                    continue
-                if reviewed is not None and (state.multiturn_review is not None) != reviewed:
-                    continue
-                evaluation = shadow["evaluation"]
-                admission = evaluation.get("admission")
-                gray_result = shadow.get("gray_result")
-                samples.append(
-                    MultiturnReviewSample(
-                        task_id=task.id,
-                        conversation_id=task.conversation_id,
-                        question=task.original_question,
-                        task_status=task.status,
-                        conversation_act=str(shadow.get("conversation_act") or "UNKNOWN"),
-                        comparison=evaluation.get("comparison"),
-                        admission=(
-                            admission.get("decision")
-                            if isinstance(admission, dict)
-                            else None
-                        ),
-                        gray_outcome=(
-                            gray_result.get("outcome")
-                            if isinstance(gray_result, dict)
-                            else None
-                        ),
-                        review=state.multiturn_review,
-                    )
-                )
-            page = samples[offset : offset + limit + 1]
-            return page[:limit], len(page) > limit
-
-    def review_multiturn_task(
-        self,
-        *,
-        task_id: str,
-        expected_version: int,
-        decision: str,
-        reason_codes: list[str],
-        notes: str | None,
-        actor: ActorContext,
-    ) -> MultiturnHumanReview:
-        with self.uow_factory() as uow:
-            task = uow.tasks.get_owned_for_update(task_id, actor.user_id or "")
-            if task is None:
-                raise TaskNotFoundError(task_id)
-            _require_version(task, expected_version)
-            state = _load_state(task)
-            shadow = state.debug.get("multiturn_shadow")
-            if not isinstance(shadow, dict) or not isinstance(
-                shadow.get("evaluation"), dict
-            ):
-                raise TaskConflictError(
-                    "MULTITURN_REVIEW_NOT_APPLICABLE",
-                    "The task has no completed multiturn shadow evaluation",
-                )
-            review = MultiturnHumanReview(
-                decision=decision,
-                reason_codes=reason_codes,
-                notes=notes.strip() if notes and notes.strip() else None,
-                reviewer_user_id=actor.user_id or "",
-                reviewed_at=datetime.now(UTC),
-            )
-            state.multiturn_review = review
-            append_task_trace(
-                state,
-                stage=task.current_stage,
-                status=task.status,
-                node="multiturn_human_review_recorded",
-                detail={"decision": review.decision},
-            )
-            updated = uow.tasks.update_optimistically(
-                task_id=task.id,
-                expected_version=expected_version,
-                status=task.status,
-                current_stage=task.current_stage,
-                state_json=state.model_dump(mode="json"),
-                intent=task.intent,
-                query_shape=task.query_shape,
-                error_code=task.error_code,
-                error_message=task.error_message,
-                completed_at=task.completed_at,
-            )
-            if updated is None:
-                raise _version_conflict(task.id, expected_version)
-            uow.commit()
-            return review
 
     def rename_conversation(
         self, conversation_id: str, title: str, actor: ActorContext

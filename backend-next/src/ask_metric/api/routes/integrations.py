@@ -5,7 +5,6 @@ from pydantic import AliasChoices, BaseModel, Field
 
 from ask_metric.api.dependencies import (
     get_channel_clarification_service,
-    get_model_service,
     get_query_execution_service,
     get_query_task_service,
     get_semantic_task_service,
@@ -20,7 +19,6 @@ from ask_metric.application.integration_service import (
     IntegrationAskApplicationService,
     IntegrationAskResult,
 )
-from ask_metric.application.ports import ModelService
 from ask_metric.application.query_execution_service import QueryExecutionApplicationService
 from ask_metric.application.requests import QUESTION_MAX_LENGTH
 from ask_metric.application.semantic_task_service import SemanticTaskApplicationService
@@ -57,6 +55,7 @@ class IntegrationAskRequest(BaseModel):
         default_factory=list,
         max_length=50,
         validation_alias=AliasChoices("history", "messages"),
+        description="兼容旧协议，不用于继承查询条件；当前任务澄清使用 clarification_id。",
     )
     user: IntegrationUser = Field(validation_alias=AliasChoices("user", "user_info"))
 
@@ -76,14 +75,12 @@ def get_integration_ask_service(
     clarification_service: Annotated[
         ChannelClarificationService, Depends(get_channel_clarification_service)
     ],
-    model_service: Annotated[ModelService, Depends(get_model_service)],
 ) -> IntegrationAskApplicationService:
     return IntegrationAskApplicationService(
         task_service=task_service,
         semantic_service=semantic_service,
         execution_service=execution_service,
         clarification_service=clarification_service,
-        model_service=model_service,
     )
 
 

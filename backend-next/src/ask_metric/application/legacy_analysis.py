@@ -6,6 +6,7 @@ No scheduler, model, Skill or checkpoint dependency belongs in this module.
 from typing import Any
 
 from ask_metric.application.ports import PermissionDeniedError
+from ask_metric.application.query_scope import require_current_query_scope
 from ask_metric.core.errors import ApplicationError
 
 
@@ -26,6 +27,7 @@ def require_query_task(raw: dict[str, Any], query_shape: str | None = None) -> N
             "旧归因分析已停用，历史记录仅供查看和导出。请重新发起指标查询。",
             status_code=409,
         )
+    require_current_query_scope(raw)
 
 
 def authorize_legacy_analysis(raw, actor, permission_service):

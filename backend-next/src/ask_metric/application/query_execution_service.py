@@ -8,7 +8,6 @@ from typing import Any
 from uuid import uuid4
 
 from ask_metric.application.commands import ExecuteQueryCommand
-from ask_metric.application.conversation_context_service import QueryContextSnapshotFactory
 from ask_metric.application.legacy_analysis import require_query_task
 from ask_metric.application.ports import (
     DataSourceAdapter,
@@ -21,7 +20,6 @@ from ask_metric.application.result_answering import render_fact_answer
 from ask_metric.application.result_processing import process_query_result
 from ask_metric.application.result_repository import artifact_from_query, attach_artifact
 from ask_metric.core.errors import ApplicationError
-from ask_metric.domain.conversation_context import MultiturnGrayResult
 from ask_metric.domain.query_execution import (
     QueryExecutionPlan,
     QueryExecutionResult,
@@ -68,8 +66,6 @@ class QueryExecutionApplicationService:
         model_service: ModelService | None = None,
         uow_factory: UnitOfWorkFactory | None = None,
         today_provider: Callable[[], date] = _china_business_date,
-        context_snapshot_enabled: bool = False,
-        context_snapshot_factory: QueryContextSnapshotFactory | None = None,
         result_enricher: QueryResultEnricher | None = None,
     ) -> None:
         self.planner = planner
@@ -79,10 +75,6 @@ class QueryExecutionApplicationService:
         self.model_service = model_service
         self.uow_factory = uow_factory or SqlAlchemyUnitOfWork
         self.today_provider = today_provider
-        self.context_snapshot_enabled = context_snapshot_enabled
-        self.context_snapshot_factory = (
-            context_snapshot_factory or QueryContextSnapshotFactory()
-        )
         self.result_enricher = result_enricher
 
     def execute(self, command: ExecuteQueryCommand) -> QueryExecutionResult:
@@ -264,57 +256,8 @@ class QueryExecutionApplicationService:
                     query_shape=task.query_shape or "",
                 )
             except Exception as exc:
-                gray = state.multiturn_execution
-                if gray is None or gray.status != "PROMOTED":
-                    state.timings_ms["query_planning_ms"] = _elapsed_ms(planning_started)
-                    return self._record_planning_failure(uow, task, state, command, exc)
-                if gray.v1_dsl is None or gray.v1_query_shape is None:
-                    state.timings_ms["query_planning_ms"] = _elapsed_ms(planning_started)
-                    return self._record_planning_failure(uow, task, state, command, exc)
-                fallback_reason = type(exc).__name__
-                try:
-                    dsl, plan, sql = self._build_governed_plan(
-                        uow=uow,
-                        actor=command.actor,
-                        logical_dsl=gray.v1_dsl.model_dump(mode="json"),
-                        query_shape=gray.v1_query_shape,
-                    )
-                except Exception as fallback_exc:
-                    state.logical_dsl = gray.v1_dsl.model_dump(mode="json")
-                    task.query_shape = gray.v1_query_shape
-                    state.multiturn_execution = gray.model_copy(
-                        update={
-                            "status": "FALLBACK_USED",
-                            "fallback_at": datetime.now(UTC),
-                            "fallback_reason": fallback_reason,
-                        }
-                    )
-                    state.timings_ms["query_planning_ms"] = _elapsed_ms(planning_started)
-                    return self._record_planning_failure(
-                        uow, task, state, command, fallback_exc
-                    )
-                state.logical_dsl = gray.v1_dsl.model_dump(mode="json")
-                task.query_shape = gray.v1_query_shape
-                state.multiturn_execution = gray.model_copy(
-                    update={
-                        "status": "FALLBACK_USED",
-                        "fallback_at": datetime.now(UTC),
-                        "fallback_reason": fallback_reason,
-                    }
-                )
-                shadow = state.debug.get("multiturn_shadow")
-                if isinstance(shadow, dict):
-                    shadow["gray_fallback"] = {
-                        "status": "FALLBACK_USED",
-                        "reason": fallback_reason,
-                    }
-                append_task_trace(
-                    state,
-                    stage=QueryTaskStage.PLANNING.value,
-                    status="recovered",
-                    node="multiturn_gray_fallback_to_v1",
-                    detail={"reason": type(exc).__name__},
-                )
+                state.timings_ms["query_planning_ms"] = _elapsed_ms(planning_started)
+                return self._record_planning_failure(uow, task, state, command, exc)
             run = QueryRun(
                 task_id=task.id,
                 conversation_id=task.conversation_id,
@@ -489,16 +432,6 @@ class QueryExecutionApplicationService:
             "summary": _result_summary(result),
         }
         state.debug["error"] = result.debug.get("error", {})
-        if state.multiturn_execution is not None:
-            _record_gray_result(
-                state,
-                outcome=(
-                    "V1_FALLBACK_PLANNING_FAILED"
-                    if state.multiturn_execution.status == "FALLBACK_USED"
-                    else "CANDIDATE_EXECUTION_FAILED"
-                ),
-                run_id=run.id,
-            )
         append_task_trace(
             state,
             stage=QueryTaskStage.PLANNING.value,
@@ -561,16 +494,6 @@ class QueryExecutionApplicationService:
             }
             state.debug["query"] = result.debug.get("query", {})
             state.debug["result"] = result.debug.get("result", {})
-            if state.multiturn_execution is not None:
-                _record_gray_result(
-                    state,
-                    outcome=(
-                        "V1_FALLBACK_SUCCEEDED"
-                        if state.multiturn_execution.status == "FALLBACK_USED"
-                        else "CANDIDATE_SUCCEEDED"
-                    ),
-                    run_id=run.id,
-                )
             append_task_trace(
                 state,
                 stage=QueryTaskStage.EXECUTION.value,
@@ -584,16 +507,10 @@ class QueryExecutionApplicationService:
                 status=QueryTaskStatus.SUCCEEDED.value,
                 node="result_formatted",
             )
-            if self.context_snapshot_enabled:
-                self._save_context_snapshot(
-                    uow=uow,
-                    task=task,
-                    state=state,
-                    final_task_version=expected_version + 1,
-                )
-                attach_artifact(state, artifact_from_query(
-                    task=task, state=state, result=result, actor=command.actor,
-                ))
+            # 结果证据用于历史查看和导出，不再创建跨任务上下文。
+            attach_artifact(state, artifact_from_query(
+                task=task, state=state, result=result, actor=command.actor,
+            ))
             _add_result_message(uow, task, result)
             updated = uow.tasks.update_optimistically(
                 task_id=task.id,
@@ -611,54 +528,6 @@ class QueryExecutionApplicationService:
                 raise _version_conflict(task.id, expected_version)
             uow.commit()
 
-    def _save_context_snapshot(
-        self,
-        *,
-        uow: SqlAlchemyUnitOfWork,
-        task: QueryTask,
-        state: QueryTaskState,
-        final_task_version: int,
-    ) -> None:
-        try:
-            snapshot = self.context_snapshot_factory.build(
-                task_id=task.id,
-                conversation_id=task.conversation_id,
-                task_version=final_task_version,
-                query_shape=task.query_shape,
-                state=state,
-                metrics=uow.metric_catalog.list_enabled(),
-                organizations=uow.organization_catalog.list_enabled(),
-            )
-        except Exception as exc:
-            logger.warning(
-                "context_snapshot_failed task_id=%s exception_type=%s",
-                task.id, type(exc).__name__,
-            )
-            state.debug["context_snapshot"] = {
-                "status": "skipped",
-                "reason": type(exc).__name__,
-                "message": "Context snapshot validation failed",
-            }
-            append_task_trace(
-                state,
-                stage=QueryTaskStage.RESULT_FORMATTING.value,
-                status="skipped",
-                node="context_snapshot_skipped",
-                detail={"reason": type(exc).__name__},
-            )
-            return
-        state.context_snapshot = snapshot.model_dump(mode="json")
-        state.debug["context_snapshot"] = {
-            "status": "persisted",
-            "schema_version": snapshot.schema_version,
-        }
-        append_task_trace(
-            state,
-            stage=QueryTaskStage.RESULT_FORMATTING.value,
-            status="completed",
-            node="context_snapshot_persisted",
-            detail={"schema_version": snapshot.schema_version},
-        )
 
     def _finish_failure(
         self,
@@ -706,16 +575,6 @@ class QueryExecutionApplicationService:
                 ),
             )
             state.debug["result"] = {"error": result.error_message}
-            if state.multiturn_execution is not None:
-                _record_gray_result(
-                    state,
-                    outcome=(
-                        "V1_FALLBACK_EXECUTION_FAILED"
-                        if state.multiturn_execution.status == "FALLBACK_USED"
-                        else "CANDIDATE_EXECUTION_FAILED"
-                    ),
-                    run_id=run.id,
-                )
             append_task_trace(
                 state,
                 stage=QueryTaskStage.EXECUTION.value,
@@ -743,44 +602,6 @@ class QueryExecutionApplicationService:
             if updated is None:
                 raise _version_conflict(task.id, expected_version)
             uow.commit()
-
-
-def _record_gray_result(
-    state: QueryTaskState,
-    *,
-    outcome: str,
-    run_id: int | None,
-) -> None:
-    gray = state.multiturn_execution
-    if gray is None:
-        return
-    consistency = (
-        "V1_FALLBACK_USED"
-        if gray.status == "FALLBACK_USED"
-        else "STRUCTURALLY_EQUIVALENT"
-        if gray.dsl_equivalent
-        else "CANDIDATE_ONLY"
-    )
-    result = MultiturnGrayResult.model_validate(
-        {
-            "outcome": outcome,
-            "consistency": consistency,
-            "run_id": run_id,
-            "recorded_at": datetime.now(UTC),
-        }
-    )
-    shadow = state.debug.setdefault("multiturn_shadow", {})
-    if not isinstance(shadow, dict):
-        shadow = {}
-        state.debug["multiturn_shadow"] = shadow
-    shadow["gray_result"] = result.model_dump(mode="json")
-    append_task_trace(
-        state,
-        stage=QueryTaskStage.RESULT_FORMATTING.value,
-        status="observed",
-        node="multiturn_gray_result_recorded",
-        detail={"outcome": result.outcome, "consistency": result.consistency},
-    )
 
 
 def _execution_replay(state: QueryTaskState, request_id: str) -> QueryExecutionResult | None:
