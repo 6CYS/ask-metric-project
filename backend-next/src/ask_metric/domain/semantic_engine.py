@@ -699,10 +699,6 @@ class SemanticEngine:
         # Language interpretation belongs to the model. Keyword lists must not
         # delete, add or rewrite operations, dates or time modes. Catalog entities
         # are protected before inference; capability checks happen in the planner.
-        if _requests_synchronized_organization_scope(
-            frame.options.get("organization_scope")
-        ) and not any(dimension in {"org", "机构"} for dimension in frame.dimensions):
-            frame.dimensions.append("org")
         return frame
 
     @staticmethod
@@ -720,12 +716,37 @@ class SemanticEngine:
             frame.options.get("organization_scope")
         )
         if requests_all_organizations:
+            # 模型选择集合语义，代码核对其原文依据。裸范围标记不能扩大查询；
+            # 同时要求补充机构的矛盾响应也必须澄清，不能在展开目录后消掉 missing。
+            scope_text = frame.options.get("organization_scope_text")
+            protected = _protect_resolved_entities(
+                question, metric_matches=matches, organizations=organizations,
+                organization_aliases=organization_aliases,
+            )
+            invalid_missing = set(frame.missing) - {"metrics", "time", "dimensions", "ops"}
+            grounded_scope = (
+                isinstance(scope_text, str) and bool(scope_text.strip())
+                and scope_text == scope_text.strip() and scope_text in protected
+                and "<" not in scope_text and ">" not in scope_text
+            )
+            if not grounded_scope or invalid_missing or model_organizations:
+                frame.orgs = []
+                for key in ("organization_scope", "organization_scope_text",
+                            "organization_scope_count"):
+                    frame.options.pop(key, None)
+                frame.options["missing_org_reason"] = "scope_unconfirmed"
+                if "orgs" not in frame.missing:
+                    frame.missing.append("orgs")
+                return frame
+        if requests_all_organizations:
             # The enabled organization catalog is synchronized from the governed
             # 61-organization source query.  Its membership is authoritative; never
             # infer this scope from organization-name prefixes or suffixes.
             frame.orgs = [item.name for item in organizations]
             frame.options["organization_scope"] = "synchronized_catalog"
             frame.options["organization_scope_count"] = len(organizations)
+            if not any(dimension in {"org", "机构"} for dimension in frame.dimensions):
+                frame.dimensions.append("org")
         else:
             frame.options.pop("organization_scope", None)
             frame.options.pop("organization_scope_count", None)
@@ -983,7 +1004,7 @@ def extract_time_expression(text: str) -> str | None:
 def _requests_synchronized_organization_scope(model_scope: Any) -> bool:
     # Group-language interpretation belongs to the model.  This boundary only
     # accepts a controlled scope identifier that the backend knows how to expand.
-    if model_scope in {
+    if isinstance(model_scope, str) and model_scope in {
         "synchronized_catalog",
         "all_rural_commercial_banks",
         "rural_commercial_banks",
