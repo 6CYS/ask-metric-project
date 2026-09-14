@@ -3,7 +3,7 @@ let authFailureReason = ""
 
 /**
  * 认证令牌仅保存在当前页面的模块内存中，禁止写入 Web Storage。
- * 页面刷新或关闭后令牌自动失效，避免令牌被持久化并被其他脚本读取。
+ * 刷新会清空内存副本；有效期内由后端校验 HttpOnly Cookie 后恢复，前端不读取 Cookie。
  */
 export function getAccessToken() {
   return accessToken

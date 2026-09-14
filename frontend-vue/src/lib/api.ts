@@ -32,6 +32,20 @@ import {
   setAuthFailureReason,
 } from "@/lib/authSession"
 
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+    this.name = "ApiError"
+  }
+}
+
+// Cookie 仅随同源认证请求发送；不启用跨域凭据或放宽服务端 CORS。
+const browserSessionRequest = {
+  credentials: "same-origin" as const,
+  headers: { "X-Ask-Metric-Session": "1" },
+  cache: "no-store" as const,
+}
+
 /**
  * 提取 FastAPI 的 detail 错误，同时兼容非 JSON 响应，页面可直接展示有意义的失败原因。
  */
@@ -74,7 +88,7 @@ async function request<T>(path: string, init?: RequestInit, authenticated = true
       setAuthFailureReason(message)
       window.dispatchEvent(new CustomEvent("ask-metric:auth-invalid", { detail: message }))
     }
-    throw new Error(message)
+    throw new ApiError(message, response.status)
   }
   if (response.status === 204 || response.headers.get("content-length") === "0") return undefined as T
   return response.json() as Promise<T>
@@ -107,7 +121,7 @@ export function getBackendNextQueryReadiness(signal?: AbortSignal) {
 async function getSm2PublicKey(): Promise<string> {
   if (!cachedSm2PublicKey) {
     const response = await request<Sm2PublicKeyResponse>(
-      apiUrl(backendNextBase, "/api/v1/auth/sm2-public-key"),
+      "/api/v1/auth/sm2-public-key",
       undefined,
       false
     )
@@ -121,7 +135,8 @@ export async function loginUser(username: string, password: string) {
   const sm2PublicKey = await getSm2PublicKey()
   const encrypted = encryptLoginPassword(password, sm2PublicKey)
   try {
-    return await request<LoginResponse>(apiUrl(backendNextBase, "/api/v1/auth/login"), {
+    return await request<LoginResponse>("/api/v1/auth/login", {
+      ...browserSessionRequest,
       method: "POST",
       body: JSON.stringify({
         username,
@@ -139,14 +154,23 @@ export async function loginUser(username: string, password: string) {
 }
 
 export function ssoLoginUser(token: string) {
-  return request<LoginResponse>(apiUrl(backendNextBase, "/api/v1/auth/sso"), {
+  return request<LoginResponse>("/api/v1/auth/sso", {
+    ...browserSessionRequest,
     method: "POST",
     body: JSON.stringify({ token }),
   }, false)
 }
 
 export function getCurrentUser() {
-  return request<AuthUser>(apiUrl(backendNextBase, "/api/v1/auth/me"))
+  return request<AuthUser>("/api/v1/auth/me")
+}
+
+export function restoreBrowserSession() {
+  // 页面刷新后内存令牌为空，浏览器自动携带 HttpOnly Cookie；前端不读取 Cookie。
+  return request<LoginResponse>("/api/v1/auth/session", {
+    ...browserSessionRequest,
+    method: "POST",
+  }, false)
 }
 
 export function listAccuracySuites() {
@@ -219,7 +243,10 @@ export function confirmAccuracyImport(
 }
 
 export function logoutUser() {
-  return request<void>(apiUrl(backendNextBase, "/api/v1/auth/logout"), { method: "POST" })
+  return request<void>("/api/v1/auth/logout", {
+    ...browserSessionRequest,
+    method: "POST",
+  })
 }
 
 const backendNextBase = (import.meta.env.VITE_BACKEND_NEXT_BASE_URL ?? "").replace(/\/$/, "")

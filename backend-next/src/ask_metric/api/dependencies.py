@@ -79,8 +79,13 @@ def require_actor(
     """验证令牌后再核对当前账号，防止停用账号或旧登录凭证继续访问。"""
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise AuthenticationError("AUTH_TOKEN_INVALID", "请先登录")
+    return authenticate_access_token(request, credentials.credentials)
+
+
+def authenticate_access_token(request: Request, token: str) -> ActorContext:
+    """在线请求与刷新恢复共用账号校验；Cookie 不会成为业务接口的备用认证方式。"""
     settings: Settings = request.app.state.settings
-    claims = decode_access_token(credentials.credentials, settings)
+    claims = decode_access_token(token, settings)
     user_id = str(claims.get("sub") or "")
     with SqlAlchemyUnitOfWork() as uow:
         user = uow.users.get(user_id)

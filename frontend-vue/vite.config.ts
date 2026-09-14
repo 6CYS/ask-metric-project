@@ -43,7 +43,8 @@ export default defineConfig(({ mode }) => {
       proxy: {
         "/api": {
           target: env.VITE_BACKEND_NEXT_BASE_URL || "http://localhost:8010",
-          changeOrigin: true,
+          // 保留浏览器 Host（含端口），使认证接口能够核对同源请求。
+          changeOrigin: false,
         },
       },
     },

@@ -8,7 +8,7 @@ import { navigationItems } from "@/config/navigation"
 import { useAuth } from "@/composables/useAuth"
 import { resolveOrganizationBranding } from "@/config/organizationBranding"
 import BaseBadge from "@/components/ui/BaseBadge.vue"
-import { computed } from "vue"
+import { computed, ref } from "vue"
 import { useRouter } from "vue-router"
 
 /**
@@ -31,6 +31,8 @@ withDefaults(
 const route = useRoute()
 const router = useRouter()
 const auth = useAuth()
+const logoutError = ref("")
+const loggingOut = ref(false)
 const branding = computed(() => resolveOrganizationBranding(auth.user.value?.org_code ?? "", auth.user.value?.org_name ?? ""))
 const visibleNavigationItems = computed(() => navigationItems.filter((item) => !item.adminOnly || auth.user.value?.role_code === "SYSTEM_ADMIN"))
 const { isSidebarCollapsed, toggleSidebarCollapsed } = useSidebarPreference()
@@ -41,8 +43,17 @@ function isNavigationActive(href: string) {
 }
 
 async function handleLogout() {
-  await auth.logout()
-  await router.replace("/login")
+  if (loggingOut.value) return
+  loggingOut.value = true
+  logoutError.value = ""
+  try {
+    await auth.logout()
+    await router.replace("/login")
+  } catch {
+    logoutError.value = "退出登录未完成，请检查连接后重试。"
+  } finally {
+    loggingOut.value = false
+  }
 }
 </script>
 
@@ -192,6 +203,7 @@ async function handleLogout() {
             contentClassName,
           ]"
         >
+          <p v-if="logoutError" role="alert" class="px-3 py-2 text-sm text-destructive">{{ logoutError }}</p>
           <slot />
         </div>
       </main>
