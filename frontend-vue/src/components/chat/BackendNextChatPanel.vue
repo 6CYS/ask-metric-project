@@ -34,7 +34,6 @@ import type {
   BackendNextExecutionResult,
   BackendNextTaskResult,
   ChatResponse,
-  ClarificationOption,
   SemanticPatch,
 } from "@/types/api"
 import { useAuth } from "@/composables/useAuth"
@@ -322,7 +321,7 @@ function executionStatus(message: DisplayMessage) {
     return {
       kind: "waiting",
       title: "待补充条件",
-      description: "请选择推荐项或在当前消息卡片中补充查询条件。",
+      description: "请在下方输入框补充查询条件。",
       cardClass: "border-[#E2D5B5] shadow-[0_2px_10px_rgba(81,67,38,0.05)]",
       avatarClass: "border-[#E2D5B5] bg-[#FBF8F0] text-muted-foreground shadow-[0_2px_8px_rgba(81,67,38,0.06)]",
       panelClass: "border-[#E2D5B5] bg-[#FBF8F0]",
@@ -1072,39 +1071,6 @@ async function executeTask(conversationId: string, messageId: string, task: Back
   }))
 }
 
-function clarificationPatch(message: DisplayMessage, option: ClarificationOption): SemanticPatch {
-  if (typeof option !== "string" && option.patch) return option.patch
-  const missing = message.clarification?.missing ?? []
-  const metricValue = typeof option === "string" ? option : {
-    code: option.code ?? option.metric_code ?? option.org_code,
-    name: option.name ?? option.metric_name ?? option.org_name,
-  }
-  const field = missing.includes("orgs") || (typeof option !== "string" && option.kind === "organization") ? "orgs" : "metrics"
-  const value = field === "orgs" && typeof option !== "string"
-    ? option.code ?? option.org_code ?? option.name ?? option.org_name
-    : metricValue
-  return { set: { [field]: [value] }, add_ops: [], remove_ops: [] }
-}
-
-function handleClarification(messageId: string, option: ClarificationOption) {
-  const conversation = activeConversation.value
-  const target = conversation?.messages.find((item) => item.id === messageId)
-  if (!conversation || !target?.taskId || target.taskVersion === undefined || !target.clarification || activeConversationIsSending.value) return
-  void resumeClarification(conversation.id, target, option)
-}
-
-function handleStructuredClarification(messageId: string, patch: SemanticPatch, answerLabel: string) {
-  const conversation = activeConversation.value
-  const target = conversation?.messages.find((item) => item.id === messageId)
-  if (!conversation || !target?.taskId || target.taskVersion === undefined || !target.clarification || activeConversationIsSending.value) return
-  void resumeClarificationWithAnswers(conversation.id, target, patch, answerLabel)
-}
-
-async function resumeClarification(conversationId: string, target: DisplayMessage, option: ClarificationOption) {
-  const answerLabel = typeof option === "string" ? option : option.name ?? option.metric_name ?? option.org_name ?? option.code ?? "已选择候选项"
-  await resumeClarificationWithAnswers(conversationId, target, clarificationPatch(target, option), String(answerLabel))
-}
-
 async function handleCancelClarification(messageId: string) {
   const conversation = activeConversation.value
   const target = conversation?.messages.find((item) => item.id === messageId)
@@ -1319,10 +1285,10 @@ async function scrollToBottom() {
                     <span class="execution-dot size-1.5 rounded-full bg-[#7C9CDB] [animation-delay:320ms]" />
                   </span>
                 </div>
-                <ChatResultContent v-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" :clarification-disabled="!queryReady || activeConversationIsSending || (Boolean(chatMessage.response.clarification) && chatMessage.taskStatus !== 'WAITING_USER')" :clarification-loading="activeConversationIsSending && chatMessage.taskStatus === 'WAITING_USER'" :enable-metric-catalog="chatMessage.clarification?.missing?.length === 1 && chatMessage.clarification.missing[0] === 'metrics'" :stream-answer="chatMessage.streamAnswer" @clarification="handleClarification(chatMessage.id, $event)" @answer-stream-complete="finishAnswerStream(chatMessage.id)" />
+                <ChatResultContent v-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" :stream-answer="chatMessage.streamAnswer" @answer-stream-complete="finishAnswerStream(chatMessage.id)" />
                 <p v-else-if="chatMessage.status !== 'pending' && !chatMessage.response" class="whitespace-pre-wrap break-words leading-6">{{ chatMessage.content }}</p>
                 <div v-if="chatMessage.taskStatus === 'WAITING_USER' && chatMessage.clarification?.fields?.length" class="mt-1">
-                  <StructuredClarificationForm v-if="chatMessage.clarification.fields?.length" :clarification="chatMessage.clarification" :disabled="!queryReady || activeConversationIsSending" @submit="(patch, label) => handleStructuredClarification(chatMessage.id, patch, label)" />
+                  <StructuredClarificationForm v-if="chatMessage.clarification.fields?.length" :clarification="chatMessage.clarification" />
                 </div>
                 <div v-if="openTimingMessageId === chatMessage.id" class="mt-3 border-t border-border/70 pt-3">
                   <div class="mb-1.5 flex items-center justify-between gap-3">

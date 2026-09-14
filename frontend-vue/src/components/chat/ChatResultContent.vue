@@ -1,13 +1,11 @@
 <script setup lang="ts">
-import { ArrowRight, Bug, ChartColumn, Check, Copy, Download, Ellipsis, LoaderCircle, Search, Table2 } from "@lucide/vue"
+import { Bug, ChartColumn, Check, Copy, Download, LoaderCircle, Search, Table2 } from "@lucide/vue"
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from "vue"
 
 import BaseBadge from "@/components/ui/BaseBadge.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import ListPagination from "@/components/ListPagination.vue"
-import MetricClarificationPicker from "@/components/chat/MetricClarificationPicker.vue"
-import { formatClarificationOption, getClarificationOptionKey, getVisibleMetricOptions } from "@/lib/clarificationOptions"
-import type { ChatResponse, ClarificationOption } from "@/types/api"
+import type { ChatResponse } from "@/types/api"
 import { exportBackendNextTaskResult } from "@/lib/api"
 import { clarificationTranscript } from "@/lib/conversationMessages"
 import { copyText } from "@/lib/clipboard"
@@ -25,14 +23,12 @@ import { resolveResultVisualization, type ResultView } from "@/lib/resultVisuali
 // ECharts 体积较大，仅在展示决策允许图表时加载对应代码块。
 const ChatResultChart = defineAsyncComponent(() => import("@/components/chat/ChatResultChart.vue"))
 
-const props = withDefaults(defineProps<{ response: ChatResponse; question?: string; clarificationResolved?: boolean; clarificationDisabled?: boolean; clarificationLoading?: boolean; showDebugButton?: boolean; enableMetricCatalog?: boolean; streamAnswer?: boolean }>(), { question: "", clarificationResolved: false, clarificationDisabled: false, clarificationLoading: false, showDebugButton: false, enableMetricCatalog: true, streamAnswer: false })
-const emit = defineEmits<{ clarification: [option: ClarificationOption]; debug: []; answerStreamComplete: [] }>()
+const props = withDefaults(defineProps<{ response: ChatResponse; question?: string; clarificationResolved?: boolean; showDebugButton?: boolean; streamAnswer?: boolean }>(), { question: "", clarificationResolved: false, showDebugButton: false, streamAnswer: false })
+const emit = defineEmits<{ debug: []; answerStreamComplete: [] }>()
 const visualization = computed(() => resolveResultVisualization(props.response, props.question))
 const resultMode = ref<ResultView>("table")
 const resultPage = ref(1)
 const resultPageSize = ref<number>(RESULT_PAGE_SIZE_OPTIONS[0])
-const isMetricPickerOpen = ref(false)
-const selectedClarificationKey = ref<string | null>(null)
 const isDownloading = ref(false)
 const downloadError = ref("")
 const isDataDetailsOpen = ref(Boolean(props.response.result?.table?.rows.length))
@@ -56,21 +52,9 @@ const statusDefinitions = computed(() => {
       : [...new Set(rows.map((row) => String(row.status)).filter((value) => value in statusLabels))]
   return values.map((value) => ({ value, label: statusLabels[value] }))
 })
-/** 指标名称歧义和指标口径后缀歧义都应进入同一套“前三项 + 更多搜索”交互。 */
-const supportsMetricPicker = computed(() => {
-  const type = props.response.clarification?.type
-  return type === "metric" || type === "metric_variant"
-})
-const clarificationOptions = computed(() => {
-  const options = props.response.clarification?.options ?? []
-  return supportsMetricPicker.value && props.enableMetricCatalog ? getVisibleMetricOptions(options) : options
-})
-const hasMoreMetricOptions = computed(() => supportsMetricPicker.value
-  && props.enableMetricCatalog
-  && (props.response.clarification?.options.length ?? 0) > clarificationOptions.value.length)
 const showAnswer = computed(() => props.clarificationResolved || !props.response.clarification?.fields?.length)
 const displayAnswer = computed(() => {
-  if (props.clarificationResolved && props.response.clarification) return clarificationTranscript(props.response.clarification, props.response.answer)
+  if (props.response.clarification) return clarificationTranscript(props.response.clarification, props.response.answer)
   if (props.response.answer !== "已生成查询计划，等待执行。") return props.response.answer
   const count = props.response.result?.table?.rows.length
   return typeof count !== "number" ? props.response.answer : count ? `查询完成，找到 ${count} 条记录。` : "查询完成，暂无匹配数据。"
@@ -152,17 +136,6 @@ function resultViewLabel(view: ResultView) {
   if (view === "horizontal_bar") return "横向柱状图"
   if (view === "vertical_bar") return "柱状图"
   return "表格"
-}
-
-/** 不同澄清类型共用后端 option 结构，优先取最适合作为自然语言追问的名称。 */
-function formatOption(option: ClarificationOption) {
-  return formatClarificationOption(option)
-}
-
-function selectClarification(option: ClarificationOption, index: number) {
-  if (props.clarificationDisabled) return
-  selectedClarificationKey.value = getClarificationOptionKey(option, index)
-  emit("clarification", option)
 }
 
 function formatCell(value: unknown, column: string, row: Record<string, unknown>) {
@@ -261,38 +234,6 @@ async function copyAnswer() {
       <p v-if="downloadError" class="mt-2 text-sm text-destructive">{{ downloadError }}</p>
     </div>
 
-    <section v-if="!clarificationResolved && response.clarification && !response.clarification.fields?.length && (clarificationOptions.length || (supportsMetricPicker && enableMetricCatalog))" class="py-1">
-      <p class="mb-2 text-xs font-medium text-[#607386]">请选择{{ supportsMetricPicker ? "指标" : "候选项" }}</p>
-      <div class="flex flex-col gap-3">
-      <div class="relative grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-        <button
-          v-for="(option, index) in clarificationOptions"
-          :key="getClarificationOptionKey(option, index)"
-          type="button"
-          class="group relative flex min-h-14 min-w-0 items-center gap-3 overflow-hidden rounded-lg border border-[#C7D8E7] bg-transparent px-3.5 py-2.5 text-left text-[#334E68] transition-colors duration-150 hover:border-[#6F96BD] hover:bg-[#F3F7FB] focus-visible:border-[#52789C] focus-visible:ring-3 focus-visible:ring-[#AFC8E3]/50 focus-visible:outline-none active:bg-[#E8F1FA] disabled:pointer-events-none disabled:opacity-65"
-          :class="selectedClarificationKey === getClarificationOptionKey(option, index) && 'border-[#52789C] bg-[#EEF5FB]'"
-          :disabled="clarificationDisabled"
-          @click="selectClarification(option, index)"
-        >
-          <span class="flex size-7 shrink-0 items-center justify-center rounded-md bg-[#E8F1FA] text-xs font-semibold text-[#52789C]">{{ index + 1 }}</span>
-          <span class="min-w-0 flex-1 [overflow-wrap:anywhere] text-sm font-medium leading-5 whitespace-normal">{{ formatOption(option) }}</span>
-          <LoaderCircle v-if="props.clarificationLoading && selectedClarificationKey === getClarificationOptionKey(option, index)" class="size-4 shrink-0 animate-spin text-[#52789C]" />
-          <ArrowRight v-else class="size-4 shrink-0 text-[#91A9BF] transition-transform duration-200 group-hover:translate-x-1 group-hover:text-[#52789C]" />
-        </button>
-      </div>
-      <div class="relative flex flex-wrap gap-2.5">
-        <BaseButton v-if="hasMoreMetricOptions" variant="outline" size="sm" :disabled="clarificationDisabled" @click="isMetricPickerOpen = true"><Ellipsis />更多</BaseButton>
-        <BaseButton v-else-if="supportsMetricPicker && enableMetricCatalog" variant="outline" size="sm" class="bg-white shadow-sm hover:border-[#8EABC5] hover:bg-[#F3F7FB]" :disabled="clarificationDisabled" @click="isMetricPickerOpen = true"><Search />搜索指标库</BaseButton>
-      </div>
-      <MetricClarificationPicker
-        v-if="supportsMetricPicker && enableMetricCatalog"
-        v-model:open="isMetricPickerOpen"
-        :similar-options="response.clarification.options"
-        :disabled="clarificationDisabled"
-        @submit="emit('clarification', $event)"
-      />
-      </div>
-    </section>
 
     <div v-if="showDebugButton && response.debug"><BaseButton variant="outline" size="sm" @click="emit('debug')"><Bug />详细调试信息</BaseButton></div>
   </div>

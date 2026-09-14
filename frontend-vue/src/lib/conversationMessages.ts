@@ -1,6 +1,5 @@
 import type { BackendNextClarification, BackendNextConversationMessage, BackendNextConversationTask, ChatResponse } from "@/types/api"
 import { isRetiredContextTask } from "@/lib/taskAdvance"
-import { clarificationDisplayField } from "@/lib/clarificationOptions"
 
 /** Prefer the persisted message timestamp; keep compatibility with older snapshots. */
 export function conversationMessageTime(message: BackendNextConversationMessage) {
@@ -10,7 +9,21 @@ export function conversationMessageTime(message: BackendNextConversationMessage)
 }
 
 export function clarificationTranscript(clarification: Partial<BackendNextClarification>, fallback = "") {
-  const messages = [...new Set((clarification.fields ?? []).map((field) => clarificationDisplayField(field).message.trim()).filter(Boolean))]
+  // 当前提示与历史展示共用此入口；目录候选只交给输入框，不从旧正文中截取或替换名称。
+  const catalogPrompt = (type: string) => {
+    if (type === "metric" || type === "metric_variant" || type === "metrics") return "请补充要查询的指标。"
+    if (type === "organization" || type === "orgs") return "请补充要查询的机构。"
+    return ""
+  }
+  const fields = clarification.fields ?? []
+  const messages = [...new Set(fields.map((field) => catalogPrompt(field.type) || field.message.trim()).filter(Boolean))]
+  // 兼容只有 type/missing、尚无 fields 的历史澄清，避免再次显示旧候选列表。
+  if (!fields.length) {
+    for (const type of [clarification.type ?? "", ...(clarification.missing ?? [])]) {
+      const prompt = catalogPrompt(type)
+      if (prompt && !messages.includes(prompt)) messages.push(prompt)
+    }
+  }
   return messages.join("\n") || clarification.prompt || fallback || "请补充查询条件。"
 }
 
