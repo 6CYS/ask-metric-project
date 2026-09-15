@@ -37,10 +37,22 @@ def _redact_sensitive(message: str) -> str:
 
 def _safe_message(record: logging.LogRecord) -> str:
     message = record.getMessage()
-    # Error告警保留完整异常链；格式化为单行后再截断，避免破坏采集边界。
+    # 保留异常链的定位帧，不输出异常正文、源码行或局部变量；这些内容可能含业务数据。
     if record.exc_info and record.exc_info[0]:
-        traceback_text = logging.Formatter().formatException(record.exc_info)
-        message = f"{message} | {traceback_text}"
+        error = record.exc_info[1]
+        traceback = record.exc_info[2]
+        seen: set[int] = set()
+        while error is not None and id(error) not in seen:
+            seen.add(id(error))
+            message += f" | exception_type={type(error).__name__}"
+            while traceback is not None:
+                code = traceback.tb_frame.f_code
+                message += f" | File {code.co_filename}:{traceback.tb_lineno} in {code.co_name}"
+                traceback = traceback.tb_next
+            error = error.__cause__ or (
+                error.__context__ if not error.__suppress_context__ else None
+            )
+            traceback = error.__traceback__ if error is not None else None
     return _redact_sensitive(message)
 
 
