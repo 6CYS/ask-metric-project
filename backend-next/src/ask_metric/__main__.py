@@ -6,12 +6,17 @@ import json
 from pathlib import Path
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m ask_metric")
     subcommands = parser.add_subparsers(dest="command", required=True)
     for name in ("sync-metric-catalog", "sync-org-catalog"):
         command = subcommands.add_parser(name)
         command.add_argument("--dry-run", action="store_true")
+        if name == "sync-metric-catalog":
+            command.add_argument("--units", type=Path, help="已确认的完整指标名称—单位 JSON")
+            command.add_argument("--infer-units", action="store_true")
+            command.add_argument("--all-snapshots", action="store_true",
+                                 help="Read distinct metric definitions across all fact snapshots")
         command.add_argument(
             "--full",
             action="store_true",
@@ -26,7 +31,7 @@ def main() -> None:
         type=Path,
         help="Read the 32-hex-character SM4 master key from this protected file",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.command == "encrypt-config":
         from ask_metric.core.config_crypto import encrypt_config_value, load_config_sm4_key
@@ -57,6 +62,10 @@ def main() -> None:
             fact_table=settings.sit_fact_table,
             dry_run=args.dry_run,
             full=args.full,
+            all_snapshots=args.all_snapshots,
+            units_by_name=(json.loads(args.units.read_text(encoding="utf-8"))
+                           if args.units else None),
+            infer_units=args.infer_units,
             active_order=settings.sit_metric_active_order,
             fact_snapshot_field=settings.sit_metric_fact_snapshot_field,
             fact_metric_code_field=settings.sit_fact_metric_code_field,

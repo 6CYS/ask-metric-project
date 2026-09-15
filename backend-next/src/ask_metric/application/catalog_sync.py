@@ -54,6 +54,7 @@ class CatalogCleanupSummary:
         return asdict(self)
 
 
+
 class SitCatalogSyncService:
     def __init__(self, app_sessions: sessionmaker[Session]) -> None:
         self.app_sessions = app_sessions
@@ -66,6 +67,9 @@ class SitCatalogSyncService:
         fact_table: str,
         dry_run: bool = False,
         full: bool = False,
+        all_snapshots: bool = False,
+        units_by_name: dict[str, str] | None = None,
+        infer_units: bool = False,
         active_order: str = "eff_dt,indcr_ver_no,btch_seq_no",
         fact_snapshot_field: str = "etl_date",
         fact_metric_code_field: str = "indcr_no",
@@ -107,16 +111,43 @@ class SitCatalogSyncService:
         configs, skipped = _select_latest(
             config_rows, "indcr_no", columns, effective_field="eff_dt"
         )
+        # 部署初始化可以读取全部历史编码；既有调用默认仍使用最新快照。
+        snapshot_condition = (
+            "" if all_snapshots else
+            f" WHERE {fact_snapshot_field} = "
+            f"(SELECT MAX({fact_snapshot_field}) FROM {fact_table})"
+        )
         fact_rows = _read_rows(
             source_engine,
             f"SELECT DISTINCT {fact_metric_code_field} AS indcr_no, "
             f"{fact_source_metric_code_field} AS orig_indcr_no, "
             f"{fact_value_basis_field} AS indcr_nm "
-            f"FROM {fact_table} "
-            f"WHERE {fact_snapshot_field} = "
-            f"(SELECT MAX({fact_snapshot_field}) FROM {fact_table})",
+            f"FROM {fact_table}{snapshot_condition}",
         )
         selected, catalog_skipped, catalog_errors = _build_metric_catalog(fact_rows, configs)
+        # 单位必须来自已确认映射；校验完整后再打开应用库写入事务。
+        if units_by_name is not None or infer_units:
+            from ask_metric.application.metric_units import MetricUnitError, infer_metric_unit
+
+            units_by_name = {} if units_by_name is None else units_by_name.copy()
+            if not isinstance(units_by_name, dict):
+                raise ValueError("单位映射必须是名称到单位的 JSON 对象")
+            selected_names = {row["metric_name"] for row in selected.values()}
+            if infer_units:
+                for name in selected_names:
+                    if not units_by_name.get(name):
+                        units_by_name[name] = infer_metric_unit(name)
+            missing = {name for name in selected_names if not units_by_name.get(name)}
+            if missing:
+                raise MetricUnitError(sorted(missing))
+            if any(not isinstance(v, str) or not v.strip() or len(v) > 64
+                   for v in (units_by_name[name] for name in selected_names)):
+                raise ValueError("单位必须为 1 至 64 字符的非空文本")
+        if catalog_errors:
+            raise ValueError(
+                f"指标目录存在 {catalog_errors} 条同编码名称冲突，未写入应用库；"
+                "请核对源配置和事实表"
+            )
         summary = SyncSummary(
             source_rows=len(fact_rows),
             selected_rows=len(selected),
@@ -144,6 +175,8 @@ class SitCatalogSyncService:
                 before = _metric_state(term)
                 term.metric_name = name
                 term.enabled = True
+                if units_by_name is not None:
+                    term.unit = units_by_name[name]
                 after = _metric_state(term)
                 if created:
                     summary.created += 1
@@ -356,9 +389,7 @@ def _build_metric_catalog(
     errors = 0
     for fact in fact_rows:
         metric_code = str(fact.get("indcr_no") or "").strip()
-        source_metric_code = str(
-            fact.get("orig_indcr_no") or fact.get("indcr_no") or ""
-        ).strip()
+        source_metric_code = str(fact.get("orig_indcr_no") or "").strip()
         value_basis = str(fact.get("indcr_nm") or "").strip()
         config = configs.get(source_metric_code)
         if not metric_code or not source_metric_code or config is None:
@@ -391,10 +422,7 @@ def _compose_metric_name(base_name: str, value_basis: str) -> str:
     if not base_name:
         return ""
     qualifier = value_basis.strip()
-    if not qualifier or qualifier == base_name:
-        return base_name
-    if qualifier.startswith(base_name) or base_name.endswith(qualifier):
-        return qualifier if qualifier.startswith(base_name) else base_name
+    # 按源字段直接拼接，不猜测重复口径或改写正式指标名称。
     return f"{base_name}{qualifier}"
 
 
@@ -448,7 +476,7 @@ def _as_date(value: Any) -> date | None:
 
 
 def _metric_state(term: MetricTerm) -> tuple[Any, ...]:
-    return (term.metric_name, term.enabled)
+    return (term.metric_name, term.enabled, term.unit)
 
 
 def _org_state(term: OrgTerm) -> tuple[Any, ...]:
