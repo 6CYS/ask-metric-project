@@ -125,6 +125,7 @@ class SemanticEngine:
         protected_question = _protect_resolved_entities(
             question,
             metric_matches=resolution.matches,
+            ambiguous_metric_spans=resolution.ambiguous_spans,
             organizations=organizations,
             organization_aliases=config.organization_aliases,
         )
@@ -854,6 +855,7 @@ def _protect_resolved_entities(
     metric_matches: list[MetricMatch],
     organizations: list[OrganizationCatalogItem],
     organization_aliases: dict[str, list[str]],
+    ambiguous_metric_spans: list[tuple[int, int]] | None = None,
 ) -> str:
     """Replace confirmed entity spans with opaque, self-closing placeholders."""
 
@@ -861,6 +863,13 @@ def _protect_resolved_entities(
         (match.start, match.end, f'<METRIC code="{match.code}"/>')
         for match in metric_matches
     ]
+    # 完整歧义别名内的“同比/排名”等同样属于实体文字。保留候选供澄清，
+    # 不向模型暴露名称内部的操作词，也不伪造一个已选中的指标编码。
+    for start, end in sorted(
+        ambiguous_metric_spans or [], key=lambda span: -(span[1] - span[0])
+    ):
+        if not any(start < right and end > left for left, right, _ in spans):
+            spans.append((start, end, '<METRIC unresolved="true"/>'))
     occupied = [(start, end) for start, end, _ in spans]
 
     term_owners: dict[str, list[OrganizationCatalogItem]] = {}

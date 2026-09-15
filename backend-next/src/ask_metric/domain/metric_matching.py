@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ask_metric.domain.semantics import MetricCatalogItem, MetricMatch
 
@@ -20,6 +20,8 @@ class _TextTerm:
 class MetricResolution:
     matches: list[MetricMatch]
     ambiguous_candidates: list[MetricCatalogItem]
+    # 已识别为完整目录名称/别名，只是编码有歧义；保护文字不等于选择指标。
+    ambiguous_spans: list[tuple[int, int]] = field(default_factory=list)
 
 
 def normalize_semantic_text(text: str) -> str:
@@ -131,9 +133,24 @@ class MetricMatcher:
                     exact=normalized_text == term.normalized,
                 )
             )
+        protected_intervals = set(ambiguous_intervals)
+        for (start, end, _), terms in preferred_terms.items():
+            if (start, end) not in protected_intervals:
+                continue
+            for term in terms:
+                if term.source != "alias":
+                    continue
+                if self._partial_alias_candidates(normalized_text, start, end, term):
+                    # 共享短别名也不能掩盖用户尚未说完整的更具体名称。
+                    protected_intervals.discard((start, end))
+                    break
         return MetricResolution(
             matches=matches,
             ambiguous_candidates=[item for item in self.catalog if item.code in ambiguous_codes],
+            ambiguous_spans=[
+                (index_map[start], index_map[end - 1] + 1)
+                for start, end in sorted(protected_intervals)
+            ],
         )
 
     def _partial_alias_candidates(
