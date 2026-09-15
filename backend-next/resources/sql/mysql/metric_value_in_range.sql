@@ -8,7 +8,7 @@ FROM (
            ) AS row_number
     FROM metric_values
     WHERE metric_code IN :metric_codes
-      AND (:filter_orgs = FALSE OR org_name IN :org_names)
+      AND (:filter_orgs = FALSE OR org_code IN :org_codes)
       AND stat_date >= CAST(:start_date AS DATE)
       AND stat_date <= CAST(:end_date AS DATE)
 ) AS ranked

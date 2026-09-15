@@ -2,7 +2,7 @@ WITH target_dates AS (
     SELECT metric_code, MAX(stat_date) AS stat_date
     FROM metric_values
     WHERE metric_code IN :metric_codes
-      AND (:filter_orgs = FALSE OR org_name IN :org_names)
+      AND (:filter_orgs = FALSE OR org_code IN :org_codes)
     GROUP BY metric_code
 ),
 ranked_values AS (
@@ -15,7 +15,7 @@ ranked_values AS (
     LEFT JOIN metric_terms AS mt ON mt.metric_code = mv.metric_code
     JOIN target_dates AS td
       ON td.metric_code = mv.metric_code AND td.stat_date = mv.stat_date
-    WHERE (:filter_orgs = FALSE OR mv.org_name IN :org_names)
+    WHERE (:filter_orgs = FALSE OR mv.org_code IN :org_codes)
 )
 SELECT metric_code, metric_name, unit, org_name, metric_value, stat_date, `rank`
 FROM ranked_values

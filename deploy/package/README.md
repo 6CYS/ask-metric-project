@@ -66,6 +66,22 @@ ask-metric-<version>-<platform>-py<python>.tar.gz.sha256
 `127.0.0.1` 后端 URL 就立即失败。仅在已单独确认 `frontend-vue/dist/` 是本次源码生成的
 情况下，才可用 `--skip-frontend-build` 跳过编译，产物扫描仍不会跳过。
 
+构建器同样在暂存副本上构建智能助手服务（`agent-service/`，pi agent harness）：执行
+`npm ci`、`tsc` 构建并裁剪为生产依赖后随包携带 `node_modules`，目标机离线运行。仅在已
+确认 `agent-service/dist/` 与生产依赖就绪时可用 `--skip-agent-build` 跳过。
+
+目标机没有可用 Node.js 22.12+ 时，按 `node-runtime-lock.json` 中的官方归档与 SHA-256
+内嵌 Node runtime（归档需先行下载并通过外层校验）：
+
+```powershell
+python deploy/package/build_bundle.py `
+  --version 20260824.1 `
+  --platform linux-x86_64 `
+  --python-version 3.12 `
+  --node-runtime-archive deploy/.cache/node/node-v22.23.2-linux-x64.tar.gz `
+  --node-runtime-sha256 b294a556e639d64338823920e5866c21c02741742d2e1529ee1a225c1ec9252a
+```
+
 ## 2. 传输与校验
 
 把 `.tar.gz` 和同名 `.sha256` 一起传到目标机，然后执行：
@@ -87,19 +103,25 @@ cd ask-metric-20260824.1-linux-x86_64-py3.12
 /opt/ask-metric/releases/<version>/   不可变版本目录
 /opt/ask-metric/current               当前版本软链接
 /etc/ask-metric/backend.env           跨版本保留的配置
+/etc/ask-metric/agent.env             智能助手服务配置（跨版本保留）
 /var/lib/ask-metric/runtime-config/    模型、提示词和 SQL 模板（跨版本保留）
 /var/lib/ask-metric/                   其他跨版本运行数据和配置历史
 /home/appuser/log/                     行内规范日志目录（物理目录，禁止软链接）
 ```
 
-首次运行安装器会离线创建版本目录和配置模板，但检测到模板占位值后不会激活或启动（退出码 2 为预期结果）：
+首次运行安装器会离线创建版本目录和配置模板，但检测到模板占位值后不会激活或启动（退出码 2 为预期结果）。智能助手服务的 `agent.env` 独立生成与检查：存在未替换占位值时仅跳过 `ask-metric-agent` 服务激活并给出警告，不影响后端与前端安装：
 
 ```bash
 sudo ./ops/install.sh
 sudo vi /etc/ask-metric/backend.env
+sudo vi /etc/ask-metric/agent.env   # 可选；启用智能助手时配置模型网关与密钥
 # 完成下文的密钥、配置路径、权限核对后，再执行：
 sudo ./ops/install.sh
 ```
+
+`agent.env` 中的 `AGENT_MODEL_API_KEY` 支持与后端一致的 `ENC[SM4:v1:...]` 密文，复用
+`/etc/ask-metric/config-sm4.key` 主密钥；Nginx 会把同源 `/agent-api/` 反代到回环地址的
+agent-service（SSE 流式，已关闭代理缓冲）。不需要智能助手时使用 `--no-agent` 跳过。
 
 必须配置两个不同用途的数据库账号：
 

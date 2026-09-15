@@ -46,6 +46,13 @@ export default defineConfig(({ mode }) => {
           // 保留浏览器 Host（含端口），使认证接口能够核对同源请求。
           changeOrigin: false,
         },
+        // 仅开发环境代理到本机 agent-service；生产由 Nginx 同源代理 /agent-api。
+        // 与 Nginx 的 proxy_pass 行为一致：剥离 /agent-api 前缀后再转发。
+        "/agent-api": {
+          target: env.VITE_AGENT_SERVICE_BASE_URL || "http://127.0.0.1:8020",
+          changeOrigin: false,
+          rewrite: (path) => path.replace(/^\/agent-api/, ""),
+        },
       },
     },
   }

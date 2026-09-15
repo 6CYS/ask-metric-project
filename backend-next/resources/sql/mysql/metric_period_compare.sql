@@ -9,7 +9,7 @@ FROM requested_periods AS periods
 LEFT JOIN metric_values AS mv
   ON mv.stat_date = periods.stat_date
  AND mv.metric_code IN :metric_codes
- AND (:filter_orgs = FALSE OR mv.org_name IN :org_names)
+ AND (:filter_orgs = FALSE OR mv.org_code IN :org_codes)
 LEFT JOIN metric_terms AS mt ON mt.metric_code = mv.metric_code
 WHERE mv.metric_code IS NOT NULL
 ORDER BY mv.metric_code, mv.org_name, periods.period

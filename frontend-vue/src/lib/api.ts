@@ -1,8 +1,5 @@
 import type {
   QueryReadiness,
-  BackendNextConversationSnapshot,
-  BackendNextExecutionResult,
-  BackendNextTaskResult,
   DatasetItem,
   DatasetPayload,
   ConfigVersion,
@@ -18,8 +15,6 @@ import type {
   AuthUser,
   LoginResponse,
   Sm2PublicKeyResponse,
-  BackendNextConversationListItem,
-  BackendNextConversationCleanupResult,
   AccuracySuite,
   AccuracyRun,
   AccuracyImportPreview,
@@ -390,90 +385,6 @@ export function updateDataset(datasetId: number, payload: DatasetPayload) {
 
 export function deleteDataset(datasetId: number) {
   return request<void>(apiUrl(backendNextBase, `/api/v1/catalog/datasets/${datasetId}`), { method: "DELETE" })
-}
-
-export function createBackendNextQuestion(payload: {
-  conversation_id: string
-  message: string
-  idempotency_key: string
-}) {
-  return request<BackendNextTaskResult>(apiUrl(backendNextBase, "/api/v1/questions"), {
-    method: "POST",
-    headers: { "Idempotency-Key": payload.idempotency_key },
-    body: JSON.stringify(payload),
-  })
-}
-
-export function analyzeBackendNextTask(taskId: string, expectedVersion: number) {
-  return request<BackendNextTaskResult>(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}/analyze`), {
-    method: "POST",
-    body: JSON.stringify({ expected_version: expectedVersion }),
-  })
-}
-
-export function submitBackendNextClarification(
-  taskId: string,
-  payload: { expected_version: number; clarification_id: string; answers: unknown },
-) {
-  return request<BackendNextTaskResult>(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}/clarifications`), {
-    method: "POST",
-    body: JSON.stringify(payload),
-  })
-}
-
-export function cancelBackendNextClarification(
-  taskId: string,
-  payload: { expected_version: number; clarification_id: string },
-) {
-  return request<BackendNextTaskResult>(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}/clarifications/cancel`), {
-    method: "POST",
-    body: JSON.stringify(payload),
-  })
-}
-
-export function executeBackendNextTask(taskId: string, expectedVersion: number, requestId: string) {
-  return request<BackendNextExecutionResult>(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}/execute`), {
-    method: "POST",
-    headers: { "Idempotency-Key": requestId },
-    body: JSON.stringify({ expected_version: expectedVersion }),
-  })
-}
-
-export function getBackendNextTask(taskId: string) {
-  return request<BackendNextTaskResult>(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}`))
-}
-
-export function getBackendNextConversation(conversationId: string) {
-  return request<BackendNextConversationSnapshot>(apiUrl(backendNextBase, `/api/v1/conversations/${encodeURIComponent(conversationId)}`))
-}
-
-export function listBackendNextConversations(limit = 12, offset = 0) {
-  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
-  return request<{ items: BackendNextConversationListItem[]; has_more: boolean }>(apiUrl(backendNextBase, `/api/v1/conversations?${params}`))
-}
-
-export function renameBackendNextConversation(conversationId: string, title: string) {
-  return request<BackendNextConversationListItem>(apiUrl(backendNextBase, `/api/v1/conversations/${encodeURIComponent(conversationId)}`), {
-    method: "PATCH",
-    body: JSON.stringify({ title }),
-  })
-}
-
-export function deleteBackendNextConversation(conversationId: string) {
-  return request<void>(apiUrl(backendNextBase, `/api/v1/conversations/${encodeURIComponent(conversationId)}`), {
-    method: "DELETE",
-  })
-}
-
-export function cleanupBackendNextConversations(keepLatest: number) {
-  const params = new URLSearchParams({ keep_latest: String(keepLatest) })
-  return request<BackendNextConversationCleanupResult>(apiUrl(backendNextBase, `/api/v1/conversations?${params}`), {
-    method: "DELETE",
-  })
-}
-
-export function exportBackendNextConversation(conversationId: string) {
-  return downloadAuthenticated(apiUrl(backendNextBase, `/api/v1/conversations/${encodeURIComponent(conversationId)}/export`), "会话记录.xlsx")
 }
 
 export function exportBackendNextTaskResult(taskId: string) {

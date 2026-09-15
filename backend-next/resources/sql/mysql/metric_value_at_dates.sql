@@ -3,7 +3,7 @@ SELECT mv.metric_code, COALESCE(mt.metric_name, mv.metric_name) AS metric_name,
 FROM metric_values AS mv
 LEFT JOIN metric_terms AS mt ON mt.metric_code = mv.metric_code
 WHERE mv.metric_code IN :metric_codes
-  AND (:filter_orgs = FALSE OR mv.org_name IN :org_names)
+  AND (:filter_orgs = FALSE OR mv.org_code IN :org_codes)
   AND mv.stat_date IN :stat_dates
 ORDER BY mv.stat_date, mv.metric_code, mv.org_name
 LIMIT :limit

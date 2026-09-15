@@ -14,7 +14,11 @@ INSTALL_SYSTEMD=true
 INSTALL_NGINX=true
 HTTP_PORT="80"
 BACKEND_PORT="8010"
+AGENT_PORT="8020"
 SERVICE_NAME="ask-metric-backend"
+AGENT_SERVICE_NAME="ask-metric-agent"
+AGENT_CONFIG_FILE="/etc/ask-metric/agent.env"
+INSTALL_AGENT=true
 
 usage() {
   cat <<'EOF'
@@ -28,7 +32,10 @@ Usage: ./ops/install.sh [options]
   --service-group GROUP Linux service group (default askmetric)
   --http-port PORT      Nginx listen port (default 80)
   --backend-port PORT   Loopback backend port (default 8010)
+  --agent-port PORT     Loopback agent-service port (default 8020)
+  --agent-config PATH   External agent-service environment file
   --service-name NAME   systemd unit name without .service
+  --no-agent            Do not install the agent-service unit or config
   --no-systemd          Do not install or restart the systemd unit
   --no-nginx            Do not install or reload the Nginx configuration
 EOF
@@ -45,7 +52,10 @@ while [[ $# -gt 0 ]]; do
     --service-group) SERVICE_GROUP="$2"; shift 2 ;;
     --http-port) HTTP_PORT="$2"; shift 2 ;;
     --backend-port) BACKEND_PORT="$2"; shift 2 ;;
+    --agent-port) AGENT_PORT="$2"; shift 2 ;;
+    --agent-config) AGENT_CONFIG_FILE="$2"; shift 2 ;;
     --service-name) SERVICE_NAME="$2"; shift 2 ;;
+    --no-agent) INSTALL_AGENT=false; shift ;;
     --no-systemd) INSTALL_SYSTEMD=false; shift ;;
     --no-nginx) INSTALL_NGINX=false; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -53,20 +63,20 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ ! "$HTTP_PORT" =~ ^[0-9]{1,5}$ || ! "$BACKEND_PORT" =~ ^[0-9]{1,5}$ ]]; then
+if [[ ! "$HTTP_PORT" =~ ^[0-9]{1,5}$ || ! "$BACKEND_PORT" =~ ^[0-9]{1,5}$ || ! "$AGENT_PORT" =~ ^[0-9]{1,5}$ ]]; then
   echo "ERROR: ports must be numeric values between 1 and 65535" >&2
   exit 1
 fi
-if (( HTTP_PORT < 1 || HTTP_PORT > 65535 || BACKEND_PORT < 1 || BACKEND_PORT > 65535 )); then
+if (( HTTP_PORT < 1 || HTTP_PORT > 65535 || BACKEND_PORT < 1 || BACKEND_PORT > 65535 || AGENT_PORT < 1 || AGENT_PORT > 65535 )); then
   echo "ERROR: ports must be numeric values between 1 and 65535" >&2
   exit 1
 fi
-if [[ ! "$SERVICE_NAME" =~ ^[0-9A-Za-z][0-9A-Za-z_.@-]{0,63}$ ]]; then
+if [[ ! "$SERVICE_NAME" =~ ^[0-9A-Za-z][0-9A-Za-z_.@-]{0,63}$ || ! "$AGENT_SERVICE_NAME" =~ ^[0-9A-Za-z][0-9A-Za-z_.@-]{0,63}$ ]]; then
   echo "ERROR: unsafe service name" >&2
   exit 1
 fi
 
-for value in "$INSTALL_ROOT" "$CONFIG_FILE" "$STATE_ROOT" "$LOG_ROOT"; do
+for value in "$INSTALL_ROOT" "$CONFIG_FILE" "$STATE_ROOT" "$LOG_ROOT" "$AGENT_CONFIG_FILE"; do
   if [[ "$value" != /* || "$value" == *'|'* || "$value" =~ [[:space:]] ]]; then
     echo "ERROR: deployment paths must be absolute and may not contain whitespace or |" >&2
     exit 1
@@ -157,6 +167,12 @@ if [[ ! -d "$FINAL_RELEASE" ]]; then
   cp -a "$BUNDLE_ROOT/backend/runtime" "$STAGING_RELEASE/backend"
   cp -a "$BUNDLE_ROOT/ops" "$STAGING_RELEASE/ops"
   cp "$BUNDLE_ROOT/manifest.json" "$STAGING_RELEASE/manifest.json"
+  if [[ "$INSTALL_AGENT" == true && -d "$BUNDLE_ROOT/agent-service" ]]; then
+    cp -a "$BUNDLE_ROOT/agent-service" "$STAGING_RELEASE/agent-service"
+  fi
+  if [[ "$INSTALL_AGENT" == true && -d "$BUNDLE_ROOT/node-runtime" ]]; then
+    cp -a "$BUNDLE_ROOT/node-runtime" "$STAGING_RELEASE/node-runtime"
+  fi
   "$PYTHON_BIN" -m venv "$STAGING_RELEASE/venv"
   PROJECT_WHEELS=("$BUNDLE_ROOT"/backend/wheels/ask_metric_backend_next-*.whl)
   if [[ ${#PROJECT_WHEELS[@]} -ne 1 || ! -f "${PROJECT_WHEELS[0]}" ]]; then
@@ -258,6 +274,36 @@ if grep -Eq '<[^>]+>|development-only-change-me' "$CONFIG_FILE"; then
   exit 2
 fi
 
+# agent-service 配置与后端分离保存；同样只生成一次，升级与回滚不覆盖。
+AGENT_READY=false
+if [[ "$INSTALL_AGENT" == true ]]; then
+  if [[ ! -f "$AGENT_CONFIG_FILE" ]]; then
+    mkdir -p "$(dirname -- "$AGENT_CONFIG_FILE")"
+    sed -e "s|@AGENT_PORT@|$AGENT_PORT|g" -e "s|@BACKEND_PORT@|$BACKEND_PORT|g" \
+      -e "s|@STATE_ROOT@|$STATE_ROOT|g" \
+      "$SCRIPT_DIR/agent.env.example" > "$AGENT_CONFIG_FILE"
+    chmod 0640 "$AGENT_CONFIG_FILE"
+    if [[ "$(id -u)" -eq 0 ]]; then
+      chown "root:$SERVICE_GROUP" "$AGENT_CONFIG_FILE"
+    fi
+    echo "Agent configuration template created: $AGENT_CONFIG_FILE"
+    echo "Replace all <...> placeholders, then run this installer again to enable the agent service."
+  elif grep -Eq '<[^>]+>' "$AGENT_CONFIG_FILE"; then
+    echo "WARNING: unresolved placeholders remain in $AGENT_CONFIG_FILE; agent service not activated." >&2
+  else
+    AGENT_READY=true
+  fi
+  # 优先使用发布包内嵌的 Node runtime，缺失时回退到目标机系统 Node（需 22.12+）
+  NODE_BIN="$FINAL_RELEASE/node-runtime/node/bin/node"
+  if [[ ! -x "$NODE_BIN" ]]; then
+    NODE_BIN="$(command -v node || true)"
+  fi
+  if [[ "$AGENT_READY" == true && ( -z "$NODE_BIN" || ! -x "$NODE_BIN" ) ]]; then
+    echo "WARNING: Node.js 22.12+ is required for agent-service; agent service not activated." >&2
+    AGENT_READY=false
+  fi
+fi
+
 LINK_TMP="$INSTALL_ROOT/.current.$$.tmp"
 ln -s "$FINAL_RELEASE" "$LINK_TMP"
 mv -Tf "$LINK_TMP" "$INSTALL_ROOT/current"
@@ -272,6 +318,10 @@ render_template() {
     -e "s|@SERVICE_GROUP@|$SERVICE_GROUP|g" \
     -e "s|@HTTP_PORT@|$HTTP_PORT|g" \
     -e "s|@BACKEND_PORT@|$BACKEND_PORT|g" \
+    -e "s|@AGENT_PORT@|$AGENT_PORT|g" \
+    -e "s|@AGENT_CONFIG_FILE@|$AGENT_CONFIG_FILE|g" \
+    -e "s|@NODE_BIN@|${NODE_BIN:-/usr/bin/node}|g" \
+    -e "s|@SERVICE_NAME@|$SERVICE_NAME|g" \
     "$1" > "$2"
 }
 
@@ -279,8 +329,15 @@ if [[ "$INSTALL_SYSTEMD" == true ]]; then
   command -v systemctl >/dev/null 2>&1 || { echo "ERROR: systemctl is unavailable" >&2; exit 1; }
   render_template "$SCRIPT_DIR/ask-metric-backend.service.template" \
     "/etc/systemd/system/$SERVICE_NAME.service"
+  if [[ "$INSTALL_AGENT" == true && "$AGENT_READY" == true ]]; then
+    render_template "$SCRIPT_DIR/ask-metric-agent.service.template" \
+      "/etc/systemd/system/$AGENT_SERVICE_NAME.service"
+  fi
   systemctl daemon-reload
   systemctl enable --now "$SERVICE_NAME.service"
+  if [[ "$INSTALL_AGENT" == true && "$AGENT_READY" == true ]]; then
+    systemctl enable --now "$AGENT_SERVICE_NAME.service"
+  fi
 fi
 
 if [[ "$INSTALL_NGINX" == true ]]; then

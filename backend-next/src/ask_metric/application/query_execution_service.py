@@ -340,11 +340,8 @@ class QueryExecutionApplicationService:
         metric_catalog = uow.metric_catalog.list_enabled()
         display_org_names = _resolve_org_names(dsl.orgs, organization_catalog)
         display_metric_names = _resolve_metric_names(dsl.metrics, metric_catalog)
-        org_names = (
-            display_org_names
-            if self.planner.dialect == "mysql"
-            else _resolve_source_org_codes(dsl.orgs, organization_catalog)
-        )
+        # SQL 机构条件统一传机构编码（mysql/inceptor 一致）；名称仅用于展示
+        org_names = _resolve_source_org_codes(dsl.orgs, organization_catalog)
         plan = self.planner.build(
             dsl,
             query_shape,
