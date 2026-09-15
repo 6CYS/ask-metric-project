@@ -54,6 +54,11 @@ class CatalogCleanupSummary:
         return asdict(self)
 
 
+class OrganizationScopeError(ValueError):
+    def __init__(self, codes: list[str]):
+        self.codes = codes
+        super().__init__("应用库存在本次61家范围外的启用机构，须先核对编码及引用")
+
 
 class SitCatalogSyncService:
     def __init__(self, app_sessions: sessionmaker[Session]) -> None:
@@ -211,6 +216,9 @@ class SitCatalogSyncService:
         legal_entity_hier_code: str = "3",
         head_office_hier_code: str = "1",
         expected_count: int = 61,
+        snapshot_date: date | None = None,
+        aliases_by_code: dict[str, list[str]] | None = None,
+        strict_scope: bool = False,
     ) -> SyncSummary:
         _validate_table_name(source_table)
         _validate_field_name(snapshot_field)
@@ -226,13 +234,17 @@ class SitCatalogSyncService:
             f"SELECT {org_code_field} AS org_no, "
             f"{org_name_field} AS org_chn_nm, "
             f"{snapshot_field} AS source_load_date FROM {source_table} "
-            f"WHERE {snapshot_field} = (SELECT MAX({snapshot_field}) FROM {source_table}) "
+            f"WHERE {snapshot_field} = "
+            + (":snapshot_date " if snapshot_date else
+               f"(SELECT MAX({snapshot_field}) FROM {source_table}) ")
+            +
             f"AND {corporation_code_field} <= :corporation_code_max "
             f"AND {corporation_code_field} <> :excluded_corporation_code "
             f"AND (({hierarchy_field} = :legal_entity_hier_code "
             f"AND {corporation_code_field} <> :head_office_corporation_code) "
             f"OR {hierarchy_field} = :head_office_hier_code)",
             {
+                "snapshot_date": snapshot_date.isoformat() if snapshot_date else None,
                 "corporation_code_max": corporation_code_max,
                 "excluded_corporation_code": excluded_corporation_code,
                 "head_office_corporation_code": head_office_corporation_code,
@@ -241,6 +253,25 @@ class SitCatalogSyncService:
             },
         )
         selected, skipped = _select_latest(rows, "org_no", ["source_load_date"])
+        # 同一快照必须能唯一确定名称；不截断超过应用字段长度的源名称。
+        seen_names: dict[str, str] = {}
+        for row in rows:
+            code = str(row.get("org_no") or "").strip()
+            name = str(row.get("org_chn_nm") or "").strip()
+            if not code or len(code) > 128 or not name or len(name) > 255:
+                raise ValueError("机构编码或名称为空/超长，未写入应用库")
+            if code in seen_names and seen_names[code] != name:
+                raise ValueError("机构同编码出现不同名称，未写入应用库")
+            seen_names[code] = name
+        additions = aliases_by_code if aliases_by_code is not None else {}
+        if not isinstance(additions, dict) or set(additions) - set(selected):
+            raise ValueError("机构别名映射含本次范围以外的编码，未写入应用库")
+        for aliases in additions.values():
+            if not isinstance(aliases, list) or any(
+                not isinstance(alias, str) or not alias.strip() or len(alias) > 255
+                for alias in aliases
+            ):
+                raise ValueError("机构别名必须为非空文本列表，每项不超过255字符")
         if len(selected) != expected_count:
             raise RuntimeError(
                 "Organization catalog scope returned "
@@ -256,6 +287,10 @@ class SitCatalogSyncService:
         )
         with self.app_sessions() as session:
             existing = {row.org_code: row for row in session.execute(select(OrgTerm)).scalars()}
+            outside = sorted(code for code, term in existing.items()
+                             if term.enabled and code not in selected)
+            if strict_scope and outside:
+                raise OrganizationScopeError(outside)
             for code, row in selected.items():
                 name = str(row.get("org_chn_nm") or "").strip()
                 if not code or not name:
@@ -268,9 +303,10 @@ class SitCatalogSyncService:
                     session.add(term)
                 before = _org_state(term)
                 term.org_name = name
-                # Existing aliases are manually maintained and must be preserved.
-                # New organizations deliberately start without aliases.
-                term.aliases = list(term.aliases or [])
+                # 按机构码追加导出别名，不覆盖目标库已有人工维护的别名。
+                term.aliases = list(dict.fromkeys([
+                    *(term.aliases or []), *(alias.strip() for alias in additions.get(code, [])),
+                ]))
                 term.enabled = True
                 after = _org_state(term)
                 if created:

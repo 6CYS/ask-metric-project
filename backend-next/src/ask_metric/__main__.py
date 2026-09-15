@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+from datetime import date
 from pathlib import Path
 
 
@@ -12,6 +13,10 @@ def main(argv: list[str] | None = None) -> None:
     for name in ("sync-metric-catalog", "sync-org-catalog"):
         command = subcommands.add_parser(name)
         command.add_argument("--dry-run", action="store_true")
+        if name == "sync-org-catalog":
+            command.add_argument("--snapshot-date", type=date.fromisoformat)
+            command.add_argument("--org-aliases", type=Path)
+            command.add_argument("--strict-scope", action="store_true")
         if name == "sync-metric-catalog":
             command.add_argument("--units", type=Path, help="已确认的完整指标名称—单位 JSON")
             command.add_argument("--infer-units", action="store_true")
@@ -94,6 +99,10 @@ def main(argv: list[str] | None = None) -> None:
             legal_entity_hier_code=settings.sit_org_legal_entity_hier_code,
             head_office_hier_code=settings.sit_org_head_office_hier_code,
             expected_count=settings.sit_org_expected_count,
+            snapshot_date=args.snapshot_date,
+            strict_scope=args.strict_scope,
+            aliases_by_code=(json.loads(args.org_aliases.read_text(encoding="utf-8"))
+                             if args.org_aliases else None),
         ).to_dict()
     else:
         result = verify_data_lake_readonly(get_query_engine())
