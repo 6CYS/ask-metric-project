@@ -146,19 +146,17 @@ async function handleLogout() {
       </nav>
 
       <div class="border-t border-sidebar-border p-3">
-        <button v-if="isSidebarCollapsed" type="button" class="mx-auto flex size-11 items-center justify-center rounded-lg border bg-background text-muted-foreground hover:text-foreground" :title="`${branding.shortName} · ${auth.user.value?.display_name}`" aria-label="退出登录" @click="handleLogout">
+        <button v-if="isSidebarCollapsed" type="button" class="mx-auto flex size-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring" :title="`${branding.badgeText} · 退出登录`" aria-label="退出登录" @click="handleLogout">
           <UserRound class="size-5" />
         </button>
-        <div v-else class="rounded-lg border bg-background p-3">
-          <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0">
-              <BaseBadge variant="secondary">{{ branding.badgeText }}</BaseBadge>
-              <p class="mt-2 truncate text-xs font-medium">{{ branding.shortName }}</p>
-              <p class="mt-1 truncate text-xs text-muted-foreground">{{ auth.user.value?.display_name }}</p>
-              <p class="mt-0.5 text-[11px] text-muted-foreground">{{ auth.user.value?.role_code === 'SYSTEM_ADMIN' ? '系统管理员' : '普通用户' }}</p>
-            </div>
-            <BaseButton variant="ghost" size="icon" class="size-8 shrink-0" aria-label="退出登录" title="退出登录" @click="handleLogout"><LogOut /></BaseButton>
+        <!-- 与导航共用图标和文字对齐线，账号信息直接融入侧栏，不再套独立卡片。 -->
+        <div v-else class="flex items-center gap-3 px-3 py-2">
+          <UserRound class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <div class="min-w-0 flex-1">
+            <p class="break-words text-sm font-medium leading-5" :title="auth.user.value?.org_name || branding.shortName">{{ branding.badgeText }}</p>
+            <p class="mt-0.5 text-xs leading-4 text-muted-foreground">{{ auth.user.value?.role_code === 'SYSTEM_ADMIN' ? '系统管理员' : '普通用户' }}</p>
           </div>
+          <BaseButton variant="ghost" size="icon" class="size-8 shrink-0 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground" aria-label="退出登录" title="退出登录" @click="handleLogout"><LogOut class="size-4" /></BaseButton>
         </div>
       </div>
     </aside>
