@@ -207,6 +207,13 @@ class QueryTaskApplicationService:
                 },
                 actor_context=command.actor.model_dump(mode="json"),
             )
+            initial_stage = QueryTaskStage.INTENT_ROUTING
+            if command.basic_query is not None:
+                # 结构化调用直接进入同一执行链；不调用模型，也不注入历史条件。
+                spec = command.basic_query
+                state.logical_dsl = spec.to_logical_dsl().model_dump(mode="json")
+                state.debug["basic_query"] = spec.model_dump(mode="json")
+                initial_stage = QueryTaskStage.LOGICAL_DSL
             _record_processed_request(
                 state,
                 command.request.request_id,
@@ -219,7 +226,11 @@ class QueryTaskApplicationService:
                 conversation_id=conversation_id,
                 original_question=command.request.text,
                 status=QueryTaskStatus.RUNNING.value,
-                current_stage=QueryTaskStage.INTENT_ROUTING.value,
+                current_stage=initial_stage.value,
+                intent="metric_query" if command.basic_query is not None else None,
+                query_shape=(
+                    command.basic_query.query_shape if command.basic_query is not None else None
+                ),
                 state_json=state.model_dump(mode="json"),
                 version=0,
                 idempotency_key=command.idempotency_key,
@@ -262,7 +273,7 @@ class QueryTaskApplicationService:
             }
             append_task_trace(
                 state,
-                stage=QueryTaskStage.INTENT_ROUTING.value,
+                stage=initial_stage.value,
                 status=QueryTaskStatus.RUNNING.value,
                 node="task_created",
                 detail={"message_id": message_id},
@@ -928,6 +939,9 @@ def _resolve_conversation_id(command: SubmitQuestionCommand) -> str:
     if command.request.conversation_id:
         return command.request.conversation_id
     stable_context = command.request.external_session_id or command.request.request_id
+    if command.basic_query is not None:
+        # 无会话 ID 的工具重试仍须落在同一幂等范围，且不同用户不能共用会话。
+        stable_context = f"{command.actor.user_id}:{command.idempotency_key}"
     return str(
         uuid5(
             NAMESPACE_URL,
@@ -953,6 +967,8 @@ def _question_fingerprint(command: SubmitQuestionCommand, conversation_id: str) 
             "external_message_id": command.request.external_message_id,
             "reply_to_task_id": command.request.reply_to_task_id,
             "actor": command.actor.subject,
+            **({"basic_query": command.basic_query.model_dump(mode="json")}
+               if command.basic_query is not None else {}),
         }
     )
 

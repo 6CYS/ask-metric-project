@@ -172,6 +172,13 @@ class QueryExecutionApplicationService:
             run_id=run_id,
             task_id=command.task_id,
             status="succeeded",
+            evidence={
+                "logical_dsl": plan.dsl,
+                "catalog": plan.catalog,
+                "template": plan.template.value,
+                "coverage_notice": coverage_notice,
+                "missing_metric_notice": missing_metric_notice,
+            },
             query_shape=plan.shape.value,
             columns=list(rows[0]) if rows else [],
             rows=rows,
@@ -243,8 +250,31 @@ class QueryExecutionApplicationService:
                 )
             state = QueryTaskState.model_validate(task.state_json or {})
             require_query_task(task.state_json or {}, task.query_shape)
+            if (state.debug.get("basic_query") and state.execution
+                    and state.execution.get("status") == "succeeded"):
+                # 工具重放也必须按当前权限/目录复核，不能把旧结果当成永久授权。
+                try:
+                    self._authorize_query(
+                        uow=uow, actor=command.actor, logical_dsl=state.logical_dsl,
+                        strict_codes=True,
+                    )
+                except PermissionDeniedError as exc:
+                    raise ApplicationError(
+                        "ORG_SCOPE_FORBIDDEN", "无权访问该查询结果。", status_code=403,
+                    ) from exc
+                except UnsupportedQueryError as exc:
+                    raise ApplicationError(
+                        "QUERY_UNSUPPORTED", "结果引用的目录项已不可用。", status_code=422,
+                    ) from exc
             replay = _execution_replay(state, command.request_id)
             if replay is not None:
+                artifact = getattr(state, "result_artifact", None)
+                if state.debug.get("basic_query") and artifact:
+                    saved_result = artifact.get("result")
+                    if saved_result:
+                        return QueryExecutionResult.model_validate({
+                            **saved_result, "idempotent_replay": True,
+                        })
                 return replay
             _require_version(task, command.expected_version)
             _require_executable(task)
@@ -254,6 +284,7 @@ class QueryExecutionApplicationService:
                     actor=command.actor,
                     logical_dsl=state.logical_dsl,
                     query_shape=task.query_shape or "",
+                    strict_codes=bool(state.debug.get("basic_query")),
                 )
             except Exception as exc:
                 state.timings_ms["query_planning_ms"] = _elapsed_ms(planning_started)
@@ -321,14 +352,14 @@ class QueryExecutionApplicationService:
                 dict(state.timings_ms),
             )
 
-    def _build_governed_plan(
+    def _authorize_query(
         self,
         *,
         uow: SqlAlchemyUnitOfWork,
         actor,
         logical_dsl: dict[str, Any] | None,
-        query_shape: str,
-    ) -> tuple[LogicalDSL, QueryExecutionPlan, str]:
+        strict_codes: bool = False,
+    ) -> tuple[LogicalDSL, list[Any], list[Any]]:
         # 执行前按当前权限和正式目录再校验一次；历史保存的 DSL 不能直接当作授权。
         dsl = LogicalDSL.model_validate(logical_dsl)
         authorized = self.permission_service.authorize_logical_dsl(
@@ -338,6 +369,28 @@ class QueryExecutionApplicationService:
         dsl = LogicalDSL.model_validate(authorized)
         organization_catalog = uow.organization_catalog.list_enabled()
         metric_catalog = uow.metric_catalog.list_enabled()
+        known_metrics = {item.code for item in metric_catalog}
+        if any(code not in known_metrics for code in dsl.metrics):
+            raise UnsupportedQueryError("Metric code is not in the enabled official catalog")
+        if strict_codes:
+            known_orgs = {item.code for item in organization_catalog}
+            if any(code not in known_orgs for code in dsl.orgs):
+                raise UnsupportedQueryError("Organization code is not in the enabled catalog")
+        _resolve_org_names(dsl.orgs, organization_catalog)
+        return dsl, metric_catalog, organization_catalog
+
+    def _build_governed_plan(
+        self,
+        *,
+        uow: SqlAlchemyUnitOfWork,
+        actor,
+        logical_dsl: dict[str, Any] | None,
+        query_shape: str,
+        strict_codes: bool = False,
+    ) -> tuple[LogicalDSL, QueryExecutionPlan, str]:
+        dsl, metric_catalog, organization_catalog = self._authorize_query(
+            uow=uow, actor=actor, logical_dsl=logical_dsl, strict_codes=strict_codes,
+        )
         display_org_names = _resolve_org_names(dsl.orgs, organization_catalog)
         display_metric_names = _resolve_metric_names(dsl.metrics, metric_catalog)
         org_names = (
@@ -352,6 +405,16 @@ class QueryExecutionApplicationService:
             display_metric_names=display_metric_names,
             display_org_names=display_org_names,
         )
+        plan.catalog = {
+            "metrics": [
+                {"code": item.code, "name": item.name, "unit": item.unit}
+                for item in metric_catalog if item.code in dsl.metrics
+            ],
+            "organizations": [
+                {"code": item.code, "name": item.name}
+                for item in organization_catalog if item.name in display_org_names
+            ],
+        }
         sql = self.templates.load(dialect=plan.dialect, template=plan.template)
         validate_readonly_sql(sql)
         return dsl, plan, sql
