@@ -409,3 +409,21 @@ python -m ask_metric sync-metric-catalog --all-snapshots
 未传单位参数时保留现有单位。不使用 `--full` 做普通增量同步；该参数有额外目录清理语义。
 重复同步按编码更新并启用，保留原有别名及未出现的目录项，不同步指标数值、不修改源库。
 同步成功后重启后端刷新目录缓存和向量，初始化完成后再开放问数。
+
+## 指定机构快照及范围校验
+
+机构目录源连接优先使用 `ORG_CATALOG_DATABASE_URL`，未设置时使用 `QUERY_DATABASE_URL`；
+以 `org_no`、`org_chn_nm` 写入正式机构目录，源账号须只读。
+默认读取最新快照，`--snapshot-date YYYY-MM-DD` 可指定已核对的源快照。
+在完成上节环境配置后，先预览再写入：
+
+```bash
+python -m ask_metric sync-org-catalog --strict-scope --dry-run
+python -m ask_metric sync-org-catalog --strict-scope
+```
+
+`--org-aliases /path/to/org-aliases.json` 接收机构编码到别名数组的映射，只允许本次范围内编码，
+追加并去重，不覆盖原有人工别名。空值、超长编码或名称、同码异名、机构数量不符时中止。
+默认确认范围为 61 家；`--strict-scope` 同时拒绝应用库中已启用的范围外机构。
+遇到编码或范围冲突先核对权限和历史引用，不通过扩大同步范围消除错误。
+这些操作不变更数据库结构，也不修改数据湖；目录变更后重启服务刷新缓存。
