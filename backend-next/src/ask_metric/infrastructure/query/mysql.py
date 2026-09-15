@@ -69,9 +69,10 @@ class MySqlDataSourceAdapter:
                     connection.commit()
                 except Exception as exc:
                     connection.invalidate()
-                    logger.warning(
+                    logger.error(
                         "query_session_reset_failed exception_type=%s; connection invalidated",
                         type(exc).__name__,
+                        exc_info=(type(exc), exc, exc.__traceback__),
                     )
         return MySqlExecution(
             rows=rows,

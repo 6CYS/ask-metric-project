@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 
 import httpx
@@ -14,6 +15,7 @@ from ask_metric.core.gm_crypto import (
     load_sm2_keypair,
     sm4_decrypt_cbc_text,
 )
+from ask_metric.core.request_context import outbound_subtransaction
 from ask_metric.core.security import (
     create_access_token,
     hash_password,
@@ -21,6 +23,8 @@ from ask_metric.core.security import (
     verify_password,
 )
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
+
+logger = logging.getLogger(__name__)
 
 
 class LoginFailedError(ApplicationError):
@@ -133,24 +137,52 @@ class AuthenticationService:
             raise SsoUpstreamError("统一认证服务地址未配置")
 
         try:
-            with httpx.Client(timeout=self.settings.sso_timeout_seconds) as client:
-                response = client.get(
-                    url,
-                    headers={
-                        "Accept": "application/json",
-                        "Authorization": f"Bearer {token}",
-                    },
-                )
-                response.raise_for_status()
-                payload = response.json()
+            with outbound_subtransaction("sso_user_info", invoke_sys="SSO") as transaction:
+                with httpx.Client(timeout=self.settings.sso_timeout_seconds) as client:
+                    response = client.get(
+                        url,
+                        headers={
+                            "Accept": "application/json",
+                            "Authorization": f"Bearer {token}",
+                            **transaction.headers(),
+                        },
+                    )
+                    transaction.set_response(response.status_code)
+                    response.raise_for_status()
+                    payload = response.json()
         except httpx.TimeoutException as exc:
-            raise SsoUpstreamError("统一认证服务请求超时") from exc
+            logger.error(
+                "sso_upstream_failed category=timeout exception_type=%s",
+                type(exc).__name__,
+                exc_info=(type(exc), exc, exc.__traceback__),
+                extra={"trans_api": "sso_user_info", "exception_type": type(exc).__name__},
+            )
+            failure = SsoUpstreamError("统一认证服务请求超时")
+            _mark_alert_logged(failure)
+            raise failure from exc
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code in {401, 403}:
                 raise SsoTokenInvalidError() from exc
-            raise SsoUpstreamError("统一认证服务拒绝了登录凭证") from exc
+            logger.error(
+                "sso_upstream_failed category=http_status status=%s exception_type=%s",
+                exc.response.status_code,
+                type(exc).__name__,
+                exc_info=(type(exc), exc, exc.__traceback__),
+                extra={"trans_api": "sso_user_info", "exception_type": type(exc).__name__},
+            )
+            failure = SsoUpstreamError("统一认证服务拒绝了登录凭证")
+            _mark_alert_logged(failure)
+            raise failure from exc
         except (httpx.HTTPError, ValueError) as exc:
-            raise SsoUpstreamError() from exc
+            logger.error(
+                "sso_upstream_failed category=response exception_type=%s",
+                type(exc).__name__,
+                exc_info=(type(exc), exc, exc.__traceback__),
+                extra={"trans_api": "sso_user_info", "exception_type": type(exc).__name__},
+            )
+            failure = SsoUpstreamError()
+            _mark_alert_logged(failure)
+            raise failure from exc
 
         profile = _parse_sso_profile(payload, source_system=self.settings.sso_source_system)
         actor = IntegrationIdentityService(self.uow_factory).resolve(profile)
@@ -194,6 +226,13 @@ class AuthenticationService:
         with self.uow_factory() as uow:
             uow.users.increment_session_version(user_id)
             uow.commit()
+
+
+def _mark_alert_logged(exc: Exception) -> None:
+    try:
+        exc._ask_metric_alert_logged = True  # type: ignore[attr-defined]
+    except Exception:
+        pass
 
 
 def _org_name(uow: SqlAlchemyUnitOfWork, org_code: str) -> str:

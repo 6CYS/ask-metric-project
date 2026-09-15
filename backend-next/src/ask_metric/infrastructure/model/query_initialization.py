@@ -63,8 +63,13 @@ class QueryInitialization:
                 return
             except Exception as exc:
                 # 此处兜底捕获异常是为了更新失败状态并重试，不是静默忽略错误。
-                # 只记录异常类型，避免模型正文、凭据或数据库原始异常泄漏到日志/前端。
-                logger.warning("query_initialization_failed exception_type=%s", type(exc).__name__)
+                # 完整异常链交给统一日志格式化器单行化、脱敏并限制长度；前端只返回固定文案。
+                if not getattr(exc, "_ask_metric_alert_logged", False):
+                    logger.error(
+                        "query_initialization_failed exception_type=%s",
+                        type(exc).__name__,
+                        exc_info=(type(exc), exc, exc.__traceback__),
+                    )
                 with self._lock:
                     self._status = InitializationStatus(
                         status="failed",

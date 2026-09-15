@@ -18,9 +18,9 @@ DEFAULT_LOG_MAX_BYTES = 50 * 1024 * 1024
 DEFAULT_LOG_MAX_LINE_BYTES = 200 * 1024
 
 
-def _safe_message(record: logging.LogRecord) -> str:
-    message = record.getMessage()
-    # Defense in depth for third-party loggers. Application callers must not log payloads.
+def _redact_sensitive(message: str) -> str:
+    """日志落盘前统一脱敏，异常链中的连接地址也使用同一规则。"""
+
     message = re.sub(
         r'''(?i)(authorization["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|(?:bearer\s+)?[^\s,;}]+)''',
         r"\1[REDACTED]", message,
@@ -32,9 +32,16 @@ def _safe_message(record: logging.LogRecord) -> str:
         r"\1[REDACTED]", message,
     )
     message = re.sub(r"(\w+://)[^/\s@]+@", r"\1[REDACTED]@", message)
-    if record.exc_info and record.exc_info[0]:
-        message += f" | exception_type={record.exc_info[0].__name__}"
     return message
+
+
+def _safe_message(record: logging.LogRecord) -> str:
+    message = record.getMessage()
+    # Error告警保留完整异常链；格式化为单行后再截断，避免破坏采集边界。
+    if record.exc_info and record.exc_info[0]:
+        traceback_text = logging.Formatter().formatException(record.exc_info)
+        message = f"{message} | {traceback_text}"
+    return _redact_sensitive(message)
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,40 +114,42 @@ class BankSummaryFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         context = get_log_context()
+        label = getattr(record, "label", "-")
         payload: dict[str, Any] = {
             "TimeStamp": _timestamp(),
-            "Label": getattr(record, "label", "-"),
+            "Label": label,
             "TraceID": context.global_business_track_no,
             "ParentSpanID": getattr(record, "parent_span_id", "-"),
             "SpanID": context.span_id,
             "TransID": get_request_id(),
             "TransAPI": getattr(record, "trans_api", context.service_code),
         }
-        for key, default in (
-            ("StartTime", "-"),
-            ("EndTime", "-"),
-            ("ResCode", "-"),
-            ("ResDes", "-"),
-            ("UseTime", "-"),
-            ("InvokeSys", self.config.application_name),
-            ("Amount", "-"),
-            ("OrgID", "-"),
-            ("ChnlID", "HTTP"),
-            ("TellerID", "-"),
-        ):
-            payload[key] = getattr(record, key.lower(), default)
-        payload.update(
-            {
+        if label in {"END", "SUBEND"}:
+            for key, default in (
+                ("StartTime", "-"),
+                ("EndTime", "-"),
+                ("ResCode", "-"),
+                ("ResDes", "-"),
+                ("UseTime", "-"),
+                ("InvokeSys", self.config.application_name),
+                ("Amount", "-"),
+                ("OrgID", "-"),
+                ("ChnlID", "HTTP"),
+                ("TellerID", "-"),
+            ):
+                payload[key] = getattr(record, key.lower(), default)
+            payload.update({
                 "trace_id": context.trace_id,
                 "segment_id": context.segment_id,
                 "span_id": context.span_id,
                 "Other": getattr(record, "other", {}),
-            }
-        )
+            })
         line = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str)
         if len(line.encode("utf-8")) > self.config.max_line_bytes:
-            payload["Other"] = {"truncated": True}
-            payload["ResDes"] = _limit_utf8(str(payload["ResDes"]), 4096)
+            if "Other" in payload:
+                payload["Other"] = {"truncated": True}
+            if "ResDes" in payload:
+                payload["ResDes"] = _limit_utf8(str(payload["ResDes"]), 4096)
             line = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str)
         return _limit_utf8(line, self.config.max_line_bytes)
 

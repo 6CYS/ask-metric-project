@@ -13,7 +13,7 @@ from ask_metric.api.router import api_router
 from ask_metric.core.config import Settings, get_settings
 from ask_metric.core.errors import install_exception_handlers
 from ask_metric.core.logging import LoggingConfig, configure_logging
-from ask_metric.core.request_context import RequestIdMiddleware
+from ask_metric.core.request_context import FlowIdConfig, RequestIdMiddleware
 from ask_metric.infrastructure.discovery.nacos_registry import NacosRegistry
 from ask_metric.infrastructure.model.catalog_vectors import CatalogVectorCache
 from ask_metric.infrastructure.model.query_initialization import QueryInitialization
@@ -97,7 +97,15 @@ def create_app(
     app = FastAPI(title=resolved_settings.app_name, version="0.1.3", lifespan=lifespan)
     app.state.settings = resolved_settings
     app.state.query_initialization = QueryInitialization(enabled=initialize_catalog)
-    app.add_middleware(RequestIdMiddleware)
+    app.add_middleware(
+        RequestIdMiddleware,
+        flow_id_config=FlowIdConfig(
+            app_node_code=resolved_settings.app_node_code,
+            app_idc=resolved_settings.app_idc,
+            app_unit=resolved_settings.app_unit,
+            instance_ip=resolved_settings.nacos_instance_ip,
+        ),
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=resolved_settings.cors_origins,
