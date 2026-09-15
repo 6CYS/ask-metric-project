@@ -198,9 +198,7 @@ class OutboundTransaction:
 
 
 @contextmanager
-def outbound_subtransaction(
-    trans_api: str, *, invoke_sys: str, other: dict[str, object] | None = None,
-) -> Iterator[OutboundTransaction]:
+def outbound_subtransaction(trans_api: str, *, invoke_sys: str) -> Iterator[OutboundTransaction]:
     """为一次下游请求生成新SpanID，透传TraceID并成对打印子交易摘要。"""
 
     parent = get_log_context()
@@ -247,7 +245,6 @@ def outbound_subtransaction(
                 "resdes": _summary_description(rescode, transaction.status_code, error),
                 "usetime": f"{round((perf_counter() - started) * 1000)}ms",
                 "invokesys": invoke_sys,
-                "other": other if other is not None else {},
             },
         )
         _log_context.reset(token)
