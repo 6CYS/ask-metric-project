@@ -56,6 +56,27 @@ export function insertComposerEntity(text: string, cursor: number, entity: Compo
   return { text: next, cursor: end + suffix.length, mentions: [...updateComposerMentions(text, next, mentions), { entity, start, end }] }
 }
 
+export function toggleComposerEntity(text: string, cursor: number, entity: ComposerEntity, mentions: ComposerMention[]) {
+  const valid = mentions.filter((mention) => text.slice(mention.start, mention.end) === mention.entity.name)
+  const existing = valid.find((mention) => entityKey(mention.entity) === entityKey(entity))
+  if (!existing) return insertComposerEntity(text, cursor, entity, valid)
+
+  // 按已选名称的位置取消，不按名称全局替换，保留手写同名文字和其他编码。
+  let { start, end } = existing
+  if (text[end] === " " && (start === 0 || /\s/.test(text[start - 1]!))) end++
+  else if (end === text.length && text[start - 1] === " ") start--
+  const removedLength = end - start
+  const position = Math.max(0, Math.min(cursor, text.length))
+  return {
+    text: text.slice(0, start) + text.slice(end),
+    cursor: position <= start ? position : position >= end ? position - removedLength : start,
+    // 直接移动明确区间之后的引用；同名相邻项不能依靠字符串差异猜测删除位置。
+    mentions: valid.filter((mention) => mention !== existing).map((mention) =>
+      mention.start >= end ? { ...mention, start: mention.start - removedLength, end: mention.end - removedLength } : mention,
+    ),
+  }
+}
+
 export function composeClarification(text: string, entities: ComposerEntity[], clarification: BackendNextClarification): ComposerAnswer | string {
   if (!entities.length) return text.trim()
   if (clarification.type !== "semantic_slots") return composeQuestion(text, entities)

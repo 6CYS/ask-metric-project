@@ -3,7 +3,7 @@ import { Check, LoaderCircle, Plus, Search, Send, X } from "@lucide/vue"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import { listBackendNextMetrics, listOrgs } from "@/lib/api"
-import { clarificationCatalogKinds, consumeCatalogCommand, entityKey, insertComposerEntity, updateComposerMentions, type ComposerEntity, type ComposerMention } from "@/lib/composerEntities"
+import { clarificationCatalogKinds, consumeCatalogCommand, entityKey, toggleComposerEntity, updateComposerMentions, type ComposerEntity, type ComposerMention } from "@/lib/composerEntities"
 import type { BackendNextClarification } from "@/types/api"
 
 const props = defineProps<{ modelValue: string; contextKey: string; placeholder?: string; isSubmitting?: boolean; disabled?: boolean; clarification?: BackendNextClarification; autoOpenClarificationId?: string }>()
@@ -104,7 +104,7 @@ async function openPicker(nextKind: ComposerEntity["kind"]) {
 function selected(item: ComposerEntity) { return selections.value.some((selection) => entityKey(selection) === entityKey(item)) }
 function choose(item: ComposerEntity) {
   if (isDisabled.value) return
-  const result = insertComposerEntity(mentionText, insertionCursor, item, mentions.value)
+  const result = toggleComposerEntity(mentionText, insertionCursor, item, mentions.value)
   mentions.value = result.mentions
   mentionText = result.text
   insertionCursor = result.cursor
@@ -166,7 +166,7 @@ function finishSelection() {
         </button>
         <p v-if="!visibleItems.length && !loading && !error" class="py-4 text-center text-sm text-muted-foreground">未找到匹配项，请更换关键词。</p>
       </div>
-      <div class="flex items-center justify-between gap-2 pt-2"><span class="text-xs text-muted-foreground">选项直接填入正文，可连续添加</span><BaseButton variant="ghost" :disabled="isDisabled" @click="finishSelection">继续输入</BaseButton></div>
+      <div class="flex items-center justify-between gap-2 pt-2"><span class="text-xs text-muted-foreground">点击添加，再次点击取消选择</span><BaseButton variant="ghost" :disabled="isDisabled" @click="finishSelection">继续输入</BaseButton></div>
     </section>
     <div class="flex items-center gap-3 rounded-xl border border-border bg-background p-3 focus-within:border-ring">
       <BaseButton variant="ghost" size="icon" class="text-muted-foreground" :disabled="isDisabled" aria-label="添加指标或机构" :aria-expanded="Boolean(kind)" title="添加指标或机构（也可输入 /指标、/机构）" @click="togglePicker"><Plus /></BaseButton>

@@ -64,3 +64,5 @@ VITE_BACKEND_NEXT_BASE_URL= npm run build
 ```
 
 产物为 `dist/`，由 Nginx 托管并代理 `/api`。`npm run preview` 只用于预览静态产物，未配置开发代理，不能替代生产反向代理；不要以直接打开 `dist/index.html` 验证完整应用。
+
+目录中的指标和机构支持点击切换选择：首次点击将名称插入输入框，再次点击取消并移除对应名称及编码，保留其他正文；已手动编辑的名称不按旧编码删除。
