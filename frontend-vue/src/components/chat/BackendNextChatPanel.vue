@@ -8,7 +8,6 @@ import ChatResultContent from "@/components/chat/ChatResultContent.vue"
 import StructuredClarificationForm from "@/components/chat/StructuredClarificationForm.vue"
 import BackendNextDebugPanel from "@/components/chat/BackendNextDebugPanel.vue"
 import BaseAlert from "@/components/ui/BaseAlert.vue"
-import BaseBadge from "@/components/ui/BaseBadge.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton.vue"
 import BaseModal from "@/components/ui/BaseModal.vue"
@@ -155,9 +154,6 @@ const composerPlaceholder = computed(() => {
   }
   return "选择候选项或直接补充查询条件"
 })
-const conversationRoundCount = computed(() => activeConversation.value
-  ? activeConversation.value.messages.filter((item) => item.role === "user" && item.kind !== "clarification_answer").length
-  : 0)
 const visibleConversations = computed(() => conversations.value
   .filter((item) => item.persisted || item.messages.length > 0)
   .sort((left, right) => {
@@ -1222,9 +1218,8 @@ async function scrollToBottom() {
     </aside>
 
     <div class="flex min-h-0 min-w-0 flex-col">
-      <header class="flex min-h-14 items-center justify-between gap-3 border-b px-4 py-3">
-        <h1 class="min-w-0 flex-1 truncate text-base font-semibold">{{ activeConversation?.title ?? "指标问数" }}</h1>
-        <BaseBadge variant="secondary" class="shrink-0">{{ conversationRoundCount ? `${conversationRoundCount} 轮` : "新会话" }}</BaseBadge>
+      <header class="flex min-h-14 items-center border-b px-4 py-3">
+        <h1 class="min-w-0 truncate text-base font-semibold">{{ activeConversation?.title ?? "指标问数" }}</h1>
       </header>
 
       <div ref="messagesScroll" class="min-h-0 flex-1 overflow-y-auto bg-muted/20 px-4 py-5">
