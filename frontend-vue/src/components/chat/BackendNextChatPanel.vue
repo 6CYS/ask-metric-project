@@ -1223,15 +1223,8 @@ async function scrollToBottom() {
 
     <div class="flex min-h-0 min-w-0 flex-col">
       <header class="flex min-h-14 items-center justify-between gap-3 border-b px-4 py-3">
-        <div class="flex min-w-0 items-center gap-2">
-          <div class="min-w-0">
-          <div class="flex items-center gap-1.5">
-            <h1 class="line-clamp-1 text-base font-semibold">{{ activeConversation?.title ?? "指标问数" }}</h1>
-          </div>
-          <p class="text-xs text-muted-foreground">自然语言指标查询</p>
-          </div>
-        </div>
-        <BaseBadge variant="secondary">{{ conversationRoundCount ? `${conversationRoundCount} 轮` : "新会话" }}</BaseBadge>
+        <h1 class="min-w-0 flex-1 truncate text-base font-semibold">{{ activeConversation?.title ?? "指标问数" }}</h1>
+        <BaseBadge variant="secondary" class="shrink-0">{{ conversationRoundCount ? `${conversationRoundCount} 轮` : "新会话" }}</BaseBadge>
       </header>
 
       <div ref="messagesScroll" class="min-h-0 flex-1 overflow-y-auto bg-muted/20 px-4 py-5">
