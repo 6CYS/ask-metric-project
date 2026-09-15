@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ask_metric.application.requests import ActorContext, IncomingRequest
+from ask_metric.domain.basic_query import BasicQuerySpec
 
 
 @dataclass(frozen=True)
@@ -9,6 +10,7 @@ class SubmitQuestionCommand:
     request: IncomingRequest
     actor: ActorContext
     idempotency_key: str
+    basic_query: BasicQuerySpec | None = None
 
 
 @dataclass(frozen=True)

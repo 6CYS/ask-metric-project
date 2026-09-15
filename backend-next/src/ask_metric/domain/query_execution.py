@@ -47,6 +47,7 @@ class QueryExecutionPlan(BaseModel):
     display_metric_names: list[str] = Field(default_factory=list)
     display_org_names: list[str] = Field(default_factory=list)
     parameters: dict[str, Any] = Field(default_factory=dict, exclude=True)
+    catalog: dict[str, Any] = Field(default_factory=dict)
 
 
 class QueryExecutionResult(BaseModel):
@@ -68,6 +69,7 @@ class QueryExecutionResult(BaseModel):
     idempotent_replay: bool = False
     timings_ms: dict[str, int] = Field(default_factory=dict)
     debug: dict[str, Any] = Field(default_factory=dict)
+    evidence: dict[str, Any] = Field(default_factory=dict)
     # Read-only compatibility with persisted reports from the retired prototype.
     analysis: dict[str, Any] | None = None
 

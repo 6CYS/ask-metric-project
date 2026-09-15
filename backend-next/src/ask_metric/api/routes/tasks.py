@@ -44,6 +44,7 @@ from ask_metric.application.task_results import (
     TaskCommandResult,
 )
 from ask_metric.application.task_service import QueryTaskApplicationService
+from ask_metric.domain.basic_query import BasicQuerySpec
 from ask_metric.domain.query_execution import QueryExecutionResult
 
 router = APIRouter(prefix="/api/v1", tags=["query-tasks"])
@@ -83,6 +84,54 @@ class AnalyzeSemanticRequest(BaseModel):
 
 class ExecuteQueryRequest(BaseModel):
     expected_version: int = Field(ge=0)
+
+
+class BasicQueryRequest(BasicQuerySpec):
+    conversation_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class BasicQueryResponse(BaseModel):
+    query: BasicQuerySpec
+    result: QueryExecutionResult
+
+
+@router.post(
+    "/basic-queries", response_model=BasicQueryResponse,
+    dependencies=[Depends(require_actor), Depends(require_query_ready)],
+)
+def execute_basic_query(
+    payload: BasicQueryRequest,
+    request: Request,
+    actor: Annotated[ActorContext, Depends(require_actor)],
+    task_service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
+    execution_service: Annotated[
+        QueryExecutionApplicationService, Depends(get_query_execution_service)
+    ],
+    idempotency_key: Annotated[
+        str, Header(alias="Idempotency-Key", min_length=1, max_length=128)
+    ],
+) -> BasicQueryResponse:
+    # 身份只来自认证依赖；请求不接收 SQL、操作、身份声明或任意 DSL。
+    spec = BasicQuerySpec.model_validate(payload.model_dump(exclude={"conversation_id"}))
+    created = task_service.submit_question(SubmitQuestionCommand(
+        request=IncomingRequest(
+            request_id=request.state.request_id,
+            channel="basic_query",
+            conversation_id=payload.conversation_id,
+            text=f"基础查询：{spec.time.start}至{spec.time.end}，"
+                 f"{len(spec.metric_codes)}个指标、{len(spec.org_codes)}个机构",
+        ),
+        actor=actor,
+        idempotency_key=idempotency_key,
+        basic_query=spec,
+    ))
+    result = execution_service.execute(ExecuteQueryCommand(
+        task_id=created.task_id,
+        expected_version=created.version,
+        request_id=f"basic:{idempotency_key}",
+        actor=actor,
+    ))
+    return BasicQueryResponse(query=spec, result=result)
 
 
 class SubmitChannelClarificationRequest(BaseModel):

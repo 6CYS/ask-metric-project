@@ -24,6 +24,55 @@
 
 ## 1. 当前能力状态
 
+### 结构化基础查询（basic-queries）
+
+`POST /api/v1/basic-queries` 为上层工具编排提供不调用模型的基础取数。使用现有
+Bearer 认证，必填 `Idempotency-Key`（1～128 字符）。仍受查询就绪检查、当前用户权限和
+启用目录约束；请求中的编码不是授权凭据。接口不接受 SQL、自然语言、身份声明、
+`ops`、筛选、任意 DSL 或分析指令，多余字段返回 422，不静默忽略。
+
+```json
+{
+  "metric_codes": ["ORG_DEDMDPT_BAL_PRPR_CMP_SAMEPRD"],
+  "org_codes": ["101999"],
+  "time": {"start": "2026-03-01", "end": "2026-03-31"},
+  "selection": "latest_in_range"
+}
+```
+
+可选 `conversation_id` 用于归档本次工具查询，不用于继承条件；省略时按用户和幂等键
+建立稳定会话。`metric_codes` 最多 100 项，`org_codes` 最多 1000 项，均为非空编码数组，
+重复项去重。日期必须为 `YYYY-MM-DD`，起止均包含在范围内，开始不得晚于结束。
+
+| selection | 语义 |
+| --- | --- |
+| `exact` | 指定日原值，起止必须同日；缺数不向前回退 |
+| `latest_in_range` | 各指标、各机构在指定范围内最后一个可用日期的原值，不代表平均值或求和 |
+| `all_in_range` | 范围内已有数据点的原值，复用趋势取数模板，不补零或自动聚合 |
+
+响应为 `{"query": <规范化请求>, "result": <QueryExecutionResult>}`。
+`result` 保留 `task_id`、`run_id`、`status`、`rows`、`columns`、`row_count`、`truncated`、
+`error_code` 和 `message` 等公共字段；`rows` 中实际数据日期和原始单位/数值为事实依据。
+原值不按回答文案的展示精度舍入；不同指标/机构的实际日期可能不同。
+
+成功结果增加公共 `evidence` 字段，包含授权后的 `logical_dsl`、本次使用的 `catalog`
+（指标编码/名称/单位与机构编码/名称）、`template`、`coverage_notice` 和
+`missing_metric_notice`。该字段也随结果证据持久化，不包含 SQL 或连接信息。
+无数据为成功的空数组；`truncated=true` 表示结果不完整，上层不能把截断数据当作完整集合计算。
+
+相同用户/会话/幂等键和请求条件重复调用返回同一任务结果，`idempotent_replay=true`，
+包含持久化原值，不重复执行 SQL；成功结果重放前重新核对当前权限和目录。
+同键改条件返回 409 `IDEMPOTENCY_KEY_REUSED`；正在执行的重试返回 409
+`QUERY_ALREADY_RUNNING`。失败结果沿用原幂等结果，主动重试需新幂等键。
+首次目录/能力拒绝返回 HTTP 200、`result.status=unsupported` 和 `QUERY_UNSUPPORTED`；
+首次越权返回 HTTP 200、`result.status=failed` 和 `ORG_SCOPE_FORBIDDEN`。
+成功结果重放时权限撤销按公共权限异常返回 403，目录停用返回 422 `QUERY_UNSUPPORTED`。
+无有效认证为 401；查询未就绪为 503。HTTP 200 本身不代表查询成功，必须检查 `result.status`。
+
+旧 `/questions → analyze → execute` 和渠道自然语言入口继续可用，并保留不支持请求的明确拒绝。
+上层 harness 负责区分正式“较同期”指标与另行计算同比的需求，编排基础查询并调用受控计算工具。
+本接口不增加 harness 运行器，也不会自动修复或重跑历史失败任务。
+
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
 | JWT登录 | 已实现 | 本地账号换取Bearer Token |
