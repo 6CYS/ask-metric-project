@@ -1,0 +1,22 @@
+[Unit]
+Description=Ask Metric agent service (pi harness)
+After=network-online.target @SERVICE_NAME@.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Group=@SERVICE_GROUP@
+WorkingDirectory=@INSTALL_ROOT@/current/agent-service
+EnvironmentFile=@AGENT_CONFIG_FILE@
+ExecStart=@NODE_BIN@ dist/server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=@STATE_ROOT@ @LOG_ROOT@
+
+[Install]
+WantedBy=multi-user.target

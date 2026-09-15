@@ -7,7 +7,7 @@ WITH ranked_values AS (
     FROM metric_values AS mv
     LEFT JOIN metric_terms AS mt ON mt.metric_code = mv.metric_code
     WHERE mv.metric_code IN :metric_codes
-      AND (:filter_orgs = FALSE OR mv.org_name IN :org_names)
+      AND (:filter_orgs = FALSE OR mv.org_code IN :org_codes)
       AND mv.stat_date = CAST(:stat_date AS DATE)
 )
 SELECT metric_code, metric_name, unit, org_name, metric_value, stat_date, `rank`

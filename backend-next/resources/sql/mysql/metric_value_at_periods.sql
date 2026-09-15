@@ -20,7 +20,7 @@ ranked_values AS (
       ON mv.stat_date >= periods.period_start
      AND mv.stat_date <= periods.period_end
     WHERE mv.metric_code IN :metric_codes
-      AND (:filter_orgs = FALSE OR mv.org_name IN :org_names)
+      AND (:filter_orgs = FALSE OR mv.org_code IN :org_codes)
 ),
 selected_values AS (
     SELECT DISTINCT metric_code, metric_name, org_name, metric_value, stat_date

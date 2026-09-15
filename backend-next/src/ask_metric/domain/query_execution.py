@@ -139,10 +139,11 @@ class QueryPlanner:
             allow_empty=True,
         )
         _validate_operation_support(dsl, shape)
-        organization_parameter = "org_codes" if self.dialect == "inceptor" else "org_names"
+        # 机构过滤统一使用机构编码：metric_values 同时携带 org_code 与展示用 org_name，
+        # 编码与目录、权限裁剪同源，比名称匹配更可靠（mysql 与 inceptor 一致）。
         base_parameters: dict[str, Any] = {
             "metric_codes": metric_codes,
-            organization_parameter: normalized_orgs,
+            "org_codes": normalized_orgs,
             "filter_orgs": bool(normalized_orgs),
             # 多取一行作截断标志：否则恰好返回上限行数时无法判断是否还有数据。
             "limit": self.max_limit + 1,

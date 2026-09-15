@@ -94,6 +94,33 @@ def _validate_frontend_bundle(dist: Path) -> None:
         )
 
 
+def _build_agent_service(target: Path, build_root: Path, *, skip_build: bool) -> None:
+    """构建 pi agent 服务并打包生产依赖（纯 JS，无原生扩展）。
+
+    在构建暂存副本上执行 npm ci/build/prune，避免改动开发检出的 node_modules。
+    """
+    agent = PROJECT_ROOT / "agent-service"
+    work = build_root / "agent-service-work"
+    if not skip_build:
+        npm = shutil.which("npm")
+        if npm is None:
+            raise RuntimeError("npm is required to build the agent service")
+        _copy_tree(agent / "src", work / "src")
+        for filename in ("package.json", "package-lock.json", "tsconfig.json", "tsconfig.build.json"):
+            shutil.copy2(agent / filename, work / filename)
+        _run([npm, "ci"], cwd=work)
+        _run([npm, "run", "build"], cwd=work)
+        # 裁剪为生产依赖后随包携带 node_modules，目标机离线运行
+        _run([npm, "prune", "--omit=dev"], cwd=work)
+        agent = work
+    if not (agent / "dist" / "server.js").is_file():
+        raise FileNotFoundError(f"Agent service bundle is missing dist/server.js: {agent}")
+    target.mkdir(parents=True)
+    shutil.copy2(agent / "package.json", target / "package.json")
+    _copy_tree(agent / "dist", target / "dist")
+    _copy_tree(agent / "node_modules", target / "node_modules")
+
+
 def _build_frontend(target: Path, *, skip_build: bool) -> None:
     frontend = PROJECT_ROOT / "frontend-vue"
     if not skip_build:
@@ -232,31 +259,31 @@ def _install_backend_site_packages(
     )
 
 
-def _validate_runtime_member(member: tarfile.TarInfo) -> None:
+def _validate_runtime_member(member: tarfile.TarInfo, *, top_level: str = "python") -> None:
     path = Path(member.name.replace("\\", "/"))
-    if path.is_absolute() or ".." in path.parts or not path.parts or path.parts[0] != "python":
-        raise RuntimeError(f"Unsafe Python runtime archive member: {member.name}")
+    if path.is_absolute() or ".." in path.parts or not path.parts or path.parts[0] != top_level:
+        raise RuntimeError(f"Unsafe runtime archive member: {member.name}")
     if member.issym() or member.islnk():
         link = Path(member.linkname.replace("\\", "/"))
         if link.is_absolute():
             raise RuntimeError(f"Unsafe absolute runtime link: {member.name} -> {member.linkname}")
 
 
-def _runtime_checksums(runtime_archive: Path) -> list[str]:
+def _runtime_checksums(runtime_archive: Path, *, top_level: str = "python", prefix: str = "python-runtime") -> list[str]:
     entries: list[str] = []
     with tarfile.open(runtime_archive, "r:gz") as source:
         for member in source:
-            _validate_runtime_member(member)
+            _validate_runtime_member(member, top_level=top_level)
             if not member.isfile():
                 continue
             stream = source.extractfile(member)
             if stream is None:
-                raise RuntimeError(f"Cannot read Python runtime member: {member.name}")
+                raise RuntimeError(f"Cannot read runtime member: {member.name}")
             digest = hashlib.sha256()
             while chunk := stream.read(1024 * 1024):
                 digest.update(chunk)
             entries.append(
-                f"{digest.hexdigest()}  python-runtime/{Path(member.name).as_posix()}"
+                f"{digest.hexdigest()}  {prefix}/{Path(member.name).as_posix()}"
             )
     return entries
 
@@ -277,11 +304,59 @@ def _append_python_runtime(
             target.addfile(member, stream)
 
 
+def _append_node_runtime(
+    target: tarfile.TarFile,
+    runtime_archive: Path,
+    *,
+    bundle_name: str,
+) -> None:
+    """内嵌官方 Node 发行包：剥掉 node-v<version>-<platform>/ 顶层目录，落到 node-runtime/node/。"""
+    with tarfile.open(runtime_archive, "r:gz") as source:
+        top_levels: set[str] = set()
+        members = list(source)
+        for source_member in members:
+            path = Path(source_member.name.replace("\\", "/"))
+            if path.is_absolute() or ".." in path.parts or not path.parts:
+                raise RuntimeError(f"Unsafe Node runtime archive member: {source_member.name}")
+            top_levels.add(path.parts[0])
+        if len(top_levels) != 1 or not next(iter(top_levels)).startswith("node-v"):
+            raise RuntimeError("Node runtime archive must contain a single node-v* top-level directory")
+        for source_member in members:
+            relative = Path(*Path(source_member.name.replace("\\", "/")).parts[1:])
+            if not relative.parts:
+                continue
+            member = copy(source_member)
+            member.name = f"{bundle_name}/node-runtime/node/{relative.as_posix()}"
+            member = _linux_tar_metadata(member)
+            stream = source.extractfile(source_member) if source_member.isfile() else None
+            target.addfile(member, stream)
+
+
+def _node_runtime_checksums(runtime_archive: Path) -> list[str]:
+    entries: list[str] = []
+    with tarfile.open(runtime_archive, "r:gz") as source:
+        for member in source:
+            path = Path(member.name.replace("\\", "/"))
+            if path.is_absolute() or ".." in path.parts or not path.parts:
+                raise RuntimeError(f"Unsafe Node runtime archive member: {member.name}")
+            if len(path.parts) < 2 or not member.isfile():
+                continue
+            stream = source.extractfile(member)
+            if stream is None:
+                raise RuntimeError(f"Cannot read Node runtime member: {member.name}")
+            digest = hashlib.sha256()
+            while chunk := stream.read(1024 * 1024):
+                digest.update(chunk)
+            relative = Path(*path.parts[1:])
+            entries.append(f"{digest.hexdigest()}  node-runtime/node/{relative.as_posix()}")
+    return entries
+
+
 def _copy_operations(target: Path, *, payload_only: bool = False) -> None:
     runtime = PACKAGE_DIR / "runtime"
     if payload_only:
         target.mkdir(parents=True)
-        for filename in ("backend.env.example", "nginx.conf.template"):
+        for filename in ("backend.env.example", "agent.env.example", "nginx.conf.template"):
             shutil.copy2(runtime / filename, target / filename)
         shutil.copy2(PACKAGE_DIR / "intranet_deploy.py", target / "intranet_deploy.py")
         shutil.copy2(PACKAGE_DIR / "constraints.txt", target / "constraints.txt")
@@ -317,6 +392,7 @@ def build_bundle(args: argparse.Namespace) -> Path:
     bundle_root = build_root / "bundle"
     bundle_root.mkdir()
     _build_frontend(bundle_root / "frontend", skip_build=args.skip_frontend_build)
+    _build_agent_service(bundle_root / "agent-service", build_root, skip_build=args.skip_agent_build)
     _build_backend_wheelhouse(
         bundle_root / "backend" / "wheels",
         build_root,
@@ -360,6 +436,26 @@ def build_bundle(args: argparse.Namespace) -> Path:
             "executable": "python-runtime/python/bin/python3.12",
             "dependencies_preinstalled": True,
         }
+    node_runtime_metadata: dict[str, object] = {"included": False}
+    if args.node_runtime_archive is not None:
+        node_archive = args.node_runtime_archive.resolve()
+        if not node_archive.is_file():
+            raise FileNotFoundError(f"Node runtime archive not found: {node_archive}")
+        if not args.node_runtime_sha256:
+            raise ValueError("--node-runtime-sha256 is required with --node-runtime-archive")
+        node_digest = _sha256(node_archive)
+        if node_digest != args.node_runtime_sha256.lower():
+            raise RuntimeError(
+                "Node runtime SHA-256 mismatch: "
+                f"expected {args.node_runtime_sha256.lower()}, got {node_digest}"
+            )
+        runtime_checksums += _node_runtime_checksums(node_archive)
+        node_runtime_metadata = {
+            "included": True,
+            "archive_source": node_archive.name,
+            "archive_sha256": node_digest,
+            "executable": "node-runtime/node/bin/node",
+        }
     _copy_backend_runtime(bundle_root / "backend" / "runtime")
     _copy_operations(bundle_root / "ops", payload_only=args.payload_only)
     manifest = {
@@ -379,6 +475,8 @@ def build_bundle(args: argparse.Namespace) -> Path:
         "database_migration_automatic": False,
         "python_constraints": "ops/constraints.txt",
         "python_runtime": runtime_metadata,
+        "node_runtime": node_runtime_metadata,
+        "agent_service": {"included": True, "source": "agent-service"},
         "source_commit": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=PROJECT_ROOT, text=True,
         ).strip(),
@@ -404,6 +502,12 @@ def build_bundle(args: argparse.Namespace) -> Path:
                 args.python_runtime_archive.resolve(),
                 bundle_name=bundle_name,
             )
+        if args.node_runtime_archive is not None:
+            _append_node_runtime(
+                tar,
+                args.node_runtime_archive.resolve(),
+                bundle_name=bundle_name,
+            )
     archive.with_suffix(archive.suffix + ".sha256").write_text(
         f"{_sha256(archive)}  {archive.name}\n",
         encoding="utf-8",
@@ -425,6 +529,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--python-version", default="3.12", choices=["3.11", "3.12", "3.13"])
     parser.add_argument("--output-dir", type=Path, default=DEPLOY_DIR / "artifacts")
     parser.add_argument("--skip-frontend-build", action="store_true")
+    parser.add_argument("--skip-agent-build", action="store_true")
     parser.add_argument(
         "--payload-only",
         action="store_true",
@@ -444,6 +549,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--python-runtime-sha256",
         help="Required expected SHA-256 for --python-runtime-archive",
+    )
+    parser.add_argument(
+        "--node-runtime-archive",
+        type=Path,
+        help=(
+            "Official node-v*-linux-*.tar.gz; embeds the Node runtime for agent-service "
+            "(see node-runtime-lock.json for reviewed URLs and SHA-256)"
+        ),
+    )
+    parser.add_argument(
+        "--node-runtime-sha256",
+        help="Required expected SHA-256 for --node-runtime-archive",
     )
     return parser.parse_args()
 

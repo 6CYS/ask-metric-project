@@ -8,7 +8,7 @@ FROM (
            ) AS row_number
     FROM metric_values
     WHERE metric_code IN :metric_codes
-      AND (:filter_orgs = FALSE OR org_name IN :org_names)
+      AND (:filter_orgs = FALSE OR org_code IN :org_codes)
       AND stat_date <= CAST(:end_date AS DATE)
 ) AS ranked
 LEFT JOIN metric_terms AS mt ON mt.metric_code = ranked.metric_code
