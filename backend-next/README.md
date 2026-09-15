@@ -154,6 +154,9 @@ trace/segment/span链路标识；模型和SSO外调生成新的40位 `R` 流水�
 Uvicorn 时使用 `--no-access-log`，避免默认访问日志与规范格式混排。系统管理员可以调用
 `GET/PUT /api/v1/logging/level` 查询或动态调整日志级别。
 
+
+异常日志保留异常类型、调用帧和因果链的定位信息；不输出原始异常正文、源码行或局部变量，避免模型响应、SQL 参数及业务数据进入日志。
+
 ### Nacos 集群与 Gateway
 
 后端直连开发时 Nacos 默认关闭；经 Gateway 访问时，在 `.env` 中启用注册：
