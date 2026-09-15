@@ -130,8 +130,11 @@ python -m uvicorn ask_metric.main:app --app-dir src --host 127.0.0.1 --reload --
 开发环境默认打印受控控制台日志；生产环境默认强制写入可配置的 `LOG_DIRECTORY`，并拆分为
 `app.log`、`summary.log` 和 `alert.log`。默认单文件上限50MB、保留3天，跨日或达到上限后归档
 到日期目录。HTTP请求自动生成交易 START/END 摘要，并透传全局流水、服务调用流水及
-trace/segment/span链路标识。生产启动 Uvicorn 时使用 `--no-access-log`，避免默认访问日志与
-规范格式混排。系统管理员可以调用 `GET/PUT /api/v1/logging/level` 查询或动态调整日志级别。
+trace/segment/span链路标识；模型和SSO外调生成新的40位 `R` 流水并输出 SUBSTART/SUBEND。
+全局流水和SpanID采用六段40位格式，分别以 `G`、`R` 开头；生成所需的 `APP_NODE_CODE`、
+`APP_IDC`、`APP_UNIT` 对应主机注入的 `App_Node_Code`、`App_IDC`、`App_Unit`。生产启动
+Uvicorn 时使用 `--no-access-log`，避免默认访问日志与规范格式混排。系统管理员可以调用
+`GET/PUT /api/v1/logging/level` 查询或动态调整日志级别。
 
 ### Nacos 集群与 Gateway
 

@@ -400,13 +400,16 @@ def test_model_connection(
     except ModelServiceUnavailable as exc:
         error_reference = uuid4().hex
         category = model_failure_category(exc.category)
-        logger.warning(
-            "model_connection_test_failed role=%s category=%s error_reference=%s",
-            role,
-            category,
-            error_reference,
-        )
-        raise ApplicationError(
+        if not getattr(exc, "_ask_metric_alert_logged", False):
+            logger.error(
+                "model_connection_test_failed role=%s category=%s error_reference=%s",
+                role,
+                category,
+                error_reference,
+                exc_info=(type(exc), exc, exc.__traceback__),
+                extra={"trans_api": "model_connection_test", "exception_type": type(exc).__name__},
+            )
+        failure = ApplicationError(
             "MODEL_CONNECTION_FAILED",
             f"{role} 模型连接失败，请检查服务端配置。",
             status_code=422 if category == "configuration" else 502,
@@ -415,20 +418,26 @@ def test_model_connection(
                 "category": category,
                 "error_reference": error_reference,
             },
-        ) from exc
+        )
+        _mark_alert_logged(failure)
+        raise failure from exc
     except InvalidModelResponse as exc:
         error_reference = uuid4().hex
-        logger.warning(
+        logger.error(
             "model_response_validation_failed role=%s error_reference=%s",
             role,
             error_reference,
+            exc_info=(type(exc), exc, exc.__traceback__),
+            extra={"trans_api": "model_connection_test", "exception_type": type(exc).__name__},
         )
-        raise ApplicationError(
+        failure = ApplicationError(
             "MODEL_RESPONSE_INVALID",
             f"{role} 模型已响应，但返回格式无效。",
             status_code=502,
             details={"role": role, "error_reference": error_reference},
-        ) from exc
+        )
+        _mark_alert_logged(failure)
+        raise failure from exc
     return ModelConnectionTestResponse(
         role=role,
         ok=True,
@@ -708,3 +717,10 @@ def _ensure_baseline(
         snapshot=snapshot,
         created_by="system-baseline",
     )
+
+
+def _mark_alert_logged(exc: Exception) -> None:
+    try:
+        exc._ask_metric_alert_logged = True  # type: ignore[attr-defined]
+    except Exception:
+        pass

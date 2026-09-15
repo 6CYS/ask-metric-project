@@ -43,7 +43,11 @@ class Settings(BaseSettings):
     log_zone_id: str = "-"
     log_max_bytes: int = Field(default=50 * 1024 * 1024, gt=0)
     log_retention_days: int = Field(default=3, gt=0, le=365)
-    log_max_line_bytes: int = Field(default=200 * 1024, gt=0, le=500 * 1024)
+    log_max_line_bytes: int = Field(default=200 * 1024, gt=0, le=200 * 1024)
+    # 全局流水号规范变量；缺失时使用规范定义的兜底值。
+    app_node_code: str = "8888888"
+    app_idc: str = "888"
+    app_unit: str = "8"
     host: str = "127.0.0.1"
     port: int = 8010
     nacos_enabled: bool = False
@@ -209,6 +213,32 @@ class Settings(BaseSettings):
             normalized = "WARNING"
         if normalized not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ValueError("LOG_LEVEL is unsupported")
+        return normalized
+
+    @field_validator("app_node_code")
+    @classmethod
+    def validate_app_node_code(cls, value: str) -> str:
+        import re
+
+        normalized = value.strip()
+        if not re.fullmatch(r"[A-Za-z0-9]{7}", normalized):
+            raise ValueError("APP_NODE_CODE must contain exactly 7 letters or digits")
+        return normalized
+
+    @field_validator("app_idc")
+    @classmethod
+    def validate_app_idc(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) != 3 or not normalized.isdigit():
+            raise ValueError("APP_IDC must contain exactly 3 digits")
+        return normalized
+
+    @field_validator("app_unit")
+    @classmethod
+    def validate_app_unit(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) != 1 or not normalized.isdigit():
+            raise ValueError("APP_UNIT must contain exactly 1 digit")
         return normalized
 
     @field_validator("cors_origins", mode="before")

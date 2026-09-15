@@ -192,7 +192,11 @@ sudo chmod 0640 /etc/ask-metric/backend.env
 `LOG_DATA_CENTER_ID` 和 `LOG_ZONE_ID` 必须替换为行方资源配置值。调用方可传递
 `X-Global-Business-Track-No`、`X-Service-Call-Seq-No`、`X-Service-Code`、`X-Trace-ID`、
 `X-Segment-ID`、`X-Span-ID` 和 `X-Parent-Span-ID`；缺失的流水与链路标识由后端生成并在响应头
-返回。系统管理员可通过 `PUT /api/v1/logging/level` 动态调整日志级别，无需重启应用。
+返回。`APP_NODE_CODE`、`APP_IDC`、`APP_UNIT` 必须分别使用主机 `/etc/profile` 中的
+`App_Node_Code`、`App_IDC`、`App_Unit`；确实取不到时才使用规范兜底值 `8888888`、`888`、`8`。
+全局流水号和SpanID分别采用 `G`、`R` 开头的六段40位格式；上游合法值保持透传，每次模型或
+SSO下游调用生成新的SpanID并记录 SUBSTART/SUBEND。系统管理员可通过
+`PUT /api/v1/logging/level` 动态调整日志级别，无需重启应用。
 
 ## 4. 数据库迁移
 

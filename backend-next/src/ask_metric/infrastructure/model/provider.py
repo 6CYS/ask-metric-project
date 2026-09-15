@@ -20,6 +20,7 @@ from ask_metric.core.config_crypto import (
     decrypt_config_value,
     load_config_sm4_key,
 )
+from ask_metric.core.request_context import outbound_subtransaction
 from ask_metric.infrastructure.model.configuration import (
     ModelConfigRepository,
     ModelEndpointConfig,
@@ -261,29 +262,48 @@ class ConfigurableModelService:
                 endpoint=endpoint.path,
             )
         try:
-            client = self._client or httpx.Client()
-            try:
-                response = client.post(
-                    url,
-                    json=payload,
-                    headers=headers,
-                    timeout=endpoint.timeout_seconds,
-                )
-            finally:
-                # 只关闭本次临时创建的客户端；共享客户端由应用关闭流程统一释放。
-                if self._client is None:
-                    client.close()
-            response.raise_for_status()
+            with outbound_subtransaction(endpoint.path, invoke_sys="MODEL_PROVIDER") as transaction:
+                request_headers = {**headers, **transaction.headers()}
+                client = self._client or httpx.Client()
+                try:
+                    response = client.post(
+                        url,
+                        json=payload,
+                        headers=request_headers,
+                        timeout=endpoint.timeout_seconds,
+                    )
+                    transaction.set_response(response.status_code)
+                finally:
+                    # 只关闭本次临时创建的客户端；共享客户端由应用关闭流程统一释放。
+                    if self._client is None:
+                        client.close()
+                response.raise_for_status()
+                try:
+                    value = response.json()
+                except json.JSONDecodeError as exc:
+                    raise InvalidModelResponse(
+                        "Model provider returned invalid JSON",
+                        endpoint=endpoint.path,
+                    ) from exc
+                if not isinstance(value, dict):
+                    raise InvalidModelResponse(
+                        "Model provider returned a non-object response",
+                        endpoint=endpoint.path,
+                    )
         except httpx.TimeoutException as exc:
             duration_ms = _duration_ms(started)
-            _log_model_request(endpoint.path, duration_ms=duration_ms, error="timeout")
-            raise ModelServiceUnavailable(
+            _log_model_request(
+                endpoint.path, duration_ms=duration_ms, error="timeout", exception=exc
+            )
+            failure = ModelServiceUnavailable(
                 f"Model provider request {endpoint.path} timed out after "
                 f"{endpoint.timeout_seconds:g} seconds",
                 category="timeout",
                 endpoint=endpoint.path,
                 duration_ms=duration_ms,
-            ) from exc
+            )
+            _mark_alert_logged(failure)
+            raise failure from exc
         except httpx.HTTPStatusError as exc:
             duration_ms = _duration_ms(started)
             _log_model_request(
@@ -291,24 +311,31 @@ class ConfigurableModelService:
                 duration_ms=duration_ms,
                 status_code=exc.response.status_code,
                 error="http_status",
+                exception=exc,
             )
-            raise ModelServiceUnavailable(
+            failure = ModelServiceUnavailable(
                 f"Model provider request {endpoint.path} failed with HTTP "
                 f"{exc.response.status_code}",
                 category="http_status",
                 endpoint=endpoint.path,
                 status_code=exc.response.status_code,
                 duration_ms=duration_ms,
-            ) from exc
+            )
+            _mark_alert_logged(failure)
+            raise failure from exc
         except httpx.RequestError as exc:
             duration_ms = _duration_ms(started)
-            _log_model_request(endpoint.path, duration_ms=duration_ms, error="connection")
-            raise ModelServiceUnavailable(
+            _log_model_request(
+                endpoint.path, duration_ms=duration_ms, error="connection", exception=exc
+            )
+            failure = ModelServiceUnavailable(
                 f"Model provider request {endpoint.path} could not connect",
                 category="connection",
                 endpoint=endpoint.path,
                 duration_ms=duration_ms,
-            ) from exc
+            )
+            _mark_alert_logged(failure)
+            raise failure from exc
         finally:
             # finally 无论成功还是异常都会运行，避免失败请求永久占用并发名额。
             self._semaphore.release()
@@ -318,18 +345,6 @@ class ConfigurableModelService:
             duration_ms=duration_ms,
             status_code=response.status_code,
         )
-        try:
-            value = response.json()
-        except json.JSONDecodeError as exc:
-            raise InvalidModelResponse(
-                "Model provider returned invalid JSON",
-                endpoint=endpoint.path,
-            ) from exc
-        if not isinstance(value, dict):
-            raise InvalidModelResponse(
-                "Model provider returned a non-object response",
-                endpoint=endpoint.path,
-            )
         return value
 
     def _authentication_headers(self, endpoint: ModelEndpointConfig) -> dict[str, str]:
@@ -351,48 +366,41 @@ def _normalize_rerank_response(
 ) -> list[dict[str, Any]]:
     """Normalize the indexed and bank parallel-array response contracts."""
     if "results" in response:
-        if isinstance(response["results"], list):
-            return response["results"]
-        reason = "results_type"
-    else:
-        scores = response.get("scores")
-        texts = response.get("texts")
-        if not isinstance(scores, list):
-            reason = "scores_type"
-        elif len(scores) != len(documents):
-            reason = "scores_count"
-        elif not isinstance(texts, list):
-            reason = "texts_type"
-        elif len(texts) != len(documents):
-            reason = "texts_count"
+        results = response["results"]
+        if isinstance(results, list):
+            return results
+        raise InvalidModelResponse("Reranker returned an invalid response", endpoint=endpoint)
+    scores = response.get("scores")
+    texts = response.get("texts")
+    if (
+        isinstance(scores, list)
+        and len(scores) == len(documents)
+        and isinstance(texts, list)
+        and len(texts) == len(documents)
+    ):
+        # Bank responses may be sorted by relevance. Each score belongs to
+        # its returned text, not to the candidate at that response position.
+        # Keep occurrences separate so duplicate texts cannot reuse an index.
+        indices: dict[str, deque[int]] = defaultdict(deque)
+        for index, document in enumerate(documents):
+            indices[document].append(index)
+        normalized: list[dict[str, Any]] = []
+        for text, score in zip(texts, scores, strict=True):
+            if not isinstance(text, str) or not indices.get(text):
+                break
+            try:
+                valid = (
+                    isinstance(score, (int, float))
+                    and not isinstance(score, bool)
+                    and math.isfinite(score)
+                )
+            except OverflowError:
+                valid = False
+            if not valid:
+                break
+            normalized.append({"index": indices[text].popleft(), "relevance_score": score})
         else:
-            # Bank responses may be sorted by relevance. Each score belongs to
-            # its returned text, not to the candidate at that response position.
-            # Keep occurrences separate so duplicate texts cannot reuse an index.
-            indices: dict[str, deque[int]] = defaultdict(deque)
-            for index, document in enumerate(documents):
-                indices[document].append(index)
-            normalized: list[dict[str, Any]] = []
-            for text, score in zip(texts, scores, strict=True):
-                if not isinstance(text, str) or not indices.get(text):
-                    reason = "texts_alignment"
-                    break
-                try:
-                    valid = (
-                        isinstance(score, (int, float))
-                        and not isinstance(score, bool)
-                        and math.isfinite(score)
-                    )
-                except OverflowError:
-                    valid = False
-                if not valid:
-                    reason = "score_non_finite_or_non_numeric"
-                    break
-                normalized.append({"index": indices[text].popleft(), "relevance_score": score})
-            else:
-                return normalized
-    # Only fixed diagnostic categories are logged; never include response text.
-    logger.warning("model_rerank_response_invalid reason=%s", reason)
+            return normalized
     raise InvalidModelResponse("Reranker returned an invalid response", endpoint=endpoint)
 
 
@@ -402,6 +410,7 @@ def _log_model_request(
     duration_ms: int,
     status_code: int | None = None,
     error: str | None = None,
+    exception: Exception | None = None,
 ) -> None:
     safe_path = path if path in {
         "/v1/chat/completions", "/v1/embeddings", "/v1/rerank",
@@ -414,8 +423,16 @@ def _log_model_request(
         status_code or "-",
         duration_ms,
         safe_error,
+        exc_info=(type(exception), exception, exception.__traceback__) if exception else None,
         extra={"trans_api": safe_path, "exception_type": "ModelServiceError" if error else "-"},
     )
+
+
+def _mark_alert_logged(exc: Exception) -> None:
+    try:
+        exc._ask_metric_alert_logged = True  # type: ignore[attr-defined]
+    except Exception:
+        pass
 
 
 def _duration_ms(started: float) -> int:

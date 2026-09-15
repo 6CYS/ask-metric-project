@@ -141,7 +141,11 @@ class NacosRegistry:
             if not registered:
                 raise RuntimeError("Nacos returned an unsuccessful registration response")
         except Exception as exc:
-            logger.error("nacos registration failed exception_type=%s", type(exc).__name__)
+            logger.error(
+                "nacos registration failed exception_type=%s",
+                type(exc).__name__,
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
             if self._settings.nacos_fail_fast:
                 await self.stop()
                 raise
@@ -169,10 +173,18 @@ class NacosRegistry:
                 self._instance.port,
             )
         except Exception as exc:
-            logger.error("nacos_deregistration_failed exception_type=%s", type(exc).__name__)
+            logger.error(
+                "nacos_deregistration_failed exception_type=%s",
+                type(exc).__name__,
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
         finally:
             try:
                 await self._client.shutdown()
             except Exception as exc:
-                logger.error("nacos_shutdown_failed exception_type=%s", type(exc).__name__)
+                logger.error(
+                    "nacos_shutdown_failed exception_type=%s",
+                    type(exc).__name__,
+                    exc_info=(type(exc), exc, exc.__traceback__),
+                )
             self._client = None

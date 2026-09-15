@@ -363,14 +363,16 @@ class SemanticTaskApplicationService:
             "error_reference": error_reference,
             "occurred_at": datetime.now(UTC).isoformat(),
         }
-        logger.error(
-            "semantic_task_failed task_id=%s stage=%s code=%s error_reference=%s",
-            command.task_id,
-            stage.value,
-            code,
-            error_reference,
-            extra={"trans_api": "semantic_analysis", "exception_type": code},
-        )
+        if not getattr(error, "_ask_metric_alert_logged", False):
+            logger.error(
+                "semantic_task_failed task_id=%s stage=%s code=%s error_reference=%s",
+                command.task_id,
+                stage.value,
+                code,
+                error_reference,
+                exc_info=(type(error), error, error.__traceback__),
+                extra={"trans_api": "semantic_analysis", "exception_type": code},
+            )
         with self.uow_factory() as uow:
             task = (
                 uow.tasks.get_owned_for_update(command.task_id, command.actor.user_id or "")

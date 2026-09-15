@@ -110,6 +110,7 @@ class QueryExecutionApplicationService:
                 command.task_id,
                 run_id,
                 type(exc).__name__,
+                exc_info=(type(exc), exc, exc.__traceback__),
                 extra={"trans_api": "sql_execution", "exception_type": type(exc).__name__},
             )
             timings_ms["sql_execution_ms"] = _elapsed_ms(sql_started)
@@ -392,6 +393,7 @@ class QueryExecutionApplicationService:
                 "query_planning_failed task_id=%s exception_type=%s",
                 task.id,
                 type(exc).__name__,
+                exc_info=(type(exc), exc, exc.__traceback__),
                 extra={"trans_api": "query_planning", "exception_type": type(exc).__name__},
             )
         run = QueryRun(
