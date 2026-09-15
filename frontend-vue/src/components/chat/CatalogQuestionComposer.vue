@@ -2,7 +2,7 @@
 import { Check, LoaderCircle, Plus, Search, Send, X } from "@lucide/vue"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
-import { listBackendNextMetrics, listOrgs } from "@/lib/api"
+import { getCachedMetricCatalog, getCachedOrganizationCatalog } from "@/lib/api"
 import { clarificationCatalogKinds, consumeCatalogCommand, entityKey, toggleComposerEntity, updateComposerMentions, type ComposerEntity, type ComposerMention } from "@/lib/composerEntities"
 import type { BackendNextClarification } from "@/types/api"
 
@@ -67,6 +67,10 @@ watch([() => props.contextKey, () => props.clarification, () => props.autoOpenCl
   if (nextKind) void openPicker(nextKind)
 }, { flush: "post" })
 onMounted(() => { mounted.value = true; resizeInput() })
+watch([mounted, isDisabled], ([ready, disabled]) => {
+  // 可提问后预加载；弹窗复用同一请求，失败后允许重新打开重试。
+  if (ready && !disabled) void Promise.allSettled([getCachedMetricCatalog(), getCachedOrganizationCatalog()])
+}, { immediate: true })
 onBeforeUnmount(closePicker)
 function resizeInput() {
   if (!input.value) return
@@ -92,8 +96,8 @@ async function openPicker(nextKind: ComposerEntity["kind"]) {
   void nextTick(() => { if (current === generation) searchInput.value?.focus({ preventScroll: true }) })
   try {
     const result: ComposerEntity[] = nextKind === "metric"
-      ? (await listBackendNextMetrics()).items.filter((item) => item.enabled).map((item) => ({ kind: "metric", code: item.metric_code, name: item.metric_name, searchText: item.synonyms.join(" ") }))
-      : (await listOrgs()).items.filter((item) => item.enabled).map((item) => ({ kind: "organization", code: item.org_code, name: item.org_name, searchText: item.aliases.join(" ") }))
+      ? (await getCachedMetricCatalog()).items.filter((item) => item.enabled).map((item) => ({ kind: "metric", code: item.metric_code, name: item.metric_name, searchText: item.synonyms.join(" ") }))
+      : (await getCachedOrganizationCatalog()).items.filter((item) => item.enabled).map((item) => ({ kind: "organization", code: item.org_code, name: item.org_name, searchText: item.aliases.join(" ") }))
     if (current === generation) items.value = result
   } catch (cause) {
     if (current === generation) error.value = cause instanceof Error ? cause.message : "目录加载失败，请重试。"

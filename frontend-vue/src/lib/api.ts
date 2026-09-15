@@ -1,3 +1,4 @@
+import { clearCatalogCaches, metricCatalogCache, organizationCatalogCache } from "@/lib/catalogCache"
 import type {
   QueryReadiness,
   BackendNextConversationSnapshot,
@@ -243,6 +244,7 @@ export function confirmAccuracyImport(
 }
 
 export function logoutUser() {
+  clearCatalogCaches()
   return request<void>("/api/v1/auth/logout", {
     ...browserSessionRequest,
     method: "POST",
@@ -348,32 +350,44 @@ export function listBackendNextMetrics() {
   return request<{ items: MetricItem[] }>(apiUrl(backendNextBase, "/api/v1/catalog/metrics"))
 }
 
-export function createMetric(payload: MetricPayload) {
-  return request<MetricItem>(apiUrl(backendNextBase, "/api/v1/catalog/metrics"), { method: "POST", body: JSON.stringify(payload) })
+export async function createMetric(payload: MetricPayload) {
+  const result = await request<MetricItem>(apiUrl(backendNextBase, "/api/v1/catalog/metrics"), { method: "POST", body: JSON.stringify(payload) })
+  metricCatalogCache.clear()
+  return result
 }
 
-export function updateMetric(metricCode: string, payload: MetricPayload) {
-  return request<MetricItem>(apiUrl(backendNextBase, `/api/v1/catalog/metrics/${encodeURIComponent(metricCode)}`), { method: "PUT", body: JSON.stringify(payload) })
+export async function updateMetric(metricCode: string, payload: MetricPayload) {
+  const result = await request<MetricItem>(apiUrl(backendNextBase, `/api/v1/catalog/metrics/${encodeURIComponent(metricCode)}`), { method: "PUT", body: JSON.stringify(payload) })
+  metricCatalogCache.clear()
+  return result
 }
 
-export function deleteMetric(metricCode: string) {
-  return request<void>(apiUrl(backendNextBase, `/api/v1/catalog/metrics/${encodeURIComponent(metricCode)}`), { method: "DELETE" })
+export async function deleteMetric(metricCode: string) {
+  const result = await request<void>(apiUrl(backendNextBase, `/api/v1/catalog/metrics/${encodeURIComponent(metricCode)}`), { method: "DELETE" })
+  metricCatalogCache.clear()
+  return result
 }
 
 export function listOrgs() {
   return request<{ items: OrgItem[] }>(apiUrl(backendNextBase, "/api/v1/catalog/organizations"))
 }
 
-export function createOrg(payload: OrgPayload) {
-  return request<OrgItem>(apiUrl(backendNextBase, "/api/v1/catalog/organizations"), { method: "POST", body: JSON.stringify(payload) })
+export async function createOrg(payload: OrgPayload) {
+  const result = await request<OrgItem>(apiUrl(backendNextBase, "/api/v1/catalog/organizations"), { method: "POST", body: JSON.stringify(payload) })
+  organizationCatalogCache.clear()
+  return result
 }
 
-export function updateOrg(orgCode: string, payload: OrgPayload) {
-  return request<OrgItem>(apiUrl(backendNextBase, `/api/v1/catalog/organizations/${encodeURIComponent(orgCode)}`), { method: "PUT", body: JSON.stringify(payload) })
+export async function updateOrg(orgCode: string, payload: OrgPayload) {
+  const result = await request<OrgItem>(apiUrl(backendNextBase, `/api/v1/catalog/organizations/${encodeURIComponent(orgCode)}`), { method: "PUT", body: JSON.stringify(payload) })
+  organizationCatalogCache.clear()
+  return result
 }
 
-export function deleteOrg(orgCode: string) {
-  return request<void>(apiUrl(backendNextBase, `/api/v1/catalog/organizations/${encodeURIComponent(orgCode)}`), { method: "DELETE" })
+export async function deleteOrg(orgCode: string) {
+  const result = await request<void>(apiUrl(backendNextBase, `/api/v1/catalog/organizations/${encodeURIComponent(orgCode)}`), { method: "DELETE" })
+  organizationCatalogCache.clear()
+  return result
 }
 
 export function listDatasets() {
@@ -478,4 +492,12 @@ export function exportBackendNextConversation(conversationId: string) {
 
 export function exportBackendNextTaskResult(taskId: string) {
   return downloadAuthenticated(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}/result-export`), "查询结果.xlsx")
+}
+
+export function getCachedMetricCatalog() {
+  return getAccessToken() ? metricCatalogCache.read(listBackendNextMetrics) : listBackendNextMetrics()
+}
+
+export function getCachedOrganizationCatalog() {
+  return getAccessToken() ? organizationCatalogCache.read(listOrgs) : listOrgs()
 }

@@ -1,3 +1,5 @@
+import { clearCatalogCaches } from "@/lib/catalogCache"
+
 let accessToken: string | null = null
 let authFailureReason = ""
 
@@ -10,11 +12,13 @@ export function getAccessToken() {
 }
 
 export function setAccessToken(token: string) {
+  clearCatalogCaches()
   accessToken = token
 }
 
 export function clearAccessToken(expectedToken?: string | null) {
   if (expectedToken !== undefined && accessToken !== expectedToken) return false
+  clearCatalogCaches()
   accessToken = null
   return true
 }
