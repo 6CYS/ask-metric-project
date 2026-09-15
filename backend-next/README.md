@@ -384,3 +384,28 @@ python -m unittest discover -s tests -v
 ```powershell
 python -m ruff check src scripts
 ```
+
+## 部署前同步正式指标目录
+
+在已安装依赖的后端目录执行正式 CLI。先按部署方式向进程注入实际环境配置；源码启动读取
+该目录的 `.env`，服务部署使用实际 `backend.env` 的受控环境加载方式。命令不接受 `--config`。
+指标目录源连接优先使用 `METRIC_CATALOG_DATABASE_URL`，未设置时使用
+`QUERY_DATABASE_URL`，均须只读；应用目录写入 `APP_DATABASE_URL`；
+表名、字段名和配置版本排序复用 `SIT_*`，不得把凭据直接写入命令。
+
+```bash
+python -m ask_metric sync-metric-catalog --all-snapshots --dry-run
+python -m ask_metric sync-metric-catalog --all-snapshots
+```
+
+第一条只预览，确认汇总后才执行第二条写入应用库；正式 CLI 不带 `--dry-run` 就会写入。
+默认只读最新事实快照；`--all-snapshots` 扫描全部快照中的不同指标定义。
+配置表 `indcr_no` 严格关联事实表 `orig_indcr_no`，配置名称仅去掉开头一次“机构”，
+再直接拼接事实表 `indcr_nm`。最终编码来自事实表 `indcr_no`，不猜测或改写正式口径。
+缺少关联的记录计入跳过数量；同编码不同名称时整批中止，不写入应用库。
+
+可用 `--units /path/to/metric-units.json` 提供完整名称到原始单位的 JSON 对象；
+`--infer-units` 按已确认规则补充单位，未知单位中止写入，业务数值不参与换算。
+未传单位参数时保留现有单位。不使用 `--full` 做普通增量同步；该参数有额外目录清理语义。
+重复同步按编码更新并启用，保留原有别名及未出现的目录项，不同步指标数值、不修改源库。
+同步成功后重启后端刷新目录缓存和向量，初始化完成后再开放问数。
