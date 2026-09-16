@@ -5,46 +5,48 @@
     "chat": {
       "enabled": true,
       "base_url": "",
+      "base_url_env": "MODEL_CHAT_BASE_URL",
       "path": "/v1/chat/completions",
-      "model": "Qwen/Qwen3.6-35B-A3B",
+      "model": "Qwen3.6-35B-A3B",
       "send_model": true,
-      "api_key_env": "MODEL_SILICONFLOW_CHAT_API_KEY",
+      "api_key_env": "MODEL_CHAT_API_KEY",
       "authentication": {
-        "type": "bearer",
-        "header": "Authorization",
-        "prefix": "Bearer "
+        "type": "header",
+        "header": "accessKey",
+        "prefix": ""
       },
       "timeout_seconds": 60.0,
       "extra_body": {},
-      "temperature": null,
-      "max_tokens": 2048,
+      "temperature": 0.0,
+      "max_tokens": 1024,
+      "response_format": "text",
+      "send_response_format": false,
       "enable_thinking": false,
-      "send_enable_thinking": true,
-      "user_message_suffix": "",
-      "chat_template_kwargs": {},
-      "base_url_env": "MODEL_CHAT_BASE_URL"
+      "send_enable_thinking": false,
+      "user_message_suffix": "\n/no_think",
+      "chat_template_kwargs": {}
     },
     "embedding": {
-      "enabled": false,
+      "enabled": true,
       "base_url": "",
       "base_url_env": "MODEL_EMBEDDING_BASE_URL",
       "path": "/v1/embeddings",
-      "model": "BAAI/bge-m3",
+      "model": "atom",
       "send_model": true,
-      "api_key_env": "MODEL_EMBEDDING_API_KEY",
+      "api_key_env": "",
       "authentication": {
-        "type": "bearer",
+        "type": "none",
         "header": "Authorization",
-        "prefix": "Bearer "
+        "prefix": ""
       },
       "timeout_seconds": 60.0,
       "extra_body": {},
       "dimensions": null,
       "encoding_format": "float",
-      "user": ""
+      "user": "user"
     },
     "reranker": {
-      "enabled": false,
+      "enabled": true,
       "base_url": "",
       "base_url_env": "MODEL_RERANK_BASE_URL",
       "path": "/v1/rerank",
