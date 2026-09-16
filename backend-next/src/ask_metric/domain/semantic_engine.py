@@ -730,6 +730,11 @@ class SemanticEngine:
                 and scope_text == scope_text.strip() and scope_text in protected
                 and "<" not in scope_text and ">" not in scope_text
             )
+            # 范围文字已通过原文逐字核对时，模型矛盾地多报 missing orgs 按噪声丢弃：
+            # 展开目标始终是同步目录而非模型生成的机构，安全网不变；其余矛盾照旧澄清。
+            if grounded_scope and not model_organizations and invalid_missing == {"orgs"}:
+                frame.missing = [item for item in frame.missing if item != "orgs"]
+                invalid_missing = set()
             if not grounded_scope or invalid_missing or model_organizations:
                 frame.orgs = []
                 for key in ("organization_scope", "organization_scope_text",
