@@ -2,7 +2,7 @@
  * Agent 业务工具：通过 BackendClient 调用 FastAPI 受治理接口。
  * 模型只选择工具与参数；指标/机构校验、权限裁剪、SQL 模板执行全部在后端完成。
  */
-import { Type, type Static } from "@earendil-works/pi-ai";
+import { Type, StringEnum, type Static } from "@earendil-works/pi-ai";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import { randomUUID } from "node:crypto";
 import { BackendApiError, BackendClient } from "./backendClient.js";
@@ -32,13 +32,36 @@ export interface MetricAskDetails {
   truncated?: boolean | undefined;
   clarification_prompt?: string | undefined;
   /** 后端澄清结构原样透传，供前端渲染结构化澄清表单 */
-  clarification?: unknown;}
+  clarification?: unknown;
+}
+
+/** 结构化基础查询明细：与 metric_ask 同一展示契约，kind 标记取数通道 */
+export interface StructuredQueryDetails {
+  kind: "metric_query_structured";
+  task_id?: string;
+  status: string;
+  columns?: string[];
+  rows?: Record<string, unknown>[];
+  row_count?: number;
+  truncated?: boolean | undefined;
+}
+
+export type QueryResultDetails = MetricAskDetails | StructuredQueryDetails;
 
 function errorResult(message: string): AgentToolResult<MetricAskDetails> {
   return {
     content: [{ type: "text", text: JSON.stringify({ status: "error", message }) }],
     details: { kind: "metric_ask", status: "error" },
   };
+}
+
+function backendErrorResult(error: unknown): AgentToolResult<MetricAskDetails> | undefined {
+  if (!(error instanceof BackendApiError)) return undefined;
+  if (error.status === 401 || error.status === 403) {
+    // 账号单会话机制下旧令牌会失效；给模型明确的用户引导，不暴露原始状态码
+    return errorResult("当前登录状态已失效，请提示用户刷新页面重新登录后再提问。");
+  }
+  return errorResult(`后端请求失败（${error.status}）：${error.message}`);
 }
 
 /**
@@ -117,13 +140,8 @@ export function createMetricAskTool(client: BackendClient): AgentTool<typeof met
           },
         };
       } catch (error) {
-        if (error instanceof BackendApiError) {
-          if (error.status === 401 || error.status === 403) {
-            // 账号单会话机制下旧令牌会失效；给模型明确的用户引导，不暴露原始状态码
-            return errorResult("当前登录状态已失效，请提示用户刷新页面重新登录后再提问。");
-          }
-          return errorResult(`后端请求失败（${error.status}）：${error.message}`);
-        }
+        const handled = backendErrorResult(error);
+        if (handled) return handled;
         throw error;
       }
     },
@@ -200,6 +218,111 @@ export function createOrgCatalogSearchTool(
   };
 }
 
+const structuredQueryParameters = Type.Object({
+  metric_codes: Type.Array(Type.String({ minLength: 1 }), {
+    minItems: 1,
+    maxItems: 100,
+    description: "正式指标编码数组，必须来自 metric_catalog_search 或会话中已确认的编码，不得编造",
+  }),
+  org_codes: Type.Array(Type.String({ minLength: 1 }), {
+    minItems: 1,
+    maxItems: 1000,
+    description: "正式机构编码数组，必须来自 org_catalog_search、会话中已确认的编码或已展开的全目录集合，不得编造",
+  }),
+  start: Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "起始日期 YYYY-MM-DD（含）" }),
+  end: Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "结束日期 YYYY-MM-DD（含）" }),
+  selection: StringEnum(["exact", "latest_in_range", "all_in_range"], {
+    description:
+      "exact：起止必须同日的指定日原值；latest_in_range：范围内最后一个可用日期的原值（月末时点查询用此值）；all_in_range：范围内全部已有数据点",
+  }),
+});
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * 结构化基础查询快速通道：agent 自行完成实体锁定与日期换算后，
+ * 以正式编码和明确日期调用后端 basic-queries（不调用后端语义模型）。
+ * 编码不是授权凭据，后端仍按当前用户权限与启用目录校验。
+ */
+export function createStructuredQueryTool(
+  client: BackendClient,
+): AgentTool<typeof structuredQueryParameters, StructuredQueryDetails> {
+  return {
+    name: "metric_query_structured",
+    label: "指标结构化查询",
+    description:
+      "以正式指标编码、机构编码和明确日期直接取数（不经过语义解析）。仅当指标、机构、日期都能确定为正式编码和绝对日期时使用；" +
+      "条件不明确、叫法拿不准或需要澄清的问题改用 metric_ask。日期规则：明确的某月末/某日用 start=end 并 selection=exact；" +
+      "某月末时点取值用该月1日至月末日、selection=latest_in_range；整月或区间取值用对应区间、selection=latest_in_range；逐月趋势用 all_in_range。",
+    parameters: structuredQueryParameters,
+    execute: async (_toolCallId, params: Static<typeof structuredQueryParameters>) => {
+      if (!DATE_ONLY.test(params.start) || !DATE_ONLY.test(params.end) || params.start > params.end) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ status: "error", message: "日期必须是 YYYY-MM-DD 且 start 不晚于 end" }) }],
+          details: { kind: "metric_query_structured" as const, status: "error" },
+        };
+      }
+      if (params.selection === "exact" && params.start !== params.end) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ status: "error", message: "selection=exact 时 start 与 end 必须是同一天" }) }],
+          details: { kind: "metric_query_structured" as const, status: "error" },
+        };
+      }
+      try {
+        const { result } = await client.basicQueries(
+          {
+            metric_codes: [...new Set(params.metric_codes)],
+            org_codes: [...new Set(params.org_codes)],
+            time: { start: params.start, end: params.end },
+            selection: params.selection as "exact" | "latest_in_range" | "all_in_range",
+          },
+          randomUUID(),
+        );
+        const sampleRows = result.rows.slice(0, MAX_ROWS_FOR_MODEL);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                status: result.status,
+                columns: result.columns,
+                // 仅样例行供模型核对口径；明细数值的完整展示由用户界面的结果表承担
+                sample_rows: sampleRows,
+                row_count: result.row_count,
+                truncated: Boolean(result.truncated),
+                error_code: result.error_code ?? null,
+                message: result.message ?? null,
+                display_hint:
+                  "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+              }),
+            },
+          ],
+          details: {
+            kind: "metric_query_structured",
+            task_id: result.task_id,
+            status: result.status,
+            columns: result.columns,
+            rows: result.rows,
+            row_count: result.row_count,
+            truncated: result.truncated,
+          },
+        };
+      } catch (error) {
+        const handled = backendErrorResult(error);
+        if (handled) {
+          return { ...handled, details: { kind: "metric_query_structured" as const, status: "error" } };
+        }
+        throw error;
+      }
+    },
+  };
+}
+
 export function createAskMetricTools(client: BackendClient): AgentTool<any, any>[] {
-  return [createMetricAskTool(client), createMetricCatalogSearchTool(client), createOrgCatalogSearchTool(client)];
+  return [
+    createStructuredQueryTool(client),
+    createMetricAskTool(client),
+    createMetricCatalogSearchTool(client),
+    createOrgCatalogSearchTool(client),
+  ];
 }

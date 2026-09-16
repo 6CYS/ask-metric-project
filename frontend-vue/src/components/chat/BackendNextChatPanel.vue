@@ -75,6 +75,7 @@ type DisplayConversation = {
 
 const toolLabels: Record<string, string> = {
   metric_ask: "指标问数",
+  metric_query_structured: "指标结构化查询",
   metric_catalog_search: "指标目录检索",
   org_catalog_search: "机构目录检索",
 }
@@ -333,7 +334,8 @@ function finalizeAssistantMessage(chatMessage: DisplayMessage): DisplayMessage {
 }
 
 function asMetricAskDetails(value: unknown): MetricAskDetails | undefined {
-  return value && typeof value === "object" && (value as { kind?: unknown }).kind === "metric_ask"
+  const kind = value && typeof value === "object" ? (value as { kind?: unknown }).kind : undefined
+  return kind === "metric_ask" || kind === "metric_query_structured"
     ? value as MetricAskDetails
     : undefined
 }

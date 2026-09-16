@@ -46,9 +46,9 @@ export interface AgentSessionDetail {
   messages: AgentSessionMessage[]
 }
 
-/** metric_ask 工具结束时附带的结构化结果；columns/rows 为问数原始数值。 */
+/** metric_ask / 结构化查询工具结束时附带的结构化结果；columns/rows 为问数原始数值。 */
 export interface MetricAskDetails {
-  kind: "metric_ask"
+  kind: "metric_ask" | "metric_query_structured"
   task_id?: string
   status: string
   columns?: string[]

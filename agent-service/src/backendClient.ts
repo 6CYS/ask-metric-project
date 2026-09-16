@@ -69,6 +69,29 @@ export interface QueryExecutionResult {
   message?: string | null;
 }
 
+/** 结构化基础查询（basic-queries）契约：不调用模型，按正式编码与明确日期取数 */
+export interface BasicQuerySpec {
+  metric_codes: string[];
+  org_codes: string[];
+  time: { start: string; end: string };
+  selection: "exact" | "latest_in_range" | "all_in_range";
+}
+
+export interface BasicQueryResponse {
+  query: BasicQuerySpec;
+  result: QueryExecutionResult & {
+    error_code?: string | null;
+    evidence?: {
+      catalog?: {
+        metrics?: Array<{ code?: string; name?: string; unit?: string }>;
+        organizations?: Array<{ code?: string; name?: string }>;
+      };
+      coverage_notice?: string | null;
+      missing_metric_notice?: string | null;
+    };
+  };
+}
+
 export class BackendApiError extends Error {
   constructor(
     public readonly status: number,
@@ -161,5 +184,13 @@ export class BackendClient {
     return this.request<TaskCommandResult>(
       `/api/v1/query-tasks/${encodeURIComponent(taskId)}`,
     );
+  }
+
+  basicQueries(spec: BasicQuerySpec, idempotencyKey: string): Promise<BasicQueryResponse> {
+    return this.request<BasicQueryResponse>("/api/v1/basic-queries", {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify(spec),
+    });
   }
 }
