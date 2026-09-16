@@ -721,6 +721,8 @@ def _apply_run_org_match(run: QueryRun, rows: list[dict[str, Any]]) -> None:
     )
     if not names:
         return
+    # 列表字段保留短摘要；完整匹配名称放在既有 JSON 中，供用户展开时按需读取。
+    run.query_plan = {**(run.query_plan or {}), "organization_audit": {"matched_names": names}}
     run.matched_text = _audit_text(names)
     run.matched_org_name = names[0] if len(names) == 1 else _audit_text(names)
     run.org_match_type = "single" if len(names) == 1 else "multiple"

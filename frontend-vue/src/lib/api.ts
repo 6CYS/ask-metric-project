@@ -252,8 +252,14 @@ function apiUrl(base: string, path: string) {
   return `${base}${path}`
 }
 
-export function listQueryRuns() {
-  return request<{ items: QueryRunItem[] }>(apiUrl(backendNextBase, "/api/v1/catalog/query-runs"))
+export function listQueryRuns(page = 1, pageSize = 10) {
+  return request<{ items: QueryRunItem[]; total: number; page: number; page_size: number }>(apiUrl(backendNextBase, `/api/v1/catalog/query-runs?page=${page}&page_size=${pageSize}`))
+}
+
+export function getQueryRunOrganizations(taskId: string) {
+  return request<{ raw_org_text?: string | null; matched_org_name?: string | null; notice?: string | null }>(
+    apiUrl(backendNextBase, `/api/v1/catalog/query-runs/${encodeURIComponent(taskId)}/organizations`),
+  )
 }
 
 export function getQueryRunDetail(taskId: string) {
