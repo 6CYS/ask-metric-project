@@ -2,6 +2,7 @@
  * HTTP 路由：会话管理与提问的 SSE 事件流。
  * 鉴权采用与前端一致的 Bearer，通过后端 /api/v1/auth/me 验证并解析用户身份。
  */
+import { assistantFailure } from "./assistantFailure.js";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { AgentManager, SessionRecord } from "./agentManager.js";
@@ -88,6 +89,8 @@ export function createApp(config: AgentServiceConfig, manager: AgentManager): Ho
         toolName?: string;
         details?: unknown;
         isError?: boolean;
+        stopReason?: string;
+        errorMessage?: string;
       };
       if (msg.role === "user") {
         return {
@@ -100,6 +103,7 @@ export function createApp(config: AgentServiceConfig, manager: AgentManager): Ho
         const blocks = msg.content as Array<{ type: string; text?: string; name?: string }>;
         return {
           role: "assistant",
+          error: assistantFailure(msg),
           // 剔除工具轮次前的纯空行文本，避免前端气泡出现大片空白
           text: blocks.filter((b) => b.type === "text").map((b) => b.text ?? "").join("").replace(/^\n+/, ""),
           tools: blocks.filter((b) => b.type === "toolCall").map((b) => b.name ?? ""),

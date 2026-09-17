@@ -355,13 +355,19 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
       continue
     }
     if (item.role === "assistant") {
-      const text = "text" in item ? item.text ?? "" : ""
+      const failure = "error" in item ? item.error : undefined
+      const body = "text" in item ? item.text ?? "" : ""
+      const text = failure ? [body.trim(), failure].filter(Boolean).join("\n") : body
       const tools = "tools" in item ? item.tools ?? [] : []
       const last = messages[messages.length - 1]
       if (last?.role === "assistant") {
         // 跨轮次合并助手片段：两侧都有内容时补段落分隔，避免首尾粘连
         last.content = last.content.trim() && text.trim() ? `${last.content}\n\n${text}` : last.content + text
         last.toolCalls = [...(last.toolCalls ?? []), ...tools.map((tool) => ({ id: createId(), tool, status: "done" as const }))]
+        if (failure) {
+          last.status = "error"
+          last.response = undefined
+        }
         if (!last.createdAt) last.createdAt = historyTimestamp(item.timestamp)
       } else {
         messages.push({
@@ -369,7 +375,7 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
           role: "assistant",
           content: text,
           toolCalls: tools.map((tool) => ({ id: createId(), tool, status: "done" as const })),
-          status: "done",
+          status: failure ? "error" : "done",
           createdAt: historyTimestamp(item.timestamp),
         })
       }
@@ -740,9 +746,12 @@ function failMessage(conversationId: string, messageId: string, error: unknown) 
     : friendlyQueryError(error instanceof Error ? error.message : null)
   updateAssistantMessage(conversationId, messageId, (item) => {
     const finalized = finalizeAssistantMessage({ ...item, status: aborted ? "done" : "error" })
+    const answer = aborted ? (finalized.content || content) : (finalized.content ? `${finalized.content}\n${content}` : content)
     return {
       ...finalized,
-      content: aborted ? (finalized.content || content) : (finalized.content ? `${finalized.content}\n${content}` : content),
+      content: answer,
+      // 已有结果表时仍显示末轮模型失败提示，不能被结构化 response 遮住。
+      response: finalized.response ? { ...finalized.response, answer } : undefined,
       status: aborted ? "done" : "error",
       toolCalls: finalized.toolCalls?.map((call) => call.status === "running" ? { ...call, status: aborted ? "done" : "error" } : call),
     }

@@ -34,3 +34,5 @@ npm run dev            # 默认 127.0.0.1:8020
 
 - `metric_ask`：提交问题→语义解析→执行查询的完整受治理链路（`/api/v1/questions` + `/analyze` + `/execute`）。
 - `metric_catalog_search` / `org_catalog_search`：正式指标/机构目录检索（`/api/v1/catalog/...`）。
+
+模型调用收尾后只发送一个终态：成功为 `done`，失败或空回答为 `error`。历史助手消息附带面向用户的 `error` 提示（如有），不向前端透传原始异常或思考内容。

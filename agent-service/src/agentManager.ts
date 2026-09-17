@@ -4,6 +4,7 @@
  * 会话经 SessionStore 持久化（完整消息列表，含工具结果明细），重启后恢复；
  * 用户令牌只保存在内存、不落盘，恢复会话的首次提问会绑定当次请求的 Bearer 重建工具。
  */
+import { assistantFailure } from "./assistantFailure.js";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { randomUUID } from "node:crypto";
 import type { AgentServiceConfig } from "./config.js";
@@ -205,18 +206,20 @@ export class AgentManager {
           }
           break;
         }
-        case "agent_end":
-          finished = true;
-          push({ type: "done" });
-          break;
+        // agent_end 也可能代表失败；等待 prompt 收尾后统一判定终态。
         default:
           break;
       }
     });
 
-    const run = session.agent.prompt(message).catch((error: unknown) => {
+    const run = session.agent.prompt(message).then(() => {
+      const last = session.agent.state.messages.at(-1);
+      const failure = assistantFailure(last) || (session.agent.state.errorMessage ? "模型调用失败或连接中断，请重试。" : undefined);
       finished = true;
-      push({ type: "error", message: error instanceof Error ? error.message : "模型调用失败" });
+      push(failure ? { type: "error", message: failure } : { type: "done" });
+    }).catch(() => {
+      finished = true;
+      push({ type: "error", message: "模型调用失败或连接中断，请重试。" });
     });
 
     try {
@@ -232,14 +235,12 @@ export class AgentManager {
       }
     } finally {
       unsubscribe();
+      if (!finished) session.agent.abort();
       await run;
       session.running = false;
       session.lastActiveAt = Date.now();
       this.persist(session);
-      if (session.agent.state.errorMessage) {
-        // 运行失败时 agent_end 仍会发出；补充显式错误事件便于前端提示
-        yield { type: "error", message: session.agent.state.errorMessage };
-      }
+
     }
   }
 
