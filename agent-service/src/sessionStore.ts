@@ -7,6 +7,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { PendingClarification } from "./tools.js";
 
 export interface PersistedSession {
   id: string;
@@ -17,6 +18,10 @@ export interface PersistedSession {
   createdAt: number;
   lastActiveAt: number;
   messages: AgentMessage[];
+  backendInitialized?: boolean;
+  deleting?: boolean;
+  pendingClarification?: PendingClarification;
+  legacyTaskIds?: string[];
 }
 
 const DEFAULT_SESSION_TITLE = "问数会话";

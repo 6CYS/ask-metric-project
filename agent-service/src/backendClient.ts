@@ -67,6 +67,36 @@ export interface QueryExecutionResult {
   error_code?: string | null;
   error_message?: string | null;
   message?: string | null;
+  facts?: CalculationFact[];
+}
+
+export interface CalculationFact {
+  fact_id: string;
+  task_id: string;
+  value: string;
+  unit: string;
+  metric_name: string;
+  org_name?: string;
+  date?: string;
+}
+
+export interface CalculationContext {
+  scope_id: string;
+  user_question: string;
+}
+
+export interface CalculationInput {
+  expressions: Array<{ name: string; label: string; expression: string; display?: "decimal" | "percent"; decimal_places?: number }>;
+  bindings: Record<string, { fact_id: string }>;
+  constants?: Record<string, { value: string; source_text: string }>;
+}
+
+export interface CalculationResult {
+  calculation_id: string;
+  status: "succeeded";
+  task_id: string;
+  results: Array<{ name: string; label: string; expression: string; value: string; display_value: string; unit: string; variables: string[] }>;
+  inputs: Record<string, Record<string, unknown>>;
 }
 
 /** 结构化基础查询（basic-queries）契约：不调用模型，按正式编码与明确日期取数 */
@@ -125,14 +155,15 @@ export class BackendClient {
       if (!response.ok) {
         let detail = `HTTP ${response.status}`;
         try {
-          const body = (await response.json()) as { detail?: unknown };
+          const body = (await response.json()) as { detail?: unknown; message?: string };
           if (typeof body.detail === "string") detail = body.detail;
+          else if (typeof body.message === "string") detail = body.message;
         } catch {
           // 保留默认状态描述
         }
         throw new BackendApiError(response.status, detail);
       }
-      return (await response.json()) as T;
+      return response.status === 204 ? undefined as T : (await response.json()) as T;
     } finally {
       clearTimeout(timer);
     }
@@ -150,7 +181,7 @@ export class BackendClient {
     return this.request<{ items: OrgCatalogItem[] }>("/api/v1/catalog/organizations");
   }
 
-  submitQuestion(message: string, conversationId: string | null, idempotencyKey: string): Promise<TaskCommandResult> {
+  submitQuestion(message: string, conversationId: string | null, idempotencyKey: string, context?: CalculationContext): Promise<TaskCommandResult> {
     return this.request<TaskCommandResult>("/api/v1/questions", {
       method: "POST",
       headers: { "Idempotency-Key": idempotencyKey },
@@ -158,6 +189,7 @@ export class BackendClient {
         conversation_id: conversationId,
         message,
         idempotency_key: idempotencyKey,
+        ...(context ? { channel_context: { calculation_context: context } } : {}),
       }),
     });
   }
@@ -186,11 +218,39 @@ export class BackendClient {
     );
   }
 
-  basicQueries(spec: BasicQuerySpec, idempotencyKey: string): Promise<BasicQueryResponse> {
+  basicQueries(spec: BasicQuerySpec, idempotencyKey: string, conversationId?: string, context?: CalculationContext): Promise<BasicQueryResponse> {
     return this.request<BasicQueryResponse>("/api/v1/basic-queries", {
       method: "POST",
       headers: { "Idempotency-Key": idempotencyKey },
-      body: JSON.stringify(spec),
+      body: JSON.stringify({ ...spec, ...(conversationId ? { conversation_id: conversationId } : {}), ...(context ? { calculation_context: context } : {}) }),
+    });
+  }
+
+  createQueryContext(sessionId: string): Promise<{ conversation_id: string }> {
+    return this.request("/api/v1/agent-query-contexts", { method: "POST", body: JSON.stringify({ session_id: sessionId }) });
+  }
+
+  async deleteConversation(conversationId: string): Promise<void> {
+    try {
+      await this.request(`/api/v1/conversations/${encodeURIComponent(conversationId)}`, { method: "DELETE" });
+    } catch (error) {
+      if (!(error instanceof BackendApiError && error.status === 404)) throw error;
+    }
+  }
+
+  calculate(input: CalculationInput, conversationId: string, scopeId: string, key: string): Promise<CalculationResult> {
+    return this.request("/api/v1/calculations", {
+      method: "POST", headers: { "Idempotency-Key": key },
+      body: JSON.stringify({ ...input, conversation_id: conversationId, scope_id: scopeId }),
+    });
+  }
+
+  clarifyTask(taskId: string, version: number, clarificationId: string, answer: string): Promise<TaskCommandResult> {
+    return this.request(`/api/v1/query-tasks/${encodeURIComponent(taskId)}/clarifications`, {
+      method: "POST", headers: { "Idempotency-Key": randomRequestId() },
+      body: JSON.stringify({ expected_version: version, clarification_id: clarificationId, answers: answer }),
     });
   }
 }
+
+function randomRequestId(): string { return crypto.randomUUID(); }

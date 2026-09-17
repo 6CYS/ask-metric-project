@@ -54,10 +54,10 @@ export function createApp(config: AgentServiceConfig, manager: AgentManager): Ho
     }
   });
 
-  app.post("/sessions", (c) => {
+  app.post("/sessions", async (c) => {
     const user = c.get("user");
     try {
-      const record = manager.createSession(user, c.get("token"));
+      const record = await manager.createSessionWithCleanup(user, c.get("token"));
       return c.json({ session_id: record.id, title: record.title, created_at: record.createdAt }, 201);
     } catch (error) {
       return c.json({ detail: error instanceof Error ? error.message : "创建会话失败" }, 429);
@@ -126,11 +126,15 @@ export function createApp(config: AgentServiceConfig, manager: AgentManager): Ho
     return c.json({ session_id: record.id, title: record.title, preview: sessionPreview(record.agent.state.messages), created_at: record.createdAt, running: record.running, messages });
   });
 
-  app.delete("/sessions/:id", (c) => {
-    if (!manager.deleteSession(c.req.param("id"), c.get("user").id)) {
-      return c.json({ detail: "会话不存在" }, 404);
+  app.delete("/sessions/:id", async (c) => {
+    try {
+      if (!await manager.deleteSession(c.req.param("id"), c.get("user").id, c.get("token"))) {
+        return c.json({ detail: "会话不存在" }, 404);
+      }
+      return c.body(null, 204);
+    } catch {
+      return c.json({ detail: "关联查询结果尚未清理完成，请重试删除。" }, 503);
     }
-    return c.body(null, 204);
   });
 
   app.post("/sessions/:id/prompt", async (c) => {

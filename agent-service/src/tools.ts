@@ -6,6 +6,30 @@ import { Type, StringEnum, type Static } from "@earendil-works/pi-ai";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import { randomUUID } from "node:crypto";
 import { BackendApiError, BackendClient } from "./backendClient.js";
+import type { CalculationContext, QueryExecutionResult, TaskCommandResult } from "./backendClient.js";
+import { createCalculationTool } from "./calculationTool.js";
+
+export interface PendingClarification {
+  taskId: string; version: number; clarificationId: string;
+  scope: CalculationContext;
+}
+
+export interface QueryToolContext {
+  conversationId: string;
+  scope: CalculationContext;
+  facts: Set<string>;
+  pending: PendingClarification | undefined;
+  userMessage: string;
+  ensureReady(): Promise<void>;
+  assertActive(): void;
+  setPending(value: PendingClarification | undefined): void;
+}
+
+function calculationFacts(result: QueryExecutionResult, context?: QueryToolContext) {
+  const facts = (result.facts ?? []).slice(0, 100);
+  for (const fact of facts) context?.facts.add(fact.fact_id);
+  return { facts, fact_count: result.facts?.length ?? 0, facts_truncated: (result.facts?.length ?? 0) > facts.length };
+}
 
 /** 给模型的明细行数上限：只提供少量样例行供核对口径，全量明细由前端结果表展示，避免模型在正文罗列 */
 const MAX_ROWS_FOR_MODEL = 3;
@@ -68,7 +92,7 @@ function backendErrorResult(error: unknown): AgentToolResult<MetricAskDetails> |
  * 一次性完成“提交问题 → 语义解析 → 执行查询”的受治理问数链路。
  * 解析结果缺少条件时返回澄清信息，由 agent 引导用户补充，不代填条件。
  */
-export function createMetricAskTool(client: BackendClient): AgentTool<typeof metricAskParameters, MetricAskDetails> {
+export function createMetricAskTool(client: BackendClient, context?: QueryToolContext): AgentTool<typeof metricAskParameters, MetricAskDetails> {
   return {
     name: "metric_ask",
     label: "指标问数",
@@ -78,11 +102,21 @@ export function createMetricAskTool(client: BackendClient): AgentTool<typeof met
     parameters: metricAskParameters,
     execute: async (_toolCallId, params: Static<typeof metricAskParameters>) => {
       try {
-        const submitted = await client.submitQuestion(params.question, null, randomUUID());
-        const analyzed = await client.analyzeTask(submitted.task_id, submitted.version);
+        await context?.ensureReady();
+        let analyzed: TaskCommandResult;
+        if (context?.pending) {
+          const pending = context.pending;
+          analyzed = await client.clarifyTask(pending.taskId, pending.version, pending.clarificationId, context.userMessage);
+        } else {
+          const submitted = await client.submitQuestion(params.question, context?.conversationId ?? null, randomUUID(), context?.scope);
+          analyzed = await client.analyzeTask(submitted.task_id, submitted.version);
+        }
 
         if (analyzed.clarification || analyzed.status === "WAITING_USER") {
           const clarification = analyzed.clarification ?? {};
+          if (context && typeof clarification.id === "string") context.setPending({
+            taskId: analyzed.task_id, version: analyzed.version, clarificationId: clarification.id, scope: context.scope,
+          });
           return {
             content: [
               {
@@ -105,9 +139,12 @@ export function createMetricAskTool(client: BackendClient): AgentTool<typeof met
           };
         }
         if (analyzed.status === "FAILED" || analyzed.error_code) {
+          context?.setPending(undefined);
           return errorResult(analyzed.error_message ?? "语义解析失败");
         }
 
+        context?.setPending(undefined);
+        context?.assertActive();
         const executed = await client.executeTask(analyzed.task_id, analyzed.version, randomUUID());
         const sampleRows = executed.rows.slice(0, MAX_ROWS_FOR_MODEL);
         return {
@@ -116,6 +153,7 @@ export function createMetricAskTool(client: BackendClient): AgentTool<typeof met
               type: "text",
               text: JSON.stringify({
                 status: executed.status,
+                ...calculationFacts(executed, context),
                 query_shape: executed.query_shape,
                 columns: executed.columns,
                 // 仅样例行供模型核对口径；明细数值的完整展示由用户界面的结果表承担
@@ -246,6 +284,7 @@ const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
  */
 export function createStructuredQueryTool(
   client: BackendClient,
+  context?: QueryToolContext,
 ): AgentTool<typeof structuredQueryParameters, StructuredQueryDetails> {
   return {
     name: "metric_query_structured",
@@ -269,6 +308,8 @@ export function createStructuredQueryTool(
         };
       }
       try {
+        if (context?.pending) return { ...errorResult("当前任务等待补充，请先调用 metric_ask 提交用户补充内容。"), details: { kind: "metric_query_structured", status: "error" } };
+        await context?.ensureReady();
         const { result } = await client.basicQueries(
           {
             metric_codes: [...new Set(params.metric_codes)],
@@ -277,6 +318,8 @@ export function createStructuredQueryTool(
             selection: params.selection as "exact" | "latest_in_range" | "all_in_range",
           },
           randomUUID(),
+          context?.conversationId,
+          context?.scope,
         );
         const sampleRows = result.rows.slice(0, MAX_ROWS_FOR_MODEL);
         return {
@@ -285,6 +328,7 @@ export function createStructuredQueryTool(
               type: "text",
               text: JSON.stringify({
                 status: result.status,
+                ...calculationFacts(result, context),
                 columns: result.columns,
                 // 仅样例行供模型核对口径；明细数值的完整展示由用户界面的结果表承担
                 sample_rows: sampleRows,
@@ -318,11 +362,12 @@ export function createStructuredQueryTool(
   };
 }
 
-export function createAskMetricTools(client: BackendClient): AgentTool<any, any>[] {
+export function createAskMetricTools(client: BackendClient, context?: QueryToolContext): AgentTool<any, any>[] {
   return [
-    createStructuredQueryTool(client),
-    createMetricAskTool(client),
+    createStructuredQueryTool(client, context),
+    createMetricAskTool(client, context),
     createMetricCatalogSearchTool(client),
     createOrgCatalogSearchTool(client),
+    ...(context ? [createCalculationTool(client, context)] : []),
   ];
 }
