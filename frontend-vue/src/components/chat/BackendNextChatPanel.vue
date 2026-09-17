@@ -6,6 +6,7 @@ import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from "reka
 import CatalogQuestionComposer from "@/components/chat/CatalogQuestionComposer.vue"
 import AgentMessageDiagnostics from "@/components/chat/AgentMessageDiagnostics.vue"
 import ChatResultContent from "@/components/chat/ChatResultContent.vue"
+import CalculationResult from "@/components/chat/CalculationResult.vue"
 import StructuredClarificationForm from "@/components/chat/StructuredClarificationForm.vue"
 import BaseAlert from "@/components/ui/BaseAlert.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
@@ -24,6 +25,7 @@ import {
   type AgentSessionDetail,
   type AgentStreamEvent,
   type MetricAskDetails,
+  type CalculationDetails,
 } from "@/lib/agentApi"
 import type { BackendNextClarification, ChatResponse } from "@/types/api"
 import { useAuth } from "@/composables/useAuth"
@@ -58,6 +60,7 @@ type DisplayMessage = {
   kind?: string
   /** 本轮最近一次 metric_ask 的工具明细，done/error 收尾时用于构造结构化响应。 */
   metricAskDetails?: MetricAskDetails
+  calculations?: CalculationDetails[]
   metricAskClarification?: BackendNextClarification
   metricAskClarificationPrompt?: string
 }
@@ -79,6 +82,7 @@ type DisplayConversation = {
 const toolLabels: Record<string, string> = {
   metric_ask: "指标问数",
   metric_query_structured: "指标结构化查询",
+  metric_calculate: "数据计算",
   metric_catalog_search: "指标目录检索",
   org_catalog_search: "机构目录检索",
 }
@@ -386,6 +390,11 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
       continue
     }
     if (item.role === "tool" && "details" in item) {
+      if ((item.details as CalculationDetails)?.kind === "metric_calculate") {
+        const last = messages[messages.length - 1]
+        if (last?.role === "assistant") last.calculations = [...(last.calculations ?? []), item.details as CalculationDetails]
+        continue
+      }
       const details = asMetricAskDetails(item.details)
       const last = messages[messages.length - 1]
       if (!details || last?.role !== "assistant") continue
@@ -736,6 +745,11 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
     } else {
       toolCalls.push({ id: createId(), tool: event.tool, status: event.isError ? "error" : "done" })
     }
+    if ((event.details as CalculationDetails)?.kind === "metric_calculate") {
+      const calculation = event.details as CalculationDetails
+      const taskIds = calculation.task_id ? [...new Set([...(item.taskIds ?? []), calculation.task_id])] : item.taskIds
+      return { ...item, toolCalls, taskIds, calculations: [...(item.calculations ?? []), calculation] }
+    }
     const details = asMetricAskDetails(event.details)
     if (!details) return { ...item, toolCalls }
     const taskIds = details.task_id ? [...new Set([...(item.taskIds ?? []), details.task_id])] : item.taskIds
@@ -858,6 +872,7 @@ async function scrollToBottom() {
                 <p v-if="chatMessage.status === 'pending' && chatMessage.content" class="whitespace-pre-wrap break-words leading-7">{{ chatMessage.content }}<span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></p>
                 <ChatResultContent v-else-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
                 <p v-else-if="chatMessage.status !== 'pending'" class="whitespace-pre-wrap break-words leading-6">{{ chatMessage.content }}</p>
+                <CalculationResult v-for="(calculation, index) in chatMessage.calculations" :key="calculation.calculation_id ?? index" :calculation="calculation" />
                 <div v-if="chatMessage.clarification?.fields?.length" class="mt-1">
                   <StructuredClarificationForm :clarification="chatMessage.clarification" />
                 </div>

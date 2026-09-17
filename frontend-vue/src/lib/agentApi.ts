@@ -15,9 +15,9 @@ export class AgentApiError extends Error {
   }
 }
 
-/** 会话为内存态，服务重启即清空；404 需要前端容错重建会话。 */
+/** 会话持久化；已被删除或清理的会话返回 404，前端可以新建会话。 */
 export class AgentSessionNotFoundError extends AgentApiError {
-  constructor(message = "智能助手会话不存在或已随服务重启清空，请重新发起提问。") {
+  constructor(message = "智能助手会话不存在或已清理，请重新发起提问。") {
     super(message, 404)
     this.name = "AgentSessionNotFoundError"
   }
@@ -60,6 +60,16 @@ export interface MetricAskDetails {
   clarification_prompt?: string
   /** 后端结构化澄清对象原样透传，供前端渲染澄清表单。 */
   clarification?: BackendNextClarification | null
+}
+
+export interface CalculationDetails {
+  kind: "metric_calculate"
+  status: string
+  calculation_id?: string
+  task_id?: string
+  message?: string
+  results?: Array<{ name: string; label: string; expression: string; value: string; display_value: string; unit: string; variables: string[] }>
+  inputs?: Record<string, { metric_name?: string; org_name?: string; date?: string; value: string; unit?: string; source_text?: string }>
 }
 
 export type AgentStreamEvent =
