@@ -11,7 +11,7 @@ npm ci
 npm run dev
 ```
 
-默认地址：<http://localhost:5173>
+默认地址：<http://127.0.0.1:5173>。开发服务器固定监听 IPv4 回环地址，直接运行 `npm run dev` 即可。
 
 开发服务器会将 `/api` 请求代理到 `http://localhost:8010`。如需调整后端地址，可以设置：
 
