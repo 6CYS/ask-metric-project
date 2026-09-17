@@ -2,6 +2,7 @@
  * HTTP 路由：会话管理与提问的 SSE 事件流。
  * 鉴权采用与前端一致的 Bearer，通过后端 /api/v1/auth/me 验证并解析用户身份。
  */
+import { sessionPreview } from "./sessionPreview.js";
 import { assistantFailure } from "./assistantFailure.js";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -67,6 +68,7 @@ export function createApp(config: AgentServiceConfig, manager: AgentManager): Ho
     const sessions = manager.listSessions(c.get("user").id).map((s) => ({
       session_id: s.id,
       title: s.title,
+      preview: s.preview,
       created_at: s.createdAt,
       last_active_at: s.lastActiveAt,
       running: s.running,
@@ -121,7 +123,7 @@ export function createApp(config: AgentServiceConfig, manager: AgentManager): Ho
       }
       return { role: msg.role, text: "", timestamp: msg.timestamp ?? null };
     });
-    return c.json({ session_id: record.id, title: record.title, created_at: record.createdAt, running: record.running, messages });
+    return c.json({ session_id: record.id, title: record.title, preview: sessionPreview(record.agent.state.messages), created_at: record.createdAt, running: record.running, messages });
   });
 
   app.delete("/sessions/:id", (c) => {

@@ -423,7 +423,7 @@ async function loadHistory(expectedUserId = auth.user.value?.id ?? null) {
         id: item.session_id,
         serverId: item.session_id,
         title: titleOverrides.value[item.session_id] ?? item.title ?? "问数会话",
-        preview: "",
+        preview: item.preview ?? item.title ?? "尚未开始",
         messages: [],
         loaded: false,
         persisted: true,
@@ -476,7 +476,7 @@ async function selectConversation(conversationId: string) {
     }
     loaded.title = titleOverrides.value[loaded.serverId ?? ""] ?? detail.title ?? conversationTitle(loaded.serverId, loaded.messages)
     const lastAssistant = [...loaded.messages].reverse().find((item) => item.role === "assistant")
-    loaded.preview = lastAssistant?.content ?? loaded.preview
+    loaded.preview = detail.preview ?? lastAssistant?.content ?? loaded.preview
     conversations.value = conversations.value.map((item) => item.id === conversationId ? loaded : item)
     await scrollToBottom()
   } catch (error) {
@@ -775,20 +775,20 @@ async function scrollToBottom() {
 <template>
   <section class="grid min-h-0 flex-1 overflow-hidden border bg-background" :class="isHistoryCollapsed ? 'grid-cols-[44px_minmax(0,1fr)] grid-rows-1' : 'grid-rows-[minmax(0,15rem)_minmax(0,1fr)] sm:grid-cols-[240px_minmax(0,1fr)] sm:grid-rows-1 lg:grid-cols-[300px_minmax(0,1fr)]'">
     <aside v-if="!isHistoryCollapsed" class="flex min-h-0 flex-col border-b bg-muted/30 sm:border-r sm:border-b-0">
-      <div class="border-b px-3 py-2.5">
+      <div class="flex h-14 shrink-0 items-center border-b px-3">
         <BaseButton variant="outline" class="w-full justify-start border-border/70 bg-background/70 text-foreground shadow-none hover:bg-muted/70" @click="handleNewConversation"><Plus />新建对话</BaseButton>
       </div>
       <div class="flex items-center gap-2 border-b px-3 py-2.5">
         <p class="min-w-0 flex-1 text-sm font-semibold">历史对话</p>
         <BaseButton variant="ghost" size="icon" class="text-muted-foreground" title="收起历史对话" aria-label="收起历史对话" @click="isHistoryCollapsed = true"><PanelLeftClose /></BaseButton>
       </div>
-      <div class="min-h-0 flex-1 overflow-y-auto px-2.5 py-2">
+      <div class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-2.5 py-2 [scrollbar-gutter:stable]">
         <LoadingSkeleton v-if="isHistoryLoading" :rows="3" row-class="h-14" />
         <div v-else class="flex flex-col gap-1.5">
-          <div v-for="conversation in visibleConversations" :key="conversation.id" class="group/history flex items-start gap-1.5 rounded-xl border border-border/70 bg-background px-2.5 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:border-muted-foreground/35 hover:bg-background" :class="conversation.id === activeConversation?.id && 'border-primary/35 bg-primary/[0.025] ring-1 ring-primary/10'">
+          <div v-for="conversation in visibleConversations" :key="conversation.id" class="group/history flex h-[82px] w-full min-w-0 shrink-0 items-start gap-1.5 rounded-xl border border-border/70 bg-background px-2.5 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:border-muted-foreground/35 hover:bg-background" :class="conversation.id === activeConversation?.id && 'border-primary/35 bg-primary/[0.025] ring-1 ring-primary/10'">
             <button type="button" class="min-w-0 flex-1 px-1 text-left text-sm" @click="selectConversation(conversation.id)">
               <span class="flex items-center gap-1.5"><span class="line-clamp-1 min-w-0 flex-1 font-medium">{{ conversation.title }}</span><LoaderCircle v-if="sendingConversationIds.has(conversation.id) || conversation.running" class="size-3.5 animate-spin" /></span>
-              <span v-if="conversation.preview" class="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{{ conversation.preview }}</span>
+              <span class="mt-0.5 block h-4 truncate text-xs text-muted-foreground">{{ conversation.preview || conversation.title }}</span>
               <span class="mt-1.5 block text-[11px] text-muted-foreground/80" :title="`会话创建时间：${formatConversationDate(conversation.createdAt)}`">{{ formatConversationDate(conversation.createdAt) }}</span>
             </button>
             <PopoverRoot>
@@ -815,7 +815,7 @@ async function scrollToBottom() {
     </aside>
 
     <div class="flex min-h-0 min-w-0 flex-col">
-      <header class="flex min-h-14 items-center border-b px-4 py-3">
+      <header class="flex h-14 shrink-0 items-center border-b px-4">
         <h1 class="min-w-0 truncate text-base font-semibold">{{ activeConversation?.title ?? "指标问数" }}</h1>
       </header>
 

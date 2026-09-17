@@ -4,6 +4,7 @@
  * 会话经 SessionStore 持久化（完整消息列表，含工具结果明细），重启后恢复；
  * 用户令牌只保存在内存、不落盘，恢复会话的首次提问会绑定当次请求的 Bearer 重建工具。
  */
+import { sessionPreview } from "./sessionPreview.js";
 import { assistantFailure } from "./assistantFailure.js";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { randomUUID } from "node:crypto";
@@ -139,10 +140,10 @@ export class AgentManager {
     return record;
   }
 
-  listSessions(userId: string): Array<Omit<SessionRecord, "agent">> {
+  listSessions(userId: string): Array<Omit<SessionRecord, "agent"> & { preview: string }> {
     return [...this.sessions.values()]
       .filter((s) => s.userId === userId)
-      .map(({ agent: _agent, ...rest }) => rest);
+      .map(({ agent, ...rest }) => ({ ...rest, preview: sessionPreview(agent.state.messages) }));
   }
 
   deleteSession(sessionId: string, userId: string): boolean {

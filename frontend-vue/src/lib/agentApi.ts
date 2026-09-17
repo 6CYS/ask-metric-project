@@ -26,6 +26,7 @@ export class AgentSessionNotFoundError extends AgentApiError {
 export interface AgentSessionItem {
   session_id: string
   title?: string
+  preview?: string
   created_at: string
   last_active_at: string
   running: boolean
@@ -41,6 +42,7 @@ export type AgentSessionMessage =
 export interface AgentSessionDetail {
   session_id: string
   title?: string
+  preview?: string
   created_at: string
   running: boolean
   messages: AgentSessionMessage[]
