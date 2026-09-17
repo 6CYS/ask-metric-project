@@ -237,12 +237,12 @@
 }
 
 @keyframes execution-dot {
-  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
-  30% { opacity: 1; transform: translateY(-2px); }
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.85; }
 }
 
 .execution-dot {
-  animation: execution-dot 1.2s ease-in-out infinite;
+  animation: execution-dot 2s ease-in-out infinite;
 }
 
 /* Chrome 83 predates the standalone `translate` property used by Tailwind 4. */
@@ -258,4 +258,8 @@
   .-translate-x-1\/2.-translate-y-1\/2 {
     transform: translate(-50%, -50%);
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .execution-dot { animation: none; opacity: 0.65; }
 }

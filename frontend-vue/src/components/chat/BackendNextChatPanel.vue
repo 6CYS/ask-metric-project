@@ -238,7 +238,8 @@ function executionStatus(chatMessage: DisplayMessage) {
   const runningTool = chatMessage.toolCalls?.find((call) => call.status === "running")
   return {
     kind: "running",
-    title: runningTool ? `正在查询：${toolLabel(runningTool.tool)}` : "正在思考，请稍候",
+    title: "正在处理，请稍候",
+    detail: runningTool ? `正在查询：${toolLabel(runningTool.tool)}` : "正在等待模型回答",
     titleClass: "",
   }
 }
@@ -720,7 +721,7 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
   updateAssistantMessage(conversationId, assistantId, (item) => {
     if (event.type === "text_delta") {
       // 工具轮次前的纯空白增量不累积，避免气泡开头出现大片空行
-      if (!item.content && !event.delta.trim()) return item
+      if (!item.content.trim() && !event.delta.trim()) return item
       return { ...item, content: item.content + event.delta }
     }
     if (event.type === "message_done") return { ...item, content: event.text || item.content }
@@ -847,7 +848,7 @@ async function scrollToBottom() {
                   </template>
                 </div>
                 <div v-if="executionStatus(chatMessage).kind === 'running'" class="mb-2 flex items-center gap-2 text-xs text-muted-foreground/60" role="status" aria-live="polite">
-                  <span>{{ executionStatus(chatMessage).title }}</span>
+                  <span :title="executionStatus(chatMessage).detail">{{ executionStatus(chatMessage).title }}</span>
                   <span class="flex items-center gap-1" aria-hidden="true">
                     <span class="execution-dot size-1.5 rounded-full bg-[#7C9CDB]" />
                     <span class="execution-dot size-1.5 rounded-full bg-[#7C9CDB] [animation-delay:160ms]" />
