@@ -4,6 +4,7 @@ import { computed, nextTick, onActivated, onMounted, ref, watch } from "vue"
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from "reka-ui"
 
 import CatalogQuestionComposer from "@/components/chat/CatalogQuestionComposer.vue"
+import AgentMessageDiagnostics from "@/components/chat/AgentMessageDiagnostics.vue"
 import ChatResultContent from "@/components/chat/ChatResultContent.vue"
 import StructuredClarificationForm from "@/components/chat/StructuredClarificationForm.vue"
 import BaseAlert from "@/components/ui/BaseAlert.vue"
@@ -50,6 +51,8 @@ type DisplayMessage = {
   response?: ChatResponse
   status?: "pending" | "done" | "error"
   toolCalls?: ToolCallDisplay[]
+  taskIds?: string[]
+  elapsedMs?: number
   clarification?: BackendNextClarification
   createdAt?: string
   kind?: string
@@ -385,6 +388,7 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
       const details = asMetricAskDetails(item.details)
       const last = messages[messages.length - 1]
       if (!details || last?.role !== "assistant") continue
+      if (details.task_id) last.taskIds = [...new Set([...(last.taskIds ?? []), details.task_id])]
       // 历史中的澄清一律只读展示；结果表与导出入口按原始明细还原。
       if (details.status === "clarification_required" && details.clarification) {
         last.response = archiveClarificationResponse(clarificationResponse(details.clarification, details.clarification_prompt ?? details.clarification.prompt))
@@ -631,6 +635,7 @@ function handleSubmit(text: string, entities: ComposerEntity[] = []) {
 async function runQuestion(conversationId: string, question: string, kind: string) {
   if (!queryReady.value) return
   const assistantId = createId()
+  const startedAt = performance.now()
   updateConversation(conversationId, (conversation) => ({
     ...conversation,
     title: conversation.messages.length || conversation.title !== "新的问数会话" ? conversation.title : question.slice(0, 24),
@@ -664,6 +669,7 @@ async function runQuestion(conversationId: string, question: string, kind: strin
       failMessage(conversationId, assistantId, error)
     }
   } finally {
+    updateAssistantMessage(conversationId, assistantId, (item) => ({ ...item, elapsedMs: performance.now() - startedAt }))
     abortControllers.delete(conversationId)
     markConversationSending(conversationId, false)
     persistActiveConversation()
@@ -731,10 +737,11 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
     }
     const details = asMetricAskDetails(event.details)
     if (!details) return { ...item, toolCalls }
+    const taskIds = details.task_id ? [...new Set([...(item.taskIds ?? []), details.task_id])] : item.taskIds
     if (details.status === "clarification_required" && details.clarification) {
-      return { ...item, toolCalls, metricAskClarification: details.clarification, metricAskClarificationPrompt: details.clarification_prompt }
+      return { ...item, toolCalls, taskIds, metricAskClarification: details.clarification, metricAskClarificationPrompt: details.clarification_prompt }
     }
-    return { ...item, toolCalls, metricAskDetails: details }
+    return { ...item, toolCalls, taskIds, metricAskDetails: details }
   })
   void scrollToBottom()
 }
@@ -828,8 +835,8 @@ async function scrollToBottom() {
                 </div>
               </template>
               <template v-else>
-                <div class="group/assistant min-w-0 px-1 text-sm">
-                <div class="mb-2 flex min-h-9 items-center gap-2" role="status" aria-live="polite">
+                <div class="group/assistant relative min-w-0 px-1 text-sm">
+                <div class="mb-2 flex min-h-9 items-center gap-2 pr-20" role="status" aria-live="polite">
                   <span class="flex size-9 items-center justify-center rounded-xl bg-muted/40 text-foreground" aria-label="智能问数助手"><Bot class="size-4.5" /></span>
                   <time v-if="formatMessageTime(chatMessage.createdAt)" :datetime="chatMessage.createdAt" class="text-xs text-muted-foreground">{{ formatMessageTime(chatMessage.createdAt) }}</time>
                   <template v-if="executionStatus(chatMessage).kind !== 'running' && executionStatus(chatMessage).kind !== 'success'">
@@ -853,6 +860,7 @@ async function scrollToBottom() {
                 <div v-if="chatMessage.clarification?.fields?.length" class="mt-1">
                   <StructuredClarificationForm :clarification="chatMessage.clarification" />
                 </div>
+                <AgentMessageDiagnostics :question="questionForMessage(chatMessage)" :task-ids="chatMessage.taskIds ?? []" :pending="chatMessage.status === 'pending'" :started-at="chatMessage.createdAt" :elapsed-ms="chatMessage.elapsedMs" :tools="chatMessage.toolCalls ?? []" />
                 </div>
               </template>
             </div>

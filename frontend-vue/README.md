@@ -1,6 +1,6 @@
 # Ask Metric Vue Frontend
 
-Ask Metric 的正式 Vue 3 前端，只连接 `backend-next` FastAPI 后端。
+Ask Metric 的正式 Vue 3 前端，认证与管理功能连接 `backend-next`，聊天通过 `agent-service`（pi harness）调用后端受治理接口。
 
 ## 本地运行
 
@@ -19,7 +19,7 @@ npm run dev
 VITE_BACKEND_NEXT_BASE_URL=http://localhost:8010
 ```
 
-问数链路严格按 `questions → analyze → execute` 调用。澄清提交携带原 `task_id`、`task_version` 和 `clarification_id`，不会拼接原始问题；会话 ID 保存在浏览器本地，刷新时通过 `backend-next` 会话快照恢复任务和结果。
+聊天需要同时启动 `agent-service`（默认 `127.0.0.1:8020`），开发代理 `/agent-api` 可通过 `VITE_AGENT_SERVICE_BASE_URL` 配置。历史会话从 agent 服务恢复。鼠标移入助手回复或键盘聚焦时，在回复右上角显示耗时和调试图标；阶段耗时在回复下方按双列展开：本次页面提交显示整轮耗时，已有任务可查询后端阶段耗时和调试详情；一轮含多个任务时可切换。历史消息未保存整轮耗时则明确提示，不以消息时间推算。调试只在右侧抽屉展示；加载提示、失败信息及多任务切换均在抽屉内，关闭后正文不留调试内容。工具尚未返回任务编号时在抽屉内显示等待提示。
 
 生产构建默认通过 Nginx 使用同源 `/api` 访问后端，发布产物不得包含本机回环地址。
 

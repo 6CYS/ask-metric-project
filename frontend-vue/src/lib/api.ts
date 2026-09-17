@@ -1,6 +1,7 @@
 import { clearCatalogCaches, metricCatalogCache, organizationCatalogCache } from "@/lib/catalogCache"
 import type {
   QueryReadiness,
+  BackendNextTaskResult,
   DatasetItem,
   DatasetPayload,
   ConfigVersion,
@@ -417,4 +418,9 @@ export function getCachedMetricCatalog() {
 
 export function getCachedOrganizationCatalog() {
   return getAccessToken() ? organizationCatalogCache.read(listOrgs) : listOrgs()
+}
+
+/** 读取任务诊断，沿用当前用户 Bearer 和后端任务权限校验。 */
+export function getBackendNextTask(taskId: string) {
+  return request<BackendNextTaskResult>(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}`), { cache: "no-store" })
 }

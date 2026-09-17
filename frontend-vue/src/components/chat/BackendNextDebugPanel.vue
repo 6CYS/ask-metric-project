@@ -100,6 +100,7 @@ function routeNotice() {
         <BaseButton variant="ghost" size="icon" title="关闭调试面板" @click="emit('close')"><X /></BaseButton>
       </header>
       <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+        <slot name="status" />
         <section v-if="routeNotice()" class="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm leading-5 text-blue-900">
           {{ routeNotice() }}
         </section>
