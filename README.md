@@ -25,6 +25,8 @@ Ask Metric 是面向行内 GoldenDB/MySQL 应用库与只读数据湖的智能�
 已提供不经过模型的结构化基础查询入口 `/api/v1/basic-queries`，按正式编码和明确日期取数，
 供上层编排调用；现有聊天能力及不支持请求的拒绝保持不变。接口见
 [基础查询合同](docs/external-api.md#结构化基础查询basic-queries)。
+通用计算由 `metric_calculate` 工具按原始数据引用执行，支持四则运算、聚合及百分比展示；
+不新增数据库表或列。参数、会话删除和升级要求见 [通用表达式计算工具](docs/calculation-tools.md)。
 升级原归因试验环境见 [后端升级说明](backend-next/README.md#旧归因原型退出与升级)。
 
 ```text

@@ -23,6 +23,7 @@ dependencies = [
   "pydantic-settings>=2.7.0,<2.8.0",
   "python-dotenv>=1.0.0",
   "sqlalchemy>=2.0.0",
+  "simpleeval==1.0.8",
   "uvicorn[standard]>=0.30.0",
 ]
 

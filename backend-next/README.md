@@ -12,6 +12,13 @@ FastAPI 后端负责账号与机构权限、指标目录、会话任务、语义
 
 ## 查询能力校验与模型输出契约
 
+### 通用表达式计算
+
+`POST /api/v1/calculations` 按当前提问的数据引用执行表达式，采用 `simpleeval==1.0.8`
+和 `Decimal`，计算证据复用任务 JSON 持久化，无数据库结构迁移。升级需同步后端、Agent
+和前端，并把新增依赖纳入离线包。接口、精度、限制和验收见
+[通用表达式计算工具](../docs/calculation-tools.md)。
+
 ### 结构化基础查询入口
 
 `POST /api/v1/basic-queries` 接收正式 `metric_codes`、`org_codes`、显式日期范围和

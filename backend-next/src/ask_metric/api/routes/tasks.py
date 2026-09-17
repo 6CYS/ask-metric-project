@@ -4,8 +4,10 @@
 幂等键用于识别同一次操作的重试。二者不能互相替代。
 """
 
+from datetime import UTC, datetime
 from typing import Annotated, Any
 from urllib.parse import quote
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
@@ -20,6 +22,7 @@ from ask_metric.api.dependencies import (
 )
 from ask_metric.api.query_readiness import require_query_ready
 from ask_metric.application.actor_provider import ActorProvider
+from ask_metric.application.calculation_service import CalculationApplicationService
 from ask_metric.application.channel_service import ChannelClarificationService
 from ask_metric.application.commands import (
     AnalyzeSemanticCommand,
@@ -44,8 +47,11 @@ from ask_metric.application.task_results import (
     TaskCommandResult,
 )
 from ask_metric.application.task_service import QueryTaskApplicationService
+from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.basic_query import BasicQuerySpec
+from ask_metric.domain.calculation import CalculationRequest, CalculationScope
 from ask_metric.domain.query_execution import QueryExecutionResult
+from ask_metric.infrastructure.db.models import ChatConversation
 
 router = APIRouter(prefix="/api/v1", tags=["query-tasks"])
 
@@ -88,6 +94,7 @@ class ExecuteQueryRequest(BaseModel):
 
 class BasicQueryRequest(BasicQuerySpec):
     conversation_id: str | None = Field(default=None, min_length=1, max_length=128)
+    calculation_context: CalculationScope | None = None
 
 
 class BasicQueryResponse(BaseModel):
@@ -112,12 +119,16 @@ def execute_basic_query(
     ],
 ) -> BasicQueryResponse:
     # 身份只来自认证依赖；请求不接收 SQL、操作、身份声明或任意 DSL。
-    spec = BasicQuerySpec.model_validate(payload.model_dump(exclude={"conversation_id"}))
+    spec = BasicQuerySpec.model_validate(payload.model_dump(
+        exclude={"conversation_id", "calculation_context"}))
     created = task_service.submit_question(SubmitQuestionCommand(
         request=IncomingRequest(
             request_id=request.state.request_id,
             channel="basic_query",
             conversation_id=payload.conversation_id,
+            channel_context={"calculation_context": (
+                payload.calculation_context.model_dump() if payload.calculation_context else {}
+            )},
             text=f"基础查询：{spec.time.start}至{spec.time.end}，"
                  f"{len(spec.metric_codes)}个指标、{len(spec.org_codes)}个机构",
         ),
@@ -132,6 +143,46 @@ def execute_basic_query(
         actor=actor,
     ))
     return BasicQueryResponse(query=spec, result=result)
+
+
+class AgentQueryContextRequest(BaseModel):
+    session_id: UUID
+
+
+@router.post("/agent-query-contexts")
+def create_agent_query_context(
+    payload: AgentQueryContextRequest,
+    actor: Annotated[ActorContext, Depends(require_actor)],
+    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
+) -> dict[str, str]:
+    """显式创建 Agent 会话关联；后续查询不允许重建已删除的关联会话。"""
+    conversation_id = f"agent:{payload.session_id}"
+    with service.uow_factory() as uow:
+        existing = uow.conversations.get(conversation_id)
+        if existing is not None:
+            if existing.owner_user_id != actor.user_id:
+                raise ApplicationError("CONVERSATION_NOT_FOUND", "会话不存在。", status_code=404)
+        else:
+            if (uow.conversations.count_owned(actor.user_id or "")
+                    >= service.max_conversations_per_user):
+                raise ApplicationError("CONVERSATION_LIMIT", "会话数量已达上限，请清理历史会话。",
+                                       status_code=409)
+            uow.conversations.add(ChatConversation(
+                id=conversation_id, owner_user_id=actor.user_id, title="智能助手",
+                preview="", created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+            ))
+            uow.commit()
+    return {"conversation_id": conversation_id}
+
+
+@router.post("/calculations")
+def calculate_query_facts(
+    payload: CalculationRequest,
+    actor: Annotated[ActorContext, Depends(require_actor)],
+    execution: Annotated[QueryExecutionApplicationService, Depends(get_query_execution_service)],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=128)],
+) -> dict:
+    return CalculationApplicationService(execution).calculate(payload, actor, idempotency_key)
 
 
 class SubmitChannelClarificationRequest(BaseModel):

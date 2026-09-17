@@ -70,6 +70,7 @@ class QueryExecutionResult(BaseModel):
     timings_ms: dict[str, int] = Field(default_factory=dict)
     debug: dict[str, Any] = Field(default_factory=dict)
     evidence: dict[str, Any] = Field(default_factory=dict)
+    facts: list[dict[str, Any]] = Field(default_factory=list)
     # Read-only compatibility with persisted reports from the retired prototype.
     analysis: dict[str, Any] | None = None
 

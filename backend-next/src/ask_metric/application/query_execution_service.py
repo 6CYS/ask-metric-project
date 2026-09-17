@@ -7,6 +7,7 @@ from time import perf_counter
 from typing import Any
 from uuid import uuid4
 
+from ask_metric.application.calculation_service import build_calculation_facts
 from ask_metric.application.commands import ExecuteQueryCommand
 from ask_metric.application.legacy_analysis import require_query_task
 from ask_metric.application.ports import (
@@ -173,6 +174,7 @@ class QueryExecutionApplicationService:
             run_id=run_id,
             task_id=command.task_id,
             status="succeeded",
+            facts=build_calculation_facts(command.task_id, visible_rows, plan.catalog),
             evidence={
                 "logical_dsl": plan.dsl,
                 "catalog": plan.catalog,
@@ -251,14 +253,17 @@ class QueryExecutionApplicationService:
                 )
             state = QueryTaskState.model_validate(task.state_json or {})
             require_query_task(task.state_json or {}, task.query_shape)
-            if (state.debug.get("basic_query") and state.execution
-                    and state.execution.get("status") == "succeeded"):
+            artifact = getattr(state, "result_artifact", None) or {}
+            if state.execution and state.execution.get("status") == "succeeded":
                 # 工具重放也必须按当前权限/目录复核，不能把旧结果当成永久授权。
                 try:
-                    self._authorize_query(
-                        uow=uow, actor=command.actor, logical_dsl=state.logical_dsl,
+                    original_dsl = artifact.get("logical_dsl") or state.logical_dsl
+                    authorized, _, _ = self._authorize_query(
+                        uow=uow, actor=command.actor, logical_dsl=original_dsl,
                         strict_codes=True,
                     )
+                    if set(authorized.orgs) != set((original_dsl or {}).get("orgs") or []):
+                        raise PermissionDeniedError("结果机构权限范围已变化")
                 except PermissionDeniedError as exc:
                     raise ApplicationError(
                         "ORG_SCOPE_FORBIDDEN", "无权访问该查询结果。", status_code=403,
@@ -269,8 +274,7 @@ class QueryExecutionApplicationService:
                     ) from exc
             replay = _execution_replay(state, command.request_id)
             if replay is not None:
-                artifact = getattr(state, "result_artifact", None)
-                if state.debug.get("basic_query") and artifact:
+                if artifact:
                     saved_result = artifact.get("result")
                     if saved_result:
                         return QueryExecutionResult.model_validate({
@@ -772,7 +776,7 @@ def _resolve_source_org_codes(orgs: list[str], catalog: list[Any]) -> list[str]:
 def _result_summary(result: QueryExecutionResult) -> dict[str, Any]:
     return result.model_dump(
         mode="json",
-        exclude={"rows", "comparisons"},
+        exclude={"rows", "comparisons", "facts"},
     )
 
 

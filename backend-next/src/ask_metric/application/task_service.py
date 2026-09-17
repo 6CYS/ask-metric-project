@@ -8,6 +8,7 @@ from time import perf_counter
 from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
 from ask_metric.application.commands import (
@@ -37,6 +38,7 @@ from ask_metric.application.task_results import (
     TaskCommandResult,
 )
 from ask_metric.core.errors import ApplicationError
+from ask_metric.domain.calculation import CalculationScope
 from ask_metric.domain.task import (
     QueryTaskStage,
     QueryTaskState,
@@ -135,6 +137,13 @@ class QueryTaskApplicationService:
 
     def submit_question(self, command: SubmitQuestionCommand) -> TaskCommandResult:
         """在会话归属范围内创建任务；相同幂等键及内容的重试复用已有任务。"""
+        context = command.request.channel_context.get("calculation_context")
+        if context:
+            try:
+                CalculationScope.model_validate(context)
+            except ValidationError as exc:
+                raise ApplicationError("CALCULATION_CONTEXT_INVALID", "计算范围格式无效。",
+                                       status_code=422) from exc
         conversation_id = _resolve_conversation_id(command)
         fingerprint = _question_fingerprint(command, conversation_id)
 
@@ -155,7 +164,13 @@ class QueryTaskApplicationService:
     ) -> TaskCommandResult:
         creation_started = perf_counter()
         with self.uow_factory() as uow:
-            conversation = uow.conversations.get(conversation_id)
+            conversation = (
+                uow.conversations.get_owned_for_update(conversation_id, command.actor.user_id or "")
+                if conversation_id.startswith("agent:")
+                else uow.conversations.get(conversation_id)
+            )
+            if conversation is None and conversation_id.startswith("agent:"):
+                raise ConversationNotFoundError(conversation_id)
             if conversation is not None and conversation.owner_user_id != command.actor.user_id:
                 raise ConversationNotFoundError(conversation_id)
             existing = uow.tasks.find_by_idempotency_key(
@@ -471,6 +486,12 @@ class QueryTaskApplicationService:
                 message_id=message_id,
             )
             answer_text = _answer_text(command.answers)
+            calculation_context = state.channel_context.get("calculation_context")
+            if calculation_context:
+                # 用户补充属于当前任务，保留同一计算范围及常数的原句来源。
+                calculation_context["user_question"] = (
+                    calculation_context.get("user_question", "") + "\n" + answer_text
+                )[-8000:]
             uow.messages.add(
                 ChatMessage(
                     id=message_id,
@@ -967,6 +988,8 @@ def _question_fingerprint(command: SubmitQuestionCommand, conversation_id: str) 
             "external_message_id": command.request.external_message_id,
             "reply_to_task_id": command.request.reply_to_task_id,
             "actor": command.actor.subject,
+            **({"calculation_context": command.request.channel_context["calculation_context"]}
+               if command.request.channel_context.get("calculation_context") else {}),
             **({"basic_query": command.basic_query.model_dump(mode="json")}
                if command.basic_query is not None else {}),
         }
