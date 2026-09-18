@@ -1,3 +1,4 @@
+import { parseClarificationSelection } from "./clarification.js";
 /**
  * HTTP 路由：会话管理与提问的 SSE 事件流。
  * 鉴权采用与前端一致的 Bearer，通过后端 /api/v1/auth/me 验证并解析用户身份。
@@ -140,7 +141,7 @@ export function createApp(config: AgentServiceConfig, manager: AgentManager): Ho
   app.post("/sessions/:id/prompt", async (c) => {
     const record = findSession(c);
     if (!record) return c.json({ detail: "会话不存在" }, 404);
-    const body = await c.req.json<{ message?: unknown }>().catch(() => ({}) as { message?: unknown });
+    const body = await c.req.json<{ message?: unknown; clarification?: unknown }>().catch(() => ({}) as { message?: unknown; clarification?: unknown });
     const message = typeof body.message === "string" ? body.message.trim() : "";
     if (!message) {
       return c.json({ detail: "message 不能为空" }, 400);
@@ -148,9 +149,18 @@ export function createApp(config: AgentServiceConfig, manager: AgentManager): Ho
     if (message.length > 4000) {
       return c.json({ detail: "message 过长" }, 400);
     }
+    let selection;
+    try {
+      selection = parseClarificationSelection(body.clarification, message);
+    } catch (error) {
+      return c.json({ detail: error instanceof Error ? error.message : "无效的澄清选择" }, 400);
+    }
+    if (selection && selection.clarification_id !== record.pendingClarification?.clarificationId) {
+      return c.json({ detail: "待补充任务已更新，请刷新会话后重试。" }, 409);
+    }
     const token = c.get("token");
     return streamSSE(c, async (stream) => {
-      const events = manager.promptStream(record, message, token);
+      const events = manager.promptStream(record, message, token, selection);
       try {
         for await (const event of events) {
           await stream.writeSSE({ event: event.type, data: JSON.stringify(event) });

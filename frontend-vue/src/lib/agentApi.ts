@@ -1,3 +1,4 @@
+import type { ComposerEntity } from "./composerEntities"
 import { clearAccessToken, getAccessToken, setAuthFailureReason } from "@/lib/authSession"
 import type { BackendNextClarification } from "@/types/api"
 
@@ -140,7 +141,13 @@ export function deleteAgentSession(sessionId: string) {
   return request<void>(`/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" })
 }
 
+export interface AgentClarificationSelection {
+  clarification_id: string
+  entities: ComposerEntity[]
+}
+
 export interface AgentPromptOptions {
+  clarification?: AgentClarificationSelection | undefined
   signal?: AbortSignal
   onEvent: (event: AgentStreamEvent) => void
 }
@@ -160,7 +167,7 @@ export async function promptAgentSession(sessionId: string, message: string, opt
         Accept: "text/event-stream",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, clarification: options.clarification }),
       signal: options.signal ?? null,
     })
   } catch (error) {

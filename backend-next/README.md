@@ -461,4 +461,3 @@ python -m ask_metric sync-org-catalog --strict-scope
 `ALL_ORGANIZATION_USER_IDS='["用户ID"]'` 并重启后端。仅指定的已认证、所属机构
 仍有效的用户可查询全部启用机构，角色仍为 `USER`，管理接口权限不变；
 空机构条件仍默认本人机构。撤销时移除 ID 并重启，不接受前端或模型声明此授权。
-

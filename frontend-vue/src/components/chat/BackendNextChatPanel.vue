@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { AgentClarificationSelection } from "@/lib/agentApi"
 import { AlertTriangle, Bot, Check, Copy, Ellipsis, LoaderCircle, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Trash2 } from "@lucide/vue"
 import { computed, nextTick, onActivated, onMounted, ref, watch } from "vue"
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from "reka-ui"
@@ -623,13 +624,15 @@ async function confirmDeleteConversation() {
 
 function handleSubmit(text: string, entities: ComposerEntity[] = []) {
   if (!queryReady.value) return
-  // 结构化澄清的选择与正文组合为一段补充文字，作为下一条用户消息发给 agent。
+  // 正文用于展示；目录编码与澄清标识独立传递，由服务端绑定当前任务。
   const label = composeQuestion(text, entities)
   if (!activeConversation.value) handleNewConversation()
   const conversation = activeConversation.value
   if (!conversation || !label || activeConversationIsSending.value || conversation.running) return
   const clarificationMessage = activeClarificationMessage.value
   const kind = clarificationMessage ? "clarification_answer" : "question"
+  const selection = clarificationMessage?.clarification
+    ? { clarification_id: clarificationMessage.clarification.id, entities } : undefined
   if (clarificationMessage) {
     // 澄清一经回答即归档为只读记录，仅最新待补充消息可交互。
     updateAssistantMessage(conversation.id, clarificationMessage.id, (item) => ({
@@ -639,10 +642,10 @@ function handleSubmit(text: string, entities: ComposerEntity[] = []) {
     }))
   }
   message.value = ""
-  void runQuestion(conversation.id, label, kind)
+  void runQuestion(conversation.id, label, kind, selection)
 }
 
-async function runQuestion(conversationId: string, question: string, kind: string) {
+async function runQuestion(conversationId: string, question: string, kind: string, selection?: AgentClarificationSelection) {
   if (!queryReady.value) return
   const assistantId = createId()
   const startedAt = performance.now()
@@ -664,14 +667,14 @@ async function runQuestion(conversationId: string, question: string, kind: strin
   await scrollToBottom()
   try {
     const serverId = await ensureServerSession(conversationId)
-    await streamPrompt(conversationId, serverId, question, assistantId, controller)
+    await streamPrompt(conversationId, serverId, question, assistantId, controller, selection)
   } catch (error) {
     if (error instanceof AgentSessionNotFoundError) {
       // 服务端会话被清理后容错：重建会话并重放本次提问一次。
       updateConversation(conversationId, (item) => ({ ...item, serverId: null, persisted: false }))
       try {
         const serverId = await ensureServerSession(conversationId)
-        await streamPrompt(conversationId, serverId, question, assistantId, controller)
+        await streamPrompt(conversationId, serverId, question, assistantId, controller, selection)
       } catch (retryError) {
         failMessage(conversationId, assistantId, retryError)
       }
@@ -701,8 +704,9 @@ async function ensureServerSession(conversationId: string) {
   return created.session_id
 }
 
-async function streamPrompt(conversationId: string, serverId: string, question: string, assistantId: string, controller: AbortController) {
+async function streamPrompt(conversationId: string, serverId: string, question: string, assistantId: string, controller: AbortController, selection?: AgentClarificationSelection) {
   await promptAgentSession(serverId, question, {
+    clarification: selection,
     signal: controller.signal,
     onEvent: (event) => handleStreamEvent(conversationId, assistantId, event),
   })

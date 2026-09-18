@@ -1,3 +1,4 @@
+import { clarificationAnswer, type ClarificationSelection } from "./clarification.js";
 /**
  * Agent 业务工具：通过 BackendClient 调用 FastAPI 受治理接口。
  * 模型只选择工具与参数；指标/机构校验、权限裁剪、SQL 模板执行全部在后端完成。
@@ -20,6 +21,7 @@ export interface QueryToolContext {
   facts: Set<string>;
   pending: PendingClarification | undefined;
   userMessage: string;
+  selection?: ClarificationSelection | undefined;
   ensureReady(): Promise<void>;
   assertActive(): void;
   setPending(value: PendingClarification | undefined): void;
@@ -93,7 +95,7 @@ function backendErrorResult(error: unknown): AgentToolResult<MetricAskDetails> |
  * 解析结果缺少条件时返回澄清信息，由 agent 引导用户补充，不代填条件。
  */
 export function createMetricAskTool(client: BackendClient, context?: QueryToolContext): AgentTool<typeof metricAskParameters, MetricAskDetails> {
-  return {
+  const tool: AgentTool<typeof metricAskParameters, MetricAskDetails> = {
     name: "metric_ask",
     label: "指标问数",
     description:
@@ -106,7 +108,7 @@ export function createMetricAskTool(client: BackendClient, context?: QueryToolCo
         let analyzed: TaskCommandResult;
         if (context?.pending) {
           const pending = context.pending;
-          analyzed = await client.clarifyTask(pending.taskId, pending.version, pending.clarificationId, context.userMessage);
+          analyzed = await client.clarifyTask(pending.taskId, pending.version, pending.clarificationId, clarificationAnswer(context.userMessage, context.selection));
         } else {
           const submitted = await client.submitQuestion(params.question, context?.conversationId ?? null, randomUUID(), context?.scope);
           analyzed = await client.analyzeTask(submitted.task_id, submitted.version);
@@ -184,6 +186,24 @@ export function createMetricAskTool(client: BackendClient, context?: QueryToolCo
       }
     },
   };
+  // 工具每轮重建：澄清补充仅提交一次；独立取数仍允许不同问题分别执行。
+  const results = new Map<string, ReturnType<typeof tool.execute>>();
+  let clarificationResult: ReturnType<typeof tool.execute> | undefined;
+  return { ...tool, execute: (...args) => {
+    if (clarificationResult) return clarificationResult;
+    const key = args[1].question;
+    const cached = results.get(key);
+    if (cached) return cached;
+    const wasPending = Boolean(context?.pending);
+    const result = tool.execute(...args).then((value) => {
+      if (value.details.status === "clarification_required") clarificationResult = result;
+      return value;
+    });
+    results.set(key, result);
+    if (wasPending) clarificationResult = result;
+    return result;
+  } };
+
 }
 
 export interface CatalogSearchDetails {

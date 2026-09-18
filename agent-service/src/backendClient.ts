@@ -245,7 +245,7 @@ export class BackendClient {
     });
   }
 
-  clarifyTask(taskId: string, version: number, clarificationId: string, answer: string): Promise<TaskCommandResult> {
+  clarifyTask(taskId: string, version: number, clarificationId: string, answer: string | Record<string, unknown>): Promise<TaskCommandResult> {
     return this.request(`/api/v1/query-tasks/${encodeURIComponent(taskId)}/clarifications`, {
       method: "POST", headers: { "Idempotency-Key": randomRequestId() },
       body: JSON.stringify({ expected_version: version, clarification_id: clarificationId, answers: answer }),
