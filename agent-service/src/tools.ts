@@ -173,8 +173,6 @@ export function createMetricAskTool(client: BackendClient, context?: QueryToolCo
                 truncated: executed.truncated || executed.rows.length > MAX_ROWS_FOR_MODEL,
                 message: executed.message ?? null,
                 error_message: executed.error_message ?? null,
-                display_hint:
-                  "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
               }),
             },
           ],
@@ -367,8 +365,6 @@ export function createStructuredQueryTool(
                 truncated: Boolean(result.truncated),
                 error_code: result.error_code ?? null,
                 message: result.message ?? null,
-                display_hint:
-                  "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
               }),
             },
           ],

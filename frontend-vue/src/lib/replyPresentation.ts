@@ -30,7 +30,10 @@ export function replyText(value: string): string {
       }).join(""))
     } else if (token.type === "fence" || token.type === "code_block") lines.push(token.content.trimEnd())
   }
-  return lines.join("\n").trim()
+  // 兼容旧工具快照中曾被模型复述的内部展示提示，不改动业务结论。
+  return lines.join("\n")
+    .replace(/(?:具体)?明细数据已在用户界面以结果表展示[，,]\s*回答正文(?:不要|不)逐条罗列数值[，,]\s*简洁概括即可[。.]?/g, "")
+    .trim()
 }
 
 /** 固定结果状态不使用模型解释；成功有数据时才保留模型整理。 */
