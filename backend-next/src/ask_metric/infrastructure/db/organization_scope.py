@@ -21,3 +21,10 @@ class SqlAlchemyOrganizationScopeProvider:
                 )
             ).scalar_one_or_none()
         return {org_code} if existing is not None else set()
+
+    def all_org_codes(self) -> set[str]:
+        session_factory = self.session_factory or get_app_session_factory()
+        with session_factory() as session:
+            return set(session.scalars(
+                select(OrgTerm.org_code).where(OrgTerm.enabled.is_(True))
+            ))

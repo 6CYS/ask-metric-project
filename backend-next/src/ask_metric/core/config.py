@@ -111,6 +111,8 @@ class Settings(BaseSettings):
     cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [_local_web_origin(5173)]
     )
+    # 仅扩展列出的可信用户查询范围，不授予任何管理权限。
+    all_organization_user_ids: list[str] = Field(default_factory=list)
     sql_echo: bool = False
     backend_next_allow_schema_changes: bool = False
     backend_next_allow_non_test_database: bool = False
