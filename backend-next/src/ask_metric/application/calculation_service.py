@@ -17,6 +17,7 @@ from ask_metric.domain.calculation import (
     validate_constant,
 )
 from ask_metric.domain.query_execution import UnsupportedQueryError, json_safe
+from ask_metric.domain.value_presentation import money_reply_fields
 from ask_metric.infrastructure.db.models import ChatMessage
 
 
@@ -42,6 +43,7 @@ def build_calculation_facts(task_id: str, rows: list[dict], catalog: dict) -> li
                     "field": field,
                     "value": str(value),
                     "unit": metric["unit"],
+                    **money_reply_fields(value, metric["unit"]),
                     "metric_code": metric["code"],
                     "metric_name": metric["name"],
                     "org_name": row.get("org_name"),
@@ -166,6 +168,8 @@ class CalculationApplicationService:
             results = []
             for expression in payload.expressions:
                 result = evaluate_expression(expression, values)
+                # 回复金额复用查询的展示规则；计算原值、原单位及来源保持不变。
+                result.update(money_reply_fields(decimal_value(result["value"]), result["unit"]))
                 if not set(result["variables"]) & set(payload.bindings):
                     raise CalculationError("每个表达式必须引用查询数据。")
                 results.append(result)

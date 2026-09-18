@@ -80,12 +80,14 @@ export function isResultValueColumn(column: string) {
   return monetaryValueColumns.has(normalizeResultColumn(column))
 }
 
-/** 表格展示接口原值，不转 Number、不补零或舍入，保留十进制字符串精度。 */
+/** 表格保持原单位与有效精度，仅去掉普通十进制小数末尾的零，不转 Number。 */
 export function formatResultTableValue(value: unknown, column: string, _row: Record<string, unknown>) {
   const normalized = normalizeResultColumn(column)
   if (!isResultValueColumn(normalized) && normalized !== "rank") return null
   if (typeof value !== "string" && typeof value !== "number") return null
-  return String(value)
+  const text = String(value)
+  if (!/^[+-]?\d+\.\d+$/.test(text)) return text
+  return text.replace(/0+$/, "").replace(/\.$/, "")
 }
 
 export function getResultColumnClass(column: string) {

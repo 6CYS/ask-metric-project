@@ -25,7 +25,7 @@ export function createCalculationTool(client: BackendClient, context: QueryToolC
     name: "metric_calculate", label: "数据计算", parameters,
     description: "对当前提问查询工具返回的 facts 进行计算。只传 fact_id，不抄业务数值。支持 + - * /、括号、sum(a,b,...)、avg、min、max、abs；每个公式独立求值。" +
       "百分比用 (current-previous)/previous 并 display=percent，不乘100。公式仅允许0和1字面量，其他系数放constants且必须来自用户原文。" +
-      "不能自行猜换算系数、跨任务引用或对截断结果汇总。分母或口径不明确时先澄清。返回值为精确十进制字符串，直接引用display_value和unit回答。",
+      "不能自行猜换算系数、跨任务引用或对截断结果汇总。分母或口径不明确时先澄清。返回值为十进制字符串；金额回答引用后端reply_value和reply_unit，其他结果引用display_value和unit。",
     execute: async (callId, input) => {
       try {
         context.assertActive();

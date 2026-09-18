@@ -9,6 +9,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Literal
 
 from ask_metric.domain.query_execution import QueryExecutionPlan, json_safe
+from ask_metric.domain.value_presentation import money_reply_fields
 
 _MAX_FACTS_IN_ANSWER = 20
 _MONEY_UNITS = {"元", "万元"}
@@ -268,11 +269,11 @@ def _format_value(value: Any, unit: str, metric_name: str) -> str:
     decimal = _decimal_or_none(value)
     if decimal is None:
         return f"{value}{unit}"
-    if unit == "元":
-        decimal /= Decimal("10000")
-        unit = "万元"
     if unit in _MONEY_UNITS:
-        return f"{decimal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):,.2f}{unit}"
+        reply = money_reply_fields(decimal, unit)
+        if not reply:
+            return "暂无数据"
+        return f"{Decimal(reply['reply_value']):,.2f}{reply['reply_unit']}"
     if unit in _COUNT_UNITS:
         return f"{decimal.quantize(Decimal('1'), rounding=ROUND_HALF_UP):,.0f}{unit}"
     if unit in {"%", "％"}:

@@ -76,6 +76,8 @@ export interface CalculationFact {
   task_id: string;
   value: string;
   unit: string;
+  reply_value?: string;
+  reply_unit?: string;
   metric_name: string;
   org_name?: string;
   date?: string;
@@ -96,7 +98,7 @@ export interface CalculationResult {
   calculation_id: string;
   status: "succeeded";
   task_id: string;
-  results: Array<{ name: string; label: string; expression: string; value: string; display_value: string; unit: string; variables: string[] }>;
+  results: Array<{ name: string; label: string; expression: string; value: string; display_value: string; unit: string; reply_value?: string; reply_unit?: string; variables: string[] }>;
   inputs: Record<string, Record<string, unknown>>;
 }
 
