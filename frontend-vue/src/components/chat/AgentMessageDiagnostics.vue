@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bug, Clock3 } from "@lucide/vue"
+import { Bug, Clock3, ChevronRight, CircleAlert, LoaderCircle } from "@lucide/vue"
 import { computed, onUnmounted, ref, watch } from "vue"
 import BackendNextDebugPanel from "@/components/chat/BackendNextDebugPanel.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
@@ -10,10 +10,45 @@ const props = defineProps<{
   question: string
   taskIds: string[]
   pending: boolean
+  hasAnswer?: boolean
   startedAt?: string
   elapsedMs?: number
-  tools: { tool: string; status: string }[]
+  tools: { id?: string; tool: string; status: string; elapsedMs?: number }[]
 }>()
+const expanded = ref(false)
+const toolLabels: Record<string, string> = {
+  data_availability: "查看数据可用范围",
+  catalog_overview: "查看目录概览",
+  metric_catalog_search: "检索指标目录",
+  org_catalog_search: "检索机构目录",
+  metric_ask: "解析问题并查询指标",
+  metric_query_structured: "按指标、机构和日期查询",
+  metric_calculate: "调用可靠计算工具",
+}
+// 状态栏复用真实工具状态；没有运行中的工具时显示模型处理阶段。
+const currentStage = computed(() => {
+  if (!props.pending) return "执行过程"
+  const running = props.tools.find(call => call.status === "running")
+  if (!running) return props.hasAnswer ? "正在生成回答" : "正在处理"
+  const stages: Record<string, string> = {
+    data_availability: "正在检查数据覆盖",
+    catalog_overview: "正在查看目录概览",
+    metric_catalog_search: "正在检索指标",
+    org_catalog_search: "正在检索机构",
+    metric_ask: "正在解析并查询",
+    metric_query_structured: "正在查询数据",
+    metric_calculate: "正在使用可靠计算工具",
+  }
+  return stages[running.tool] ?? "正在执行查询步骤"
+})
+const statusLabels: Record<string, string> = {
+  running: "执行中", done: "已完成", error: "执行失败", interrupted: "已中断", unknown: "未记录执行结果",
+}
+function readableDuration(ms: number) {
+  const seconds = Math.floor(ms / 1000)
+  if (seconds < 1) return "不足 1 秒"
+  return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`
+}
 const mode = ref<"timing" | "debug" | null>(null)
 const selectedId = ref("")
 const task = ref<BackendNextTaskResult>()
@@ -109,6 +144,31 @@ function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? n
 </script>
 
 <template>
+  <div class="mb-3 text-xs text-muted-foreground">
+    <button type="button" class="inline-flex items-center gap-1.5 rounded-sm py-1 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" aria-label="执行过程" :aria-expanded="expanded" @click="expanded = !expanded">
+      <ChevronRight class="size-3.5 shrink-0 transition-transform" :class="expanded && 'rotate-90'" />
+      <span aria-live="polite">{{ currentStage }}</span>
+      <span v-if="elapsed !== undefined">· {{ pending ? '' : '用时 ' }} {{ readableDuration(elapsed) }}</span>
+      <span v-else-if="tools.length">· {{ tools.length }} 次工具调用</span>
+
+    </button>
+    <div v-if="expanded" class="pt-2">
+      <ol v-if="tools.length" class="ml-1.5 list-none border-l border-border/60 pl-4">
+        <li v-for="(call, index) in tools" :key="call.id ?? index" class="relative flex min-h-7 flex-wrap items-center gap-x-2 gap-y-0.5 py-1">
+          <span class="absolute -left-4 top-1/2 flex size-3 -translate-x-1/2 -translate-y-1/2 items-center justify-center bg-background" aria-hidden="true">
+            <LoaderCircle v-if="call.status === 'running'" class="size-3 animate-spin" />
+            <CircleAlert v-else-if="call.status === 'error'" class="size-3" />
+            <span v-else class="size-1 rounded-full bg-muted-foreground/45" />
+          </span>
+          <span>{{ toolLabels[call.tool] ?? '执行查询步骤' }}</span>
+          <span :class="call.status === 'done' ? 'sr-only' : ''">{{ statusLabels[call.status] ?? '状态未知' }}</span>
+          <span v-if="call.elapsedMs !== undefined" class="text-muted-foreground/60 tabular-nums">· {{ call.elapsedMs >= 1000 ? (call.elapsedMs / 1000).toFixed(2) + ' 秒' : call.elapsedMs + ' 毫秒' }}</span>
+        </li>
+      </ol>
+      <p v-else>{{ pending ? '正在处理问题，等待工具调用。' : '本轮没有工具调用记录。' }}</p>
+      <p v-if="pending && tools.length && !tools.some(call => call.status === 'running')" class="mt-2">正在处理工具结果，等待后续回复。</p>
+    </div>
+  </div>
   <div class="absolute right-1 top-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/assistant:opacity-100 group-focus-within/assistant:opacity-100">
     <button type="button" class="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" title="执行耗时查询" aria-label="执行耗时查询" :aria-expanded="mode === 'timing'" @click="toggle('timing')"><Clock3 class="size-3.5" /></button>
     <BaseButton variant="ghost" size="icon" class="size-7 text-muted-foreground" title="调试" aria-label="调试" :aria-expanded="mode === 'debug'" @click="toggle('debug')"><Bug class="size-3.5" /></BaseButton>

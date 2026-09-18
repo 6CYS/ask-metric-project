@@ -36,8 +36,8 @@ export interface AgentSessionItem {
 /** 历史消息条目：用户提问、助手回答（含调用过的工具名）、工具结果明细。 */
 export type AgentSessionMessage =
   | { role: "user"; text: string; timestamp: number | null }
-  | { role: "assistant"; text: string; error?: string; tools?: string[]; timestamp: number | null }
-  | { role: "tool"; tool: string; details: unknown; is_error: boolean; timestamp: number | null }
+  | { role: "assistant"; text: string; error?: string; tools?: string[]; tool_calls?: { id?: string; tool: string }[]; timestamp: number | null }
+  | { role: "tool"; tool: string; details: unknown; is_error: boolean; call_id?: string; elapsed_ms?: number; timestamp: number | null }
   | { role: string; text?: string; timestamp: number | null }
 
 export interface AgentSessionDetail {
@@ -77,8 +77,8 @@ export interface CalculationDetails {
 
 export type AgentStreamEvent =
   | { type: "text_delta"; delta: string }
-  | { type: "tool_start"; tool: string; args: unknown }
-  | { type: "tool_end"; tool: string; details: unknown; isError: boolean }
+  | { type: "tool_start"; tool: string; args: unknown; callId?: string }
+  | { type: "tool_end"; tool: string; details: unknown; isError: boolean; callId?: string; elapsedMs?: number }
   | { type: "message_done"; text: string }
   | { type: "done"; message?: string }
   | { type: "error"; message?: string }

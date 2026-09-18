@@ -90,6 +90,8 @@ export function createApp(config: AgentServiceConfig, manager: AgentManager): Ho
         content?: unknown;
         timestamp?: number;
         toolName?: string;
+        toolCallId?: string;
+        executionMs?: number;
         details?: unknown;
         isError?: boolean;
         stopReason?: string;
@@ -103,13 +105,14 @@ export function createApp(config: AgentServiceConfig, manager: AgentManager): Ho
         };
       }
       if (msg.role === "assistant" && Array.isArray(msg.content)) {
-        const blocks = msg.content as Array<{ type: string; text?: string; name?: string }>;
+        const blocks = msg.content as Array<{ type: string; text?: string; name?: string; id?: string }>;
         return {
           role: "assistant",
           error: assistantFailure(msg),
           // 剔除工具轮次前的纯空行文本，避免前端气泡出现大片空白
           text: blocks.filter((b) => b.type === "text").map((b) => b.text ?? "").join("").replace(/^\n+/, ""),
           tools: blocks.filter((b) => b.type === "toolCall").map((b) => b.name ?? ""),
+          tool_calls: blocks.filter((b) => b.type === "toolCall").map((b) => ({ id: b.id, tool: b.name ?? "" })),
           timestamp: msg.timestamp ?? null,
         };
       }
@@ -118,7 +121,9 @@ export function createApp(config: AgentServiceConfig, manager: AgentManager): Ho
           role: "tool",
           tool: msg.toolName ?? "",
           details: msg.details ?? null,
-          is_error: Boolean(msg.isError),
+          call_id: msg.toolCallId,
+          elapsed_ms: msg.executionMs,
+          is_error: Boolean(msg.isError) || ["error", "failed"].includes((msg.details as { status?: string } | undefined)?.status ?? ""),
           timestamp: msg.timestamp ?? null,
         };
       }

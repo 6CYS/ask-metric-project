@@ -46,7 +46,8 @@ import { friendlyQueryError } from "@/lib/queryErrors"
 type ToolCallDisplay = {
   id: string
   tool: string
-  status: "running" | "done" | "error"
+  status: "running" | "done" | "error" | "interrupted" | "unknown"
+  elapsedMs?: number
 }
 
 type DisplayMessage = {
@@ -65,6 +66,7 @@ type DisplayMessage = {
   metricAskDetails?: MetricAskDetails
   calculations?: CalculationDetails[]
   metricAskClarification?: BackendNextClarification
+  answerStreaming?: boolean
   availabilityError?: string
   availability?: AvailabilityDetails[]
   catalogOverviews?: CatalogOverviewDetails[]
@@ -88,7 +90,7 @@ type DisplayConversation = {
 const toolLabels: Record<string, string> = {
   metric_ask: "指标问数",
   metric_query_structured: "指标结构化查询",
-  metric_calculate: "数据计算",
+  metric_calculate: "可靠计算工具",
   metric_catalog_search: "指标目录检索",
   org_catalog_search: "机构目录检索",
 }
@@ -332,6 +334,12 @@ function clarificationResponse(clarification: BackendNextClarification, prompt: 
 
 /** done/error 收尾：按本轮收集到的工具明细生成最终结构化响应。 */
 function finalizeAssistantMessage(chatMessage: DisplayMessage): DisplayMessage {
+  const calculationCalls = chatMessage.toolCalls?.filter(call => call.tool === "metric_calculate") ?? []
+  const lastCalculation = calculationCalls[calculationCalls.length - 1]
+  if (lastCalculation?.status === "error") {
+    return { ...chatMessage, content: "本次计算未成功，暂不能提供可靠的计算结果，请重新查询所需指标后再计算。" }
+  }
+
   const clarification = chatMessage.metricAskClarification
   if (clarification) {
     const response = clarificationResponse(clarification, chatMessage.metricAskClarificationPrompt ?? clarification.prompt)
@@ -379,11 +387,15 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
       const body = "text" in item ? item.text ?? "" : ""
       const text = failure ? [body.trim(), failure].filter(Boolean).join("\n") : body
       const tools = "tools" in item ? item.tools ?? [] : []
+      const savedCalls = "tool_calls" in item ? item.tool_calls : undefined
+      const calls: ToolCallDisplay[] = (savedCalls ?? tools.map(tool => ({ tool }))).map(call => ({
+        id: ("id" in call && typeof call.id === "string" ? call.id : createId()), tool: call.tool, status: "unknown",
+      }))
       const last = messages[messages.length - 1]
       if (last?.role === "assistant") {
         // 跨轮次合并助手片段：两侧都有内容时补段落分隔，避免首尾粘连
         last.content = last.content.trim() && text.trim() ? `${last.content}\n\n${text}` : last.content + text
-        last.toolCalls = [...(last.toolCalls ?? []), ...tools.map((tool) => ({ id: createId(), tool, status: "done" as const }))]
+        last.toolCalls = [...(last.toolCalls ?? []), ...calls]
         if (failure) {
           last.status = "error"
           last.response = undefined
@@ -394,7 +406,7 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
           id: createId(),
           role: "assistant",
           content: text,
-          toolCalls: tools.map((tool) => ({ id: createId(), tool, status: "done" as const })),
+          toolCalls: calls,
           status: failure ? "error" : "done",
           createdAt: historyTimestamp(item.timestamp),
         })
@@ -402,6 +414,18 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
       continue
     }
     if (item.role === "tool" && "details" in item) {
+      const assistant = messages[messages.length - 1]
+      if (assistant?.role === "assistant") {
+        const calls = assistant.toolCalls ?? []
+        const index = calls.findIndex(call => item.call_id ? call.id === item.call_id : call.tool === item.tool && call.status === "unknown")
+        const call: ToolCallDisplay = {
+          id: item.call_id ?? calls[index]?.id ?? createId(), tool: item.tool,
+          status: item.is_error ? "error" : "done", elapsedMs: item.elapsed_ms,
+        }
+        if (index >= 0) calls[index] = call
+        else calls.push(call)
+        assistant.toolCalls = calls
+      }
       if ((item.details as AvailabilityDetails)?.kind === "data_availability") {
         const last = messages[messages.length - 1]
         if (last?.role === "assistant") {
@@ -746,7 +770,7 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
   if (event.type === "done") {
     updateAssistantMessage(conversationId, assistantId, (item) => ({
       ...finalizeAssistantMessage({ ...item, status: "done" }),
-      toolCalls: item.toolCalls?.map((call) => call.status === "running" ? { ...call, status: "done" } : call),
+      toolCalls: item.toolCalls?.map((call) => call.status === "running" ? { ...call, status: "interrupted" } : call),
     }))
     const finished = conversations.value
       .find((item) => item.id === conversationId)
@@ -762,19 +786,19 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
     if (event.type === "text_delta") {
       // 工具轮次前的纯空白增量不累积，避免气泡开头出现大片空行
       if (!item.content.trim() && !event.delta.trim()) return item
-      return { ...item, content: item.content + event.delta }
+      return { ...item, answerStreaming: true, content: item.content + event.delta }
     }
-    if (event.type === "message_done") return { ...item, content: event.text || item.content }
+    if (event.type === "message_done") return { ...item, answerStreaming: false, content: event.text || item.content }
     if (event.type === "tool_start") {
-      return { ...item, toolCalls: [...(item.toolCalls ?? []), { id: createId(), tool: event.tool, status: "running" as const }] }
+      return { ...item, answerStreaming: false, toolCalls: [...(item.toolCalls ?? []), { id: event.callId ?? createId(), tool: event.tool, status: "running" as const }] }
     }
     // tool_end：结束对应进度，记录 metric_ask 明细供收尾时构造结果表或澄清卡片。
     const toolCalls = [...(item.toolCalls ?? [])]
-    const targetIndex = [...toolCalls.keys()].reverse().find((index) => toolCalls[index]!.tool === event.tool && toolCalls[index]!.status === "running")
-    if (targetIndex !== undefined) {
-      toolCalls[targetIndex] = { ...toolCalls[targetIndex]!, status: event.isError ? "error" : "done" }
+    const targetIndex = toolCalls.findIndex(call => event.callId ? call.id === event.callId : call.tool === event.tool && call.status === "running")
+    if (targetIndex >= 0) {
+      toolCalls[targetIndex] = { ...toolCalls[targetIndex]!, status: event.isError ? "error" : "done", elapsedMs: event.elapsedMs }
     } else {
-      toolCalls.push({ id: createId(), tool: event.tool, status: event.isError ? "error" : "done" })
+      toolCalls.push({ id: event.callId ?? createId(), tool: event.tool, status: event.isError ? "error" : "done", elapsedMs: event.elapsedMs })
     }
     if ((event.details as AvailabilityDetails)?.kind === "data_availability") {
       if ((event.details as AvailabilityDetails).status !== "succeeded") return { ...item, toolCalls,
@@ -814,7 +838,7 @@ function failMessage(conversationId: string, messageId: string, error: unknown) 
       // 已有结果表时仍显示末轮模型失败提示，不能被结构化 response 遮住。
       response: finalized.response ? { ...finalized.response, answer } : undefined,
       status: aborted ? "done" : "error",
-      toolCalls: finalized.toolCalls?.map((call) => call.status === "running" ? { ...call, status: aborted ? "done" : "error" } : call),
+      toolCalls: finalized.toolCalls?.map((call) => call.status === "running" ? { ...call, status: "interrupted" } : call),
     }
   })
   updateConversation(conversationId, (conversation) => ({ ...conversation, preview: content, running: false }))
@@ -900,14 +924,7 @@ async function scrollToBottom() {
                     <span class="text-xs" :class="executionStatus(chatMessage).titleClass">{{ executionStatus(chatMessage).title }}</span>
                   </template>
                 </div>
-                <div v-if="executionStatus(chatMessage).kind === 'running'" class="mb-2 flex items-center gap-2 text-xs text-muted-foreground/60" role="status" aria-live="polite">
-                  <span :title="executionStatus(chatMessage).detail">{{ executionStatus(chatMessage).title }}</span>
-                  <span class="flex items-center gap-1" aria-hidden="true">
-                    <span class="execution-dot size-1.5 rounded-full bg-[#7C9CDB]" />
-                    <span class="execution-dot size-1.5 rounded-full bg-[#7C9CDB] [animation-delay:160ms]" />
-                    <span class="execution-dot size-1.5 rounded-full bg-[#7C9CDB] [animation-delay:320ms]" />
-                  </span>
-                </div>
+                <AgentMessageDiagnostics :question="questionForMessage(chatMessage)" :task-ids="chatMessage.taskIds ?? []" :pending="chatMessage.status === 'pending'" :has-answer="Boolean(chatMessage.answerStreaming)" :started-at="chatMessage.createdAt" :elapsed-ms="chatMessage.elapsedMs" :tools="chatMessage.toolCalls ?? []" />
                 <p v-if="chatMessage.status === 'pending' && chatMessage.content && (!chatMessage.availability?.length || chatMessage.metricAskDetails)" class="whitespace-pre-wrap break-words leading-7">{{ replyText(chatMessage.metricAskClarificationPrompt ?? chatMessage.metricAskClarification?.prompt ?? governedReply(chatMessage.metricAskDetails) ?? chatMessage.content) }}<span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></p>
                 <ChatResultContent v-else-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :show-data-details="!chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
                 <p v-else-if="chatMessage.status !== 'pending'" class="whitespace-pre-wrap break-words leading-6">{{ replyText(chatMessage.content) }}</p>
@@ -917,7 +934,6 @@ async function scrollToBottom() {
                 <div v-if="chatMessage.clarification?.fields?.length" class="mt-1">
                   <StructuredClarificationForm :clarification="chatMessage.clarification" />
                 </div>
-                <AgentMessageDiagnostics :question="questionForMessage(chatMessage)" :task-ids="chatMessage.taskIds ?? []" :pending="chatMessage.status === 'pending'" :started-at="chatMessage.createdAt" :elapsed-ms="chatMessage.elapsedMs" :tools="chatMessage.toolCalls ?? []" />
                 </div>
               </template>
             </div>

@@ -14,6 +14,7 @@ export interface AgentServiceConfig {
   /** FastAPI 后端内网地址，agent 工具调用经由此处并透传用户 Bearer */
   backendBaseUrl: string;
   backendTimeoutMs: number;
+  modelTimeoutMs?: number;
   model: {
     baseUrl: string;
     name: string;
@@ -77,6 +78,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceCo
     port: parsePositiveInt(env.AGENT_SERVICE_PORT, 8020, "AGENT_SERVICE_PORT"),
     backendBaseUrl: (env.BACKEND_BASE_URL ?? "http://127.0.0.1:8010").replace(/\/+$/, ""),
     backendTimeoutMs: parsePositiveInt(env.BACKEND_TIMEOUT_MS, 120_000, "BACKEND_TIMEOUT_MS"),
+    modelTimeoutMs: parsePositiveInt(env.AGENT_MODEL_TIMEOUT_MS, 30_000, "AGENT_MODEL_TIMEOUT_MS"),
     model: {
       baseUrl: requireEnv(env, "AGENT_MODEL_BASE_URL").replace(/\/+$/, ""),
       name: requireEnv(env, "AGENT_MODEL_NAME"),
