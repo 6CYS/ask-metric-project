@@ -1,12 +1,14 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import load_only
 
 from ask_metric.api.dependencies import require_actor
+from ask_metric.application.ports import PermissionDeniedError, ScopedOrganizationPermissionService
 from ask_metric.application.requests import ActorContext
+from ask_metric.core.config import Settings
 from ask_metric.infrastructure.db.models import (
     ChatConversation,
     Dataset,
@@ -16,6 +18,7 @@ from ask_metric.infrastructure.db.models import (
     QueryRun,
     QueryTask,
 )
+from ask_metric.infrastructure.db.organization_scope import SqlAlchemyOrganizationScopeProvider
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
 
 router = APIRouter(
@@ -55,6 +58,67 @@ class DatasetPayload(BaseModel):
 
 def get_uow() -> SqlAlchemyUnitOfWork:
     return SqlAlchemyUnitOfWork()
+
+
+def get_overview_settings(request: Request) -> Settings:
+    return request.app.state.settings
+
+
+def get_overview_permissions(
+    settings: Annotated[Settings, Depends(get_overview_settings)],
+) -> ScopedOrganizationPermissionService:
+    return ScopedOrganizationPermissionService(
+        organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
+        all_organization_user_ids=set(settings.all_organization_user_ids),
+    )
+
+
+@router.get("/overview")
+def catalog_overview(
+    catalog: Literal["metrics", "organizations"],
+    uow: Annotated[SqlAlchemyUnitOfWork, Depends(get_uow)],
+    actor: Annotated[ActorContext, Depends(require_actor)],
+    permissions: Annotated[ScopedOrganizationPermissionService, Depends(get_overview_permissions)],
+    settings: Annotated[Settings, Depends(get_overview_settings)],
+    limit: int = Query(default=8, ge=1, le=20),
+) -> dict[str, object]:
+    """只返回有限目录摘要；机构先经过与查询相同的授权，再计数和取样。"""
+    with uow:
+        if catalog == "metrics":
+            total = uow.session.scalar(
+                select(func.count()).select_from(MetricTerm).where(MetricTerm.enabled.is_(True))
+            ) or 0
+            codes = list(dict.fromkeys(settings.catalog_overview_metric_codes))
+            terms = uow.session.scalars(select(MetricTerm).where(
+                MetricTerm.enabled.is_(True), MetricTerm.metric_code.in_(codes)
+            )).all() if codes else []
+            by_code = {term.metric_code: term for term in terms}
+            examples = [
+                {"name": by_code[code].metric_name, "unit": by_code[code].unit}
+                for code in codes if code in by_code
+            ][:limit]
+        else:
+            codes = list(uow.session.scalars(
+                select(OrgTerm.org_code).where(OrgTerm.enabled.is_(True))
+            ))
+            try:
+                authorized = permissions.authorize_logical_dsl(actor=actor, logical_dsl={
+                    "orgs": codes, "options": {"organization_scope": "synchronized_catalog"},
+                })
+            except PermissionDeniedError as error:
+                raise HTTPException(
+                    status_code=403, detail="无法确认当前账号的机构查询范围"
+                ) from error
+            allowed = set(authorized.get("orgs", [])) & set(codes)
+            total = len(allowed)
+            terms = uow.session.scalars(select(OrgTerm).where(
+                OrgTerm.enabled.is_(True), OrgTerm.org_code.in_(allowed)
+            ).order_by(OrgTerm.org_code).limit(limit)).all()
+            examples = [{"name": term.org_name} for term in terms]
+    return {
+        "catalog": catalog, "total": total, "examples": examples, "examples_only": True,
+        "data_availability": "目录存在不代表指定机构和日期有数据，需查询确认。",
+    }
 
 
 @router.get("/metrics", response_model=MetricCatalogResponse)

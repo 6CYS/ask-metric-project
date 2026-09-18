@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { replyText, governedReply } from "@/lib/replyPresentation"
+import { replyText, governedReply, catalogOverviewReply, type CatalogOverviewDetails } from "@/lib/replyPresentation"
 import type { AgentClarificationSelection } from "@/lib/agentApi"
 import { AlertTriangle, Bot, Check, Copy, Ellipsis, LoaderCircle, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Trash2 } from "@lucide/vue"
 import { computed, nextTick, onActivated, onMounted, ref, watch } from "vue"
@@ -64,6 +64,7 @@ type DisplayMessage = {
   metricAskDetails?: MetricAskDetails
   calculations?: CalculationDetails[]
   metricAskClarification?: BackendNextClarification
+  catalogOverviews?: CatalogOverviewDetails[]
   metricAskClarificationPrompt?: string
 }
 
@@ -338,8 +339,9 @@ function finalizeAssistantMessage(chatMessage: DisplayMessage): DisplayMessage {
     return { ...chatMessage, response: responseFromMetricAsk(details, chatMessage.content) }
   }
   const fixed = governedReply(details)
-  if (fixed !== undefined) {
-    return { ...chatMessage, content: fixed }
+  if (fixed !== undefined) return { ...chatMessage, content: fixed }
+  if (chatMessage.catalogOverviews?.length && !chatMessage.metricAskDetails && !chatMessage.calculations?.length) {
+    return { ...chatMessage, content: chatMessage.catalogOverviews.map(catalogOverviewReply).join("\n\n") }
   }
   return chatMessage
 }
@@ -393,6 +395,11 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
       continue
     }
     if (item.role === "tool" && "details" in item) {
+      if ((item.details as CatalogOverviewDetails)?.kind === "catalog_overview") {
+        const last = messages[messages.length - 1]
+        if (last?.role === "assistant") last.catalogOverviews = [...(last.catalogOverviews ?? []), item.details as CatalogOverviewDetails]
+        continue
+      }
       if ((item.details as CalculationDetails)?.kind === "metric_calculate") {
         const last = messages[messages.length - 1]
         if (last?.role === "assistant") last.calculations = [...(last.calculations ?? []), item.details as CalculationDetails]
@@ -753,6 +760,9 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
       toolCalls[targetIndex] = { ...toolCalls[targetIndex]!, status: event.isError ? "error" : "done" }
     } else {
       toolCalls.push({ id: createId(), tool: event.tool, status: event.isError ? "error" : "done" })
+    }
+    if ((event.details as CatalogOverviewDetails)?.kind === "catalog_overview") {
+      return { ...item, toolCalls, catalogOverviews: [...(item.catalogOverviews ?? []), event.details as CatalogOverviewDetails] }
     }
     if ((event.details as CalculationDetails)?.kind === "metric_calculate") {
       const calculation = event.details as CalculationDetails

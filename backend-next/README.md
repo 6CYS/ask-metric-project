@@ -461,3 +461,16 @@ python -m ask_metric sync-org-catalog --strict-scope
 `ALL_ORGANIZATION_USER_IDS='["用户ID"]'` 并重启后端。仅指定的已认证、所属机构
 仍有效的用户可查询全部启用机构，角色仍为 `USER`，管理接口权限不变；
 空机构条件仍默认本人机构。撤销时移除 ID 并重启，不接受前端或模型声明此授权。
+
+## 目录概览
+
+`GET /api/v1/catalog/overview?catalog=metrics&limit=8` 返回启用指标总数及有限示例；
+`catalog=organizations` 返回当前账号查询权限内的启用机构数量及示例。
+需要现有 Bearer 登录鉴权，机构权限复用查询授权规则；`limit` 为 1–20，默认 8。
+返回 `total`、`examples`、`examples_only`、`data_availability`，不返回完整目录或查询编码。
+
+`CATALOG_OVERVIEW_METRIC_CODES` 为 JSON 编码数组，最多 100 个，配置默认示例见 `.env.example`。
+按配置顺序展示并去重，停用及无效编码自动过滤；不足时不随机补齐，空数组仅显示数量。
+示例配置不影响正式目录、语义匹配及查询权限。修改部署环境配置后重启后端生效。
+目录当前没有可复用分类字段，因此首版不生成类别或假设业务覆盖日期；实际数据需查询确认。
+无数据库结构变更，不依赖真实数据湖取数，未添加跨用户摘要缓存。

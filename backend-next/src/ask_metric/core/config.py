@@ -113,6 +113,10 @@ class Settings(BaseSettings):
     )
     # 仅扩展列出的可信用户查询范围，不授予任何管理权限。
     all_organization_user_ids: list[str] = Field(default_factory=list)
+    catalog_overview_metric_codes: list[str] = Field(default_factory=lambda: [
+        "ORG_PSON_DEPT_BAL", "ORG_PSON_DEDMDPT_BAL", "ORG_BAD_LOAN_BAL",
+        "ITRBNK_FINC_ORG_QTY",
+    ], max_length=100)
     sql_echo: bool = False
     backend_next_allow_schema_changes: bool = False
     backend_next_allow_non_test_database: bool = False

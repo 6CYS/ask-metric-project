@@ -3,6 +3,22 @@ import type { MetricAskDetails } from "./agentApi"
 
 // 仅解析格式并提取文字，最终由 Vue 文本插值展示，不执行 HTML 或加载图片。
 const markdown = new MarkdownIt({ html: false, linkify: false })
+export interface CatalogOverviewDetails {
+  kind: "catalog_overview"
+  status: "succeeded"
+  catalog: "metrics" | "organizations"
+  total: number
+  examples: Array<{ name: string; unit?: string | null }>
+}
+
+export function catalogOverviewReply(overview: CatalogOverviewDetails): string {
+  const subject = overview.catalog === "metrics" ? "启用指标" : "当前账号可查询的机构"
+  const examples = overview.examples.map(item => item.name).join("、")
+  return `目录中有 ${overview.total} 个${subject}。`
+    + (examples ? `\n部分示例：${examples}。` : "")
+    + "\n目录存在不代表指定机构和日期有数据，具体情况需查询确认。"
+    + (overview.catalog === "metrics" ? "你可以输入指标名称检索，或描述查询需求。" : "你可以输入机构名称进一步检索。")
+}
 export function replyText(value: string): string {
   const lines: string[] = []
   for (const token of markdown.parse(value, {})) {

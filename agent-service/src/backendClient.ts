@@ -1,3 +1,4 @@
+import type { CatalogOverview } from "./catalogOverview.js";
 /**
  * FastAPI 后端客户端：agent 的业务取数只经由这里的受治理接口，
  * 每次调用透传当前用户的 Bearer，由后端完成目录校验、权限裁剪与模板化 SQL。
@@ -171,6 +172,10 @@ export class BackendClient {
 
   getMe(): Promise<BackendUser> {
     return this.request<BackendUser>("/api/v1/auth/me");
+  }
+
+  catalogOverview(catalog: "metrics" | "organizations", limit: number): Promise<CatalogOverview> {
+    return this.request(`/api/v1/catalog/overview?catalog=${catalog}&limit=${limit}`);
   }
 
   listMetrics(): Promise<{ items: MetricCatalogItem[] }> {

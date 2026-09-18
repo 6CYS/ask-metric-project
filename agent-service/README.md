@@ -32,10 +32,19 @@ npm run dev            # 默认 127.0.0.1:8020
 
 ## Agent 工具
 
+- `catalog_overview`：介绍可查询哪些指标或机构，一次读取受权限约束的目录摘要。
+
 - `metric_ask`：提交问题→语义解析→执行查询的完整受治理链路（`/api/v1/questions` + `/analyze` + `/execute`）。
 - `metric_catalog_search` / `org_catalog_search`：正式指标/机构目录检索（`/api/v1/catalog/...`）。
 - `metric_query_structured`：用正式编码和明确日期调用 `/api/v1/basic-queries`。
 - `metric_calculate`：将当前提问的数据引用与表达式交给后端计算，页面直接展示结果及来源。
+
+目录概览调用 `GET /api/v1/catalog/overview?catalog=metrics|organizations&limit=8`，
+示例上限为 20。它不接受搜索词；具体名称使用目录检索工具，取数使用查询工具。
+纯目录概览由前端根据工具结果生成中文介绍，实时与历史共用；组合取数任务仍继续执行，
+不会因概览强制结束。概览不证明某机构、日期存在数据，也不推断分类、更新频率或覆盖期。
+后端 `CATALOG_OVERVIEW_METRIC_CODES` 可配置代表性指标，详见后端 README。
+升级需同步后端、Agent 和前端，无数据库迁移；旧历史缺少概览结果时保持原展示。
 
 同一会话的消息和工具结果交给 harness 理解追问，沿用已确认条件，本轮明确条件优先；调用后端时提交完整问题。待澄清任务按任务与澄清编号补充。Agent 会话与后端会话关联，删除和自动
 清理同时清理后端结果，失败可重试。参数、限制和升级说明见

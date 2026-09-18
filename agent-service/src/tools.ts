@@ -1,3 +1,4 @@
+import { createCatalogOverviewTool } from "./catalogOverview.js";
 import { clarificationAnswer, type ClarificationSelection } from "./clarification.js";
 /**
  * Agent 业务工具：通过 BackendClient 调用 FastAPI 受治理接口。
@@ -394,6 +395,7 @@ export function createStructuredQueryTool(
 
 export function createAskMetricTools(client: BackendClient, context?: QueryToolContext): AgentTool<any, any>[] {
   return [
+    createCatalogOverviewTool(client),
     createStructuredQueryTool(client, context),
     createMetricAskTool(client, context),
     createMetricCatalogSearchTool(client),
