@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { replyText, governedReply } from "@/lib/replyPresentation"
 import type { AgentClarificationSelection } from "@/lib/agentApi"
 import { AlertTriangle, Bot, Check, Copy, Ellipsis, LoaderCircle, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Trash2 } from "@lucide/vue"
 import { computed, nextTick, onActivated, onMounted, ref, watch } from "vue"
@@ -296,7 +297,7 @@ function responseFromMetricAsk(details: MetricAskDetails, answer: string): ChatR
   return {
     message_id: details.task_id ?? createId(),
     intent: "metric_query",
-    answer: answer.trim() || (rowCount ? `查询完成，找到 ${rowCount} 条记录。` : "查询完成，暂无匹配数据。"),
+    answer: governedReply(details) ?? (answer.trim() || (rowCount ? `查询完成，找到 ${rowCount} 条记录。` : "查询完成，暂无匹配数据。")),
     result: rowCount <= 100 && columns.length ? { type: "metric_query", table: { columns, rows } } : null,
     metric_definition: null,
     clarification: null,
@@ -336,8 +337,9 @@ function finalizeAssistantMessage(chatMessage: DisplayMessage): DisplayMessage {
   if (details && details.status === "succeeded") {
     return { ...chatMessage, response: responseFromMetricAsk(details, chatMessage.content) }
   }
-  if (details && details.status === "unsupported" && !chatMessage.content.trim()) {
-    return { ...chatMessage, content: "当前能力暂不支持该查询，请调整问题后重试。" }
+  const fixed = governedReply(details)
+  if (fixed !== undefined) {
+    return { ...chatMessage, content: fixed }
   }
   return chatMessage
 }
@@ -404,7 +406,7 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
       if (details.status === "clarification_required" && details.clarification) {
         last.response = archiveClarificationResponse(clarificationResponse(details.clarification, details.clarification_prompt ?? details.clarification.prompt))
         last.content = last.response?.answer ?? last.content
-      } else if (details.status === "succeeded") {
+      } else {
         last.metricAskDetails = details
       }
     }
@@ -412,11 +414,14 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
   // 结果表在最终助手文本合并完成后再构造，保证回答与表格一致。
   return {
     messages: messages.map((item) => {
-      if (item.role !== "assistant" || !item.metricAskDetails) return item
+      if (item.role !== "assistant") return item
+      if (!item.metricAskDetails) return item.response ? item : finalizeAssistantMessage(item)
       const details = item.metricAskDetails
       const { metricAskDetails, ...rest } = item
       void metricAskDetails
-      return { ...rest, response: responseFromMetricAsk(details, item.content) }
+      return details.status === "succeeded"
+        ? { ...rest, response: responseFromMetricAsk(details, item.content) }
+        : { ...rest, content: governedReply(details) ?? item.content }
     }),
   }
 }
@@ -873,9 +878,9 @@ async function scrollToBottom() {
                     <span class="execution-dot size-1.5 rounded-full bg-[#7C9CDB] [animation-delay:320ms]" />
                   </span>
                 </div>
-                <p v-if="chatMessage.status === 'pending' && chatMessage.content" class="whitespace-pre-wrap break-words leading-7">{{ chatMessage.content }}<span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></p>
-                <ChatResultContent v-else-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
-                <p v-else-if="chatMessage.status !== 'pending'" class="whitespace-pre-wrap break-words leading-6">{{ chatMessage.content }}</p>
+                <p v-if="chatMessage.status === 'pending' && chatMessage.content" class="whitespace-pre-wrap break-words leading-7">{{ replyText(chatMessage.metricAskClarificationPrompt ?? chatMessage.metricAskClarification?.prompt ?? governedReply(chatMessage.metricAskDetails) ?? chatMessage.content) }}<span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></p>
+                <ChatResultContent v-else-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :show-data-details="!chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
+                <p v-else-if="chatMessage.status !== 'pending'" class="whitespace-pre-wrap break-words leading-6">{{ replyText(chatMessage.content) }}</p>
                 <CalculationResult v-for="(calculation, index) in chatMessage.calculations" :key="calculation.calculation_id ?? index" :calculation="calculation" />
                 <div v-if="chatMessage.clarification?.fields?.length" class="mt-1">
                   <StructuredClarificationForm :clarification="chatMessage.clarification" />

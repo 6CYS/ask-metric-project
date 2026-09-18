@@ -52,6 +52,8 @@ export interface MetricAskDetails {
   kind: "metric_ask";
   task_id?: string;
   status: string;
+  message?: string | null | undefined;
+  error_code?: string | null | undefined;
   columns?: string[];
   rows?: Record<string, unknown>[];
   row_count?: number;
@@ -66,6 +68,8 @@ export interface StructuredQueryDetails {
   kind: "metric_query_structured";
   task_id?: string;
   status: string;
+  message?: string | null | undefined;
+  error_code?: string | null | undefined;
   columns?: string[];
   rows?: Record<string, unknown>[];
   row_count?: number;
@@ -85,7 +89,9 @@ function backendErrorResult(error: unknown): AgentToolResult<MetricAskDetails> |
   if (!(error instanceof BackendApiError)) return undefined;
   if (error.status === 401 || error.status === 403) {
     // 账号单会话机制下旧令牌会失效；给模型明确的用户引导，不暴露原始状态码
-    return errorResult("当前登录状态已失效，请提示用户刷新页面重新登录后再提问。");
+    const result = errorResult("当前请求未通过身份或权限校验，请重新登录或核对查询权限。");
+    result.details.error_code = error.status === 401 ? "AUTH_REQUIRED" : "PERMISSION_DENIED";
+    return result;
   }
   return errorResult(`后端请求失败（${error.status}）：${error.message}`);
 }
@@ -173,6 +179,8 @@ export function createMetricAskTool(client: BackendClient, context?: QueryToolCo
             kind: "metric_ask",
             task_id: executed.task_id,
             status: executed.status,
+            message: executed.message,
+            error_code: executed.error_code,
             columns: executed.columns,
             rows: executed.rows,
             row_count: executed.row_count,
@@ -365,6 +373,8 @@ export function createStructuredQueryTool(
             kind: "metric_query_structured",
             task_id: result.task_id,
             status: result.status,
+            message: result.message,
+            error_code: result.error_code,
             columns: result.columns,
             rows: result.rows,
             row_count: result.row_count,
@@ -374,7 +384,7 @@ export function createStructuredQueryTool(
       } catch (error) {
         const handled = backendErrorResult(error);
         if (handled) {
-          return { ...handled, details: { kind: "metric_query_structured" as const, status: "error" } };
+          return { ...handled, details: { ...handled.details, kind: "metric_query_structured" as const, status: "error" } };
         }
         throw error;
       }

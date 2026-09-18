@@ -58,6 +58,8 @@ export interface MetricAskDetails {
   rows?: Record<string, unknown>[]
   row_count?: number
   truncated?: boolean
+  message?: string | null
+  error_code?: string | null
   clarification_prompt?: string
   /** 后端结构化澄清对象原样透传，供前端渲染澄清表单。 */
   clarification?: BackendNextClarification | null

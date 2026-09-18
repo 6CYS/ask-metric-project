@@ -77,3 +77,5 @@ VITE_BACKEND_NEXT_BASE_URL= npm run build
 接口 `GET /api/v1/catalog/query-runs?page=1&page_size=10` 返回 `items`、`total`、`page`、`page_size`，每页最多 100 条；超出末页时返回最后一页。列表不包含 `state_json`、`trace`、`timings_ms` 或查询计划，详情继续使用 `GET /api/v1/catalog/query-runs/{task_id}`，列表、总数和详情均仅允许查看当前登录账号自己的记录，系统管理员也不例外；同机构其他账号和无归属的历史记录不可见。
 
 模型调用失败、输出截断或未返回有效回答时，聊天显示明确提示；历史恢复保留失败状态，不再显示为空白的成功回复。
+
+查询明细表保留接口原始数值（包括十进制字符串的小数位），不固定两位或四舍五入。成功的工具计算回复通过“查看计算口径和数据来源”展示全部计算输入，不重复展示最后一次中间取数表。
