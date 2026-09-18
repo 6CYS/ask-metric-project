@@ -3,6 +3,7 @@ export const organizationBranding: Record<string, {
   badgeText: string
   optionalDescription?: string
 }> = {
+  "320000000": { shortName: "省联社", badgeText: "省联社" },
   JYRCB: { shortName: "江阴农商行", badgeText: "江阴" },
   HCRCB: { shortName: "海城农商行", badgeText: "海城" },
 }

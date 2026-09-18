@@ -81,11 +81,11 @@ class ScopedOrganizationPermissionService:
         *,
         organization_scope_provider: OrganizationScopeProvider | None = None,
         allow_unscoped_development: bool = False,
-        all_organization_user_ids: set[str] | None = None,
+        all_organization_org_codes: set[str] | None = None,
     ) -> None:
         self.organization_scope_provider = organization_scope_provider
         self.allow_unscoped_development = allow_unscoped_development
-        self.all_organization_user_ids = all_organization_user_ids or set()
+        self.all_organization_org_codes = all_organization_org_codes or set()
 
     def authorize_logical_dsl(
         self, *, actor: ActorContext, logical_dsl: dict[str, Any]
@@ -103,8 +103,8 @@ class ScopedOrganizationPermissionService:
         )
         if not allowed or actor.org_id not in allowed:
             raise PermissionDeniedError("用户所属机构不存在或已停用")
-        # 普通用户的全行查询授权来自服务端配置，不能由请求或模型声明。
-        if actor.user_id in self.all_organization_user_ids and self.organization_scope_provider:
+        # 全行权限属于配置中的省级机构，不再为某个用户 ID 绕过机构边界。
+        if actor.org_id in self.all_organization_org_codes and self.organization_scope_provider:
             allowed = self.organization_scope_provider.all_org_codes()
         requested = list(logical_dsl.get("orgs") or [])
         authorized = dict(logical_dsl)

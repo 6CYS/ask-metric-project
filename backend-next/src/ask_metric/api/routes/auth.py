@@ -67,6 +67,7 @@ class UserResponse(BaseModel):
     org_code: str
     org_name: str
     role_code: str
+    can_query_all_organizations: bool = False
 
 
 class LoginResponse(BaseModel):

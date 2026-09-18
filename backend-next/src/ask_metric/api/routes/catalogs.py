@@ -69,7 +69,7 @@ def get_overview_permissions(
 ) -> ScopedOrganizationPermissionService:
     return ScopedOrganizationPermissionService(
         organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
-        all_organization_user_ids=set(settings.all_organization_user_ids),
+        all_organization_org_codes=set(settings.all_organization_org_codes),
     )
 
 

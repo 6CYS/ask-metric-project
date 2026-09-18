@@ -61,6 +61,7 @@ class AuthenticatedUser:
     org_name: str
     role_code: str
     session_version: int
+    can_query_all_organizations: bool = False
 
 
 class AuthenticationService:
@@ -113,7 +114,9 @@ class AuthenticationService:
                 # 刷新之后再赋值，才能随 commit 落库。
                 user.password_hash = legacy_rehash
             uow.commit()
-        authenticated = _authenticated_user(user, org_name)
+        authenticated = _authenticated_user(
+            user, org_name, user.org_code in self.settings.all_organization_org_codes
+        )
         token, expires_in = create_access_token(
             settings=self.settings,
             claims={
@@ -202,7 +205,9 @@ class AuthenticationService:
                 raise LoginFailedError()
             org_name = _org_name(uow, user.org_code)
             uow.commit()
-        authenticated = _authenticated_user(user, org_name)
+        authenticated = _authenticated_user(
+            user, org_name, user.org_code in self.settings.all_organization_org_codes
+        )
         token, expires_in = create_access_token(
             settings=self.settings,
             claims={
@@ -220,7 +225,10 @@ class AuthenticationService:
             user = uow.users.get(user_id)
             if user is None:
                 return None
-            return _authenticated_user(user, _org_name(uow, user.org_code))
+            return _authenticated_user(
+                user, _org_name(uow, user.org_code),
+                user.org_code in self.settings.all_organization_org_codes,
+            )
 
     def logout(self, user_id: str) -> None:
         with self.uow_factory() as uow:
@@ -242,7 +250,7 @@ def _org_name(uow: SqlAlchemyUnitOfWork, org_code: str) -> str:
     return org_code
 
 
-def _authenticated_user(user, org_name: str) -> AuthenticatedUser:
+def _authenticated_user(user, org_name: str, all_organizations: bool = False) -> AuthenticatedUser:
     return AuthenticatedUser(
         id=user.id,
         username=user.username,
@@ -251,6 +259,8 @@ def _authenticated_user(user, org_name: str) -> AuthenticatedUser:
         org_name=org_name,
         role_code=user.role_code,
         session_version=user.session_version,
+        # 仅供界面区分所属机构与授权范围，业务接口仍独立复核权限。
+        can_query_all_organizations=user.role_code == "SYSTEM_ADMIN" or all_organizations,
     )
 
 
