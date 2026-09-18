@@ -58,13 +58,14 @@ async function handleLogout() {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 overflow-hidden bg-background text-foreground">
+  <div class="flex h-full min-h-0 overflow-hidden bg-background text-foreground [--workspace-header-height:4rem]">
     <!-- 桌面端侧边栏：宽度、留白、边框和动画与原 Next.js 版本逐项对齐。 -->
     <aside
       class="hidden shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 ease-out lg:flex"
       :class="isSidebarCollapsed ? 'w-20' : 'w-64'"
     >
-      <div class="border-b border-sidebar-border py-5" :class="isSidebarCollapsed ? 'px-3' : 'px-5'">
+      <!-- 品牌、会话入口和聊天标题共用高度，折叠时保持分隔线对齐。 -->
+      <div class="flex h-[var(--workspace-header-height)] shrink-0 flex-col justify-center border-b border-sidebar-border" :class="isSidebarCollapsed ? 'px-3' : 'px-5'">
         <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'justify-between gap-3'">
           <!-- 折叠后悬停或键盘聚焦品牌标识，显示展开按钮。 -->
           <div v-if="isSidebarCollapsed" class="group/brand relative size-10">
