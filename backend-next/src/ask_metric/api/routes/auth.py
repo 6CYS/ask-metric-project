@@ -83,8 +83,10 @@ def _response(user: AuthenticatedUser) -> UserResponse:
 
 @router.get("/sm2-public-key", response_model=Sm2PublicKeyResponse)
 def sm2_public_key(
+    response: Response,
     service: Annotated[AuthenticationService, Depends(get_authentication_service)],
 ) -> Sm2PublicKeyResponse:
+    no_store(response)
     return Sm2PublicKeyResponse(public_key=service.sm2_public_key())
 
 
