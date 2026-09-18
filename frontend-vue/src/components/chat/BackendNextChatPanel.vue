@@ -1163,9 +1163,9 @@ async function scrollToBottom() {
 </script>
 
 <template>
-  <section class="grid min-h-0 flex-1 overflow-hidden border bg-background" :class="isHistoryCollapsed ? 'grid-cols-[44px_minmax(0,1fr)] grid-rows-1' : 'grid-rows-[minmax(0,15rem)_minmax(0,1fr)] sm:grid-cols-[240px_minmax(0,1fr)] sm:grid-rows-1 lg:grid-cols-[300px_minmax(0,1fr)]'">
+  <section class="grid min-h-0 flex-1 overflow-hidden border-x border-b bg-background" :class="isHistoryCollapsed ? 'grid-cols-[44px_minmax(0,1fr)] grid-rows-1' : 'grid-rows-[minmax(0,15rem)_minmax(0,1fr)] sm:grid-cols-[240px_minmax(0,1fr)] sm:grid-rows-1 lg:grid-cols-[300px_minmax(0,1fr)]'">
     <aside v-if="!isHistoryCollapsed" class="flex min-h-0 flex-col border-b bg-muted/30 sm:border-r sm:border-b-0">
-      <div class="border-b px-3 py-2.5">
+      <div class="flex h-[var(--workspace-header-height)] shrink-0 items-center border-b px-3">
         <BaseButton variant="outline" class="w-full justify-start border-border/70 bg-background/70 text-foreground shadow-none hover:bg-muted/70" @click="handleNewConversation"><Plus />新建对话</BaseButton>
       </div>
       <div class="flex items-center gap-2 border-b px-3 py-2.5">
@@ -1213,12 +1213,14 @@ async function scrollToBottom() {
         </div>
       </div>
     </aside>
-    <aside v-else class="flex min-h-0 flex-col items-center border-r bg-muted/30 py-2">
+    <aside v-else class="flex min-h-0 flex-col border-r bg-muted/30">
+      <div class="flex h-[var(--workspace-header-height)] shrink-0 items-center justify-center border-b">
       <BaseButton variant="ghost" size="icon" class="text-muted-foreground" title="展开历史对话" aria-label="展开历史对话" @click="isHistoryCollapsed = false"><PanelLeftOpen /></BaseButton>
+      </div>
     </aside>
 
     <div class="flex min-h-0 min-w-0 flex-col">
-      <header class="flex min-h-14 items-center border-b px-4 py-3">
+      <header class="flex h-[var(--workspace-header-height)] shrink-0 items-center border-b px-4">
         <h1 class="min-w-0 truncate text-base font-semibold">{{ activeConversation?.title ?? "指标问数" }}</h1>
       </header>
 

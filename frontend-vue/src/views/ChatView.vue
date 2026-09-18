@@ -12,7 +12,7 @@ const initialMessage = computed(() => typeof route.query.q === "string" ? route.
 </script>
 
 <template>
-  <AppShell full-bleed>
+  <AppShell full-bleed :content-padding="false" content-class-name="px-3 pb-3">
     <BackendNextChatPanel :initial-message="initialMessage" />
   </AppShell>
 </template>
