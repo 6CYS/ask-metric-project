@@ -18,6 +18,24 @@ services:
       options:
         max-size: 10m
         max-file: '3'
+  agent:
+    image: ask-metric-next-agent:${RELEASE_TAG:?set RELEASE_TAG}
+    container_name: ask-metric-next-agent
+    restart: unless-stopped
+    mem_limit: 256m
+    env_file: [./agent.env]
+    volumes:
+      - ./state/agent:/app/data
+    secrets: [config_sm4_key]
+    networks: [web]
+    depends_on:
+      backend:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
   frontend:
     image: ask-metric-next-frontend:${FRONTEND_RELEASE_TAG:-${RELEASE_TAG:?set RELEASE_TAG}}
     container_name: ask-metric-next-frontend
@@ -27,6 +45,8 @@ services:
       - "${WEB_PORT:-18080}:80"
     depends_on:
       backend:
+        condition: service_healthy
+      agent:
         condition: service_healthy
     networks: [web]
     logging:
