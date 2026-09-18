@@ -13,7 +13,7 @@ from ask_metric.application.continuation_tokens import (
     ContinuationTarget,
     ContinuationTokenCodec,
 )
-from ask_metric.application.legacy_analysis import require_query_task
+from ask_metric.application.query_scope import require_current_query_scope
 from ask_metric.application.semantic_workflow import SemanticAdvance, advance_slot_frame
 from ask_metric.application.task_results import TaskCommandResult
 from ask_metric.core.errors import ApplicationError
@@ -24,6 +24,10 @@ from ask_metric.domain.intent_routing import (
     parse_intent_classification,
 )
 from ask_metric.domain.semantic_engine import InvalidSlotFrameError, SemanticEngine
+from ask_metric.domain.semantic_reference import (
+    ReferenceMergeUnsupported,
+    merge_reference_frame,
+)
 from ask_metric.domain.task import (
     QueryTaskStage,
     QueryTaskState,
@@ -68,7 +72,7 @@ class SemanticModelResponseError(ApplicationError):
 
 
 class SemanticTaskApplicationService:
-    """编排问数的独立问题语义解析和当前任务澄清；analyze 指语义解析，不是旧归因。"""
+    """编排问数的独立问题语义解析和当前任务澄清；analyze 指语义解析。"""
     def __init__(
         self,
         *,
@@ -98,54 +102,61 @@ class SemanticTaskApplicationService:
             if task is None:
                 raise SemanticTaskNotFoundError(command.task_id)
             raw_state = task.state_json or {}
-            require_query_task(raw_state, task.query_shape)
+            require_current_query_scope(raw_state)
             _require_version(task, command.expected_version)
             _require_analyzable(task)
             original_question = task.original_question
+            reference = raw_state.get("query_reference")
 
         intent_started = perf_counter()
         intent_raw: dict[str, Any] | None = None
-        try:
-            intent_raw = self.model_service.analyze(
-                prompt="intent_routing",
-                context={
-                    "question": original_question,
-                    "allowed_intents_json": json.dumps(
-                        [item.value for item in RoutedIntent],
-                        ensure_ascii=False,
-                    ),
-                },
-            )
-            intent = parse_intent_classification(intent_raw)
-        except ModelServiceUnavailable as exc:
+        if reference is not None:
+            # 已验证的引用追问：不经过孤立意图路由（"那江阴呢？"离开上下文无法判断），
+            # 直接进入受治理指标语义解析；来源冻结条件在提交时已校验。
+            intent = IntentClassification(intent=RoutedIntent.METRIC_QUERY, confidence=1.0)
+            intent_model_ms = 0
+        else:
+            try:
+                intent_raw = self.model_service.analyze(
+                    prompt="intent_routing",
+                    context={
+                        "question": original_question,
+                        "allowed_intents_json": json.dumps(
+                            [item.value for item in RoutedIntent],
+                            ensure_ascii=False,
+                        ),
+                    },
+                )
+                intent = parse_intent_classification(intent_raw)
+            except ModelServiceUnavailable as exc:
+                intent_model_ms = _elapsed_ms(intent_started)
+                return self._finish_analysis_failure(
+                    command,
+                    original_question,
+                    code=_model_service_error_code(exc),
+                    user_message=_model_service_user_message(exc),
+                    stage=QueryTaskStage.INTENT_ROUTING,
+                    error=exc,
+                    retryable=True,
+                    analyze_started=analyze_started,
+                    intent_model_ms=intent_model_ms,
+                    intent_raw=intent_raw,
+                )
+            except (InvalidModelResponse, InvalidIntentClassification) as exc:
+                intent_model_ms = _elapsed_ms(intent_started)
+                return self._finish_analysis_failure(
+                    command,
+                    original_question,
+                    code="INTENT_ROUTING_INVALID",
+                    user_message="问题意图识别结果无效，请重新提问或稍后重试。",
+                    stage=QueryTaskStage.INTENT_ROUTING,
+                    error=exc,
+                    retryable=True,
+                    analyze_started=analyze_started,
+                    intent_model_ms=intent_model_ms,
+                    intent_raw=intent_raw,
+                )
             intent_model_ms = _elapsed_ms(intent_started)
-            return self._finish_analysis_failure(
-                command,
-                original_question,
-                code=_model_service_error_code(exc),
-                user_message=_model_service_user_message(exc),
-                stage=QueryTaskStage.INTENT_ROUTING,
-                error=exc,
-                retryable=True,
-                analyze_started=analyze_started,
-                intent_model_ms=intent_model_ms,
-                intent_raw=intent_raw,
-            )
-        except (InvalidModelResponse, InvalidIntentClassification) as exc:
-            intent_model_ms = _elapsed_ms(intent_started)
-            return self._finish_analysis_failure(
-                command,
-                original_question,
-                code="INTENT_ROUTING_INVALID",
-                user_message="问题意图识别结果无效，请重新提问或稍后重试。",
-                stage=QueryTaskStage.INTENT_ROUTING,
-                error=exc,
-                retryable=True,
-                analyze_started=analyze_started,
-                intent_model_ms=intent_model_ms,
-                intent_raw=intent_raw,
-            )
-        intent_model_ms = _elapsed_ms(intent_started)
 
         if intent.intent is not RoutedIntent.METRIC_QUERY:
             return self._finish_intent_boundary(
@@ -170,6 +181,7 @@ class SemanticTaskApplicationService:
                 organizations=organizations,
                 config=config,
                 current_date=current_date,
+                reference_context=reference,
             )
         except ModelServiceUnavailable as exc:
             return self._finish_analysis_failure(
@@ -250,13 +262,36 @@ class SemanticTaskApplicationService:
                 "question": original_question,
                 "semantic": analysis.debug,
             })
+            advance_input = analysis.slot_frame
+            resolved_time_override = None
+            if reference is not None:
+                # 引用追问：以冻结来源为底稿做单字段合并；超出范围明确失败，不静默降级
+                try:
+                    merged = merge_reference_frame(reference, analysis.slot_frame)
+                    advance_input = merged.frame
+                    resolved_time_override = merged.resolved_time
+                except ReferenceMergeUnsupported as exc:
+                    return self._finish_analysis_failure(
+                        command,
+                        original_question,
+                        code="REFERENCE_MODIFICATION_UNSUPPORTED",
+                        user_message=str(exc),
+                        stage=QueryTaskStage.VALIDATION,
+                        error=exc,
+                        retryable=False,
+                        analyze_started=analyze_started,
+                        intent=intent,
+                        intent_raw=intent_raw,
+                        intent_model_ms=intent_model_ms,
+                    )
             advance = advance_slot_frame(
-                analysis.slot_frame,
+                advance_input,
                 metrics=metrics,
                 organizations=organizations,
                 config=config,
                 today=current_date,
                 metric_candidates=analysis.metric_candidates,
+                resolved_time_override=resolved_time_override,
             )
             state.metric_matches = [
                 item.model_dump(mode="json") for item in analysis.metric_matches
@@ -277,7 +312,7 @@ class SemanticTaskApplicationService:
                 "selected_pipeline": "SINGLE_TURN_QUERY",
                 "dsl_source": "single_turn_semantic.logical_dsl",
                 "single_turn_semantic_executed": True,
-                "reason": "INDEPENDENT_QUESTION",
+                "reason": "QUERY_REFERENCE" if reference is not None else "INDEPENDENT_QUESTION",
             }
             executable_dsl_ready = advance.logical_dsl is not None
             next_status = (
@@ -777,8 +812,13 @@ def _intent_boundary_message(intent: RoutedIntent) -> tuple[str, str]:
             "这不属于问数问题。当前系统仅支持经营指标问数，暂不支持闲聊或其他类型的问题。",
             "NON_METRIC_QUERY_UNSUPPORTED",
         )
+    if intent is RoutedIntent.ATTRIBUTION_ANALYSIS:
+        return (
+            "已识别为归因分析。当前版本暂不支持机构贡献度归因，也不支持解读涨跌的"
+            "业务动因；可改用指标取值、两期对比或机构排名查询。",
+            "INTENT_NOT_AVAILABLE",
+        )
     labels = {
-        RoutedIntent.ATTRIBUTION_ANALYSIS: "归因分析",
         RoutedIntent.ANOMALY_DETECTION: "异常检测",
         RoutedIntent.TREND_FORECAST: "趋势预测",
         RoutedIntent.METRIC_EXPLANATION: "指标解释",

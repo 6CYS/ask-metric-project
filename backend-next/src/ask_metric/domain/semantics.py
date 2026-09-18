@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 class TaskType(StrEnum):
     METRIC_QUERY = "metric_query"
-    ATTRIBUTION_ANALYSIS = "attribution_analysis"
     ANOMALY_DETECTION = "anomaly_detection"
     TREND_FORECAST = "trend_forecast"
     METRIC_EXPLANATION = "metric_explanation"

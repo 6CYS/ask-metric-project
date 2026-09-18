@@ -75,6 +75,7 @@ def to_logical_dsl(
     organizations: list[OrganizationCatalogItem],
     config: SemanticConfig,
     today: date,
+    resolved_time_override: LogicalTimeRange | None = None,
 ) -> LogicalDSL:
     if frame.missing:
         raise SemanticValidationError(frame.missing, "SlotFrame still requires clarification")
@@ -98,7 +99,12 @@ def to_logical_dsl(
     return LogicalDSL(
         task=frame.task,
         metrics=metric_codes,
-        time=parse_time_expression(frame.time, today=today, default=config.default_time),
+        # 引用追问且时间未变时，沿用来源已确认的规范区间，不以今天重新解释
+        time=(
+            resolved_time_override
+            if resolved_time_override is not None
+            else parse_time_expression(frame.time, today=today, default=config.default_time)
+        ),
         orgs=[org_by_name.get(name, name) for name in frame.orgs],
         dimensions=dimensions,
         filters=filters,
@@ -318,7 +324,6 @@ def _parse_month_count(value: str) -> int:
 
 def query_shape_for(frame: SlotFrame) -> str:
     task_shapes = {
-        "attribution_analysis": "attribution",
         "anomaly_detection": "anomaly",
         "trend_forecast": "forecast",
         "metric_explanation": "metric_explanation",

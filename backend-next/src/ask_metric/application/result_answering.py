@@ -110,7 +110,9 @@ def render_fact_answer(
 def _build_facts(
     rows: list[dict[str, Any]],
     *,
-    source: Literal["query_result", "period_comparison", "entity_comparison"],
+    source: Literal[
+        "query_result", "period_comparison", "entity_comparison"
+    ],
 ) -> list[ResultFact]:
     facts = []
     for index, row in enumerate(rows):

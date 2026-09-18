@@ -100,7 +100,10 @@ class SemanticEngine:
         organizations: list[OrganizationCatalogItem],
         config: SemanticConfig,
         current_date: date,
+        reference_context: dict[str, Any] | None = None,
     ) -> SemanticAnalysis:
+        """抽取候选槽位。reference_context 只由后端构建（已校验来源的冻结条件），
+        供模型理解“那江阴呢？”一类追问；合并与字段边界由后端代码执行。"""
         total_started = perf_counter()
         timings_ms: dict[str, int] = {}
         debug: dict[str, Any] = {
@@ -153,7 +156,9 @@ class SemanticEngine:
                 }
                 for item in organizations
             ],
-            "existing_slot_frame": None,  # 兼容旧模板占位符，不注入其他任务的槽位。
+            "existing_slot_frame": (
+                reference_context["source_slots"] if reference_context else None
+            ),
         }
         chat_started = perf_counter()
         raw = self.model_service.analyze(

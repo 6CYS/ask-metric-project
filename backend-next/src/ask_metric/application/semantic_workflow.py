@@ -19,6 +19,7 @@ from ask_metric.domain.semantic_normalization import (
 )
 from ask_metric.domain.semantics import (
     LogicalDSL,
+    LogicalTimeRange,
     MetricCatalogItem,
     OrganizationCatalogItem,
     SemanticPatch,
@@ -51,10 +52,17 @@ def advance_slot_frame(
     config: SemanticConfig,
     today: date,
     metric_candidates: list[MetricCatalogItem] | None = None,
+    resolved_time_override: LogicalTimeRange | None = None,
 ) -> SemanticAdvance:
-    """把候选槽位推进到“待补充”或 LogicalDSL；缺失/非法日期必须澄清，不能猜值。"""
+    """把候选槽位推进到“待补充”或 LogicalDSL；缺失/非法日期必须澄清，不能猜值。
+
+    resolved_time_override 只由经过校验的引用适配设置（追问未修改时间时
+    沿用来源规范区间）；此时不再按今天校验/解析 frame.time。
+    """
     normalized = normalize_slot_frame(frame, metrics=metrics, organizations=organizations)
-    if normalized.time:
+    if resolved_time_override is not None:
+        normalized.options.pop("missing_time_reason", None)
+    elif normalized.time:
         try:
             parse_time_expression(normalized.time, today=today, default=config.default_time)
             normalized.options.pop("missing_time_reason", None)
@@ -67,7 +75,12 @@ def advance_slot_frame(
     # 必填项缺失与指标歧义是两类问题，都写入 missing，复用同一澄清与恢复流程。
     if normalized.task.value == "metric_query":
         for slot in config.required_slots:
-            if slot == "time" and not normalized.time and slot not in normalized.missing:
+            if (
+                slot == "time"
+                and not normalized.time
+                and resolved_time_override is None
+                and slot not in normalized.missing
+            ):
                 normalized.missing.append(slot)
             elif (
                 slot == "orgs"
@@ -116,6 +129,7 @@ def advance_slot_frame(
         organizations=organizations,
         config=config,
         today=today,
+        resolved_time_override=resolved_time_override,
     )
     return SemanticAdvance(
         slot_frame=normalized,

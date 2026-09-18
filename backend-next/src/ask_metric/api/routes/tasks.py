@@ -4,11 +4,11 @@
 幂等键用于识别同一次操作的重试。二者不能互相替代。
 """
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ask_metric.api.dependencies import (
     get_actor_provider,
@@ -24,7 +24,9 @@ from ask_metric.application.channel_service import ChannelClarificationService
 from ask_metric.application.commands import (
     AnalyzeSemanticCommand,
     CancelClarificationCommand,
+    CancelTaskCommand,
     ExecuteQueryCommand,
+    QueryReference,
     SubmitClarificationCommand,
     SubmitQuestionCommand,
 )
@@ -42,12 +44,23 @@ from ask_metric.application.task_results import (
     ConversationListItem,
     ConversationSnapshot,
     TaskCommandResult,
+    TaskResultPage,
 )
 from ask_metric.application.task_service import QueryTaskApplicationService
 from ask_metric.domain.basic_query import BasicQuerySpec
 from ask_metric.domain.query_execution import QueryExecutionResult
 
 router = APIRouter(prefix="/api/v1", tags=["query-tasks"])
+
+
+class QueryReferencePayload(BaseModel):
+    """单来源追问引用：仅机构或日期的单字段替换；后端校验归属/版本/权限。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str = Field(min_length=1, max_length=128)
+    version: int = Field(ge=0)
+    change_field: Literal["orgs", "time"]
 
 
 class SubmitQuestionRequest(BaseModel):
@@ -59,6 +72,8 @@ class SubmitQuestionRequest(BaseModel):
     external_message_id: str | None = None
     reply_to_external_message_id: str | None = None
     reply_to_task_id: str | None = Field(default=None, min_length=1, max_length=128)
+    # 可选单来源追问引用；缺省为空时旧请求语义不变
+    query_reference: QueryReferencePayload | None = None
     identity_claims: UntrustedIdentityClaims | None = None
     business_context: dict[str, Any] = Field(default_factory=dict)
     channel_context: dict[str, Any] = Field(default_factory=dict)
@@ -183,11 +198,21 @@ def submit_question(
         debug=payload.debug,
     )
     actor = actor_provider.resolve(incoming)
+    reference = (
+        QueryReference(
+            task_id=payload.query_reference.task_id,
+            version=payload.query_reference.version,
+            change_field=payload.query_reference.change_field,
+        )
+        if payload.query_reference is not None
+        else None
+    )
     return service.submit_question(
         SubmitQuestionCommand(
             request=incoming,
             actor=actor,
             idempotency_key=incoming.idempotency_key or request_id,
+            query_reference=reference,
         )
     )
 
@@ -337,6 +362,17 @@ def submit_channel_clarification(
     return task_service.submit_clarification(command)
 
 
+@router.get("/query-tasks/lookup", response_model=TaskCommandResult)
+def lookup_query_task(
+    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
+    actor: Annotated[ActorContext, Depends(require_actor)],
+    conversation_id: Annotated[str, Query(min_length=1, max_length=128)],
+    submission_key: Annotated[str, Query(min_length=1, max_length=128)],
+) -> TaskCommandResult:
+    """只读找回：提交成功但响应丢失时按会话与提交键定位，未找到不新建任务。"""
+    return service.lookup_task(conversation_id, submission_key, actor)
+
+
 @router.get("/query-tasks/{task_id}", response_model=TaskCommandResult)
 def get_query_task(
     task_id: str,
@@ -344,6 +380,47 @@ def get_query_task(
     actor: Annotated[ActorContext, Depends(require_actor)],
 ) -> TaskCommandResult:
     return service.get_task(task_id, actor)
+
+
+@router.get("/query-tasks/{task_id}/result", response_model=TaskResultPage)
+def get_query_task_result(
+    task_id: str,
+    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
+    actor: Annotated[ActorContext, Depends(require_actor)],
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+) -> TaskResultPage:
+    """统一结果读取：校验归属后返回不可变快照的分页事实，未就绪/缺快照明确报错。"""
+    return service.get_task_result(task_id, actor, offset=offset, limit=limit)
+
+
+class CancelTaskRequest(BaseModel):
+    expected_version: int = Field(ge=0)
+
+
+@router.post("/query-tasks/{task_id}/cancel", response_model=TaskCommandResult)
+def cancel_query_task(
+    task_id: str,
+    payload: CancelTaskRequest,
+    request: Request,
+    actor_provider: Annotated[ActorProvider, Depends(get_actor_provider)],
+    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
+) -> TaskCommandResult:
+    """通用逻辑取消：复用幂等记录与乐观锁；不承诺数据库驱动即时停止 SQL。"""
+    incoming = IncomingRequest(
+        request_id=request.state.request_id,
+        channel="web",
+        text="cancel-task",
+    )
+    actor = actor_provider.resolve(incoming)
+    return service.cancel_task(
+        CancelTaskCommand(
+            task_id=task_id,
+            expected_version=payload.expected_version,
+            actor=actor,
+            request_id=request.state.request_id,
+        )
+    )
 
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationSnapshot)

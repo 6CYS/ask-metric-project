@@ -1,8 +1,17 @@
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from ask_metric.application.requests import ActorContext, IncomingRequest
 from ask_metric.domain.basic_query import BasicQuerySpec
+
+
+@dataclass(frozen=True)
+class QueryReference:
+    """单来源追问引用：仅允许机构或日期的单字段替换，由后端校验后冻结。"""
+
+    task_id: str
+    version: int
+    change_field: Literal["orgs", "time"]
 
 
 @dataclass(frozen=True)
@@ -11,6 +20,7 @@ class SubmitQuestionCommand:
     actor: ActorContext
     idempotency_key: str
     basic_query: BasicQuerySpec | None = None
+    query_reference: QueryReference | None = None
 
 
 @dataclass(frozen=True)
@@ -60,5 +70,15 @@ class CancelClarificationCommand:
     task_id: str
     expected_version: int
     clarification_id: str
+    actor: ActorContext
+    request_id: str
+
+
+@dataclass(frozen=True)
+class CancelTaskCommand:
+    """通用逻辑取消：RUNNING/WAITING_USER 任务取消，不承诺数据库驱动即时停止 SQL。"""
+
+    task_id: str
+    expected_version: int
     actor: ActorContext
     request_id: str

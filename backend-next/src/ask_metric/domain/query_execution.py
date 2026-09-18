@@ -70,8 +70,6 @@ class QueryExecutionResult(BaseModel):
     timings_ms: dict[str, int] = Field(default_factory=dict)
     debug: dict[str, Any] = Field(default_factory=dict)
     evidence: dict[str, Any] = Field(default_factory=dict)
-    # Read-only compatibility with persisted reports from the retired prototype.
-    analysis: dict[str, Any] | None = None
 
 
 class QueryPlanError(ValueError):
@@ -79,7 +77,11 @@ class QueryPlanError(ValueError):
 
 
 class UnsupportedQueryError(QueryPlanError):
-    pass
+    """查询条件超出受治理能力；public_message 为开发方可控的对用户说明。"""
+
+    def __init__(self, message: str, *, public_message: str | None = None) -> None:
+        super().__init__(message)
+        self.public_message = public_message
 
 
 class QueryPlanner:

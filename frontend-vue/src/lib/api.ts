@@ -405,6 +405,31 @@ export function exportBackendNextTaskResult(taskId: string) {
   return downloadAuthenticated(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}/result-export`), "查询结果.xlsx")
 }
 
+/** 不可变查询结果的分页视图（GET /query-tasks/{id}/result）；完整事实只从后端读取 */
+export interface BackendTaskResultPage {
+  task_id: string
+  result_id: string
+  status: string
+  columns: string[]
+  rows: Record<string, unknown>[]
+  comparisons: Record<string, unknown>[]
+  row_count: number
+  truncated: boolean
+  offset: number
+  limit: number
+  next_offset: number | null
+  has_more: boolean
+  message?: string | null
+}
+
+export function getBackendTaskResult(taskId: string, offset = 0, limit = 100) {
+  const query = new URLSearchParams({ offset: String(offset), limit: String(limit) })
+  return request<BackendTaskResultPage>(
+    apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}/result?${query}`),
+    { cache: "no-store" }
+  )
+}
+
 export function getCachedMetricCatalog() {
   return getAccessToken() ? metricCatalogCache.read(listBackendNextMetrics) : listBackendNextMetrics()
 }

@@ -219,6 +219,9 @@ class SitCatalogSyncService:
         snapshot_date: date | None = None,
         aliases_by_code: dict[str, list[str]] | None = None,
         strict_scope: bool = False,
+        include_branch_level: bool = False,
+        branch_hier_code: str = "2",
+        parent_field: str = "",
     ) -> SyncSummary:
         _validate_table_name(source_table)
         _validate_field_name(snapshot_field)
@@ -229,11 +232,28 @@ class SitCatalogSyncService:
             hierarchy_field,
         ):
             _validate_field_name(source_field)
+        if include_branch_level:
+            # 支行层级扩展：上级字段名来自配置（由 verify_org_hierarchy.py 核实），
+            # 未配置时拒绝扩展，避免静默写入空层级。
+            _validate_field_name(branch_hier_code)
+            if not parent_field:
+                raise ValueError("启用支行层级扩展必须配置 SIT_ORG_PARENT_FIELD")
+            _validate_field_name(parent_field)
+        # 默认范围保持现行 1/3 层级 61 家；扩展时额外纳入支行层级，
+        # 并多读层级与上级字段用于写入 org_terms 层级列。
+        extra_columns = (
+            f", {hierarchy_field} AS org_hier_code, {parent_field} AS parent_org_no"
+            if include_branch_level
+            else ""
+        )
+        branch_condition = (
+            f" OR {hierarchy_field} = :branch_hier_code" if include_branch_level else ""
+        )
         rows = _read_rows(
             source_engine,
             f"SELECT {org_code_field} AS org_no, "
             f"{org_name_field} AS org_chn_nm, "
-            f"{snapshot_field} AS source_load_date FROM {source_table} "
+            f"{snapshot_field} AS source_load_date{extra_columns} FROM {source_table} "
             f"WHERE {snapshot_field} = "
             + (":snapshot_date " if snapshot_date else
                f"(SELECT MAX({snapshot_field}) FROM {source_table}) ")
@@ -242,7 +262,7 @@ class SitCatalogSyncService:
             f"AND {corporation_code_field} <> :excluded_corporation_code "
             f"AND (({hierarchy_field} = :legal_entity_hier_code "
             f"AND {corporation_code_field} <> :head_office_corporation_code) "
-            f"OR {hierarchy_field} = :head_office_hier_code)",
+            f"OR {hierarchy_field} = :head_office_hier_code{branch_condition})",
             {
                 "snapshot_date": snapshot_date.isoformat() if snapshot_date else None,
                 "corporation_code_max": corporation_code_max,
@@ -250,6 +270,7 @@ class SitCatalogSyncService:
                 "head_office_corporation_code": head_office_corporation_code,
                 "legal_entity_hier_code": legal_entity_hier_code,
                 "head_office_hier_code": head_office_hier_code,
+                "branch_hier_code": branch_hier_code,
             },
         )
         selected, skipped = _select_latest(rows, "org_no", ["source_load_date"])
@@ -272,7 +293,16 @@ class SitCatalogSyncService:
                 for alias in aliases
             ):
                 raise ValueError("机构别名必须为非空文本列表，每项不超过255字符")
-        if len(selected) != expected_count:
+        if include_branch_level:
+            # 扩展模式纳入支行，总数随数据湖支行数变化：只要求不少于
+            # 现行 1/3 层级范围（expected_count），缺失任一现有机构仍视为异常。
+            if len(selected) < expected_count:
+                raise RuntimeError(
+                    "Organization catalog scope returned "
+                    f"{len(selected)} rows; expected at least {expected_count} "
+                    "(branch level included). No application catalog data was written."
+                )
+        elif len(selected) != expected_count:
             raise RuntimeError(
                 "Organization catalog scope returned "
                 f"{len(selected)} rows; expected {expected_count}. "
@@ -308,6 +338,14 @@ class SitCatalogSyncService:
                     *(term.aliases or []), *(alias.strip() for alias in additions.get(code, [])),
                 ]))
                 term.enabled = True
+                if include_branch_level:
+                    # 扩展模式写入真实层级：上级机构编码（汇总节点无上级置空）
+                    # 与 org_hier_code 层级值；默认模式不动这两列，保持全 NULL。
+                    parent = str(row.get("parent_org_no") or "").strip()
+                    if len(parent) > 128:
+                        raise ValueError("上级机构编码超长，未写入应用库")
+                    term.parent_org_code = parent or None
+                    term.hierarchy_level = str(row.get("org_hier_code") or "").strip() or None
                 after = _org_state(term)
                 if created:
                     summary.created += 1
@@ -516,4 +554,10 @@ def _metric_state(term: MetricTerm) -> tuple[Any, ...]:
 
 
 def _org_state(term: OrgTerm) -> tuple[Any, ...]:
-    return (term.org_name, tuple(term.aliases or []), term.enabled)
+    return (
+        term.org_name,
+        tuple(term.aliases or []),
+        term.enabled,
+        term.parent_org_code,
+        term.hierarchy_level,
+    )

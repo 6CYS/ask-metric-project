@@ -49,6 +49,8 @@ Bearer 认证，必填 `Idempotency-Key`（1～128 字符）。仍受查询就�
 | `exact` | 指定日原值，起止必须同日；缺数不向前回退 |
 | `latest_in_range` | 各指标、各机构在指定范围内最后一个可用日期的原值，不代表平均值或求和 |
 | `all_in_range` | 范围内已有数据点的原值，复用趋势取数模板，不补零或自动聚合 |
+| `ranking` | 排名榜单/名次反查：`org_codes` 至多一个范围机构（空数组=层级根节点），候选集合为其直接下级并按当前用户权限取交集；起止同日按当日排名，区间按范围内最新一期排名；`order`（asc/desc，缺省 desc）与 `top_n`（1～100，缺省 5）仅本模式可用；结果行带机构、数值与名次 |
+
 
 响应为 `{"query": <规范化请求>, "result": <QueryExecutionResult>}`。
 `result` 保留 `task_id`、`run_id`、`status`、`rows`、`columns`、`row_count`、`truncated`、
@@ -619,6 +621,7 @@ RESULT_FORMATTING
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
 | GET | `/api/v1/catalog/metrics` | 登录用户 | 指标、同义词、启停用和向量状态 |
+| GET | `/api/v1/catalog/metrics/search?keyword=&limit=` | 登录用户 | 指标目录检索：确定性命中（exact/contains/lexical）计入`total`，embedding top-k 仅作`semantic_suggestions`近似推荐 |
 | POST | `/api/v1/catalog/metrics` | 系统管理员 | 新增指标，自动触发向量同步 |
 | PUT | `/api/v1/catalog/metrics/{metric_code}` | 系统管理员 | 修改指标和同义词 |
 | DELETE | `/api/v1/catalog/metrics/{metric_code}` | 系统管理员 | 逻辑停用指标 |
@@ -629,6 +632,7 @@ RESULT_FORMATTING
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
 | GET | `/api/v1/catalog/organizations` | 登录用户 | 机构目录 |
+| GET | `/api/v1/catalog/organizations/search?keyword=&limit=` | 登录用户 | 机构目录检索：仅确定性档位（exact/前缀/包含），不做模糊匹配 |
 | POST | `/api/v1/catalog/organizations` | 系统管理员 | 新增机构 |
 | PUT | `/api/v1/catalog/organizations/{org_code}` | 系统管理员 | 修改机构 |
 | DELETE | `/api/v1/catalog/organizations/{org_code}` | 系统管理员 | 逻辑停用机构 |

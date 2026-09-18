@@ -99,6 +99,9 @@ def main(argv: list[str] | None = None) -> None:
             legal_entity_hier_code=settings.sit_org_legal_entity_hier_code,
             head_office_hier_code=settings.sit_org_head_office_hier_code,
             expected_count=settings.sit_org_expected_count,
+            include_branch_level=settings.sit_org_include_branch_level,
+            branch_hier_code=settings.sit_org_branch_hier_code,
+            parent_field=settings.sit_org_parent_field,
             snapshot_date=args.snapshot_date,
             strict_scope=args.strict_scope,
             aliases_by_code=(json.loads(args.org_aliases.read_text(encoding="utf-8"))

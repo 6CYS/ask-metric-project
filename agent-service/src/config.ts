@@ -28,9 +28,15 @@ export interface AgentServiceConfig {
     contextWindow: number;
     maxTokens: number;
   };
-  /** 会话持久化目录（JSON 文件存储，重启后恢复；生产指向持久状态目录） */
+  /** 会话持久化目录（原生 JSONL 存储，重启后恢复；生产指向持久状态目录） */
   dataDir: string;
   maxSessionsPerUser: number;
+  /** 原生压缩配置：仅映射 pi 原生 CompactionSettings 字段，不实现第二套阈值算法 */
+  compaction: {
+    enabled: boolean;
+    reserveTokens: number;
+    keepRecentTokens: number;
+  };
 }
 
 function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -63,6 +69,14 @@ function parseJsonObject(raw: string | undefined, name: string): Record<string, 
   }
 }
 
+function parseBoolean(raw: string | undefined, fallback: boolean, name: string): boolean {
+  if (!raw || !raw.trim()) return fallback;
+  const value = raw.trim().toLowerCase();
+  if (value === "true" || value === "1") return true;
+  if (value === "false" || value === "0") return false;
+  throw new Error(`环境变量 ${name} 必须是 true/false`);
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceConfig {
   // 存在任一密文时必须先加载主密钥；密钥缺失或密文被篡改时拒绝启动
   const sensitiveNames = ["AGENT_MODEL_API_KEY"] as const;
@@ -72,6 +86,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceCo
     isEncryptedConfigValue(value) ? decryptConfigValue(value, masterKey) : value;
 
   const apiKey = resolve(requireEnv(env, "AGENT_MODEL_API_KEY"));
+  const contextWindow = parsePositiveInt(env.AGENT_MODEL_CONTEXT_WINDOW, 128_000, "AGENT_MODEL_CONTEXT_WINDOW");
+  const maxTokens = parsePositiveInt(env.AGENT_MODEL_MAX_TOKENS, 8_192, "AGENT_MODEL_MAX_TOKENS");
+  const compaction = {
+    enabled: parseBoolean(env.AGENT_COMPACTION_ENABLED, true, "AGENT_COMPACTION_ENABLED"),
+    reserveTokens: parsePositiveInt(env.AGENT_COMPACTION_RESERVE_TOKENS, 16_384, "AGENT_COMPACTION_RESERVE_TOKENS"),
+    keepRecentTokens: parsePositiveInt(env.AGENT_COMPACTION_KEEP_RECENT_TOKENS, 20_000, "AGENT_COMPACTION_KEEP_RECENT_TOKENS"),
+  };
+  // 配置一致性检查：压缩与输出预算必须落在模型窗口内，配置不成立时拒绝启动
+  if (maxTokens >= contextWindow) {
+    throw new Error("AGENT_MODEL_MAX_TOKENS 必须小于 AGENT_MODEL_CONTEXT_WINDOW");
+  }
+  if (compaction.enabled && compaction.reserveTokens + compaction.keepRecentTokens >= contextWindow) {
+    throw new Error("AGENT_COMPACTION_RESERVE_TOKENS + AGENT_COMPACTION_KEEP_RECENT_TOKENS 必须小于 AGENT_MODEL_CONTEXT_WINDOW");
+  }
   return {
     host: (env.AGENT_SERVICE_HOST ?? "127.0.0.1").trim() || "127.0.0.1",
     port: parsePositiveInt(env.AGENT_SERVICE_PORT, 8020, "AGENT_SERVICE_PORT"),
@@ -86,10 +114,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceCo
       // .env 中的转义写法（\n、\t）还原为实际控制字符
       userMessageSuffix: (env.AGENT_MODEL_USER_SUFFIX ?? "").replace(/\\n/g, "\n").replace(/\\t/g, "\t"),
       extraBody: parseJsonObject(env.AGENT_MODEL_EXTRA_BODY, "AGENT_MODEL_EXTRA_BODY"),
-      contextWindow: parsePositiveInt(env.AGENT_MODEL_CONTEXT_WINDOW, 128_000, "AGENT_MODEL_CONTEXT_WINDOW"),
-      maxTokens: parsePositiveInt(env.AGENT_MODEL_MAX_TOKENS, 8_192, "AGENT_MODEL_MAX_TOKENS"),
+      contextWindow,
+      maxTokens,
     },
     dataDir: (env.AGENT_DATA_DIR ?? "./data").trim() || "./data",
     maxSessionsPerUser: parsePositiveInt(env.AGENT_MAX_SESSIONS_PER_USER, 20, "AGENT_MAX_SESSIONS_PER_USER"),
+    compaction,
   };
 }

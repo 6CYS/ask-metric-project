@@ -1,11 +1,20 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
-from ask_metric.api.dependencies import require_actor
+from ask_metric.api.dependencies import get_model_service, require_actor
+from ask_metric.application.catalog_search import (
+    CatalogSearchHit,
+    metric_embedding_scores,
+    rank_organizations,
+)
+from ask_metric.application.catalog_search import (
+    search_metrics as rank_metric_catalog,
+)
 from ask_metric.application.requests import ActorContext
+from ask_metric.core.config import PROJECT_DIR
 from ask_metric.infrastructure.db.models import (
     AppUser,
     ChatConversation,
@@ -17,6 +26,8 @@ from ask_metric.infrastructure.db.models import (
     QueryTask,
 )
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
+from ask_metric.infrastructure.model.configuration import resolve_config_path
+from ask_metric.infrastructure.semantic.configuration import SemanticConfigRepository
 
 router = APIRouter(
     prefix="/api/v1/catalog", tags=["catalog"], dependencies=[Depends(require_actor)]
@@ -91,6 +102,68 @@ def list_metrics(
             for item in terms
         ]
     )
+
+
+def _metric_hit_payload(hit: CatalogSearchHit) -> dict[str, object]:
+    return {
+        "metric_code": hit.code,
+        "metric_name": hit.name,
+        "unit": hit.unit,
+        "synonyms": hit.aliases,
+        "score": round(hit.score, 6),
+        "match_type": hit.match_type,
+    }
+
+
+def _org_hit_payload(hit: CatalogSearchHit) -> dict[str, object]:
+    return {
+        "org_code": hit.code,
+        "org_name": hit.name,
+        "aliases": hit.aliases,
+        "score": round(hit.score, 6),
+        "match_type": hit.match_type,
+    }
+
+
+@router.get("/metrics/search")
+def search_metric_catalog(
+    request: Request,
+    keyword: Annotated[str, Query(min_length=1, max_length=200)],
+    uow: Annotated[SqlAlchemyUnitOfWork, Depends(get_uow)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 10,
+) -> dict[str, object]:
+    """指标目录检索：确定性命中计入 total，embedding top-k 只作语义近似推荐。
+
+    目录与语义链路召回语料同源（启用指标），模型与向量缓存复用进程级装配；
+    embedding 未启用时降级为纯词法结果。
+    """
+    settings = request.app.state.settings
+    matching = SemanticConfigRepository(
+        resolve_config_path(PROJECT_DIR, settings.semantic_config_path)
+    ).load().metric_matching
+    with uow:
+        items = uow.metric_catalog.list_enabled()
+    model_service = get_model_service(request)
+    embedding_scores = metric_embedding_scores(
+        keyword,
+        items,
+        model_service=model_service,
+        catalog_vector_cache=request.app.state.catalog_vector_cache,
+        is_embedding_enabled=model_service.is_enabled("embedding"),
+        embedding_top_k=matching.embedding_top_k,
+        batch_size=matching.embedding_batch_size,
+        wait_seconds=matching.embedding_cache_wait_seconds,
+    )
+    result = rank_metric_catalog(
+        keyword, items, embedding_scores=embedding_scores, limit=limit
+    )
+    return {
+        "total": result.total,
+        "items": [_metric_hit_payload(hit) for hit in result.items],
+        "semantic_suggestions": [
+            _metric_hit_payload(hit) for hit in result.semantic_suggestions
+        ],
+    }
 
 
 def _require_system_admin(actor: ActorContext) -> None:
@@ -213,6 +286,25 @@ def list_organizations(
             for item in organizations
         ]
     )
+
+
+@router.get("/organizations/search")
+def search_organization_catalog(
+    keyword: Annotated[str, Query(min_length=1, max_length=200)],
+    uow: Annotated[SqlAlchemyUnitOfWork, Depends(get_uow)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 10,
+) -> dict[str, object]:
+    """机构目录检索：只做确定性档位（exact/前缀/包含），不模糊匹配。
+
+    编码确认要求精确性，无确定性命中时返回空，由调用方走语义链路兜底。
+    """
+    with uow:
+        items = uow.organization_catalog.list_enabled()
+    result = rank_organizations(keyword, items, limit=limit)
+    return {
+        "total": result.total,
+        "items": [_org_hit_payload(hit) for hit in result.items],
+    }
 
 
 def _organization_response(term: OrgTerm) -> dict[str, object]:

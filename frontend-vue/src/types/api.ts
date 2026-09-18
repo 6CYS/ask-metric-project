@@ -195,7 +195,6 @@ export type ClarificationField = {
 
 /** 单次问数的完整响应，既用于最终 SSE 事件，也会原样写入历史消息快照。 */
 export type ChatResponse = {
-  analysis?: AnalysisEvidenceSummary | null
   message_id: string
   conversation_id?: string | null
   intent: string
@@ -276,7 +275,6 @@ export type BackendNextTaskResult = {
 }
 
 export type BackendNextExecutionResult = {
-  analysis?: AnalysisEvidenceSummary | null
   run_id?: number | null
   task_id: string
   status: "succeeded" | "failed" | "unsupported"
@@ -295,26 +293,6 @@ export type BackendNextExecutionResult = {
   idempotent_replay?: boolean
   timings_ms?: Record<string, number>
   debug?: Record<string, unknown>
-}
-
-export type AnalysisEvidenceSummary = {
-  analysis_id: string
-  skill_version: string
-  stop_reason: string
-  gaps: string[]
-  evidence: Array<{
-    evidence_id: string
-    tool: string
-    status: string
-    result_id?: string
-    result_ids?: string[]
-    base_date?: string
-    report_date?: string
-    metric_name?: string
-    metric_code?: string
-    unit?: string
-    rows?: Record<string, unknown>[]
-  }>
 }
 
 export type BackendNextConversationMessage = {

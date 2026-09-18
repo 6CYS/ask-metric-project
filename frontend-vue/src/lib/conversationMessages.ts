@@ -37,11 +37,11 @@ export function activeClarificationMessageIds(messages: BackendNextConversationM
   // 会话可能保留多个旧草稿，输入框只能补充最新任务，不能回退到较早的待澄清任务。
   const current = tasks[tasks.length - 1]
   const retired = current ? isRetiredContextTask(current) : false
-  const waiting = new Set(current?.status === "WAITING_USER" && current.query_shape !== "attribution_analysis" && !retired ? [current.id] : [])
+  const waiting = new Set(current?.status === "WAITING_USER" && !retired ? [current.id] : [])
   const latest = new Map<string, string>()
   for (const message of orderConversationMessages(messages, tasks)) {
     if (message.role === "assistant" && message.payload?.kind === "clarification" && message.task_id && waiting.has(message.task_id)
-      && !["analysis", "multiturn_context", "result_reference"].includes((message.payload.clarification as { type?: string } | undefined)?.type ?? "")) {
+      && !["multiturn_context", "result_reference"].includes((message.payload.clarification as { type?: string } | undefined)?.type ?? "")) {
       latest.set(message.task_id, message.id)
     }
   }

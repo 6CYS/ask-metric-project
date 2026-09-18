@@ -3,7 +3,7 @@
 行内 GoldenDB + 只读 SIT 数据湖的配置、同步与待确认规则见
 [`docs/sit-data-lake.md`](docs/sit-data-lake.md)。
 
-FastAPI 后端负责账号与机构权限、指标目录、会话任务、语义解析、MySQL 模板查询和全过程审计。
+FastAPI 后端负责账号与机构权限、指标目录、会话任务、语义解析、SQL 确定性组装（SQLGlot builder，模板回退）和全过程审计。
 应用元数据连接固定使用 `APP_DATABASE_URL`，经营指标查询固定使用只读
 `QUERY_DATABASE_URL`；后者按配置使用 MySQL 或 Inceptor 查询模板。
 
@@ -97,11 +97,13 @@ FastAPI 后端负责账号与机构权限、指标目录、会话任务、语义
 - 旧 `/multiturn/metrics`、`/multiturn/readiness`、`/multiturn/review-samples` 和任务 `multiturn-review` 接口已移除。
 - 无数据库结构变更。重启后验证独立提问、同任务补日期/选指标、旧结果查看和下载。
 
-## 旧归因原型退出与升级
+## 归因功能退出与升级
 
-当前版本仅维护单次可信问数、当前任务澄清和历史结果查看/导出。原 LangGraph 归因运行器、
-专属 Skill/关系配置、归因模型参数和进度/取消接口已移除；不支持通过开关恢复旧原型。
-归因请求返回 `INTENT_NOT_AVAILABLE`，不会转成普通取值或历史结果读取。
+机构贡献度归因已整体移除：原 LangGraph 归因运行器、专属 Skill/关系配置、归因模型参数和
+进度/取消接口早已退出；后续的受治理归因通道（`metric_attribution` 工具、
+`selection=attribution`、可加性门控与受控计算渲染）也已删除，不支持通过开关恢复。
+归因类请求由意图路由识别后返回 `INTENT_NOT_AVAILABLE`，不会转成普通取值或历史结果读取；
+`/api/v1/basic-queries` 传入旧值 `selection=attribution` 返回 422 参数校验错误。
 `POST /api/v1/query-tasks/{task_id}/analyze` 仍是普通查询的语义解析入口，继续保留。
 
 升级原试验环境时：
@@ -118,14 +120,10 @@ FastAPI 后端负责账号与机构权限、指标目录、会话任务、语义
 3. 重新安装当前依赖并同步部署前后端，重启后验证独立查询、当前任务澄清、历史结果读取与导出。
    前端不再轮询 `analysis-progress` 或调用 `analysis-cancel`，这两个接口返回 404。
 
-旧归因记录和结果保留只读展示与导出，读取时继续检查目标及证据机构权限。
-旧澄清、旧分析及其内部取证任务不能续跑或重新执行，相关命令返回
-`LEGACY_ANALYSIS_READ_ONLY`（409）；请新发起指标查询。
-旧分析记录不参与查询条件解析，前端不再提供其澄清交互。
-
+旧归因记录按普通历史记录查看与导出，不再有只读拦截或证据权限复核
+（`LEGACY_ANALYSIS_READ_ONLY` 已移除），也不参与新查询的条件解析。
 已有 `0003_analysis_checkpoints` 迁移及历史表映射保留，避免破坏既有迁移链；
 普通查询不访问这些归因表。本次升级不执行删表、数据清理或迁移回退。
-未来接入 harness 时复用查询、证据及权限能力，当前没有新的归因运行器。
 
 ## 运行
 
@@ -269,10 +267,12 @@ SSO_SOURCE_SYSTEM=jsrcb
 - 三类模型均支持受校验的 `extra_body` JSON，可透传 `top_p`、`seed` 和厂商扩展参数，
   无需修改请求代码。系统管理的核心字段和鉴权字段不能由 `extra_body` 覆盖。
 
-提示词位于 `config/prompts.json`，SQL 注册表位于 `config/query-templates.json`，MySQL 与
-Inceptor 模板分别位于 `resources/sql/mysql/` 和 `resources/sql/inceptor/`。MySQL 模板保留给
-外网/本地模式；行内设置 `QUERY_DATABASE_DIALECT=inceptor` 后只选择 Inceptor 模板。Inceptor
-模板中的事实表及核心字段均由 `SIT_*` 环境变量渲染，当前行内测试表名只是默认值。生产安装会
+提示词位于 `config/prompts.json`。业务 SQL 默认由查询计划经 SQLGlot builder
+（`src/ask_metric/infrastructure/query/sql_builder.py`）确定性组装并绑定参数；登记模板
+（`config/query-templates.json` 与 `resources/sql/mysql/`、`resources/sql/inceptor/`）在
+`QUERY_SQL_ENGINE=templates` 时作为回退路径保留。MySQL 场景保留给
+外网/本地模式；行内设置 `QUERY_DATABASE_DIALECT=inceptor` 后按 Inceptor 字段映射生成。Inceptor
+场景的事实表及核心字段均由 `SIT_*` 环境变量配置，当前行内测试表名只是默认值。生产安装会
 把这些可编辑文件初始化到持久状态目录，使管理员界面
 可以发布、试跑和回滚且不受版本升级覆盖。
 

@@ -23,12 +23,14 @@ export class AgentSessionNotFoundError extends AgentApiError {
   }
 }
 
+/** 会话条目；legacy 为旧格式只读会话，不可再提问。 */
 export interface AgentSessionItem {
   session_id: string
   title?: string
   created_at: string
   last_active_at: string
   running: boolean
+  legacy?: boolean
 }
 
 /** 历史消息条目：用户提问、助手回答（含调用过的工具名）、工具结果明细。 */
@@ -43,13 +45,18 @@ export interface AgentSessionDetail {
   title?: string
   created_at: string
   running: boolean
+  /** 当前活动原生 operation；重连后用于显式停止 */
+  operation_id?: string | null
+  legacy?: boolean
   messages: AgentSessionMessage[]
 }
 
-/** metric_ask / 结构化查询工具结束时附带的结构化结果；columns/rows 为问数原始数值。 */
+/** metric_ask / 结构化查询工具结束时附带的结构化结果引用；完整明细经后端 result 接口分页读取。 */
 export interface MetricAskDetails {
   kind: "metric_ask" | "metric_query_structured"
   task_id?: string
+  version?: number
+  result_id?: string
   status: string
   columns?: string[]
   rows?: Record<string, unknown>[]
@@ -60,12 +67,28 @@ export interface MetricAskDetails {
   clarification?: BackendNextClarification | null
 }
 
+/** 提问输入（协议 V3）：request_id 由浏览器每次确认发送生成，网络重试不变 */
+export interface AgentPromptInput {
+  request_id: string
+  message: string
+  send_as?: "new_question"
+  clarification_target?: { task_id: string; version: number; clarification_id: string }
+  selected_answers?: Record<string, unknown>
+}
+
 export type AgentStreamEvent =
+  | { type: "accepted"; operation_id?: string; request_id?: string }
   | { type: "text_delta"; delta: string }
-  | { type: "tool_start"; tool: string; args: unknown }
-  | { type: "tool_end"; tool: string; details: unknown; isError: boolean }
+  | { type: "tool_start"; tool: string; tool_call_id?: string }
+  | { type: "tool_end"; tool: string; tool_call_id?: string; details: unknown; isError: boolean }
   | { type: "message_done"; text: string }
-  | { type: "done"; message?: string }
+  | {
+      type: "run_terminal"
+      run_status: string
+      answer_status: string
+      error_code?: string | null
+      business_tasks?: Array<{ task_id: string; result_id?: string }>
+    }
   | { type: "error"; message?: string }
 
 /** 提取 agent-service 的 detail 错误，兼容非 JSON 响应，页面可直接展示失败原因。 */
@@ -128,16 +151,25 @@ export function deleteAgentSession(sessionId: string) {
   return request<void>(`/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" })
 }
 
+/** 显式停止：原生取消指定 operation；只停止观察不等于取消执行 */
+export function cancelAgentOperation(sessionId: string, operationId: string) {
+  return request<void>(`/sessions/${encodeURIComponent(sessionId)}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ operation_id: operationId }),
+  })
+}
+
 export interface AgentPromptOptions {
   signal?: AbortSignal
   onEvent: (event: AgentStreamEvent) => void
 }
 
 /**
- * 发起提问并读取 SSE 事件流。
+ * 发起提问并读取 SSE 事件流（协议 V3）。
  * EventSource 不支持 POST 与自定义请求头，这里用 fetch + ReadableStream 手动解析。
+ * fetch abort 只停止观察，不取消服务端执行；停止需调用 cancelAgentOperation。
  */
-export async function promptAgentSession(sessionId: string, message: string, options: AgentPromptOptions) {
+export async function promptAgentSession(sessionId: string, input: AgentPromptInput, options: AgentPromptOptions) {
   const token = getAccessToken()
   let response: Response
   try {
@@ -148,7 +180,7 @@ export async function promptAgentSession(sessionId: string, message: string, opt
         Accept: "text/event-stream",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ protocol_version: 3, ...input }),
       signal: options.signal ?? null,
     })
   } catch (error) {
@@ -182,7 +214,7 @@ export async function promptAgentSession(sessionId: string, message: string, opt
         buffer = buffer.slice(boundary + 2)
         const event = parseSseBlock(block)
         if (event) {
-          if (event.type === "done" || event.type === "error") terminated = true
+          if (event.type === "run_terminal" || event.type === "error") terminated = true
           options.onEvent(event)
         }
         boundary = buffer.indexOf("\n\n")
@@ -190,10 +222,10 @@ export async function promptAgentSession(sessionId: string, message: string, opt
       if (terminated) return
     }
     if (!terminated) {
-      throw new AgentApiError("智能助手连接中断，回答可能不完整，请重试。", 0)
+      throw new AgentApiError("智能助手连接中断，回答可能不完整；请刷新查看最终状态。", 0)
     }
   } finally {
-    // 正常结束或中断都释放流；中断时服务端会同步终止本次模型调用。
+    // 断线只停止观察：服务端原生 operation 继续执行，重连后可读快照恢复。
     reader.cancel().catch(() => {})
   }
 }

@@ -14,23 +14,27 @@ import ConfirmDialog from "@/components/ui/ConfirmDialog.vue"
 import {
   AgentApiError,
   AgentSessionNotFoundError,
+  cancelAgentOperation,
   createAgentSession,
   deleteAgentSession,
   getAgentSession,
   isAgentAbortError,
   listAgentSessions,
   promptAgentSession,
+  type AgentPromptInput,
   type AgentSessionDetail,
   type AgentStreamEvent,
   type MetricAskDetails,
 } from "@/lib/agentApi"
+import { getBackendTaskResult } from "@/lib/api"
 import type { BackendNextClarification, ChatResponse } from "@/types/api"
 import { useAuth } from "@/composables/useAuth"
 import { useQueryReadiness } from "@/composables/useQueryReadiness"
 import { copyText } from "@/lib/clipboard"
 import { archiveClarificationResponse } from "@/lib/conversationMessages"
-import { composeQuestion, type ComposerEntity } from "@/lib/composerEntities"
+import { composeClarification, composeQuestion, type ComposerEntity } from "@/lib/composerEntities"
 import { friendlyQueryError } from "@/lib/queryErrors"
+import { flattenAssistantSegments } from "@/lib/assistantText"
 
 /**
  * 指标问数面板：问答数据链路走 agent-service（pi harness）的 SSE 事件流，
@@ -57,6 +61,8 @@ type DisplayMessage = {
   metricAskDetails?: MetricAskDetails
   metricAskClarification?: BackendNextClarification
   metricAskClarificationPrompt?: string
+  /** 待补充澄清的业务目标：回答卡片时随请求回传，由后端精确命中原任务 */
+  clarificationTarget?: { task_id: string; version: number; clarification_id: string }
 }
 
 type DisplayConversation = {
@@ -71,6 +77,10 @@ type DisplayConversation = {
   running: boolean
   createdAt?: string | null
   lastActiveAt?: string | null
+  /** 旧格式只读会话：不可提问，仅供查看 */
+  legacy?: boolean
+  /** 当前活动原生 operation，用于显式停止 */
+  activeOperationId?: string | null
 }
 
 const toolLabels: Record<string, string> = {
@@ -281,6 +291,8 @@ function conversationTitle(serverId: string | null, messages: DisplayMessage[]) 
 
 /** 由 metric_ask 工具明细构造既有 ChatResponse 形状，复用 ChatResultContent 渲染。 */
 function responseFromMetricAsk(details: MetricAskDetails, answer: string): ChatResponse {
+  // 行数据只来自后端不可变快照；工具明细未带 rows 时表格由 hydrateResultTables 回填
+  const hasRows = Array.isArray(details.rows)
   const rows = details.rows ?? []
   const columns = details.columns?.length ? details.columns : rows.length ? Object.keys(rows[0]!) : []
   const rowCount = details.row_count ?? rows.length
@@ -288,10 +300,10 @@ function responseFromMetricAsk(details: MetricAskDetails, answer: string): ChatR
     message_id: details.task_id ?? createId(),
     intent: "metric_query",
     answer: answer.trim() || (rowCount ? `查询完成，找到 ${rowCount} 条记录。` : "查询完成，暂无匹配数据。"),
-    result: rowCount <= 100 && columns.length ? { type: "metric_query", table: { columns, rows } } : null,
+    result: hasRows && rowCount <= 100 && columns.length ? { type: "metric_query", table: { columns, rows } } : null,
     metric_definition: null,
     clarification: null,
-    debug: { task_id: details.task_id },
+    debug: { task_id: details.task_id, row_count: rowCount },
     download: rowCount > 100 && details.task_id
       ? { task_id: details.task_id, row_count: rowCount, format: "xlsx" }
       : undefined,
@@ -418,6 +430,7 @@ async function loadHistory(expectedUserId = auth.user.value?.id ?? null) {
         loaded: false,
         persisted: true,
         running: item.running,
+        legacy: item.legacy === true,
         createdAt: item.created_at,
         lastActiveAt: item.last_active_at,
       }))
@@ -462,6 +475,8 @@ async function selectConversation(conversationId: string) {
       ...conversation,
       loaded: true,
       running: detail.running,
+      activeOperationId: detail.operation_id ?? null,
+      legacy: detail.legacy === true ? true : conversation.legacy,
       messages: conversationFromDetail(detail).messages,
     }
     loaded.title = titleOverrides.value[loaded.serverId ?? ""] ?? detail.title ?? conversationTitle(loaded.serverId, loaded.messages)
@@ -469,6 +484,8 @@ async function selectConversation(conversationId: string) {
     loaded.preview = lastAssistant?.content ?? loaded.preview
     conversations.value = conversations.value.map((item) => item.id === conversationId ? loaded : item)
     await scrollToBottom()
+    // 历史会话的结果表同样只从后端快照回填
+    void hydrateResultTables(conversationId)
   } catch (error) {
     if (error instanceof AgentSessionNotFoundError) {
       // 服务端会话已被删除（或存储被清理），直接从列表移除。
@@ -608,9 +625,24 @@ function handleSubmit(text: string, entities: ComposerEntity[] = []) {
   if (!activeConversation.value) handleNewConversation()
   const conversation = activeConversation.value
   if (!conversation || !label || activeConversationIsSending.value || conversation.running) return
+  if (conversation.legacy) return
   const clarificationMessage = activeClarificationMessage.value
   const kind = clarificationMessage ? "clarification_answer" : "question"
+  const input: AgentPromptInput = {
+    // request_id 每次确认发送生成；网络重试沿用同一值，不产生第二条用户消息
+    request_id: createId(),
+    message: label,
+  }
   if (clarificationMessage) {
+    // 先取卡片目标与结构化选择，再归档（归档生成新对象，不影响已取到的引用）
+    if (clarificationMessage.clarificationTarget) {
+      input.clarification_target = clarificationMessage.clarificationTarget
+    }
+    const clarification = clarificationMessage.clarification
+    if (clarification) {
+      const composed = composeClarification(text, entities, clarification)
+      if (typeof composed !== "string") input.selected_answers = composed
+    }
     // 澄清一经回答即归档为只读记录，仅最新待补充消息可交互。
     updateAssistantMessage(conversation.id, clarificationMessage.id, (item) => ({
       ...item,
@@ -619,10 +651,10 @@ function handleSubmit(text: string, entities: ComposerEntity[] = []) {
     }))
   }
   message.value = ""
-  void runQuestion(conversation.id, label, kind)
+  void runQuestion(conversation.id, label, kind, input)
 }
 
-async function runQuestion(conversationId: string, question: string, kind: string) {
+async function runQuestion(conversationId: string, question: string, kind: string, input: AgentPromptInput) {
   if (!queryReady.value) return
   const assistantId = createId()
   updateConversation(conversationId, (conversation) => ({
@@ -643,20 +675,10 @@ async function runQuestion(conversationId: string, question: string, kind: strin
   await scrollToBottom()
   try {
     const serverId = await ensureServerSession(conversationId)
-    await streamPrompt(conversationId, serverId, question, assistantId, controller)
+    await streamPrompt(conversationId, serverId, input, assistantId, controller)
   } catch (error) {
-    if (error instanceof AgentSessionNotFoundError) {
-      // 服务端会话被清理后容错：重建会话并重放本次提问一次。
-      updateConversation(conversationId, (item) => ({ ...item, serverId: null, persisted: false }))
-      try {
-        const serverId = await ensureServerSession(conversationId)
-        await streamPrompt(conversationId, serverId, question, assistantId, controller)
-      } catch (retryError) {
-        failMessage(conversationId, assistantId, retryError)
-      }
-    } else {
-      failMessage(conversationId, assistantId, error)
-    }
+    // 404 不自动新建会话并重发：输入保留在消息里，由用户决定下一步
+    failMessage(conversationId, assistantId, error)
   } finally {
     abortControllers.delete(conversationId)
     markConversationSending(conversationId, false)
@@ -679,8 +701,8 @@ async function ensureServerSession(conversationId: string) {
   return created.session_id
 }
 
-async function streamPrompt(conversationId: string, serverId: string, question: string, assistantId: string, controller: AbortController) {
-  await promptAgentSession(serverId, question, {
+async function streamPrompt(conversationId: string, serverId: string, input: AgentPromptInput, assistantId: string, controller: AbortController) {
+  await promptAgentSession(serverId, input, {
     signal: controller.signal,
     onEvent: (event) => handleStreamEvent(conversationId, assistantId, event),
   })
@@ -690,18 +712,36 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
   if (event.type === "error") {
     throw new AgentApiError(event.message?.trim() || "智能助手处理失败，请稍后重试。", 0)
   }
-  if (event.type === "done") {
-    updateAssistantMessage(conversationId, assistantId, (item) => ({
-      ...finalizeAssistantMessage({ ...item, status: "done" }),
-      toolCalls: item.toolCalls?.map((call) => call.status === "running" ? { ...call, status: "done" } : call),
-    }))
+  if (event.type === "accepted") {
+    // 记录原生 operation 供显式停止；快照内容由后续事件驱动
+    if (event.operation_id) {
+      updateConversation(conversationId, (item) => ({ ...item, activeOperationId: event.operation_id ?? null }))
+    }
+    return
+  }
+  if (event.type === "run_terminal") {
+    const failed = event.answer_status !== "ok"
+    updateAssistantMessage(conversationId, assistantId, (item) => {
+      const finalized = finalizeAssistantMessage({ ...item, status: failed ? "error" : "done" })
+      if (failed && !finalized.content.trim()) {
+        // 模型侧失败（如网关配额不足）给可读原因，不留空白失败
+        finalized.content = event.error_code === "assistant_error"
+          ? "模型服务暂时不可用（可能额度不足），请稍后重试；若持续失败请联系管理员检查模型网关。"
+          : "本次提问处理失败，请稍后重试。"
+      }
+      return {
+        ...finalized,
+        toolCalls: item.toolCalls?.map((call) => call.status === "running" ? { ...call, status: "done" } : call),
+      }
+    })
     const finished = conversations.value
       .find((item) => item.id === conversationId)
       ?.messages.find((item) => item.id === assistantId)
     if (finished?.clarification && activeConversationId.value === conversationId) {
       autoOpenClarificationId.value = finished.clarification.id
     }
-    updateConversation(conversationId, (item) => ({ ...item, preview: finished?.content ?? item.preview, running: false }))
+    updateConversation(conversationId, (item) => ({ ...item, preview: finished?.content ?? item.preview, running: false, activeOperationId: null }))
+    void hydrateResultTables(conversationId)
     void scrollToBottom()
     return
   }
@@ -726,7 +766,21 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
     const details = asMetricAskDetails(event.details)
     if (!details) return { ...item, toolCalls }
     if (details.status === "clarification_required" && details.clarification) {
-      return { ...item, toolCalls, metricAskClarification: details.clarification, metricAskClarificationPrompt: details.clarification_prompt }
+      // 记录澄清业务目标：用户回答时随请求回传，后端精确命中原任务
+      const target = details.task_id && details.clarification.id
+        ? {
+            task_id: details.task_id,
+            version: details.version ?? 0,
+            clarification_id: details.clarification.id,
+          }
+        : undefined
+      return {
+        ...item,
+        toolCalls,
+        metricAskClarification: details.clarification,
+        metricAskClarificationPrompt: details.clarification_prompt,
+        ...(target ? { clarificationTarget: target } : {}),
+      }
     }
     return { ...item, toolCalls, metricAskDetails: details }
   })
@@ -750,6 +804,48 @@ function failMessage(conversationId: string, messageId: string, error: unknown) 
   updateConversation(conversationId, (conversation) => ({ ...conversation, preview: content, running: false }))
 }
 
+/** 结果表数据只从后端不可变快照读取：工具明细只带引用，行数据按 task_id 拉取后回填。 */
+async function hydrateResultTables(conversationId: string) {
+  const conversation = conversations.value.find((item) => item.id === conversationId)
+  if (!conversation) return
+  for (const chatMessage of conversation.messages) {
+    const response = chatMessage.response
+    const taskId = typeof response?.debug?.task_id === "string" ? response.debug.task_id : null
+    const rowCount = typeof response?.debug?.row_count === "number" ? response.debug.row_count : 0
+    if (!taskId || !response || response.result || rowCount <= 0 || rowCount > 100) continue
+    try {
+      const page = await getBackendTaskResult(taskId, 0, 100)
+      updateAssistantMessage(conversationId, chatMessage.id, (item) => {
+        if (!item.response || item.response.result) return item
+        return {
+          ...item,
+          response: {
+            ...item.response,
+            result: { type: "metric_query", table: { columns: page.columns, rows: page.rows } },
+          },
+        }
+      })
+    } catch {
+      // 结果拉取失败不阻断正文；用户可通过导出或重新提问获取明细
+    }
+  }
+}
+
+/** 显式停止：先取消原生 operation（服务端停止执行），再断开本地观察。 */
+async function stopActiveConversation() {
+  const conversation = activeConversation.value
+  if (!conversation || !activeConversationIsSending.value) return
+  const operationId = conversation.activeOperationId
+  if (conversation.serverId && operationId) {
+    try {
+      await cancelAgentOperation(conversation.serverId, operationId)
+    } catch {
+      // 取消失败不阻断本地观察停止；执行状态以重连快照为准
+    }
+  }
+  abortControllers.get(conversation.id)?.abort()
+}
+
 async function scrollToBottom() {
   await nextTick()
   if (messagesScroll.value) messagesScroll.value.scrollTop = messagesScroll.value.scrollHeight
@@ -771,11 +867,11 @@ async function scrollToBottom() {
         <div v-else class="flex flex-col gap-1.5">
           <div v-for="conversation in visibleConversations" :key="conversation.id" class="group/history flex items-start gap-1.5 rounded-xl border border-border/70 bg-background px-2.5 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:border-muted-foreground/35 hover:bg-background" :class="conversation.id === activeConversation?.id && 'border-primary/35 bg-primary/[0.025] ring-1 ring-primary/10'">
             <button type="button" class="min-w-0 flex-1 px-1 text-left text-sm" @click="selectConversation(conversation.id)">
-              <span class="flex items-center gap-1.5"><span class="line-clamp-1 min-w-0 flex-1 font-medium">{{ conversation.title }}</span><LoaderCircle v-if="sendingConversationIds.has(conversation.id) || conversation.running" class="size-3.5 animate-spin" /></span>
+              <span class="flex items-center gap-1.5"><span class="line-clamp-1 min-w-0 flex-1 font-medium">{{ conversation.title }}</span><span v-if="conversation.legacy" class="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">旧会话</span><LoaderCircle v-if="sendingConversationIds.has(conversation.id) || conversation.running" class="size-3.5 animate-spin" /></span>
               <span v-if="conversation.preview" class="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{{ conversation.preview }}</span>
               <span class="mt-1.5 block text-[11px] text-muted-foreground/80" :title="`会话创建时间：${formatConversationDate(conversation.createdAt)}`">{{ formatConversationDate(conversation.createdAt) }}</span>
             </button>
-            <PopoverRoot>
+            <PopoverRoot v-if="!conversation.legacy">
               <PopoverTrigger as-child>
                 <BaseButton variant="ghost" size="icon" class="size-7 shrink-0 text-muted-foreground" title="会话操作"><Ellipsis /></BaseButton>
               </PopoverTrigger>
@@ -838,9 +934,9 @@ async function scrollToBottom() {
                     <span class="execution-dot size-1.5 rounded-full bg-[#7C9CDB] [animation-delay:320ms]" />
                   </span>
                 </div>
-                <p v-if="chatMessage.status === 'pending' && chatMessage.content" class="whitespace-pre-wrap break-words leading-7">{{ chatMessage.content }}<span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></p>
+                <p v-if="chatMessage.status === 'pending' && chatMessage.content" class="whitespace-pre-wrap break-words leading-7"><template v-for="(segment, segmentIndex) in flattenAssistantSegments(chatMessage.content)" :key="segmentIndex"><strong v-if="segment.bold" class="font-semibold">{{ segment.text }}</strong><template v-else>{{ segment.text }}</template></template><span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></p>
                 <ChatResultContent v-else-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
-                <p v-else-if="chatMessage.status !== 'pending'" class="whitespace-pre-wrap break-words leading-6">{{ chatMessage.content }}</p>
+                <p v-else-if="chatMessage.status !== 'pending'" class="whitespace-pre-wrap break-words leading-6"><template v-for="(segment, segmentIndex) in flattenAssistantSegments(chatMessage.content)" :key="segmentIndex"><strong v-if="segment.bold" class="font-semibold">{{ segment.text }}</strong><template v-else>{{ segment.text }}</template></template></p>
                 <div v-if="chatMessage.clarification?.fields?.length" class="mt-1">
                   <StructuredClarificationForm :clarification="chatMessage.clarification" />
                 </div>
@@ -862,8 +958,12 @@ async function scrollToBottom() {
           <LoaderCircle v-if="queryReadiness.status === 'initializing'" class="size-4 shrink-0 animate-spin" />
           <AlertTriangle v-else class="size-4 shrink-0" />
           <span>{{ queryReadiness.message }}<span v-if="queryReadiness.total > 0">（{{ queryReadiness.completed }}/{{ queryReadiness.total }}）</span></span></div>
+        <p v-else-if="activeConversation?.legacy" class="mb-3 text-sm text-muted-foreground">旧格式会话仅支持查看，请新建对话继续提问。</p>
         <p v-else-if="activeConversation?.running && !activeConversationIsSending" class="mb-3 text-sm text-muted-foreground">该会话正在其他窗口运行，请稍候或新建对话。</p>
-        <CatalogQuestionComposer :key="auth.user.value?.id" v-model="message" :context-key="`${activeConversationId}:${activeClarificationMessage?.clarification?.id ?? activeConversation?.messages.length ?? 0}`" :clarification="activeClarificationMessage?.clarification" :auto-open-clarification-id="autoOpenClarificationId" :is-submitting="activeConversationIsSending" :disabled="!queryReady || Boolean(activeConversation?.running && !activeConversationIsSending)" :placeholder="composerPlaceholder" @submit="handleSubmit" />
+        <div v-if="activeConversationIsSending" class="mb-3 flex justify-end">
+          <BaseButton variant="outline" size="sm" class="text-muted-foreground" @click="stopActiveConversation">停止生成</BaseButton>
+        </div>
+        <CatalogQuestionComposer :key="auth.user.value?.id" v-model="message" :context-key="`${activeConversationId}:${activeClarificationMessage?.clarification?.id ?? activeConversation?.messages.length ?? 0}`" :clarification="activeClarificationMessage?.clarification" :auto-open-clarification-id="autoOpenClarificationId" :is-submitting="activeConversationIsSending" :disabled="!queryReady || Boolean(activeConversation?.legacy) || Boolean(activeConversation?.running && !activeConversationIsSending)" :placeholder="composerPlaceholder" @submit="handleSubmit" />
       </div>
     </div>
   </section>

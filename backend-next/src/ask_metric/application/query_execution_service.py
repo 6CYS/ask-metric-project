@@ -8,14 +8,16 @@ from typing import Any
 from uuid import uuid4
 
 from ask_metric.application.commands import ExecuteQueryCommand
-from ask_metric.application.legacy_analysis import require_query_task
 from ask_metric.application.ports import (
     DataSourceAdapter,
     ModelService,
+    OrganizationScopeProvider,
+    OrgHierarchyProvider,
     PermissionDeniedError,
     PermissionService,
     QueryResultEnricher,
 )
+from ask_metric.application.query_scope import require_current_query_scope
 from ask_metric.application.result_answering import render_fact_answer
 from ask_metric.application.result_processing import process_query_result
 from ask_metric.application.result_repository import artifact_from_query, attach_artifact
@@ -37,6 +39,7 @@ from ask_metric.domain.task import (
 from ask_metric.domain.task_state_machine import InvalidTaskTransition, QueryTaskStateMachine
 from ask_metric.infrastructure.db.models import ChatMessage, QueryRun, QueryTask
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
+from ask_metric.infrastructure.query.sql_builder import SqlBuilder
 from ask_metric.infrastructure.query.sql_safety import validate_readonly_sql
 from ask_metric.infrastructure.query.templates import QueryTemplateRepository
 
@@ -67,6 +70,10 @@ class QueryExecutionApplicationService:
         uow_factory: UnitOfWorkFactory | None = None,
         today_provider: Callable[[], date] = _china_business_date,
         result_enricher: QueryResultEnricher | None = None,
+        sql_builder: SqlBuilder | None = None,
+        query_sql_engine: str = "builder",
+        org_hierarchy_provider: OrgHierarchyProvider | None = None,
+        organization_scope_provider: OrganizationScopeProvider | None = None,
     ) -> None:
         self.planner = planner
         self.templates = templates
@@ -76,6 +83,10 @@ class QueryExecutionApplicationService:
         self.uow_factory = uow_factory or SqlAlchemyUnitOfWork
         self.today_provider = today_provider
         self.result_enricher = result_enricher
+        self.sql_builder = sql_builder
+        self.query_sql_engine = query_sql_engine
+        self.org_hierarchy_provider = org_hierarchy_provider
+        self.organization_scope_provider = organization_scope_provider
 
     def execute(self, command: ExecuteQueryCommand) -> QueryExecutionResult:
         """先登记执行，再只读查询，最后持久化结果；跨数据库不假定是同一事务。"""
@@ -103,6 +114,42 @@ class QueryExecutionApplicationService:
             formatting_started = perf_counter()
             rows, comparisons = process_query_result(plan, visible_rows)
             timings_ms["result_formatting_ms"] = _elapsed_ms(formatting_started)
+        except UnsupportedQueryError as exc:
+            # 执行阶段才发现的“不支持”：与规划期不支持同构，
+            # 状态 unsupported、public_message 面向用户，不记错误日志。
+            public_message = getattr(exc, "public_message", None) or "当前问题暂不支持执行。"
+            timings_ms["sql_execution_ms"] = _elapsed_ms(sql_started)
+            timings_ms["execution_total_ms"] = _elapsed_ms(execution_total_started)
+            timings_ms["total_ms"] = _total_timing(timings_ms)
+            result = QueryExecutionResult(
+                run_id=run_id,
+                task_id=command.task_id,
+                status="unsupported",
+                query_shape=plan.shape.value,
+                error_code="QUERY_UNSUPPORTED",
+                error_message=public_message,
+                task_version=execution_version + 1,
+                task_status=QueryTaskStatus.FAILED.value,
+                timings_ms=timings_ms,
+                debug={
+                    "error": _error_debug(
+                        code="QUERY_UNSUPPORTED",
+                        stage=QueryTaskStage.EXECUTION.value,
+                        node="sql_execution",
+                        retryable=False,
+                    ),
+                    "query": {
+                        "template": plan.template.value,
+                    },
+                },
+            )
+            self._finish_failure(
+                command=command,
+                result=result,
+                expected_version=execution_version,
+                failed_node="sql_execution",
+            )
+            return result
         except Exception as exc:
             public_message = "查询执行失败，请稍后重试。"
             logger.error(
@@ -250,7 +297,7 @@ class QueryExecutionApplicationService:
                     status_code=404,
                 )
             state = QueryTaskState.model_validate(task.state_json or {})
-            require_query_task(task.state_json or {}, task.query_shape)
+            require_current_query_scope(task.state_json or {})
             if (state.debug.get("basic_query") and state.execution
                     and state.execution.get("status") == "succeeded"):
                 # 工具重放也必须按当前权限/目录复核，不能把旧结果当成永久授权。
@@ -269,13 +316,6 @@ class QueryExecutionApplicationService:
                     ) from exc
             replay = _execution_replay(state, command.request_id)
             if replay is not None:
-                artifact = getattr(state, "result_artifact", None)
-                if state.debug.get("basic_query") and artifact:
-                    saved_result = artifact.get("result")
-                    if saved_result:
-                        return QueryExecutionResult.model_validate({
-                            **saved_result, "idempotent_replay": True,
-                        })
                 return replay
             _require_version(task, command.expected_version)
             _require_executable(task)
@@ -396,6 +436,13 @@ class QueryExecutionApplicationService:
         display_metric_names = _resolve_metric_names(dsl.metrics, metric_catalog)
         # SQL 机构条件统一传机构编码（mysql/inceptor 一致）；名称仅用于展示
         org_names = _resolve_source_org_codes(dsl.orgs, organization_catalog)
+        if strict_codes and any(operation.get("type") == "top_n" for operation in dsl.ops):
+            # 仅结构化通道（strict_codes）的排名反查：dsl.orgs 是范围机构（至多一个，
+            # 缺省=层级根节点），候选集合扩展为其直接下级；语义通道的排名自带候选机构，
+            # 不走这里。扩展不放权，非管理员与本人权限范围取交集。
+            org_names = self._ranking_org_scope(
+                actor=actor, dsl=dsl, organization_catalog=organization_catalog,
+            )
         plan = self.planner.build(
             dsl,
             query_shape,
@@ -413,9 +460,61 @@ class QueryExecutionApplicationService:
                 for item in organization_catalog if item.name in display_org_names
             ],
         }
-        sql = self.templates.load(dialect=plan.dialect, template=plan.template)
+        # SQL 来源按 query_sql_engine 切换：builder 由 SqlBuilder 确定性组装，
+        # templates 回退到登记的模板文件；两条路径都过同一道只读校验。
+        if self.query_sql_engine == "builder" and self.sql_builder is not None:
+            sql = self.sql_builder.build(plan)
+        else:
+            sql = self.templates.load(dialect=plan.dialect, template=plan.template)
         validate_readonly_sql(sql)
         return dsl, plan, sql
+
+    def _ranking_org_scope(
+        self,
+        *,
+        actor,
+        dsl: LogicalDSL,
+        organization_catalog: list[Any],
+    ) -> list[str]:
+        """排名候选集合：范围机构的直接下级；范围缺省=层级根节点（全省汇总）。
+
+        下级集合对非管理员再与本人权限范围取交集，扩展不放权。
+        排名只需要下级行，不包含范围机构自身。
+        """
+        if self.org_hierarchy_provider is None:
+            raise UnsupportedQueryError("Org hierarchy provider is not configured")
+        if len(dsl.orgs) > 1:
+            raise UnsupportedQueryError(
+                "Ranking requires at most one scope org",
+                public_message="排名查询至多指定一个范围机构，请明确在哪个机构范围内排名。",
+            )
+        if dsl.orgs:
+            scope_code = _resolve_source_org_codes(dsl.orgs, organization_catalog)[0]
+        else:
+            # 空机构集合只有管理员能走到（普通用户已被权限层填成本人机构）
+            scope_code = self.org_hierarchy_provider.root_code()
+            if scope_code is None:
+                raise UnsupportedQueryError(
+                    "Ranking scope org is missing",
+                    public_message="排名查询需要指定一个范围机构，请明确在哪个机构范围内排名。",
+                )
+        children = self.org_hierarchy_provider.children_of(scope_code)
+        if actor is not None and getattr(actor, "role_code", None) != "SYSTEM_ADMIN":
+            if self.organization_scope_provider is None:
+                # 无权限范围提供者时不能静默跳过交集：下级扩展不放权，直接拒绝。
+                raise PermissionDeniedError(
+                    "Ranking requires an organization scope provider"
+                )
+            allowed = self.organization_scope_provider.allowed_org_codes(
+                getattr(actor, "org_id", "") or ""
+            )
+            children = [code for code in children if code in allowed]
+        if not children:
+            raise UnsupportedQueryError(
+                "Ranking scope org has no child orgs",
+                public_message="该机构暂无下级机构数据，不能按机构排名；可指定上级机构后重试。",
+            )
+        return children
 
     def _record_planning_failure(
         self,
@@ -444,9 +543,11 @@ class QueryExecutionApplicationService:
         public_message = (
             "无权查询所选机构。"
             if forbidden
-            else "当前问题暂不支持执行。"
-            if unsupported
-            else "查询计划生成失败，请稍后重试。"
+            else (
+                (getattr(exc, "public_message", None) or "当前问题暂不支持执行。")
+                if unsupported
+                else "查询计划生成失败，请稍后重试。"
+            )
         )
         if not forbidden and not unsupported:
             logger.error(
@@ -667,6 +768,11 @@ class QueryExecutionApplicationService:
 
 
 def _execution_replay(state: QueryTaskState, request_id: str) -> QueryExecutionResult | None:
+    """幂等重放：同一 request_id 的重复执行返回原结果，不重跑 SQL。
+
+    成功结果一律从不可变 ResultArtifact 回读完整 rows/comparisons；
+    摘要只承载失败/进行中状态，快照缺失时显式报错，不能用摘要伪造空表。
+    """
     execution = state.execution or {}
     if execution.get("request_id") != request_id:
         return None
@@ -677,6 +783,16 @@ def _execution_replay(state: QueryTaskState, request_id: str) -> QueryExecutionR
             "The query is already running",
             details={"run_id": execution.get("run_id")},
         )
+    if execution.get("status") == "succeeded":
+        artifact = getattr(state, "result_artifact", None) or {}
+        saved = artifact.get("result")
+        if artifact.get("source_run_id") != execution.get("run_id") or not isinstance(saved, dict):
+            raise QueryExecutionConflictError(
+                "RESULT_SNAPSHOT_MISSING",
+                "The succeeded query result snapshot is missing",
+                details={"run_id": execution.get("run_id")},
+            )
+        return QueryExecutionResult.model_validate({**saved, "idempotent_replay": True})
     return QueryExecutionResult.model_validate({**summary, "idempotent_replay": True})
 
 
@@ -779,8 +895,6 @@ def _add_result_message(
     task: QueryTask,
     result: QueryExecutionResult,
 ) -> None:
-    if (task.state_json or {}).get("internal_analysis_id"):
-        return
     if result.status == "succeeded":
         content = result.message or f"查询完成，共返回 {result.row_count} 行。"
     else:

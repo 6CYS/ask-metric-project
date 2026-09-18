@@ -23,6 +23,7 @@ from ask_metric.core.config import PROJECT_DIR, Settings
 from ask_metric.core.security import AuthenticationError, decode_access_token
 from ask_metric.domain.query_execution import QueryPlanner
 from ask_metric.domain.semantic_engine import SemanticEngine
+from ask_metric.infrastructure.db.org_hierarchy import SqlAlchemyOrgHierarchyProvider
 from ask_metric.infrastructure.db.organization_scope import SqlAlchemyOrganizationScopeProvider
 from ask_metric.infrastructure.db.session import get_app_session_factory, get_query_engine
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
@@ -37,6 +38,7 @@ from ask_metric.infrastructure.model.provider import (
     credential_resolver_from_env_file,
 )
 from ask_metric.infrastructure.query.factory import create_data_source_adapter
+from ask_metric.infrastructure.query.sql_builder import SqlBuilder
 from ask_metric.infrastructure.query.templates import QueryTemplateRepository
 from ask_metric.infrastructure.semantic.configuration import SemanticConfigRepository
 
@@ -130,7 +132,8 @@ def get_query_task_service(request: Request) -> QueryTaskApplicationService:
         semantic_config_repository=SemanticConfigRepository(
             resolve_config_path(PROJECT_DIR, settings.semantic_config_path)
         ),
-        candidate_permission_service=ScopedOrganizationPermissionService(
+        # 追问来源的权限复核与执行链使用同一机构边界
+        permission_service=ScopedOrganizationPermissionService(
             organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
             allow_unscoped_development=settings.app_env.lower() in {"development", "test"},
         ),
@@ -186,6 +189,16 @@ def get_semantic_task_service(request: Request) -> SemanticTaskApplicationServic
 
 def get_query_execution_service(request: Request) -> QueryExecutionApplicationService:
     settings: Settings = request.app.state.settings
+    # 模板仓库与确定性 SqlBuilder 共用同一份白名单标识符配置。
+    template_variables = {
+        "fact_table": settings.sit_fact_table,
+        "fact_metric_code_field": settings.sit_fact_metric_code_field,
+        "fact_org_code_field": settings.sit_fact_org_code_field,
+        "fact_data_date_field": settings.sit_fact_data_date_field,
+        "fact_value_field": settings.sit_fact_value_field,
+        "fact_increment_field": settings.sit_fact_increment_field,
+        "batch_order": "f." + settings.sit_batch_order.replace(", ", ", f."),
+    }
     return QueryExecutionApplicationService(
         planner=QueryPlanner(
             dialect=settings.query_database_dialect,
@@ -194,16 +207,13 @@ def get_query_execution_service(request: Request) -> QueryExecutionApplicationSe
         templates=QueryTemplateRepository(
             resolve_config_path(PROJECT_DIR, settings.query_template_config_path),
             resolve_config_path(PROJECT_DIR, settings.sql_resource_dir),
-            template_variables={
-                "fact_table": settings.sit_fact_table,
-                "fact_metric_code_field": settings.sit_fact_metric_code_field,
-                "fact_org_code_field": settings.sit_fact_org_code_field,
-                "fact_data_date_field": settings.sit_fact_data_date_field,
-                "fact_value_field": settings.sit_fact_value_field,
-                "fact_increment_field": settings.sit_fact_increment_field,
-                "batch_order": "f." + settings.sit_batch_order.replace(", ", ", f."),
-            },
+            template_variables=template_variables,
         ),
+        sql_builder=SqlBuilder(
+            settings.query_database_dialect,
+            template_variables,
+        ),
+        query_sql_engine=settings.query_sql_engine,
         data_source=create_data_source_adapter(
             settings.query_database_dialect,
             get_query_engine(),
@@ -218,6 +228,9 @@ def get_query_execution_service(request: Request) -> QueryExecutionApplicationSe
             organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
             allow_unscoped_development=settings.app_env.lower() in {"development", "test"},
         ),
+        # 机构层级只读应用库元数据；排名下级扩展仍受机构权限交集约束。
+        org_hierarchy_provider=SqlAlchemyOrgHierarchyProvider(),
+        organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
         model_service=get_model_service(request),
         result_enricher=(
             CatalogResultEnricher(get_app_session_factory())

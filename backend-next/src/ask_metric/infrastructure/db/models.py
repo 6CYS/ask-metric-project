@@ -76,6 +76,8 @@ class MetricValue(Base, TimestampMixin):
     metric_value: Mapped[Decimal] = mapped_column(Numeric(24, 6), nullable=False)
     stat_date: Mapped[date] = mapped_column(Date, nullable=False)
     source_batch_id: Mapped[str | None] = mapped_column(String(128))
+    # 迁移 0004 补入迁移链：运行库早前已手工加列，基线 0001 未含。
+    org_code: Mapped[str | None] = mapped_column(String(128))
 
     __table_args__ = (
         Index("ix_metric_values_org_name", "org_name"),
@@ -129,6 +131,9 @@ class OrgTerm(Base, TimestampMixin):
         JSON_DOCUMENT, nullable=False, default=list
     )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    # 迁移 0004：支行层级扩展启用后由目录同步写入；未启用时全 NULL，层级/权限逻辑回退 v1 规则。
+    parent_org_code: Mapped[str | None] = mapped_column(String(128))
+    hierarchy_level: Mapped[str | None] = mapped_column(String(8))
 
     __table_args__ = (
         UniqueConstraint("org_code", name="org_terms_org_code_key"),

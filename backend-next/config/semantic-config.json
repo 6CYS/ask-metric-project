@@ -2,7 +2,6 @@
   "version": "3",
   "tasks": [
     "metric_query",
-    "attribution_analysis",
     "anomaly_detection",
     "trend_forecast",
     "metric_explanation",

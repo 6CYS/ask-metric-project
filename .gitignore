@@ -92,3 +92,8 @@ outputs/
 
 # Local Docker repack scratch file
 /backend-next/Dockerfile.repack
+
+# 行内数据与内部资料(不推送到远端)
+/analysis/
+/*.zip
+/AgentHarness原生融合_AI开发任务书_*.md

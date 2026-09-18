@@ -1,6 +1,6 @@
 # Ask Metric GoldenDB 智能问数系统
 
-Ask Metric 是面向行内 GoldenDB/MySQL 应用库与只读数据湖的智能问数系统。系统把自然语言问题解析为受治理的语义结构，再通过已登记的 SQL 模板执行查询；模型不直接生成或执行 SQL。前端、后端、模型配置、目录同步、权限控制、审计与原生离线部署均包含在本仓库中。
+Ask Metric 是面向行内 GoldenDB/MySQL 应用库与只读数据湖的智能问数系统。系统把自然语言问题解析为受治理的语义结构，查询计划经 SQLGlot builder 确定性组装 SQL 并绑定参数后执行；模型不直接生成或执行 SQL。前端、后端、模型配置、目录同步、权限控制、审计与原生离线部署均包含在本仓库中。
 
 ## 系统组成
 
@@ -18,14 +18,17 @@ Ask Metric 是面向行内 GoldenDB/MySQL 应用库与只读数据湖的智能�
 
 初次维护代码可从 [关键代码阅读指南](docs/关键代码阅读指南.md) 开始，按启动、提问、澄清、查询执行和历史结果的顺序阅读；其中附有本项目 `lambda`、依赖注入、事务和向量缓存的写法说明。
 
-当前运行版本维护单次可信问数、当前任务澄清和历史结果查看/导出。旧归因分析原型已退出运行链，
-原因分析、分项贡献等请求会明确返回当前不支持；数值取值、两期对比和历史结果操作继续可用。
-智能助手（`agent-service/`，pi agent harness）已接入：agent 通过受治理接口复用可信查询、
-结果证据、权限和公共计算能力，不生成或执行 SQL，不绕过目录与权限校验。
+当前运行版本维护单次可信问数、当前任务澄清和历史结果查看/导出。机构贡献度归因功能已移除，
+原因分析、分项贡献等归因请求会明确返回当前不支持；数值取值、两期对比、机构排名和历史结果操作继续可用。
+智能助手（`agent-service/`）运行在 pi AgentHarness 原生运行时上：会话、模型上下文、压缩与执行状态
+全部使用 pi 原生能力（JSONL 会话仓库 + main lane），pi 决定对话节奏；后端保留指标提槽、目录匹配、
+权限、查询与权威结果。支持单次可信问数、当前任务澄清的自然补充，以及引用一笔已完成查询更换机构
+或日期的追问；归因请求仍明确返回当前不支持。agent 通过受治理接口复用可信查询、结果证据、权限和
+公共计算能力，不生成或执行 SQL，不绕过目录与权限校验。
 已提供不经过模型的结构化基础查询入口 `/api/v1/basic-queries`，按正式编码和明确日期取数，
 供上层编排调用；现有聊天能力及不支持请求的拒绝保持不变。接口见
 [基础查询合同](docs/external-api.md#结构化基础查询basic-queries)。
-升级原归因试验环境见 [后端升级说明](backend-next/README.md#旧归因原型退出与升级)。
+升级原归因试验环境见 [后端升级说明](backend-next/README.md#归因功能退出与升级)。
 
 ```text
 用户认证与机构权限
@@ -35,12 +38,13 @@ Ask Metric 是面向行内 GoldenDB/MySQL 应用库与只读数据湖的智能�
 → Chat 模型理解日期、多样化机构范围和查询操作
 → 后端校验模型槽位、展开受控目录范围并裁剪用户权限
 → 生成 Logical DSL
-→ 选择已登记的 MySQL/Inceptor SQL 模板并绑定参数
+→ 查询计划经 SQLGlot builder 确定性组装 MySQL/Inceptor SQL 并绑定参数
+  （登记模板保留为 QUERY_SQL_ENGINE=templates 回退）
 → 只读查询库执行
 → 结果整理、自然语言总结与全过程审计
 ```
 
-日期表达以及“各家、各个、全省农商行”等泛化表达由模型负责理解。规则只保护用户问题中已明确出现的指标和机构，模型输出必须经过目录、权限、查询形态和参数合法性校验。机构范围只能展开到目录中的有效机构，并按当前用户授权范围裁剪；模型不能自由生成机构编号。所有业务 SQL 来自 `backend-next/resources/sql/`，注册信息位于 `backend-next/config/query-templates.json`。
+日期表达以及“各家、各个、全省农商行”等泛化表达由模型负责理解。规则只保护用户问题中已明确出现的指标和机构，模型输出必须经过目录、权限、查询形态和参数合法性校验。机构范围只能展开到目录中的有效机构，并按当前用户授权范围裁剪；模型不能自由生成机构编号。业务 SQL 由查询计划经 builder 确定性组装（`backend-next/src/ask_metric/infrastructure/query/sql_builder.py`），登记模板位于 `backend-next/resources/sql/`、`backend-next/config/query-templates.json`，保留为回退路径。
 
 ## 环境要求
 
@@ -154,7 +158,7 @@ NACOS_FAIL_FAST=false
 
 多实例必须使用不同的 IP/端口组合和 `NACOS_INSTANCE_ID`。Gateway 与后端应使用相同的 namespace、group 和 cluster；网络策略需同时允许 Nacos HTTP 端口和客户端 gRPC 端口。
 
-### 模型、提示词与 SQL 模板
+### 模型、提示词与 SQL 生成
 
 模型基础配置位于 `backend-next/config/model-config.json`。Chat、Embedding、Reranker 可分别设置 API 路径、模型名、认证方式、密钥环境变量、超时和厂商扩展参数；服务地址分别由 `MODEL_CHAT_BASE_URL`、`MODEL_EMBEDDING_BASE_URL`、`MODEL_RERANK_BASE_URL` 从外置环境读取。模型地址和密钥均不写入源码配置、日志或查询响应。
 
@@ -166,7 +170,7 @@ MODEL_ADMIN_TOKEN_REQUIRED=true
 MODEL_ADMIN_TOKEN=ENC[SM4:v1:...]
 ```
 
-提示词位于 `backend-next/config/prompts.json`，语义配置位于 `backend-next/config/semantic-config.json`，SQL 注册表位于 `backend-next/config/query-templates.json`。生产安装会把这些文件初始化到持久状态目录，升级只补充缺失项，不覆盖管理员已发布的版本。
+提示词位于 `backend-next/config/prompts.json`，语义配置位于 `backend-next/config/semantic-config.json`。业务 SQL 默认由查询计划经 SQLGlot builder 生成；`backend-next/config/query-templates.json` 与 `backend-next/resources/sql/` 的登记模板在 `QUERY_SQL_ENGINE=templates` 时作为回退路径。生产安装会把这些文件初始化到持久状态目录，升级只补充缺失项，不覆盖管理员已发布的版本。
 
 ### 数字农商统一单点登录
 

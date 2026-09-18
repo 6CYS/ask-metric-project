@@ -25,6 +25,26 @@ class TaskCommandResult(BaseModel):
     result: dict[str, Any] | None = None
 
 
+class TaskResultPage(BaseModel):
+    """统一结果读取：不可变快照的分页视图；paging 只覆盖快照内 rows，不触发重算。"""
+
+    task_id: str
+    result_id: str
+    status: str
+    query_shape: str | None = None
+    columns: list[str] = Field(default_factory=list)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    comparisons: list[dict[str, Any]] = Field(default_factory=list)
+    row_count: int = 0
+    truncated: bool = False
+    offset: int = 0
+    limit: int = 0
+    next_offset: int | None = None
+    has_more: bool = False
+    message: str | None = None
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
 class ConversationMessageResult(BaseModel):
     id: str
     role: str

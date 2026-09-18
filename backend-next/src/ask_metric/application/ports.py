@@ -50,6 +50,23 @@ class OrganizationScopeProvider(Protocol):
     def allowed_org_codes(self, org_code: str) -> set[str]: ...
 
 
+class OrgHierarchyProvider(Protocol):
+    """机构层级只读接口。
+
+    实现按 org_terms 数据自动切换：恰好一个启用机构无上级（唯一根）时按真实
+    parent_org_code（迁移 0004 起由目录同步在启用支行层级扩展后写入）返回直接
+    下级；层级数据缺失或不完整（半同步窗口）时回退 v1 规则——省级汇总节点的
+    直接下级=org_terms 全部启用机构（除自身），普通法人暂无下级数据。
+    调用方契约不变。
+    """
+
+    def children_of(self, org_code: str) -> list[str]: ...
+
+    def root_code(self) -> str | None:
+        """层级根节点编码：排名缺机构时的缺省范围；找不到返回 None 交澄清。"""
+        ...
+
+
 class ChannelAdapter(Protocol):
     channel: str
 

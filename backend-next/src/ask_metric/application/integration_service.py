@@ -141,9 +141,7 @@ class IntegrationAskApplicationService:
                 external_conversation_id=external_conversation_id,
             )
 
-        if current.result is not None and (
-            current.status == "SUCCEEDED" or current.result.get("analysis")
-        ):
+        if current.result is not None and current.status == "SUCCEEDED":
             return _execution_result(
                 QueryExecutionResult.model_validate(current.result),
                 request_id=request_id, message_id=message_id,
@@ -233,7 +231,6 @@ def _execution_result(
                 "row_count": result.row_count,
                 "truncated": result.truncated,
                 "latency_ms": result.latency_ms,
-                **({"analysis": result.analysis} if result.analysis else {}),
             }
             if not failed
             else None

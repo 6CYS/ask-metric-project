@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     query_database_url: str = DEFAULT_QUERY_DATABASE_URL
     app_database_dialect: str = "mysql"
     query_database_dialect: str = "mysql"
+    # SQL 生成引擎：builder = 由 plan 经 SQLGlot 确定性组装；
+    # templates = 登记的 .sql 模板（灰度回退用）。
+    query_sql_engine: str = "builder"
     metric_catalog_database_url: str | None = None
     org_catalog_database_url: str | None = None
     sit_fact_table: str = "ads_lake.adm_rmt_pub_gnrl_drv_indcr_tab"
@@ -99,6 +102,13 @@ class Settings(BaseSettings):
     sit_org_head_office_corporation_code: str = "000"
     sit_org_legal_entity_hier_code: str = "3"
     sit_org_head_office_hier_code: str = "1"
+    # 支行层级扩展（默认关闭，保持现行 61 家行为）：开启前须由
+    # scripts/verify_org_hierarchy.py 核实数据湖层级字段与支行事实数据。
+    # True 时机构同步纳入 org_hier_code='2' 支行，并按 sit_org_parent_field
+    # 指向的机构表上级字段写入 org_terms.parent_org_code/hierarchy_level。
+    sit_org_include_branch_level: bool = False
+    sit_org_branch_hier_code: str = "2"
+    sit_org_parent_field: str = Field(default_factory=str)
     sit_org_expected_count: int = Field(default=61, gt=0)
     # Compatibility-only switches retained for existing environment files. Runtime
     # metric queries always filter by sit_fact_data_date_field; load/snapshot dates
@@ -372,6 +382,8 @@ class Settings(BaseSettings):
             raise ValueError(
                 "QUERY_DATABASE_DIALECT must be mysql, inceptor, goldendb, or goldendb/mysql"
             )
+        if self.query_sql_engine not in {"builder", "templates"}:
+            raise ValueError("QUERY_SQL_ENGINE must be builder or templates")
         app_url_backend = make_url(self.app_database_url).get_backend_name()
         if app_url_backend in supported_database_dialects:
             if app_url_backend != self.app_database_dialect:

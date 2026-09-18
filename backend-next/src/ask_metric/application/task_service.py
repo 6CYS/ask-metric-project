@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ask_metric.application.commands import (
     CancelClarificationCommand,
+    CancelTaskCommand,
     RequestClarificationCommand,
     SubmitClarificationCommand,
     SubmitQuestionCommand,
@@ -20,8 +21,8 @@ from ask_metric.application.continuation_tokens import (
     ContinuationTarget,
     ContinuationTokenCodec,
 )
-from ask_metric.application.legacy_analysis import require_query_task
-from ask_metric.application.ports import NoopPermissionService, PermissionService
+from ask_metric.application.ports import PermissionDeniedError, PermissionService
+from ask_metric.application.query_scope import require_current_query_scope
 from ask_metric.application.requests import ActorContext
 from ask_metric.application.semantic_workflow import (
     advance_slot_frame,
@@ -35,8 +36,14 @@ from ask_metric.application.task_results import (
     ConversationSnapshot,
     ConversationTaskResult,
     TaskCommandResult,
+    TaskResultPage,
 )
 from ask_metric.core.errors import ApplicationError
+from ask_metric.domain.query_execution import QueryExecutionResult
+from ask_metric.domain.semantic_reference import (
+    ReferenceSourceInvalid,
+    freeze_source_reference,
+)
 from ask_metric.domain.task import (
     QueryTaskStage,
     QueryTaskState,
@@ -122,16 +129,14 @@ class QueryTaskApplicationService:
         semantic_config_repository: SemanticConfigRepository | None = None,
         today_provider: Callable[[], date] = date.today,
         max_conversations_per_user: int = 500,
-        candidate_permission_service: PermissionService | None = None,
+        permission_service: PermissionService | None = None,
     ) -> None:
         self.uow_factory = uow_factory or SqlAlchemyUnitOfWork
         self.continuation_token_codec = continuation_token_codec
         self.semantic_config_repository = semantic_config_repository
         self.today_provider = today_provider
         self.max_conversations_per_user = max_conversations_per_user
-        self.candidate_permission_service = (
-            candidate_permission_service or NoopPermissionService()
-        )
+        self.permission_service = permission_service
 
     def submit_question(self, command: SubmitQuestionCommand) -> TaskCommandResult:
         """在会话归属范围内创建任务；相同幂等键及内容的重试复用已有任务。"""
@@ -208,6 +213,11 @@ class QueryTaskApplicationService:
                 actor_context=command.actor.model_dump(mode="json"),
             )
             initial_stage = QueryTaskStage.INTENT_ROUTING
+            if command.query_reference is not None:
+                # 单来源追问：提交时校验并冻结来源条件，作为后续分析的派生依据
+                state.query_reference = self._freeze_query_reference(
+                    uow, command, conversation_id
+                )
             if command.basic_query is not None:
                 # 结构化调用直接进入同一执行链；不调用模型，也不注入历史条件。
                 spec = command.basic_query
@@ -437,7 +447,7 @@ class QueryTaskApplicationService:
 
             _require_version(task, command.expected_version)
             clarification = state.clarification or {}
-            require_query_task(task.state_json or {}, task.query_shape)
+            require_current_query_scope(task.state_json or {})
             active_clarification_id = clarification.get("id")
             if active_clarification_id != command.clarification_id:
                 raise TaskConflictError(
@@ -661,6 +671,123 @@ class QueryTaskApplicationService:
             uow.commit()
             return _task_result(updated)
 
+    def cancel_task(self, command: CancelTaskCommand) -> TaskCommandResult:
+        """通用逻辑取消：先回读幂等记录，再校验版本与状态后原子写入。
+
+        取消先提交则阻止后续分析/澄清/执行的晚到写入（乐观锁与状态机保证）；
+        成功先提交则保留成功（SUCCEEDED 等终态不允许迁移到 CANCELLED）。
+        """
+        fingerprint = _fingerprint(
+            {
+                "kind": "cancel_task",
+                "task_id": command.task_id,
+                "actor": command.actor.subject,
+            }
+        )
+        with self.uow_factory() as uow:
+            task = _get_owned_task(uow, command.task_id, command.actor.user_id or "")
+            if task is None:
+                raise TaskNotFoundError(command.task_id)
+            state = _load_state(task)
+            replay = _processed_replay(state, command.request_id, fingerprint, task)
+            if replay is not None:
+                return replay
+            if task.status == QueryTaskStatus.CANCELLED.value:
+                # 已取消：直接返回当前状态，不重复推进版本
+                return _task_result(task)
+            _require_version(task, command.expected_version)
+            _require_transition(
+                task,
+                next_status=QueryTaskStatus.CANCELLED,
+                next_stage=QueryTaskStage(task.current_stage),
+            )
+            state.clarification = None
+            state.debug["task_cancelled"] = {"request_id": command.request_id}
+            _record_processed_request(
+                state, command.request_id,
+                kind="cancel_task", fingerprint=fingerprint, message_id=None,
+            )
+            append_task_trace(
+                state,
+                stage=QueryTaskStage(task.current_stage).value,
+                status=QueryTaskStatus.CANCELLED.value,
+                node="task_cancelled",
+                detail={"request_id": command.request_id},
+            )
+            updated = uow.tasks.update_optimistically(
+                task_id=task.id,
+                expected_version=command.expected_version,
+                status=QueryTaskStatus.CANCELLED.value,
+                current_stage=task.current_stage,
+                state_json=state.model_dump(mode="json"),
+                intent=task.intent,
+                query_shape=task.query_shape,
+                error_code=task.error_code,
+                error_message=task.error_message,
+                completed_at=datetime.now(UTC),
+            )
+            if updated is None:
+                raise _version_conflict(command.task_id, command.expected_version)
+            uow.commit()
+            return _task_result(updated)
+
+    def lookup_task(
+        self, conversation_id: str, submission_key: str, actor: ActorContext
+    ) -> TaskCommandResult:
+        """只读找回已提交任务：conversation + 提交键定位；未找到返回 404，不创建任务。"""
+        with self.uow_factory() as uow:
+            conversation = uow.conversations.get_owned(conversation_id, actor.user_id or "")
+            if conversation is None:
+                raise ConversationNotFoundError(conversation_id)
+            task = uow.tasks.find_by_idempotency_key(conversation_id, submission_key)
+            if task is None:
+                raise TaskNotFoundError(f"{conversation_id}/{submission_key}")
+            return _task_result(task)
+
+    def get_task_result(
+        self, task_id: str, actor: ActorContext, *, offset: int = 0, limit: int = 100
+    ) -> TaskResultPage:
+        """统一结果读取：从不可变 ResultArtifact 返回分页事实，不触发 SQL 或重算。"""
+        with self.uow_factory() as uow:
+            task = _get_owned_task(uow, task_id, actor.user_id or "")
+            if task is None:
+                raise TaskNotFoundError(task_id)
+            state = _load_state(task)
+            artifact = getattr(state, "result_artifact", None)
+            saved = artifact.get("result") if isinstance(artifact, dict) else None
+            if task.status != QueryTaskStatus.SUCCEEDED.value or not isinstance(saved, dict):
+                if task.status == QueryTaskStatus.SUCCEEDED.value:
+                    raise TaskConflictError(
+                        "RESULT_SNAPSHOT_MISSING",
+                        "The succeeded query result snapshot is missing",
+                        details={"task_id": task.id},
+                    )
+                raise TaskConflictError(
+                    "RESULT_NOT_READY",
+                    "The query result is not ready",
+                    details={"task_id": task.id, "status": task.status},
+                )
+            result = QueryExecutionResult.model_validate(saved)
+            page_rows = result.rows[offset : offset + limit]
+            next_offset = offset + len(page_rows)
+            return TaskResultPage(
+                task_id=task.id,
+                result_id=artifact["result_id"],
+                status=result.status,
+                query_shape=result.query_shape,
+                columns=result.columns,
+                rows=page_rows,
+                comparisons=result.comparisons,
+                row_count=result.row_count,
+                truncated=result.truncated,
+                offset=offset,
+                limit=limit,
+                next_offset=next_offset if next_offset < len(result.rows) else None,
+                has_more=next_offset < len(result.rows),
+                message=result.message,
+                evidence=result.evidence,
+            )
+
     def _renew_semantic_clarification(
         self,
         *,
@@ -720,31 +847,91 @@ class QueryTaskApplicationService:
         )
         return message_id, token
 
-    def get_task(self, task_id: str, actor: ActorContext) -> TaskCommandResult:
-        from ask_metric.application.legacy_analysis import authorize_legacy_analysis
+    def _freeze_query_reference(
+        self,
+        uow: SqlAlchemyUnitOfWork,
+        command: SubmitQuestionCommand,
+        conversation_id: str,
+    ) -> dict[str, Any]:
+        """提交时校验并冻结追问来源：归属/会话/版本/成功状态/目录/数据权限。
 
+        校验不通过时拒绝创建派生任务；来源版本改变报 REFERENCE_VERSION_CONFLICT，
+        不能悄悄改用更新版本。
+        """
+        ref = command.query_reference
+        if ref is None:
+            raise ReferenceSourceInvalid("缺少引用参数")
+        source = uow.tasks.get_owned(ref.task_id, command.actor.user_id or "")
+        if source is None or source.conversation_id != conversation_id:
+            # 不泄露其他用户/会话任务的存在性
+            raise TaskNotFoundError(ref.task_id)
+        if source.version != ref.version:
+            raise TaskConflictError(
+                "REFERENCE_VERSION_CONFLICT",
+                "The referenced task version has changed",
+                details={
+                    "source_task_id": ref.task_id,
+                    "expected_version": ref.version,
+                    "actual_version": source.version,
+                },
+            )
+        if source.status != QueryTaskStatus.SUCCEEDED.value:
+            raise TaskConflictError(
+                "REFERENCE_UNAVAILABLE",
+                "The referenced task is not a succeeded query",
+                details={"source_task_id": ref.task_id, "status": source.status},
+            )
+        source_state = _load_state(source)
+        try:
+            frozen = freeze_source_reference(
+                source_task_id=source.id,
+                source_version=source.version,
+                change_field=ref.change_field,
+                source_slots=source_state.slots or source_state.slot_frame,
+                source_logical_dsl=source_state.logical_dsl,
+            )
+        except ReferenceSourceInvalid as exc:
+            raise TaskConflictError(
+                "REFERENCE_UNAVAILABLE",
+                str(exc),
+                details={"source_task_id": ref.task_id},
+            ) from exc
+        # 目录与数据权限复核：来源条件在当前授权下仍须有效
+        known_metrics = {item.code for item in uow.metric_catalog.list_enabled()}
+        dsl_metrics = (source_state.logical_dsl or {}).get("metrics") or []
+        if any(code not in known_metrics for code in dsl_metrics):
+            raise TaskConflictError(
+                "REFERENCE_UNAVAILABLE",
+                "The referenced metric is no longer in the enabled catalog",
+                details={"source_task_id": ref.task_id},
+            )
+        if self.permission_service is not None and source_state.logical_dsl:
+            try:
+                self.permission_service.authorize_logical_dsl(
+                    actor=command.actor, logical_dsl=source_state.logical_dsl
+                )
+            except PermissionDeniedError as exc:
+                raise ApplicationError(
+                    "PERMISSION_DENIED",
+                    "来源查询涉及的机构已超出当前权限范围",
+                    status_code=403,
+                ) from exc
+        return frozen
+
+    def get_task(self, task_id: str, actor: ActorContext) -> TaskCommandResult:
         with self.uow_factory() as uow:
             task = uow.tasks.get_owned(task_id, actor.user_id or "")
             if task is None:
                 raise TaskNotFoundError(task_id)
-            authorize_legacy_analysis(
-                task.state_json or {}, actor, self.candidate_permission_service
-            )
             return _task_result(task)
 
     def get_conversation(self, conversation_id: str, actor: ActorContext) -> ConversationSnapshot:
-        from ask_metric.application.legacy_analysis import authorize_legacy_analysis
-
         with self.uow_factory() as uow:
             conversation = uow.conversations.get_owned(conversation_id, actor.user_id or "")
             if conversation is None:
                 raise ConversationNotFoundError(conversation_id)
             messages = uow.messages.list_for_conversation(conversation_id)
             tasks = uow.tasks.list_for_conversation(conversation_id)
-            for task in tasks:
-                authorize_legacy_analysis(
-                    task.state_json or {}, actor, self.candidate_permission_service
-                )
             return ConversationSnapshot(
                 id=conversation.id,
                 title=conversation.title,
@@ -774,7 +961,7 @@ class QueryTaskApplicationService:
                         timings_ms=_load_state(task).timings_ms,
                         debug=_load_state(task).debug,
                     )
-                    for task in tasks if not (task.state_json or {}).get("internal_analysis_id")
+                    for task in tasks
                 ],
             )
 
@@ -817,18 +1004,12 @@ class QueryTaskApplicationService:
             )
 
     def export_conversation(self, conversation_id: str, actor: ActorContext) -> tuple[str, bytes]:
-        from ask_metric.application.legacy_analysis import authorize_legacy_analysis
-
         with self.uow_factory() as uow:
             conversation = uow.conversations.get_owned(conversation_id, actor.user_id or "")
             if conversation is None:
                 raise ConversationNotFoundError(conversation_id)
             messages = uow.messages.list_for_conversation(conversation_id)
             tasks = uow.tasks.list_for_conversation(conversation_id)
-            for task in tasks:
-                authorize_legacy_analysis(
-                    task.state_json or {}, actor, self.candidate_permission_service
-                )
             workbook = build_xlsx(
                 [
                     (
@@ -867,15 +1048,10 @@ class QueryTaskApplicationService:
             return conversation.title, workbook
 
     def export_task_result(self, task_id: str, actor: ActorContext) -> tuple[str, bytes]:
-        from ask_metric.application.legacy_analysis import authorize_legacy_analysis
-
         with self.uow_factory() as uow:
             task = uow.tasks.get_owned(task_id, actor.user_id or "")
             if task is None:
                 raise TaskNotFoundError(task_id)
-            authorize_legacy_analysis(
-                task.state_json or {}, actor, self.candidate_permission_service
-            )
             messages = uow.messages.list_for_conversation(task.conversation_id)
             result_payload = next(
                 (
@@ -969,6 +1145,12 @@ def _question_fingerprint(command: SubmitQuestionCommand, conversation_id: str) 
             "actor": command.actor.subject,
             **({"basic_query": command.basic_query.model_dump(mode="json")}
                if command.basic_query is not None else {}),
+            # 引用参数是业务内容的一部分：同键不同引用必须报冲突而不是复用
+            **({"query_reference": {
+                "task_id": command.query_reference.task_id,
+                "version": command.query_reference.version,
+                "change_field": command.query_reference.change_field,
+            }} if command.query_reference is not None else {}),
         }
     )
 
@@ -1134,8 +1316,27 @@ def _task_result(
         error_message=task.error_message,
         timings_ms=state.timings_ms,
         debug=state.debug,
-        result=(state.execution or {}).get("result"),
+        result=_result_ref(state),
     )
+
+
+def _result_ref(state: QueryTaskState) -> dict[str, Any] | None:
+    """从不可变 ResultArtifact 构造轻量结果引用；不读不存在的 execution.result，
+    完整明细经 GET /query-tasks/{id}/result 读取。"""
+    artifact = getattr(state, "result_artifact", None)
+    if not isinstance(artifact, dict) or not artifact.get("result_id"):
+        return None
+    saved = artifact.get("result")
+    if not isinstance(saved, dict):
+        return None
+    return {
+        "result_id": artifact["result_id"],
+        "task_id": artifact.get("task_id"),
+        "source_run_id": artifact.get("source_run_id"),
+        "status": saved.get("status"),
+        "row_count": saved.get("row_count"),
+        "truncated": saved.get("truncated", False),
+    }
 
 
 def _answer_text(answers: Any) -> str:

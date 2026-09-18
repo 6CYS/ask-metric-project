@@ -65,6 +65,31 @@ SIT_LATEST_PARTITION_LOOKBACK_DAYS=1095
 `SIT_PARTITION_MODE` 必须保持 `none`，历史兼容配置中的 `data_date` 也不会再生成
 切片日期条件。
 
+## 支行层级扩展（核实通过后启用）
+
+默认关闭，不改动上述 61 家机构同步流程。启用前必须先在能连数据湖的环境执行
+`backend-next/scripts/verify_org_hierarchy.py`（只读核实），结论为 `HIERARCHY_OK`
+且建议开启后才允许配置以下开关：
+
+```dotenv
+SIT_ORG_INCLUDE_BRANCH_LEVEL=true
+SIT_ORG_BRANCH_HIER_CODE=2
+SIT_ORG_PARENT_FIELD=<核实确认的上级机构字段名>
+```
+
+影响：
+
+- 机构表必须已执行迁移 `0004_org_hierarchy_and_org_code`（离线 SQL 交 DBA 审核执行），
+  该迁移为 `org_terms` 增加 `parent_org_code`/`hierarchy_level`，为 `metric_values`
+  补 `org_code` 列；未执行迁移就开启扩展会因缺列报错。
+- 机构同步范围在现行 1/3 层级之外纳入 `org_hier_code = '2'` 的支行，并把上级机构
+  编码与层级值写入 `org_terms.parent_org_code`/`hierarchy_level`；机构数校验由
+  “恰好 61 家”放宽为“不少于 61 家”。`SIT_ORG_PARENT_FIELD` 为空时扩展拒绝执行。
+- `org_terms` 出现层级数据后，机构层级提供方切换为真实父子关系（汇总节点“全部
+  启用机构为下级”的 v1 规则同时停用），用户机构权限范围自动包含其全部启用下级；
+  层级列全 NULL 时行为与现行版本完全一致。
+- 支行级 `metric_values` 数据不在本扩展范围内，需按既有数据接入流程另行处理。
+
 三张源表共用 `QUERY_DATABASE_URL`，不需要 `METRIC_CATALOG_DATABASE_URL` 和 `ORG_CATALOG_DATABASE_URL`。
 
 ## 后续顺序

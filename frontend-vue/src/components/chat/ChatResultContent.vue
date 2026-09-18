@@ -9,6 +9,7 @@ import type { ChatResponse } from "@/types/api"
 import { exportBackendNextTaskResult } from "@/lib/api"
 import { clarificationTranscript } from "@/lib/conversationMessages"
 import { copyText } from "@/lib/clipboard"
+import { parseAssistantText, type AssistantParagraph } from "@/lib/assistantText"
 import { paginateResultRows, RESULT_PAGE_SIZE_OPTIONS, resultTotalPages } from "@/lib/resultPagination"
 import {
   formatResultTableValue,
@@ -97,13 +98,16 @@ function renderAnswer(answer: string) {
 watch(displayAnswer, renderAnswer, { immediate: true })
 onBeforeUnmount(stopAnswerStream)
 
-const answerParagraphs = computed(() => {
-  const answer = renderedAnswer.value.trim()
-  if (!answer) return []
-  const paragraphs = answer.split(/\n+/).map((item) => item.trim()).filter(Boolean)
-  if (paragraphs.length > 1) return paragraphs
-  const sentences = answer.match(/[^。！？!?]+[。！？!?]?/g)?.map((item) => item.trim()).filter(Boolean) ?? []
-  return sentences.length > 1 ? sentences : [answer]
+const answerParagraphs = computed<AssistantParagraph[]>(() => {
+  const paragraphs = parseAssistantText(renderedAnswer.value.trim())
+  if (paragraphs.length !== 1) return paragraphs
+  const only = paragraphs[0]!
+  // 沿用原有阅读习惯：单段纯文本按句末标点拆成多段
+  if (only.some((segment) => segment.bold)) return paragraphs
+  const text = only.map((segment) => segment.text).join("").trim()
+  if (!text) return []
+  const sentences = text.match(/[^。！？!?]+[。！？!?]?/g)?.map((item) => item.trim()).filter(Boolean) ?? []
+  return sentences.length > 1 ? sentences.map((item) => [{ text: item, bold: false }]) : [[{ text, bold: false }]]
 })
 const resultRowCount = computed(() => props.response.result?.table?.rows.length ?? 0)
 const hasResultRows = computed(() => resultRowCount.value > 0)
@@ -177,7 +181,7 @@ async function copyAnswer() {
 <template>
   <div class="flex min-w-0 flex-col gap-3">
     <div v-if="showAnswer" class="group/answer relative space-y-1.5 break-words pr-9 leading-7" aria-live="polite">
-      <p v-for="(paragraph, index) in answerParagraphs" :key="index">{{ paragraph }}</p>
+      <p v-for="(paragraph, index) in answerParagraphs" :key="index"><template v-for="(segment, segmentIndex) in paragraph" :key="segmentIndex"><strong v-if="segment.bold" class="font-semibold">{{ segment.text }}</strong><template v-else>{{ segment.text }}</template></template></p>
       <span v-if="!answerStreamComplete" class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" />
       <button v-if="answerStreamComplete && answerParagraphs.length" type="button" class="absolute -top-1 right-0 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :title="isAnswerCopied ? '已复制' : '复制回答'" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button>
     </div>
@@ -194,7 +198,7 @@ async function copyAnswer() {
           <Table2 class="size-3.5" />{{ isDataDetailsOpen ? "收起数据明细" : `查看 ${resultRowCount} 条数据明细` }}
         </button>
       </div>
-      <div v-else-if="!response.analysis" class="flex items-start gap-2 border-y border-[#DCE3EF] py-2.5 text-xs text-[#66759B]" role="status">
+      <div v-else class="flex items-start gap-2 border-y border-[#DCE3EF] py-2.5 text-xs text-[#66759B]" role="status">
         <Search class="mt-0.5 size-3.5 shrink-0" />
         <span><strong class="font-medium text-[#52638F]">当前条件下暂未查询到数据。</strong> 可以确认统计日期或机构名称，也可以扩大时间范围重新查询。</span>
       </div>
