@@ -31,6 +31,7 @@ function buildSystemPrompt(currentDate: string): string {
 9. 工具返回 clarification_required 后，立即结束本轮并转告仍缺少的条件，等待用户补充；不要再次检索或提交相同问题。
 10. 用户询问可查询哪些指标或机构时，调用 catalog_overview 一次获取概览，不用空关键词检索或逐类搜索来拼凑概览。用户指定关键词时使用目录检索；用户同时要求取数时继续查询，不因概览提前结束。用户要求全部指标而查询范围不明确时，说明需要缩小指标范围，不把“全部指标”简单说成没有提供指标。
 11. 回答使用简体中文，简洁准确。
+12. 用户询问哪些日期有数据或最新能查哪天，使用 data_availability 的 dates 模式；问某机构某日期有哪些指标有数据，使用该工具的 metrics 模式返回指标名称，不能用日期列表代替。具体机构、指标先确认编码。整体日期仅代表至少一项有数据，不代填查询日期，不逐项穷举全目录。
 13. 正文不使用 markdown 表格和明细列表；多行查询结果（超过 3 条明细）不要逐条罗列数值，只用简洁自然语言概括（如有序结果可提及前 1-3 名），明细数值一律引导用户查看下方的数据明细表。`;
 }
 
@@ -126,6 +127,7 @@ export class AgentManager {
       scope: session.pendingClarification
         ? { ...session.pendingClarification.scope, user_question: `${session.pendingClarification.scope.user_question}\n${userMessage}`.slice(-8000) }
         : { scope_id: randomUUID(), user_question: userMessage },
+      finishAvailability: () => { session.agent.state.tools = []; },
       selection, userMessage, pending: session.pendingClarification, facts: new Set(),
       assertActive: () => { if (session.deleting) throw new Error("会话正在删除，不能继续查询或计算。"); },
       ensureReady: async () => {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { availabilityReply, type AvailabilityDetails } from "@/lib/dataAvailability"
 import { replyText, governedReply, catalogOverviewReply, type CatalogOverviewDetails } from "@/lib/replyPresentation"
 import type { AgentClarificationSelection } from "@/lib/agentApi"
 import { AlertTriangle, Bot, Check, Copy, Ellipsis, LoaderCircle, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Trash2 } from "@lucide/vue"
@@ -64,6 +65,8 @@ type DisplayMessage = {
   metricAskDetails?: MetricAskDetails
   calculations?: CalculationDetails[]
   metricAskClarification?: BackendNextClarification
+  availabilityError?: string
+  availability?: AvailabilityDetails[]
   catalogOverviews?: CatalogOverviewDetails[]
   metricAskClarificationPrompt?: string
 }
@@ -340,6 +343,10 @@ function finalizeAssistantMessage(chatMessage: DisplayMessage): DisplayMessage {
   }
   const fixed = governedReply(details)
   if (fixed !== undefined) return { ...chatMessage, content: fixed }
+  if (chatMessage.availabilityError && !details) return { ...chatMessage, content: chatMessage.availabilityError }
+  if (chatMessage.availability?.length && !details && !chatMessage.calculations?.length) {
+    return { ...chatMessage, content: chatMessage.availability.map(availabilityReply).join("\n") }
+  }
   if (chatMessage.catalogOverviews?.length && !chatMessage.metricAskDetails && !chatMessage.calculations?.length) {
     return { ...chatMessage, content: chatMessage.catalogOverviews.map(catalogOverviewReply).join("\n\n") }
   }
@@ -395,6 +402,14 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
       continue
     }
     if (item.role === "tool" && "details" in item) {
+      if ((item.details as AvailabilityDetails)?.kind === "data_availability") {
+        const last = messages[messages.length - 1]
+        if (last?.role === "assistant") {
+          if ((item.details as AvailabilityDetails).status === "succeeded") last.availability = last.availability?.length ? last.availability : [item.details as AvailabilityDetails]
+          else last.availabilityError = "数据覆盖查询未完成，请确认登录和查询条件，或缩小范围后重试；这不代表没有数据。"
+        }
+        continue
+      }
       if ((item.details as CatalogOverviewDetails)?.kind === "catalog_overview") {
         const last = messages[messages.length - 1]
         if (last?.role === "assistant") last.catalogOverviews = [...(last.catalogOverviews ?? []), item.details as CatalogOverviewDetails]
@@ -761,6 +776,11 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
     } else {
       toolCalls.push({ id: createId(), tool: event.tool, status: event.isError ? "error" : "done" })
     }
+    if ((event.details as AvailabilityDetails)?.kind === "data_availability") {
+      if ((event.details as AvailabilityDetails).status !== "succeeded") return { ...item, toolCalls,
+        availabilityError: "数据覆盖查询未完成，请确认登录和查询条件，或缩小范围后重试；这不代表没有数据。" }
+      return { ...item, toolCalls, availability: item.availability?.length ? item.availability : [event.details as AvailabilityDetails] }
+    }
     if ((event.details as CatalogOverviewDetails)?.kind === "catalog_overview") {
       return { ...item, toolCalls, catalogOverviews: [...(item.catalogOverviews ?? []), event.details as CatalogOverviewDetails] }
     }
@@ -888,10 +908,12 @@ async function scrollToBottom() {
                     <span class="execution-dot size-1.5 rounded-full bg-[#7C9CDB] [animation-delay:320ms]" />
                   </span>
                 </div>
-                <p v-if="chatMessage.status === 'pending' && chatMessage.content" class="whitespace-pre-wrap break-words leading-7">{{ replyText(chatMessage.metricAskClarificationPrompt ?? chatMessage.metricAskClarification?.prompt ?? governedReply(chatMessage.metricAskDetails) ?? chatMessage.content) }}<span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></p>
+                <p v-if="chatMessage.status === 'pending' && chatMessage.content && (!chatMessage.availability?.length || chatMessage.metricAskDetails)" class="whitespace-pre-wrap break-words leading-7">{{ replyText(chatMessage.metricAskClarificationPrompt ?? chatMessage.metricAskClarification?.prompt ?? governedReply(chatMessage.metricAskDetails) ?? chatMessage.content) }}<span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></p>
                 <ChatResultContent v-else-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :show-data-details="!chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
                 <p v-else-if="chatMessage.status !== 'pending'" class="whitespace-pre-wrap break-words leading-6">{{ replyText(chatMessage.content) }}</p>
                 <CalculationResult v-for="(calculation, index) in chatMessage.calculations" :key="calculation.calculation_id ?? index" :calculation="calculation" />
+
+                <p v-if="chatMessage.availability?.length && chatMessage.availabilityError" class="text-sm text-muted-foreground">{{ chatMessage.availabilityError }}</p>
                 <div v-if="chatMessage.clarification?.fields?.length" class="mt-1">
                   <StructuredClarificationForm :clarification="chatMessage.clarification" />
                 </div>

@@ -18,6 +18,8 @@ class SupportedQueryShape(StrEnum):
 
 
 class QueryTemplateId(StrEnum):
+    DATA_AVAILABLE_METRICS = "data_available_metrics"
+    DATA_AVAILABILITY = "data_availability"
     METRIC_VALUE_LATEST = "metric_value_latest"
     METRIC_VALUE_AS_OF = "metric_value_as_of"
     METRIC_VALUE_IN_RANGE = "metric_value_in_range"

@@ -1,5 +1,5 @@
 {
-  "version": "5",
+  "version": "6",
   "dialects": {
     "mysql": {
       "metric_value_latest": "mysql/metric_value_latest.sql",
@@ -19,7 +19,9 @@
       "metric_ranking_in_range_asc": "mysql/metric_ranking_in_range_asc.sql",
       "metric_ranking_in_range_desc": "mysql/metric_ranking_in_range_desc.sql",
       "metric_ranking_as_of_asc": "mysql/metric_ranking_as_of_asc.sql",
-      "metric_ranking_as_of_desc": "mysql/metric_ranking_as_of_desc.sql"
+      "metric_ranking_as_of_desc": "mysql/metric_ranking_as_of_desc.sql",
+      "data_availability": "mysql/data_availability.sql",
+      "data_available_metrics": "mysql/data_available_metrics.sql"
     },
     "inceptor": {
       "metric_value_latest": "inceptor/metric_value_latest.sql",
@@ -39,7 +41,9 @@
       "metric_ranking_in_range_asc": "inceptor/metric_ranking_in_range_asc.sql",
       "metric_ranking_in_range_desc": "inceptor/metric_ranking_in_range_desc.sql",
       "metric_ranking_as_of_asc": "inceptor/metric_ranking_as_of_asc.sql",
-      "metric_ranking_as_of_desc": "inceptor/metric_ranking_as_of_desc.sql"
+      "metric_ranking_as_of_desc": "inceptor/metric_ranking_as_of_desc.sql",
+      "data_availability": "inceptor/data_availability.sql",
+      "data_available_metrics": "inceptor/data_available_metrics.sql"
     }
   }
 }

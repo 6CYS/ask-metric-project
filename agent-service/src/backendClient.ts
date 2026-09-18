@@ -178,6 +178,10 @@ export class BackendClient {
     return this.request(`/api/v1/catalog/overview?catalog=${catalog}&limit=${limit}`);
   }
 
+  dataAvailability(input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.request("/api/v1/data-availability", { method: "POST", body: JSON.stringify(input) });
+  }
+
   listMetrics(): Promise<{ items: MetricCatalogItem[] }> {
     return this.request<{ items: MetricCatalogItem[] }>("/api/v1/catalog/metrics");
   }

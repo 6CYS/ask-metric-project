@@ -1,3 +1,4 @@
+import { createDataAvailabilityTool } from "./dataAvailability.js";
 import { createCatalogOverviewTool } from "./catalogOverview.js";
 import { clarificationAnswer, type ClarificationSelection } from "./clarification.js";
 /**
@@ -25,6 +26,7 @@ export interface QueryToolContext {
   selection?: ClarificationSelection | undefined;
   ensureReady(): Promise<void>;
   assertActive(): void;
+  finishAvailability?(): void;
   setPending(value: PendingClarification | undefined): void;
 }
 
@@ -396,6 +398,7 @@ export function createStructuredQueryTool(
 export function createAskMetricTools(client: BackendClient, context?: QueryToolContext): AgentTool<any, any>[] {
   return [
     createCatalogOverviewTool(client),
+    createDataAvailabilityTool(client, context?.finishAvailability),
     createStructuredQueryTool(client, context),
     createMetricAskTool(client, context),
     createMetricCatalogSearchTool(client),
