@@ -1,8 +1,9 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import load_only
 
 from ask_metric.api.dependencies import get_model_service, require_actor
 from ask_metric.application.catalog_search import (
@@ -13,10 +14,13 @@ from ask_metric.application.catalog_search import (
 from ask_metric.application.catalog_search import (
     search_metrics as rank_metric_catalog,
 )
+from ask_metric.application.ports import (
+    PermissionDeniedError,
+    ScopedOrganizationPermissionService,
+)
 from ask_metric.application.requests import ActorContext
-from ask_metric.core.config import PROJECT_DIR
+from ask_metric.core.config import PROJECT_DIR, Settings
 from ask_metric.infrastructure.db.models import (
-    AppUser,
     ChatConversation,
     Dataset,
     MetricSynonym,
@@ -25,6 +29,7 @@ from ask_metric.infrastructure.db.models import (
     QueryRun,
     QueryTask,
 )
+from ask_metric.infrastructure.db.organization_scope import SqlAlchemyOrganizationScopeProvider
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
 from ask_metric.infrastructure.model.configuration import resolve_config_path
 from ask_metric.infrastructure.semantic.configuration import SemanticConfigRepository
@@ -66,6 +71,67 @@ class DatasetPayload(BaseModel):
 
 def get_uow() -> SqlAlchemyUnitOfWork:
     return SqlAlchemyUnitOfWork()
+
+
+def get_overview_settings(request: Request) -> Settings:
+    return request.app.state.settings
+
+
+def get_overview_permissions(
+    settings: Annotated[Settings, Depends(get_overview_settings)],
+) -> ScopedOrganizationPermissionService:
+    return ScopedOrganizationPermissionService(
+        organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
+        all_organization_org_codes=set(settings.all_organization_org_codes),
+    )
+
+
+@router.get("/overview")
+def catalog_overview(
+    catalog: Literal["metrics", "organizations"],
+    uow: Annotated[SqlAlchemyUnitOfWork, Depends(get_uow)],
+    actor: Annotated[ActorContext, Depends(require_actor)],
+    permissions: Annotated[ScopedOrganizationPermissionService, Depends(get_overview_permissions)],
+    settings: Annotated[Settings, Depends(get_overview_settings)],
+    limit: int = Query(default=8, ge=1, le=20),
+) -> dict[str, object]:
+    """只返回有限目录摘要；机构先经过与查询相同的授权，再计数和取样。"""
+    with uow:
+        if catalog == "metrics":
+            total = uow.session.scalar(
+                select(func.count()).select_from(MetricTerm).where(MetricTerm.enabled.is_(True))
+            ) or 0
+            codes = list(dict.fromkeys(settings.catalog_overview_metric_codes))
+            terms = uow.session.scalars(select(MetricTerm).where(
+                MetricTerm.enabled.is_(True), MetricTerm.metric_code.in_(codes)
+            )).all() if codes else []
+            by_code = {term.metric_code: term for term in terms}
+            examples = [
+                {"name": by_code[code].metric_name, "unit": by_code[code].unit}
+                for code in codes if code in by_code
+            ][:limit]
+        else:
+            codes = list(uow.session.scalars(
+                select(OrgTerm.org_code).where(OrgTerm.enabled.is_(True))
+            ))
+            try:
+                authorized = permissions.authorize_logical_dsl(actor=actor, logical_dsl={
+                    "orgs": codes, "options": {"organization_scope": "synchronized_catalog"},
+                })
+            except PermissionDeniedError as error:
+                raise HTTPException(
+                    status_code=403, detail="无法确认当前账号的机构查询范围"
+                ) from error
+            allowed = set(authorized.get("orgs", [])) & set(codes)
+            total = len(allowed)
+            terms = uow.session.scalars(select(OrgTerm).where(
+                OrgTerm.enabled.is_(True), OrgTerm.org_code.in_(allowed)
+            ).order_by(OrgTerm.org_code).limit(limit)).all()
+            examples = [{"name": term.org_name} for term in terms]
+    return {
+        "catalog": catalog, "total": total, "examples": examples, "examples_only": True,
+        "data_availability": "目录存在不代表指定机构和日期有数据，需查询确认。",
+    }
 
 
 @router.get("/metrics", response_model=MetricCatalogResponse)
@@ -495,41 +561,88 @@ def delete_dataset(
         uow.commit()
 
 
-@router.get("/query-runs", response_model=MetricCatalogResponse)
+class QueryRunPageResponse(MetricCatalogResponse):
+    total: int
+    page: int
+    page_size: int
+
+
+def _visible_log_tasks(actor: ActorContext):
+    """列表、总数和详情仅限本人；管理员与同机构账号也不能跨账号读取。"""
+    if not actor.user_id:
+        raise HTTPException(status_code=403, detail="当前身份缺少账号标识，无法查看问数日志")
+    return select(QueryTask.id).join(
+        ChatConversation, ChatConversation.id == QueryTask.conversation_id
+    ).where(ChatConversation.owner_user_id == actor.user_id)
+
+
+def _latest_log_run_id(task_id):
+    return (
+        select(QueryRun.id)
+        .where(QueryRun.task_id == task_id)
+        .order_by(QueryRun.created_at.desc(), QueryRun.id.desc())
+        .limit(1)
+    )
+
+
+@router.get("/query-runs", response_model=QueryRunPageResponse)
 def list_query_runs(
     uow: Annotated[SqlAlchemyUnitOfWork, Depends(get_uow)],
     actor: Annotated[ActorContext, Depends(require_actor)],
-) -> MetricCatalogResponse:
-    latest_run_id = (
-        select(QueryRun.id)
-        .where(QueryRun.task_id == QueryTask.id)
-        .order_by(QueryRun.created_at.desc(), QueryRun.id.desc())
-        .limit(1)
-        .correlate(QueryTask)
-        .scalar_subquery()
-    )
-    statement = (
-        select(QueryTask, QueryRun)
-        .join(ChatConversation, ChatConversation.id == QueryTask.conversation_id)
-        .outerjoin(QueryRun, QueryRun.id == latest_run_id)
-    )
-    if actor.role_code != "SYSTEM_ADMIN":
-        statement = (
-            statement.join(AppUser, AppUser.id == ChatConversation.owner_user_id)
-            .where(AppUser.org_code == actor.org_id)
-        )
-    statement = statement.order_by(QueryTask.created_at.desc()).limit(500)
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 10,
+) -> QueryRunPageResponse:
+    visible = _visible_log_tasks(actor)
     with uow:
-        rows = list(uow.session.execute(statement).all())
-    return MetricCatalogResponse(
+        total = uow.session.execute(
+            select(func.count()).select_from(visible.subquery())
+        ).scalar_one()
+        page = min(page, max(1, (total + page_size - 1) // page_size))
+        # 排序只携带 ID 和时间，避免 JSON 状态及结果进入数据库排序缓冲区。
+        ids = list(uow.session.execute(
+            visible.order_by(QueryTask.created_at.desc(), QueryTask.id.desc())
+            .offset((page - 1) * page_size).limit(page_size)
+        ).scalars())
+        rows = []
+        if ids:
+            tasks = list(uow.session.execute(
+                select(QueryTask).where(QueryTask.id.in_(ids)).options(load_only(
+                    QueryTask.id, QueryTask.conversation_id, QueryTask.original_question,
+                    QueryTask.intent, QueryTask.query_shape, QueryTask.status,
+                    QueryTask.current_stage, QueryTask.error_code, QueryTask.error_message,
+                    QueryTask.created_at, raiseload=True,
+                ))
+            ).scalars())
+            tasks_by_id = {task.id: task for task in tasks}
+            # 相关子查询只定位最新 ID；批量读取本页摘要，避免逐条往返数据库。
+            latest = _latest_log_run_id(QueryTask.id).correlate(QueryTask).scalar_subquery()
+            run_ids = dict(uow.session.execute(
+                select(QueryTask.id, latest).select_from(QueryTask).where(QueryTask.id.in_(ids))
+            ).all())
+            runs = list(uow.session.execute(
+                select(QueryRun).where(QueryRun.id.in_(
+                    [run_id for run_id in run_ids.values() if run_id is not None]
+                )).options(load_only(
+                    QueryRun.id, QueryRun.intent, QueryRun.query_shape,
+                    QueryRun.raw_org_text, QueryRun.matched_text,
+                    QueryRun.matched_org_name, QueryRun.org_match_type,
+                    QueryRun.status, QueryRun.failed_node, QueryRun.error_type,
+                    QueryRun.error_message, QueryRun.retry_count, raiseload=True,
+                ))
+            ).scalars())
+            runs_by_id = {run.id: run for run in runs}
+            rows = [
+                (tasks_by_id[task_id], runs_by_id.get(run_ids.get(task_id)))
+                for task_id in ids if task_id in tasks_by_id
+            ]
+    return QueryRunPageResponse(
+        total=total, page=page, page_size=page_size,
         items=[
             {
                 "id": run.id if run is not None else task.id,
                 "task_id": task.id,
                 "conversation_id": task.conversation_id,
                 "user_message": task.original_question,
-                "resolved_question": (task.state_json or {}).get("resolved_question"),
-                "clarification_answers": (task.state_json or {}).get("clarification_answers", []),
                 "intent": task.intent or (run.intent if run is not None else "pending"),
                 "query_shape": task.query_shape or (run.query_shape if run is not None else None),
                 "raw_org_text": run.raw_org_text if run is not None else None,
@@ -543,15 +656,62 @@ def list_query_runs(
                 "error_type": run.error_type if run is not None else None,
                 "error_message": task.error_message
                 or (run.error_message if run is not None else None),
-                "error_code": task.error_code or _run_error_code(run),
+                "error_code": task.error_code,
                 "retry_count": run.retry_count if run is not None else 0,
                 "created_at": task.created_at,
-                "trace": ((task.state_json or {}).get("debug") or {}).get("trace", []),
-                "timings_ms": (task.state_json or {}).get("timings_ms", {}),
             }
             for task, run in rows
         ]
     )
+
+
+@router.get("/query-runs/{task_id}/organizations")
+def get_query_run_organizations(
+    task_id: str,
+    uow: Annotated[SqlAlchemyUnitOfWork, Depends(get_uow)],
+    actor: Annotated[ActorContext, Depends(require_actor)],
+) -> dict[str, object]:
+    with uow:
+        visible_id = uow.session.execute(
+            _visible_log_tasks(actor).where(QueryTask.id == task_id)
+        ).scalar_one_or_none()
+        if visible_id is None:
+            raise HTTPException(status_code=404, detail="Query task log was not found")
+        state = uow.session.execute(
+            select(QueryTask.state_json).where(QueryTask.id == visible_id)
+        ).scalar_one() or {}
+        run_id = uow.session.execute(_latest_log_run_id(task_id)).scalar_one_or_none()
+        run = None
+        if run_id is not None:
+            run = uow.session.execute(
+                select(QueryRun).where(QueryRun.id == run_id).options(load_only(
+                    QueryRun.id, QueryRun.query_plan, QueryRun.raw_org_text,
+                    QueryRun.matched_text, QueryRun.matched_org_name, raiseload=True,
+                ))
+            ).scalar_one()
+        plan = (run.query_plan or {}) if run is not None else {}
+        audit = plan.get("organization_audit") or {}
+        orgs = (plan.get("dsl") or state.get("logical_dsl") or {}).get("orgs")
+        raw = ",".join(orgs) if isinstance(orgs, list) else (
+            run.raw_org_text if run is not None else None
+        )
+        names = audit.get("matched_names")
+        # 旧日志从同次执行的结果证据恢复名称，不查询现今目录猜测历史匹配结果。
+        artifact = state.get("result_artifact") or {}
+        if names is None and run is not None and artifact.get("source_run_id") == run.id:
+            rows = (artifact.get("result") or {}).get("rows", [])
+            names = list(dict.fromkeys(
+                str(row["org_name"]) for row in rows if row.get("org_name") is not None
+            ))
+        matched = ",".join(names) if isinstance(names, list) else (
+            (run.matched_org_name or run.matched_text) if run is not None else None
+        )
+        incomplete = any(value and value.endswith("...") for value in (raw, matched))
+        return {
+            "raw_org_text": raw,
+            "matched_org_name": matched,
+            "notice": "历史记录仅保留了截断摘要，缺失部分无法恢复。" if incomplete else None,
+        }
 
 
 @router.get("/query-runs/{task_id}")
@@ -560,23 +720,24 @@ def get_query_run_detail(
     uow: Annotated[SqlAlchemyUnitOfWork, Depends(get_uow)],
     actor: Annotated[ActorContext, Depends(require_actor)],
 ) -> dict[str, object]:
-    statement = (
-        select(QueryTask, QueryRun)
-        .join(ChatConversation, ChatConversation.id == QueryTask.conversation_id)
-        .outerjoin(QueryRun, QueryRun.task_id == QueryTask.id)
-        .where(QueryTask.id == task_id)
-        .order_by(QueryRun.created_at.desc(), QueryRun.id.desc())
-        .limit(1)
-    )
-    if actor.role_code != "SYSTEM_ADMIN":
-        statement = statement.join(
-            AppUser, AppUser.id == ChatConversation.owner_user_id
-        ).where(AppUser.org_code == actor.org_id)
     with uow:
-        row = uow.session.execute(statement).first()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Query task log was not found")
-    task, run = row
+        visible_id = uow.session.execute(
+            _visible_log_tasks(actor).where(QueryTask.id == task_id)
+        ).scalar_one_or_none()
+        if visible_id is None:
+            raise HTTPException(status_code=404, detail="Query task log was not found")
+        # 仅用户打开详情时加载状态 JSON；任务主键查询无需对大字段排序。
+        task = uow.session.execute(
+            select(QueryTask).where(QueryTask.id == visible_id)
+        ).scalar_one()
+        run_id = uow.session.execute(_latest_log_run_id(task_id)).scalar_one_or_none()
+        run = None
+        if run_id is not None:
+            run = uow.session.execute(
+                select(QueryRun).where(QueryRun.id == run_id).options(
+                    load_only(QueryRun.id, QueryRun.status, raiseload=True)
+                )
+            ).scalar_one()
     return {
         "task_id": task.id,
         "user_message": task.original_question,
@@ -589,12 +750,6 @@ def get_query_run_detail(
         "trace": ((task.state_json or {}).get("debug") or {}).get("trace", []),
         "debug": (task.state_json or {}).get("debug", {}),
     }
-
-
-def _run_error_code(run: QueryRun | None) -> str | None:
-    if run is None:
-        return None
-    return ((run.query_plan or {}).get("error") or {}).get("code")
 
 
 def _task_log_status(task: QueryTask, run: QueryRun | None) -> str:

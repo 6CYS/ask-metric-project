@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { replyText } from "@/lib/replyPresentation"
 import { Bug, ChartColumn, Check, Copy, Download, LoaderCircle, Search, Table2 } from "@lucide/vue"
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from "vue"
 
@@ -24,7 +25,7 @@ import { resolveResultVisualization, type ResultView } from "@/lib/resultVisuali
 // ECharts 体积较大，仅在展示决策允许图表时加载对应代码块。
 const ChatResultChart = defineAsyncComponent(() => import("@/components/chat/ChatResultChart.vue"))
 
-const props = withDefaults(defineProps<{ response: ChatResponse; question?: string; clarificationResolved?: boolean; showDebugButton?: boolean; streamAnswer?: boolean }>(), { question: "", clarificationResolved: false, showDebugButton: false, streamAnswer: false })
+const props = withDefaults(defineProps<{ response: ChatResponse; question?: string; clarificationResolved?: boolean; showDebugButton?: boolean; streamAnswer?: boolean; showDataDetails?: boolean }>(), { question: "", clarificationResolved: false, showDebugButton: false, streamAnswer: false, showDataDetails: true })
 const emit = defineEmits<{ debug: []; answerStreamComplete: [] }>()
 const visualization = computed(() => resolveResultVisualization(props.response, props.question))
 const resultMode = ref<ResultView>("table")
@@ -58,12 +59,13 @@ const statusDefinitions = computed(() => {
   return values.map((value) => ({ value, label: statusLabels[value] }))
 })
 const showAnswer = computed(() => props.clarificationResolved || !props.response.clarification?.fields?.length)
-const displayAnswer = computed(() => {
+const rawDisplayAnswer = computed(() => {
   if (props.response.clarification) return clarificationTranscript(props.response.clarification, props.response.answer)
   if (props.response.answer !== "已生成查询计划，等待执行。") return props.response.answer
   const count = props.response.result?.table?.rows.length
   return typeof count !== "number" ? props.response.answer : count ? `查询完成，找到 ${count} 条记录。` : "查询完成，暂无匹配数据。"
 })
+const displayAnswer = computed(() => replyText(rawDisplayAnswer.value))
 const renderedAnswer = ref("")
 const answerStreamComplete = ref(true)
 let answerFrame = 0
@@ -196,7 +198,7 @@ async function copyAnswer() {
       <span v-if="response.metric_definition.unit">· {{ response.metric_definition.unit }}</span>
     </div>
 
-    <div v-if="answerStreamComplete && response.result?.table" class="flex min-w-0 flex-col gap-2">
+    <div v-if="showDataDetails && answerStreamComplete && response.result?.table" class="flex min-w-0 flex-col gap-2">
       <div v-if="hasResultRows" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/70 pt-2 text-xs text-muted-foreground">
         <button type="button" class="inline-flex items-center gap-1 text-muted-foreground/75 underline-offset-4 transition-colors hover:text-muted-foreground hover:underline" @click="isDataDetailsOpen = !isDataDetailsOpen">
           <Table2 class="size-3.5" />{{ isDataDetailsOpen ? "收起数据明细" : `查看 ${resultRowCount} 条数据明细` }}

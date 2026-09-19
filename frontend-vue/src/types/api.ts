@@ -333,6 +333,7 @@ export type AuthUser = {
   org_code: string
   org_name: string
   role_code: "USER" | "SYSTEM_ADMIN"
+  can_query_all_organizations?: boolean
 }
 
 export type LoginResponse = {

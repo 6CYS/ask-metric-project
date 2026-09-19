@@ -59,6 +59,12 @@ class SqlAlchemyConversationRepository:
     def get(self, conversation_id: str) -> ChatConversation | None:
         return self.session.get(ChatConversation, conversation_id)
 
+    def get_owned_for_update(self, conversation_id: str, user_id: str) -> ChatConversation | None:
+        return self.session.execute(select(ChatConversation).where(
+            ChatConversation.id == conversation_id,
+            ChatConversation.owner_user_id == user_id,
+        ).with_for_update()).scalar_one_or_none()
+
     def add(self, conversation: ChatConversation) -> None:
         self.session.add(conversation)
 

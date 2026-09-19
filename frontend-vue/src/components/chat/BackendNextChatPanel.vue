@@ -1,10 +1,14 @@
 <script setup lang="ts">
+import { availabilityReply, type AvailabilityDetails } from "@/lib/dataAvailability"
+import { replyText, governedReply, catalogOverviewReply, type CatalogOverviewDetails } from "@/lib/replyPresentation"
 import { AlertTriangle, Bot, Check, Copy, Ellipsis, LoaderCircle, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Trash2 } from "@lucide/vue"
 import { computed, nextTick, onActivated, onMounted, onBeforeUnmount, ref, watch } from "vue"
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from "reka-ui"
 
 import CatalogQuestionComposer from "@/components/chat/CatalogQuestionComposer.vue"
+import AgentMessageDiagnostics from "@/components/chat/AgentMessageDiagnostics.vue"
 import ChatResultContent from "@/components/chat/ChatResultContent.vue"
+import CalculationResult from "@/components/chat/CalculationResult.vue"
 import StructuredClarificationForm from "@/components/chat/StructuredClarificationForm.vue"
 import BaseAlert from "@/components/ui/BaseAlert.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
@@ -27,6 +31,7 @@ import {
   type AgentSessionDetail,
   type AgentStreamEvent,
   type MetricAskDetails,
+  type CalculationDetails,
 } from "@/lib/agentApi"
 import { getBackendTaskResult } from "@/lib/api"
 import type { BackendNextClarification, ChatResponse } from "@/types/api"
@@ -36,7 +41,6 @@ import { copyText } from "@/lib/clipboard"
 import { archiveClarificationResponse } from "@/lib/conversationMessages"
 import { composeClarification, composeQuestion, type ComposerEntity } from "@/lib/composerEntities"
 import { friendlyQueryError } from "@/lib/queryErrors"
-import { flattenAssistantSegments } from "@/lib/assistantText"
 
 /**
  * 指标问数面板：问答数据链路走 agent-service（pi harness）的 SSE 事件流，
@@ -46,7 +50,8 @@ import { flattenAssistantSegments } from "@/lib/assistantText"
 type ToolCallDisplay = {
   id: string
   tool: string
-  status: "running" | "done" | "error"
+  status: "running" | "done" | "error" | "interrupted" | "unknown"
+  elapsedMs?: number
 }
 
 type DisplayMessage = {
@@ -56,12 +61,19 @@ type DisplayMessage = {
   response?: ChatResponse
   status?: "pending" | "done" | "error"
   toolCalls?: ToolCallDisplay[]
+  taskIds?: string[]
+  elapsedMs?: number
   clarification?: BackendNextClarification
   createdAt?: string
   kind?: string
   /** 本轮最近一次 metric_ask 的工具明细，done/error 收尾时用于构造结构化响应。 */
   metricAskDetails?: MetricAskDetails
+  calculations?: CalculationDetails[]
   metricAskClarification?: BackendNextClarification
+  answerStreaming?: boolean
+  availabilityError?: string
+  availability?: AvailabilityDetails[]
+  catalogOverviews?: CatalogOverviewDetails[]
   metricAskClarificationPrompt?: string
   /** 待补充澄清的业务目标：回答卡片时随请求回传，由后端精确命中原任务 */
   clarificationTarget?: { task_id: string; version: number; clarification_id: string }
@@ -88,6 +100,7 @@ type DisplayConversation = {
 const toolLabels: Record<string, string> = {
   metric_ask: "指标问数",
   metric_query_structured: "指标结构化查询",
+  metric_calculate: "可靠计算工具",
   metric_catalog_search: "指标目录检索",
   metric_catalog_overview: "可查询指标总览",
   metric_read: "结果回读",
@@ -257,7 +270,8 @@ function executionStatus(chatMessage: DisplayMessage) {
   const runningTool = chatMessage.toolCalls?.find((call) => call.status === "running")
   return {
     kind: "running",
-    title: runningTool ? `正在查询：${toolLabel(runningTool.tool)}` : "正在思考，请稍候",
+    title: "正在处理，请稍候",
+    detail: runningTool ? `正在查询：${toolLabel(runningTool.tool)}` : "正在等待模型回答",
     titleClass: "",
   }
 }
@@ -311,7 +325,7 @@ function responseFromMetricAsk(details: MetricAskDetails, answer: string): ChatR
   return {
     message_id: details.task_id ?? createId(),
     intent: "metric_query",
-    answer: answer.trim() || (rowCount ? `查询完成，找到 ${rowCount} 条记录。` : "查询完成，暂无匹配数据。"),
+    answer: governedReply(details) ?? (answer.trim() || (rowCount ? `查询完成，找到 ${rowCount} 条记录。` : "查询完成，暂无匹配数据。")),
     result: hasRows && rowCount <= 100 && columns.length ? { type: "metric_query", table: { columns, rows } } : null,
     metric_definition: null,
     clarification: null,
@@ -342,6 +356,12 @@ function clarificationResponse(clarification: BackendNextClarification, prompt: 
 
 /** done/error 收尾：按本轮收集到的工具明细生成最终结构化响应。 */
 function finalizeAssistantMessage(chatMessage: DisplayMessage): DisplayMessage {
+  const calculationCalls = chatMessage.toolCalls?.filter(call => call.tool === "metric_calculate") ?? []
+  const lastCalculation = calculationCalls[calculationCalls.length - 1]
+  if (lastCalculation?.status === "error") {
+    return { ...chatMessage, content: "本次计算未成功，暂不能提供可靠的计算结果，请重新查询所需指标后再计算。" }
+  }
+
   const clarification = chatMessage.metricAskClarification
   if (clarification) {
     const response = clarificationResponse(clarification, chatMessage.metricAskClarificationPrompt ?? clarification.prompt)
@@ -354,8 +374,14 @@ function finalizeAssistantMessage(chatMessage: DisplayMessage): DisplayMessage {
     return { ...chatMessage, response }
 
   }
-  if (details && details.status === "unsupported" && !chatMessage.content.trim()) {
-    return { ...chatMessage, content: "当前能力暂不支持该查询，请调整问题后重试。" }
+  const fixed = governedReply(details)
+  if (fixed !== undefined) return { ...chatMessage, content: fixed }
+  if (chatMessage.availabilityError && !details) return { ...chatMessage, content: chatMessage.availabilityError }
+  if (chatMessage.availability?.length && !details && !chatMessage.calculations?.length) {
+    return { ...chatMessage, content: chatMessage.availability.map(availabilityReply).join("\n") }
+  }
+  if (chatMessage.catalogOverviews?.length && !chatMessage.metricAskDetails && !chatMessage.calculations?.length) {
+    return { ...chatMessage, content: chatMessage.catalogOverviews.map(catalogOverviewReply).join("\n\n") }
   }
   return chatMessage
 }
@@ -382,30 +408,71 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
       continue
     }
     if (item.role === "assistant") {
-      const text = "text" in item ? item.text ?? "" : ""
+      const failure = "error" in item ? item.error : undefined
+      const body = "text" in item ? item.text ?? "" : ""
+      const text = failure ? [body.trim(), failure].filter(Boolean).join("\n") : body
       const tools = "tools" in item ? item.tools ?? [] : []
+      const savedCalls = "tool_calls" in item ? item.tool_calls : undefined
+      const calls: ToolCallDisplay[] = (savedCalls ?? tools.map(tool => ({ tool }))).map(call => ({
+        id: ("id" in call && typeof call.id === "string" ? call.id : createId()), tool: call.tool, status: "unknown",
+      }))
       const last = messages[messages.length - 1]
       if (last?.role === "assistant") {
         // 跨轮次合并助手片段：两侧都有内容时补段落分隔，避免首尾粘连
         if (text.trim()) last.content = text
-        last.toolCalls = [...(last.toolCalls ?? []), ...tools.map((tool) => ({ id: createId(), tool, status: "done" as const }))]
+        last.toolCalls = [...(last.toolCalls ?? []), ...calls]
+        if (failure) {
+          last.status = "error"
+          last.response = undefined
+        }
         if (!last.createdAt) last.createdAt = historyTimestamp(item.timestamp)
       } else {
         messages.push({
           id: createId(),
           role: "assistant",
           content: text,
-          toolCalls: tools.map((tool) => ({ id: createId(), tool, status: "done" as const })),
-          status: "done",
+          toolCalls: calls,
+          status: failure ? "error" : "done",
           createdAt: historyTimestamp(item.timestamp),
         })
       }
       continue
     }
     if (item.role === "tool" && "details" in item) {
+      const assistant = messages[messages.length - 1]
+      if (assistant?.role === "assistant") {
+        const calls = assistant.toolCalls ?? []
+        const index = calls.findIndex(call => item.tool_call_id ? call.id === item.tool_call_id : call.tool === item.tool && call.status === "unknown")
+        const call: ToolCallDisplay = {
+          id: item.tool_call_id || calls[index]?.id || createId(), tool: item.tool,
+          status: item.is_error ? "error" : "done", elapsedMs: item.elapsed_ms,
+        }
+        if (index >= 0) calls[index] = call
+        else calls.push(call)
+        assistant.toolCalls = calls
+      }
+      if ((item.details as AvailabilityDetails)?.kind === "data_availability") {
+        const last = messages[messages.length - 1]
+        if (last?.role === "assistant") {
+          if ((item.details as AvailabilityDetails).status === "succeeded") last.availability = last.availability?.length ? last.availability : [item.details as AvailabilityDetails]
+          else last.availabilityError = "数据覆盖查询未完成，请确认登录和查询条件，或缩小范围后重试；这不代表没有数据。"
+        }
+        continue
+      }
+      if ((item.details as CatalogOverviewDetails)?.kind === "catalog_overview") {
+        const last = messages[messages.length - 1]
+        if (last?.role === "assistant") last.catalogOverviews = [...(last.catalogOverviews ?? []), item.details as CatalogOverviewDetails]
+        continue
+      }
+      if ((item.details as CalculationDetails)?.kind === "metric_calculate") {
+        const last = messages[messages.length - 1]
+        if (last?.role === "assistant") last.calculations = [...(last.calculations ?? []), item.details as CalculationDetails]
+        continue
+      }
       const details = asMetricAskDetails(item.details)
       const last = messages[messages.length - 1]
       if (!details || last?.role !== "assistant") continue
+      if (details.task_id) last.taskIds = [...new Set([...(last.taskIds ?? []), details.task_id])]
       // 历史中的澄清一律只读展示；结果表与导出入口按原始明细还原。
       if (details.status === "clarification_required" && details.clarification) {
         last.response = archiveClarificationResponse(clarificationResponse(details.clarification, details.clarification_prompt ?? details.clarification.prompt))
@@ -414,7 +481,7 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
         if (details.task_id && details.version !== undefined) last.clarificationTarget = {
           task_id: details.task_id, version: details.version, clarification_id: details.clarification.id,
         }
-      } else if (details.status === "succeeded") {
+      } else {
         last.metricAskDetails = details
       }
     }
@@ -427,9 +494,14 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
   // 结果表在最终助手文本合并完成后再构造，保证回答与表格一致。
   return {
     messages: messages.map((item) => {
-      if (item.role !== "assistant" || !item.metricAskDetails) return item
+      if (item.role !== "assistant") return item
+      if (!item.metricAskDetails) return item.response ? item : finalizeAssistantMessage(item)
       const details = item.metricAskDetails
-      return { ...item, response: responseFromMetricAsk(details, item.content) }
+      const { metricAskDetails, ...rest } = item
+      void metricAskDetails
+      return details.status === "succeeded"
+        ? { ...rest, response: responseFromMetricAsk(details, item.content) }
+        : { ...rest, content: governedReply(details) ?? item.content }
     }),
   }
 }
@@ -447,7 +519,7 @@ async function loadHistory(expectedUserId = auth.user.value?.id ?? null) {
         id: item.session_id,
         serverId: item.session_id,
         title: titleOverrides.value[item.session_id] ?? item.title ?? "问数会话",
-        preview: "",
+        preview: item.preview ?? item.title ?? "尚未开始",
         messages: [],
         loaded: false,
         persisted: true,
@@ -504,7 +576,7 @@ async function selectConversation(conversationId: string) {
     }
     loaded.title = titleOverrides.value[loaded.serverId ?? ""] ?? detail.title ?? conversationTitle(loaded.serverId, loaded.messages)
     const lastAssistant = [...loaded.messages].reverse().find((item) => item.role === "assistant")
-    loaded.preview = lastAssistant?.content ?? loaded.preview
+    loaded.preview = detail.preview ?? lastAssistant?.content ?? loaded.preview
     conversations.value = conversations.value.map((item) => item.id === conversationId ? loaded : item)
     await scrollToBottom()
     // 历史会话的结果表同样只从后端快照回填
@@ -644,7 +716,7 @@ async function confirmDeleteConversation() {
 
 function handleSubmit(text: string, entities: ComposerEntity[] = []) {
   if (!queryReady.value) return
-  // 结构化澄清的选择与正文组合为一段补充文字，作为下一条用户消息发给 agent。
+  // 正文用于展示；目录编码与澄清标识独立传递，由服务端绑定当前任务。
   const label = composeQuestion(text, entities)
   if (!activeConversation.value) handleNewConversation()
   const conversation = activeConversation.value
@@ -683,6 +755,7 @@ function handleSubmit(text: string, entities: ComposerEntity[] = []) {
 async function runQuestion(conversationId: string, question: string, kind: string, input: AgentPromptInput) {
   if (!queryReady.value) return
   const assistantId = createId()
+  const startedAt = performance.now()
   updateConversation(conversationId, (conversation) => ({
     ...conversation,
     title: conversation.messages.length || conversation.title !== "新的问数会话" ? conversation.title : question.slice(0, 24),
@@ -708,6 +781,7 @@ async function runQuestion(conversationId: string, question: string, kind: strin
       await reconnectConversation(conversationId, assistantId, controller)
     } else failMessage(conversationId, assistantId, error)
   } finally {
+    updateAssistantMessage(conversationId, assistantId, (item) => ({ ...item, elapsedMs: performance.now() - startedAt }))
     abortControllers.delete(conversationId)
     markConversationSending(conversationId, false)
     persistActiveConversation()
@@ -782,23 +856,37 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
   updateAssistantMessage(conversationId, assistantId, (item) => {
     if (event.type === "text_delta") {
       // 工具轮次前的纯空白增量不累积，避免气泡开头出现大片空行
-      if (!item.content && !event.delta.trim()) return item
-      return { ...item, content: item.content + event.delta }
+      if (!item.content.trim() && !event.delta.trim()) return item
+      return { ...item, answerStreaming: true, content: item.content + event.delta }
     }
-    if (event.type === "message_done") return { ...item, content: event.text || item.content }
+    if (event.type === "message_done") return { ...item, answerStreaming: false, content: event.text || item.content }
     if (event.type === "tool_start") {
-      return { ...item, toolCalls: [...(item.toolCalls ?? []), { id: createId(), tool: event.tool, status: "running" as const }] }
+      return { ...item, answerStreaming: false, toolCalls: [...(item.toolCalls ?? []), { id: event.tool_call_id || createId(), tool: event.tool, status: "running" as const }] }
     }
     // tool_end：结束对应进度，记录 metric_ask 明细供收尾时构造结果表或澄清卡片。
     const toolCalls = [...(item.toolCalls ?? [])]
-    const targetIndex = [...toolCalls.keys()].reverse().find((index) => toolCalls[index]!.tool === event.tool && toolCalls[index]!.status === "running")
-    if (targetIndex !== undefined) {
+    const targetIndex = toolCalls.findIndex(call => event.tool_call_id ? call.id === event.tool_call_id : call.tool === event.tool && call.status === "running")
+    if (targetIndex >= 0) {
       toolCalls[targetIndex] = { ...toolCalls[targetIndex]!, status: event.isError ? "error" : "done" }
     } else {
-      toolCalls.push({ id: createId(), tool: event.tool, status: event.isError ? "error" : "done" })
+      toolCalls.push({ id: event.tool_call_id || createId(), tool: event.tool, status: event.isError ? "error" : "done" })
+    }
+    if ((event.details as AvailabilityDetails)?.kind === "data_availability") {
+      if ((event.details as AvailabilityDetails).status !== "succeeded") return { ...item, toolCalls,
+        availabilityError: "数据覆盖查询未完成，请确认登录和查询条件，或缩小范围后重试；这不代表没有数据。" }
+      return { ...item, toolCalls, availability: item.availability?.length ? item.availability : [event.details as AvailabilityDetails] }
+    }
+    if ((event.details as CatalogOverviewDetails)?.kind === "catalog_overview") {
+      return { ...item, toolCalls, catalogOverviews: [...(item.catalogOverviews ?? []), event.details as CatalogOverviewDetails] }
+    }
+    if ((event.details as CalculationDetails)?.kind === "metric_calculate") {
+      const calculation = event.details as CalculationDetails
+      const taskIds = calculation.task_id ? [...new Set([...(item.taskIds ?? []), calculation.task_id])] : item.taskIds
+      return { ...item, toolCalls, taskIds, calculations: [...(item.calculations ?? []), calculation] }
     }
     const details = asMetricAskDetails(event.details)
     if (!details) return { ...item, toolCalls }
+    const taskIds = details.task_id ? [...new Set([...(item.taskIds ?? []), details.task_id])] : item.taskIds
     if (details.status === "clarification_required" && details.clarification) {
       // 记录澄清业务目标：用户回答时随请求回传，后端精确命中原任务
       const target = details.task_id && details.clarification.id
@@ -811,12 +899,13 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
       return {
         ...item,
         toolCalls,
+        taskIds,
         metricAskClarification: details.clarification,
         metricAskClarificationPrompt: details.clarification_prompt,
         ...(target ? { clarificationTarget: target } : {}),
       }
     }
-    return finalizeAssistantMessage({ ...item, content: details.public_answer ?? item.content, toolCalls, metricAskDetails: details })
+    return finalizeAssistantMessage({ ...item, content: details.public_answer ?? item.content, toolCalls, taskIds, metricAskDetails: details })
   })
   if (event.type === "tool_end") void hydrateResultTables(conversationId)
   void scrollToBottom()
@@ -882,11 +971,14 @@ function failMessage(conversationId: string, messageId: string, error: unknown) 
     : friendlyQueryError(error instanceof Error ? error.message : null)
   updateAssistantMessage(conversationId, messageId, (item) => {
     const finalized = finalizeAssistantMessage({ ...item, status: aborted ? "done" : "error" })
+    const answer = aborted ? (finalized.content || content) : (finalized.content ? `${finalized.content}\n${content}` : content)
     return {
       ...finalized,
-      content: aborted ? (finalized.content || content) : (finalized.content ? `${finalized.content}\n${content}` : content),
+      content: answer,
+      // 已有结果表时仍显示末轮模型失败提示，不能被结构化 response 遮住。
+      response: finalized.response ? { ...finalized.response, answer } : undefined,
       status: aborted ? "done" : "error",
-      toolCalls: finalized.toolCalls?.map((call) => call.status === "running" ? { ...call, status: aborted ? "done" : "error" } : call),
+      toolCalls: finalized.toolCalls?.map((call) => call.status === "running" ? { ...call, status: "interrupted" } : call),
     }
   })
   updateConversation(conversationId, (conversation) => ({ ...conversation, preview: content, running: false }))
@@ -949,22 +1041,22 @@ async function scrollToBottom() {
 </script>
 
 <template>
-  <section class="grid min-h-0 flex-1 overflow-hidden border bg-background" :class="isHistoryCollapsed ? 'grid-cols-[44px_minmax(0,1fr)] grid-rows-1' : 'grid-rows-[minmax(0,15rem)_minmax(0,1fr)] sm:grid-cols-[240px_minmax(0,1fr)] sm:grid-rows-1 lg:grid-cols-[300px_minmax(0,1fr)]'">
+  <section class="grid min-h-0 flex-1 overflow-hidden border-x border-b bg-background" :class="isHistoryCollapsed ? 'grid-cols-[44px_minmax(0,1fr)] grid-rows-1' : 'grid-rows-[minmax(0,15rem)_minmax(0,1fr)] sm:grid-cols-[240px_minmax(0,1fr)] sm:grid-rows-1 lg:grid-cols-[300px_minmax(0,1fr)]'">
     <aside v-if="!isHistoryCollapsed" class="flex min-h-0 flex-col border-b bg-muted/30 sm:border-r sm:border-b-0">
-      <div class="border-b px-3 py-2.5">
+      <div class="flex h-[var(--workspace-header-height)] shrink-0 items-center border-b px-3">
         <BaseButton variant="outline" class="w-full justify-start border-border/70 bg-background/70 text-foreground shadow-none hover:bg-muted/70" @click="handleNewConversation"><Plus />新建对话</BaseButton>
       </div>
       <div class="flex items-center gap-2 border-b px-3 py-2.5">
         <p class="min-w-0 flex-1 text-sm font-semibold">历史对话</p>
         <BaseButton variant="ghost" size="icon" class="text-muted-foreground" title="收起历史对话" aria-label="收起历史对话" @click="isHistoryCollapsed = true"><PanelLeftClose /></BaseButton>
       </div>
-      <div class="min-h-0 flex-1 overflow-y-auto px-2.5 py-2">
+      <div class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-2.5 py-2 [scrollbar-gutter:stable]">
         <LoadingSkeleton v-if="isHistoryLoading" :rows="3" row-class="h-14" />
         <div v-else class="flex flex-col gap-1.5">
-          <div v-for="conversation in visibleConversations" :key="conversation.id" class="group/history flex items-start gap-1.5 rounded-xl border border-border/70 bg-background px-2.5 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:border-muted-foreground/35 hover:bg-background" :class="conversation.id === activeConversation?.id && 'border-primary/35 bg-primary/[0.025] ring-1 ring-primary/10'">
+          <div v-for="conversation in visibleConversations" :key="conversation.id" class="group/history flex h-[82px] w-full min-w-0 shrink-0 items-start gap-1.5 rounded-xl border border-border/70 bg-background px-2.5 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:border-muted-foreground/35 hover:bg-background" :class="conversation.id === activeConversation?.id && 'border-primary/35 bg-primary/[0.025] ring-1 ring-primary/10'">
             <button type="button" class="min-w-0 flex-1 px-1 text-left text-sm" @click="selectConversation(conversation.id)">
               <span class="flex items-center gap-1.5"><span class="line-clamp-1 min-w-0 flex-1 font-medium">{{ conversation.title }}</span><span v-if="conversation.legacy" class="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">旧会话</span><LoaderCircle v-if="sendingConversationIds.has(conversation.id) || conversation.running" class="size-3.5 animate-spin" /></span>
-              <span v-if="conversation.preview" class="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{{ conversation.preview }}</span>
+              <span class="mt-0.5 block h-4 truncate text-xs text-muted-foreground">{{ conversation.preview || conversation.title }}</span>
               <span class="mt-1.5 block text-[11px] text-muted-foreground/80" :title="`会话创建时间：${formatConversationDate(conversation.createdAt)}`">{{ formatConversationDate(conversation.createdAt) }}</span>
             </button>
             <PopoverRoot v-if="!conversation.legacy">
@@ -986,12 +1078,14 @@ async function scrollToBottom() {
         </div>
       </div>
     </aside>
-    <aside v-else class="flex min-h-0 flex-col items-center border-r bg-muted/30 py-2">
+    <aside v-else class="flex min-h-0 flex-col border-r bg-muted/30">
+      <div class="flex h-[var(--workspace-header-height)] shrink-0 items-center justify-center border-b">
       <BaseButton variant="ghost" size="icon" class="text-muted-foreground" title="展开历史对话" aria-label="展开历史对话" @click="isHistoryCollapsed = false"><PanelLeftOpen /></BaseButton>
+      </div>
     </aside>
 
     <div class="flex min-h-0 min-w-0 flex-col">
-      <header class="flex min-h-14 items-center border-b px-4 py-3">
+      <header class="flex h-[var(--workspace-header-height)] shrink-0 items-center border-b px-4">
         <h1 class="min-w-0 truncate text-base font-semibold">{{ activeConversation?.title ?? "指标问数" }}</h1>
       </header>
 
@@ -1011,8 +1105,8 @@ async function scrollToBottom() {
                 </div>
               </template>
               <template v-else>
-                <div class="group/assistant min-w-0 px-1 text-sm">
-                <div class="mb-2 flex min-h-9 items-center gap-2" role="status" aria-live="polite">
+                <div class="group/assistant relative min-w-0 px-1 text-sm">
+                <div class="mb-2 flex min-h-9 items-center gap-2 pr-20" role="status" aria-live="polite">
                   <span class="flex size-9 items-center justify-center rounded-xl bg-muted/40 text-foreground" aria-label="智能问数助手"><Bot class="size-4.5" /></span>
                   <time v-if="formatMessageTime(chatMessage.createdAt)" :datetime="chatMessage.createdAt" class="text-xs text-muted-foreground">{{ formatMessageTime(chatMessage.createdAt) }}</time>
                   <template v-if="executionStatus(chatMessage).kind !== 'running' && executionStatus(chatMessage).kind !== 'success'">
@@ -1022,17 +1116,13 @@ async function scrollToBottom() {
                     <span class="text-xs" :class="executionStatus(chatMessage).titleClass">{{ executionStatus(chatMessage).title }}</span>
                   </template>
                 </div>
-                <div v-if="executionStatus(chatMessage).kind === 'running'" class="mb-2 flex items-center gap-2 text-xs text-muted-foreground/60" role="status" aria-live="polite">
-                  <span>{{ executionStatus(chatMessage).title }}</span>
-                  <span class="flex items-center gap-1" aria-hidden="true">
-                    <span class="execution-dot size-1.5 rounded-full bg-[#7C9CDB]" />
-                    <span class="execution-dot size-1.5 rounded-full bg-[#7C9CDB] [animation-delay:160ms]" />
-                    <span class="execution-dot size-1.5 rounded-full bg-[#7C9CDB] [animation-delay:320ms]" />
-                  </span>
-                </div>
-                <p v-if="chatMessage.status === 'pending' && chatMessage.content" class="whitespace-pre-wrap break-words leading-7"><template v-for="(segment, segmentIndex) in flattenAssistantSegments(chatMessage.content)" :key="segmentIndex"><strong v-if="segment.bold" class="font-semibold">{{ segment.text }}</strong><template v-else>{{ segment.text }}</template></template><span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></p>
-                <ChatResultContent v-else-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
-                <p v-else-if="chatMessage.status !== 'pending'" class="whitespace-pre-wrap break-words leading-6"><template v-for="(segment, segmentIndex) in flattenAssistantSegments(chatMessage.content)" :key="segmentIndex"><strong v-if="segment.bold" class="font-semibold">{{ segment.text }}</strong><template v-else>{{ segment.text }}</template></template></p>
+                <AgentMessageDiagnostics :question="questionForMessage(chatMessage)" :task-ids="chatMessage.taskIds ?? []" :pending="chatMessage.status === 'pending'" :has-answer="Boolean(chatMessage.answerStreaming)" :started-at="chatMessage.createdAt" :elapsed-ms="chatMessage.elapsedMs" :tools="chatMessage.toolCalls ?? []" />
+                <p v-if="chatMessage.status === 'pending' && chatMessage.content && (!chatMessage.availability?.length || chatMessage.metricAskDetails)" class="whitespace-pre-wrap break-words leading-7">{{ replyText(chatMessage.metricAskClarificationPrompt ?? chatMessage.metricAskClarification?.prompt ?? governedReply(chatMessage.metricAskDetails) ?? chatMessage.content) }}<span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></p>
+                <ChatResultContent v-else-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :show-data-details="!chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
+                <p v-else-if="chatMessage.status !== 'pending'" class="whitespace-pre-wrap break-words leading-6">{{ replyText(chatMessage.content) }}</p>
+                <CalculationResult v-for="(calculation, index) in chatMessage.calculations" :key="calculation.calculation_id ?? index" :calculation="calculation" />
+
+                <p v-if="chatMessage.availability?.length && chatMessage.availabilityError" class="text-sm text-muted-foreground">{{ chatMessage.availabilityError }}</p>
                 <div v-if="chatMessage.clarification?.fields?.length" class="mt-1">
                   <StructuredClarificationForm :clarification="chatMessage.clarification" />
                 </div>

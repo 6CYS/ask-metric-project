@@ -33,7 +33,12 @@ const router = useRouter()
 const auth = useAuth()
 const logoutError = ref("")
 const loggingOut = ref(false)
-const branding = computed(() => resolveOrganizationBranding(auth.user.value?.org_code ?? "", auth.user.value?.org_name ?? ""))
+const accountName = computed(() => resolveOrganizationBranding(
+  auth.user.value?.org_code ?? "", auth.user.value?.org_name ?? "",
+).badgeText || "当前账号")
+const accountRole = computed(() => auth.user.value?.role_code === "SYSTEM_ADMIN" ? "系统管理员" : "普通用户")
+const accountScope = computed(() => auth.user.value?.can_query_all_organizations ? "全行可查" : "本机构可查")
+const accountTitle = computed(() => `账号：${auth.user.value?.username || ""}\n所属机构：${auth.user.value?.org_name || "未提供"}\n查询范围：${accountScope.value}`)
 const visibleNavigationItems = computed(() => navigationItems.filter((item) => !item.adminOnly || auth.user.value?.role_code === "SYSTEM_ADMIN"))
 const { isSidebarCollapsed, toggleSidebarCollapsed } = useSidebarPreference()
 
@@ -58,13 +63,14 @@ async function handleLogout() {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 overflow-hidden bg-background text-foreground">
+  <div class="flex h-full min-h-0 overflow-hidden bg-background text-foreground [--workspace-header-height:4rem]">
     <!-- 桌面端侧边栏：宽度、留白、边框和动画与原 Next.js 版本逐项对齐。 -->
     <aside
       class="hidden shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 ease-out lg:flex"
       :class="isSidebarCollapsed ? 'w-20' : 'w-64'"
     >
-      <div class="border-b border-sidebar-border py-5" :class="isSidebarCollapsed ? 'px-3' : 'px-5'">
+      <!-- 品牌、会话入口和聊天标题共用高度，折叠时保持分隔线对齐。 -->
+      <div class="flex h-[var(--workspace-header-height)] shrink-0 flex-col justify-center border-b border-sidebar-border" :class="isSidebarCollapsed ? 'px-3' : 'px-5'">
         <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'justify-between gap-3'">
           <!-- 折叠后悬停或键盘聚焦品牌标识，显示展开按钮。 -->
           <div v-if="isSidebarCollapsed" class="group/brand relative size-10">
@@ -146,15 +152,15 @@ async function handleLogout() {
       </nav>
 
       <div class="border-t border-sidebar-border p-3">
-        <button v-if="isSidebarCollapsed" type="button" class="mx-auto flex size-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring" :title="`${branding.badgeText} · 退出登录`" aria-label="退出登录" @click="handleLogout">
+        <button v-if="isSidebarCollapsed" type="button" class="mx-auto flex size-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring" :title="`${accountTitle}\n退出登录`" aria-label="退出登录" @click="handleLogout">
           <UserRound class="size-5" />
         </button>
         <!-- 与导航共用图标和文字对齐线，账号信息直接融入侧栏，不再套独立卡片。 -->
         <div v-else class="flex items-center gap-3 px-3 py-2">
           <UserRound class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           <div class="min-w-0 flex-1">
-            <p class="break-words text-sm font-medium leading-5" :title="auth.user.value?.org_name || branding.shortName">{{ branding.badgeText }}</p>
-            <p class="mt-0.5 text-xs leading-4 text-muted-foreground">{{ auth.user.value?.role_code === 'SYSTEM_ADMIN' ? '系统管理员' : '普通用户' }}</p>
+            <p class="truncate text-sm font-medium leading-5" :title="accountTitle">{{ accountName }}</p>
+            <p class="mt-0.5 text-xs leading-4 text-muted-foreground">{{ accountRole }} · {{ accountScope }}</p>
           </div>
           <BaseButton variant="ghost" size="icon" class="size-8 shrink-0 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground" aria-label="退出登录" title="退出登录" @click="handleLogout"><LogOut class="size-4" /></BaseButton>
         </div>
@@ -167,7 +173,7 @@ async function handleLogout() {
         <div class="flex items-center justify-between gap-3 px-4 py-3">
           <RouterLink to="/" class="font-semibold">Ask Metric</RouterLink>
           <div class="ml-auto flex items-center gap-2">
-            <BaseBadge variant="secondary">{{ branding.badgeText }}</BaseBadge>
+            <BaseBadge variant="secondary" :title="accountTitle">{{ accountName }} · {{ accountScope }}</BaseBadge>
             <BaseButton variant="ghost" size="icon" aria-label="退出登录" @click="handleLogout"><LogOut /></BaseButton>
           </div>
           <nav class="flex items-center gap-1" aria-label="移动端导航">

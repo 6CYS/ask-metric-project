@@ -121,6 +121,12 @@ class Settings(BaseSettings):
     cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [_local_web_origin(5173)]
     )
+    # 仅扩展列出的省级机构查询范围，不授予任何管理权限。
+    all_organization_org_codes: list[str] = Field(default_factory=list)
+    catalog_overview_metric_codes: list[str] = Field(default_factory=lambda: [
+        "ORG_PSON_DEPT_BAL", "ORG_PSON_DEDMDPT_BAL", "ORG_BAD_LOAN_BAL",
+        "ITRBNK_FINC_ORG_QTY",
+    ], max_length=100)
     sql_echo: bool = False
     backend_next_allow_schema_changes: bool = False
     backend_next_allow_non_test_database: bool = False

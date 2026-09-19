@@ -21,7 +21,7 @@ def artifact_from_query(*, task, state, result, actor: ActorContext) -> ResultAr
         tenant_id=actor.tenant_id,
         source_run_id=result.run_id,
         created_at=datetime.now(UTC),
-        logical_dsl=deepcopy(state.logical_dsl or {}),
+        logical_dsl=deepcopy(result.evidence.get("logical_dsl") or state.logical_dsl or {}),
         result=result.model_dump(mode="json", exclude={"debug"}),
     )
 

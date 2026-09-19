@@ -49,6 +49,8 @@ class PermissionService(Protocol):
 class OrganizationScopeProvider(Protocol):
     def allowed_org_codes(self, org_code: str) -> set[str]: ...
 
+    def all_org_codes(self) -> set[str]: ...
+
 
 class OrgHierarchyProvider(Protocol):
     """机构层级只读接口。
@@ -96,9 +98,11 @@ class ScopedOrganizationPermissionService:
         *,
         organization_scope_provider: OrganizationScopeProvider | None = None,
         allow_unscoped_development: bool = False,
+        all_organization_org_codes: set[str] | None = None,
     ) -> None:
         self.organization_scope_provider = organization_scope_provider
         self.allow_unscoped_development = allow_unscoped_development
+        self.all_organization_org_codes = all_organization_org_codes or set()
 
     def authorize_logical_dsl(
         self, *, actor: ActorContext, logical_dsl: dict[str, Any]
@@ -116,6 +120,9 @@ class ScopedOrganizationPermissionService:
         )
         if not allowed or actor.org_id not in allowed:
             raise PermissionDeniedError("用户所属机构不存在或已停用")
+        # 全行权限属于配置中的省级机构，不再为某个用户 ID 绕过机构边界。
+        if actor.org_id in self.all_organization_org_codes and self.organization_scope_provider:
+            allowed = self.organization_scope_provider.all_org_codes()
         requested = list(logical_dsl.get("orgs") or [])
         authorized = dict(logical_dsl)
         # 明确指定越权机构时拒绝；仅正式目录展开的全机构范围允许取权限交集。

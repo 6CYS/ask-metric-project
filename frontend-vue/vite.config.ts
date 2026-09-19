@@ -39,6 +39,8 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      // 固定 IPv4 回环地址，避免 localhost 仅解析到 ::1 时本地书签无法连接。
+      host: "127.0.0.1",
       port: 5173,
       proxy: {
         "/api": {

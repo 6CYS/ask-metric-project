@@ -24,6 +24,43 @@
 
 ## 1. 当前能力状态
 
+### 通用表达式计算（calculations）
+
+新增 `POST /api/v1/agent-query-contexts`（Bearer，正文 `session_id: UUID`），返回
+`conversation_id: agent:<session_id>`，用于 Agent 与后端会话关联。其他用户的同名关联
+返回 404；超出会话数量上限返回 409。普通查询不会自动重建已删除的 `agent:` 会话。
+
+新增 `POST /api/v1/calculations`（Bearer、必填 `Idempotency-Key`）：
+请求字段为 `conversation_id`、`scope_id`、`expressions`、`bindings` 和可选 `constants`。
+`expressions` 中每项包含 `name`、`label`、`expression`，可选 `display` 和 `decimal_places`；
+`bindings` 为变量到 `{fact_id}` 的映射；`constants` 为变量到 `{value, source_text}` 的映射。
+数值不由模型抄写：服务端从已保存的当前范围查询结果读取原始数据，复核权限后计算。
+
+查询执行响应新增 `facts` 数组，包含 `fact_id`、`task_id`、`field`、十进制字符串 `value`、
+正式 `unit`、指标编码/名称、机构及日期。无精确原值或缺少单位时不发放引用。
+查询执行幂等重放统一先复核当前权限和目录，再返回保存的原始结果及相同引用；
+机构权限范围变化后不能通过重放读取原结果。
+普通问题可携带 `channel_context.calculation_context`；基础查询新增可选
+`calculation_context: {scope_id, user_question}`。这些字段不允许作为身份或权限依据。
+
+计算成功返回 `calculation_id`、`task_id`、`scope_id`、`status`、`results`、`inputs`、
+`precision`、`rounding`、`created_at`；每项结果保留原公式、内部数值字符串、展示数值和单位。
+首次会话提问生成独立范围，明确澄清沿用原任务范围。旧历史结果不自动发放计算引用。
+
+| HTTP / 错误码 | 含义 |
+| --- | --- |
+| 422 / `CALCULATION_INVALID` | 引用、范围、状态、单位、常数来源、表达式或数值不满足计算要求 |
+| 422 / `CALCULATION_CONTEXT_INVALID` | 提问时的计算范围元数据格式错误 |
+| 422 / `CALCULATION_CATALOG_CHANGED` | 引用的目录项已停用或不可用 |
+| 403 / `CALCULATION_FORBIDDEN` | 当前机构权限不再允许访问输入数据 |
+| 404 / `CALCULATION_CONTEXT_NOT_FOUND` | 关联会话不存在、已删除或不属于当前用户 |
+| 409 / `CALCULATION_CONFLICT` | 同一幂等键更换计算内容 |
+
+Pydantic 请求格式错误仍使用既有 422 校验响应；缺失或无效 Bearer 使用既有认证错误。
+结果及计算记录保存在现有任务 JSON 和会话消息中，无新增表/列。
+计算接口不调用模型或业务查询库，不要求向量初始化就绪；新取数接口仍保留就绪门禁。
+完整示例、表达式白名单、精度及生命周期见 [计算工具合同](calculation-tools.md)。
+
 ### 结构化基础查询（basic-queries）
 
 `POST /api/v1/basic-queries` 为上层工具编排提供不调用模型的基础取数。使用现有

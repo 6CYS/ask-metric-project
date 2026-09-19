@@ -86,22 +86,14 @@ export function isResultValueColumn(column: string) {
   return monetaryValueColumns.has(normalizeResultColumn(column))
 }
 
-/** 表格按原单位显示；直接处理十进制字符串，避免大金额转 Number 丢分。 */
-export function formatResultTableValue(value: unknown, column: string, row: Record<string, unknown>) {
+/** 表格保持原单位与有效精度，仅去掉普通十进制小数末尾的零，不转 Number。 */
+export function formatResultTableValue(value: unknown, column: string, _row: Record<string, unknown>) {
   const normalized = normalizeResultColumn(column)
   if (!isResultValueColumn(normalized) && normalized !== "rank") return null
   if (typeof value !== "string" && typeof value !== "number") return null
-  const match = /^([+-]?)(\d+)(?:\.(\d*))?$/.exec(String(value).trim())
-  if (!match) return null
-  const unit = String(getResultCellValue(row, "unit") ?? "")
-  const places = normalized === "rank" || ["户", "人", "笔", "个", "名"].includes(unit) ? 0 : 2
-  const fraction = match[3] ?? ""
-  const digits = match[2]! + fraction.slice(0, places).padEnd(places, "0")
-  let scaled = BigInt(digits)
-  if ((fraction[places] ?? "0") >= "5") scaled += 1n
-  const text = scaled.toString().padStart(places + 1, "0")
-  const sign = match[1] === "-" && scaled !== 0n ? "-" : ""
-  return sign + (places ? `${text.slice(0, -places)}.${text.slice(-places)}` : text)
+  const text = String(value)
+  if (!/^[+-]?\d+\.\d+$/.test(text)) return text
+  return text.replace(/0+$/, "").replace(/\.$/, "")
 }
 
 export function getResultColumnClass(column: string) {

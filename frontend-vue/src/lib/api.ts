@@ -1,6 +1,7 @@
 import { clearCatalogCaches, metricCatalogCache, organizationCatalogCache } from "@/lib/catalogCache"
 import type {
   QueryReadiness,
+  BackendNextTaskResult,
   DatasetItem,
   DatasetPayload,
   ConfigVersion,
@@ -107,46 +108,34 @@ async function downloadAuthenticated(path: string, fallbackName: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-let cachedSm2PublicKey: string | null = null
-
 export function getBackendNextQueryReadiness(signal?: AbortSignal) {
   return request<QueryReadiness>(apiUrl(backendNextBase, "/api/v1/query-readiness"), { signal, cache: "no-store" }, false)
 }
 
-/** 登录前获取后端 SM2 公钥（模块级缓存；重启后端更换临时密钥时会随页面刷新失效）。 */
+/** 每次登录获取当前公钥，避免后端重启或密钥轮换后仍使用旧公钥。 */
 async function getSm2PublicKey(): Promise<string> {
-  if (!cachedSm2PublicKey) {
-    const response = await request<Sm2PublicKeyResponse>(
-      "/api/v1/auth/sm2-public-key",
-      undefined,
-      false
-    )
-    cachedSm2PublicKey = response.public_key
-  }
-  return cachedSm2PublicKey
+  const response = await request<Sm2PublicKeyResponse>(
+    "/api/v1/auth/sm2-public-key",
+    { cache: "no-store" },
+    false
+  )
+  return response.public_key
 }
 
 export async function loginUser(username: string, password: string) {
   // 国密传输：明文密码不出浏览器，SM4 加密密码、SM2 加密一次性 SM4 密钥。
   const sm2PublicKey = await getSm2PublicKey()
   const encrypted = encryptLoginPassword(password, sm2PublicKey)
-  try {
-    return await request<LoginResponse>("/api/v1/auth/login", {
-      ...browserSessionRequest,
-      method: "POST",
-      body: JSON.stringify({
-        username,
-        encrypted_key: encrypted.encryptedKey,
-        iv: encrypted.iv,
-        password: encrypted.passwordCipher,
-      }),
-    }, false)
-  } catch (error) {
-    // 后端重启（开发环境临时密钥）或私钥轮换后，缓存的公钥已失效；
-    // 清掉缓存，用户重试时会重新拉取新公钥。
-    cachedSm2PublicKey = null
-    throw error
-  }
+  return request<LoginResponse>("/api/v1/auth/login", {
+    ...browserSessionRequest,
+    method: "POST",
+    body: JSON.stringify({
+      username,
+      encrypted_key: encrypted.encryptedKey,
+      iv: encrypted.iv,
+      password: encrypted.passwordCipher,
+    }),
+  }, false)
 }
 
 export function ssoLoginUser(token: string) {
@@ -252,8 +241,14 @@ function apiUrl(base: string, path: string) {
   return `${base}${path}`
 }
 
-export function listQueryRuns() {
-  return request<{ items: QueryRunItem[] }>(apiUrl(backendNextBase, "/api/v1/catalog/query-runs"))
+export function listQueryRuns(page = 1, pageSize = 10) {
+  return request<{ items: QueryRunItem[]; total: number; page: number; page_size: number }>(apiUrl(backendNextBase, `/api/v1/catalog/query-runs?page=${page}&page_size=${pageSize}`))
+}
+
+export function getQueryRunOrganizations(taskId: string) {
+  return request<{ raw_org_text?: string | null; matched_org_name?: string | null; notice?: string | null }>(
+    apiUrl(backendNextBase, `/api/v1/catalog/query-runs/${encodeURIComponent(taskId)}/organizations`),
+  )
 }
 
 export function getQueryRunDetail(taskId: string) {
@@ -436,4 +431,9 @@ export function getCachedMetricCatalog() {
 
 export function getCachedOrganizationCatalog() {
   return getAccessToken() ? organizationCatalogCache.read(listOrgs) : listOrgs()
+}
+
+/** 读取任务诊断，沿用当前用户 Bearer 和后端任务权限校验。 */
+export function getBackendNextTask(taskId: string) {
+  return request<BackendNextTaskResult>(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}`), { cache: "no-store" })
 }

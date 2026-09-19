@@ -7,6 +7,7 @@ from time import perf_counter
 from typing import Any
 from uuid import uuid4
 
+from ask_metric.application.calculation_service import build_calculation_facts
 from ask_metric.application.commands import ExecuteQueryCommand
 from ask_metric.application.ports import (
     DataSourceAdapter,
@@ -220,6 +221,7 @@ class QueryExecutionApplicationService:
             run_id=run_id,
             task_id=command.task_id,
             status="succeeded",
+            facts=build_calculation_facts(command.task_id, visible_rows, plan.catalog),
             evidence={
                 "logical_dsl": plan.dsl,
                 "catalog": plan.catalog,
@@ -301,14 +303,17 @@ class QueryExecutionApplicationService:
                 )
             state = QueryTaskState.model_validate(task.state_json or {})
             require_current_query_scope(task.state_json or {})
-            if (state.debug.get("basic_query") and state.execution
-                    and state.execution.get("status") == "succeeded"):
+            artifact = getattr(state, "result_artifact", None) or {}
+            if state.execution and state.execution.get("status") == "succeeded":
                 # 工具重放也必须按当前权限/目录复核，不能把旧结果当成永久授权。
                 try:
-                    self._authorize_query(
-                        uow=uow, actor=command.actor, logical_dsl=state.logical_dsl,
+                    original_dsl = artifact.get("logical_dsl") or state.logical_dsl
+                    authorized, _, _ = self._authorize_query(
+                        uow=uow, actor=command.actor, logical_dsl=original_dsl,
                         strict_codes=True,
                     )
+                    if set(authorized.orgs) != set((original_dsl or {}).get("orgs") or []):
+                        raise PermissionDeniedError("结果机构权限范围已变化")
                 except PermissionDeniedError as exc:
                     raise ApplicationError(
                         "ORG_SCOPE_FORBIDDEN", "无权访问该查询结果。", status_code=403,
@@ -840,6 +845,8 @@ def _apply_run_org_match(run: QueryRun, rows: list[dict[str, Any]]) -> None:
     )
     if not names:
         return
+    # 列表字段保留短摘要；完整匹配名称放在既有 JSON 中，供用户展开时按需读取。
+    run.query_plan = {**(run.query_plan or {}), "organization_audit": {"matched_names": names}}
     run.matched_text = _audit_text(names)
     run.matched_org_name = names[0] if len(names) == 1 else _audit_text(names)
     run.org_match_type = "single" if len(names) == 1 else "multiple"
@@ -889,7 +896,7 @@ def _resolve_source_org_codes(orgs: list[str], catalog: list[Any]) -> list[str]:
 def _result_summary(result: QueryExecutionResult) -> dict[str, Any]:
     return result.model_dump(
         mode="json",
-        exclude={"rows", "comparisons"},
+        exclude={"rows", "comparisons", "facts"},
     )
 
 

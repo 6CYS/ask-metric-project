@@ -27,6 +27,7 @@ export class AgentSessionNotFoundError extends AgentApiError {
 export interface AgentSessionItem {
   session_id: string
   title?: string
+  preview?: string
   created_at: string
   last_active_at: string
   running: boolean
@@ -36,13 +37,14 @@ export interface AgentSessionItem {
 /** 历史消息条目：用户提问、助手回答（含调用过的工具名）、工具结果明细。 */
 export type AgentSessionMessage =
   | { role: "user"; text: string; timestamp: number | null }
-  | { role: "assistant"; text: string; tools?: string[]; timestamp: number | null }
-  | { role: "tool"; tool: string; details: unknown; is_error: boolean; timestamp: number | null }
+  | { role: "assistant"; text: string; error?: string; tools?: string[]; tool_calls?: { id?: string; tool: string }[]; timestamp: number | null }
+  | { role: "tool"; tool: string; details: unknown; is_error: boolean; tool_call_id?: string; elapsed_ms?: number; timestamp: number | null }
   | { role: string; text?: string; timestamp: number | null }
 
 export interface AgentSessionDetail {
   session_id: string
   title?: string
+  preview?: string
   created_at: string
   running: boolean
   /** 当前活动原生 operation；重连后用于显式停止 */
@@ -63,6 +65,8 @@ export interface MetricAskDetails {
   rows?: Record<string, unknown>[]
   row_count?: number
   truncated?: boolean
+  message?: string | null
+  error_code?: string | null
   clarification_prompt?: string
   /** 后端结构化澄清对象原样透传，供前端渲染澄清表单。 */
   clarification?: BackendNextClarification | null
@@ -78,6 +82,16 @@ export interface AgentPromptInput {
 }
 
 export type AgentSnapshot = Pick<AgentSessionDetail, "messages" | "running" | "operation_id">
+
+export interface CalculationDetails {
+  kind: "metric_calculate"
+  status: string
+  calculation_id?: string
+  task_id?: string
+  message?: string
+  results?: Array<{ name: string; label: string; expression: string; value: string; display_value: string; unit: string; variables: string[] }>
+  inputs?: Record<string, { metric_name?: string; org_name?: string; date?: string; value: string; unit?: string; source_text?: string }>
+}
 
 export type AgentStreamEvent =
   | { type: "accepted"; operation_id?: string; request_id?: string; snapshot?: AgentSnapshot }

@@ -135,6 +135,7 @@ def get_query_task_service(request: Request) -> QueryTaskApplicationService:
         # 追问来源的权限复核与执行链使用同一机构边界
         permission_service=ScopedOrganizationPermissionService(
             organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
+            all_organization_org_codes=set(settings.all_organization_org_codes),
             allow_unscoped_development=settings.app_env.lower() in {"development", "test"},
         ),
     )
@@ -226,6 +227,7 @@ def get_query_execution_service(request: Request) -> QueryExecutionApplicationSe
         ),
         permission_service=ScopedOrganizationPermissionService(
             organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
+            all_organization_org_codes=set(settings.all_organization_org_codes),
             allow_unscoped_development=settings.app_env.lower() in {"development", "test"},
         ),
         # 机构层级只读应用库元数据；排名下级扩展仍受机构权限交集约束。

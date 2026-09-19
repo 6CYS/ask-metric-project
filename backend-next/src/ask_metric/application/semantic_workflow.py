@@ -238,8 +238,11 @@ def semantic_patch_from_text(
     if "metrics" in current.missing:
         resolution = MetricMatcher(metrics).resolve(text)
         if resolution.matches and not resolution.ambiguous_candidates:
-            values["metrics"] = [{"code": match.code, "name": match.name}
-                                 for match in resolution.matches]
+            # 多个明确指标同属本次补充，保留已确认指标并按编码去重。
+            merged = {item.code: {"code": item.code, "name": item.name} for item in current.metrics}
+            for match in resolution.matches:
+                merged.setdefault(match.code, {"code": match.code, "name": match.name})
+            values["metrics"] = list(merged.values())
 
     return SemanticPatch(set=values)
 

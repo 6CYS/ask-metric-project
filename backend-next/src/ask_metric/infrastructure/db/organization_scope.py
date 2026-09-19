@@ -42,3 +42,10 @@ class SqlAlchemyOrganizationScopeProvider:
             allowed |= children
             frontier = children
         return allowed
+
+    def all_org_codes(self) -> set[str]:
+        session_factory = self.session_factory or get_app_session_factory()
+        with session_factory() as session:
+            return set(session.scalars(
+                select(OrgTerm.org_code).where(OrgTerm.enabled.is_(True))
+            ))
