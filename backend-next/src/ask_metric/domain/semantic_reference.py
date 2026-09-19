@@ -44,13 +44,17 @@ def freeze_source_reference(
     change_field: Literal["orgs", "time", "compose"],
     source_slots: dict[str, Any] | None,
     source_logical_dsl: dict[str, Any] | None,
+    mode: Literal["explicit", "candidate"] = "explicit",
 ) -> dict[str, Any]:
     """把已校验来源的已确认条件冻结为新任务的派生依据（存入 state_json）。"""
+    if mode == "candidate" and change_field != "compose":
+        raise ReferenceSourceInvalid("候选上下文只能通过通用修改协议解析")
     if not source_slots or not source_logical_dsl:
         raise ReferenceSourceInvalid("来源任务缺少已确认条件，不能作为追问来源")
     # 提前校验可解析，失败在提交期暴露而不是留到分析期
     SlotFrame.model_validate(source_slots)
     return {
+        "mode": mode,
         "source_task_id": source_task_id,
         "source_version": source_version,
         "change_field": change_field,
@@ -118,6 +122,17 @@ def merge_reference_frame(
     raise ReferenceMergeUnsupported(f"不支持的引用修改字段: {change_field}")
 
 
+def validate_change_map(delta: SlotFrame) -> None:
+    """模型字段值与修改动作必须成对；共享校验，不替模型猜 add/replace。"""
+    # 操作清单与值必须一致，不能悄悄丢弃模型抽取出的额外限制。
+    for field in ("metrics", "orgs", "time", "ops", "filters", "dimensions"):
+        value = getattr(delta, field)
+        if value and field not in delta.changes:
+            raise ReferenceMergeUnsupported(f"追问的 {field} 条件未声明修改方式，请重新表述")
+    if (delta.raw_metric_text or delta.raw_metric_texts) and "metrics" not in delta.changes:
+        raise ReferenceMergeUnsupported("指标指代与修改方式不一致，请明确要沿用或修改的指标")
+
+
 def _compose_reference(
     reference: dict[str, Any], source: SlotFrame, delta: SlotFrame,
 ) -> MergedReference:
@@ -130,13 +145,7 @@ def _compose_reference(
                        "missing_org_text", "missing_org_texts", "organization_clarification_items"}
     if set(delta.options) - allowed_options:
         raise ReferenceMergeUnsupported("追问包含尚未支持的查询参数，本次未执行取数")
-    # 操作清单与值必须一致，不能悄悄丢弃模型抽取出的额外限制。
-    for field in ("metrics", "orgs", "time", "ops", "filters", "dimensions"):
-        value = getattr(delta, field)
-        if value and field not in changes:
-            raise ReferenceMergeUnsupported(f"追问的 {field} 条件未声明修改方式，请重新表述")
-    if (delta.raw_metric_text or delta.raw_metric_texts) and "metrics" not in changes:
-        raise ReferenceMergeUnsupported("指标指代与修改方式不一致，请明确要沿用或修改的指标")
+    validate_change_map(delta)
     merged = source.model_copy(deep=True)
     merged.changes = changes
     merged.missing = []

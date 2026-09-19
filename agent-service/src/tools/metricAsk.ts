@@ -150,6 +150,7 @@ function businessPayload(request: AskMetricRequestContext, params: Params): Reco
   }
   return {
     action: "new",
+    ...(request.queryCandidate ? {candidate: request.queryCandidate} : {}),
     original_text: request.originalMessage,
     selected_answers: request.selectedAnswers,
   };
@@ -378,9 +379,12 @@ async function runNew(request: AskMetricRequestContext, signal: AbortSignal | un
   if (!gate.proceed) return gate.receipt;
 
   let conversationId = await request.commands.getConversationId();
+  // 候选不是继承指令：后端同次提槽判断关系。绑定进入命令指纹，恢复/重试不换来源。
+  const reference = request.queryCandidate
+    ? {...request.queryCandidate, change_field: "compose" as const, mode: "candidate" as const} : undefined;
   let submitted: TaskCommandResult;
   try {
-    submitted = await request.backend.submitQuestion(request.originalMessage, conversationId, key, undefined, {
+    submitted = await request.backend.submitQuestion(request.originalMessage, conversationId, key, reference, {
       signal,
       requestId: key,
     });
@@ -394,7 +398,7 @@ async function runNew(request: AskMetricRequestContext, signal: AbortSignal | un
       submitted = recovered;
     } else if (!conversationId) {
       // 尚无会话映射时同键重试一次：服务端按幂等键去重
-      submitted = await request.backend.submitQuestion(request.originalMessage, null, key, undefined, {
+      submitted = await request.backend.submitQuestion(request.originalMessage, null, key, reference, {
         signal,
         requestId: key,
       });
@@ -428,12 +432,6 @@ async function runClarify(
   target: { task_id: string; version: number; clarification_id: string },
   signal: AbortSignal | undefined,
 ): Promise<Receipt> {
-  if (request.sendAs === "new_question") {
-    return errorReceipt(
-      "CLARIFICATION_FORBIDDEN",
-      "用户已明确作为新问题发送，不能消费旧澄清；请改用 action=new。",
-    );
-  }
   const card = request.clarificationTarget;
   if (card && (card.task_id !== target.task_id || card.clarification_id !== target.clarification_id)) {
     return errorReceipt(
@@ -519,12 +517,6 @@ async function runFollowup(
   changeField: "compose",
   signal: AbortSignal | undefined,
 ): Promise<Receipt> {
-  if (request.sendAs === "new_question") {
-    return errorReceipt(
-      "FOLLOWUP_FORBIDDEN",
-      "用户已明确作为新问题发送，不能引用旧查询；请改用 action=new。",
-    );
-  }
   if (request.clarificationTarget) return errorReceipt("CLARIFICATION_REQUIRED", "用户正在回复指定澄清，请继续原任务。");
   const params: Params = { action: "followup", source, change_field: changeField };
   const key = keyOf(request, params);

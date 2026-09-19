@@ -61,12 +61,12 @@ export interface AskMetricRequestContext {
   sessionId: string;
   requestId: string;
   operationId: string;
-  /** 用户显式“作为新问题发送”时禁止消费旧澄清 */
-  sendAs?: "new_question";
   /** 用户显式回复某张澄清卡片时的目标（发送时快照） */
   clarificationTarget?: { task_id: string; version: number; clarification_id: string };
   /** 结构化澄清的显式选择（前端 composer 已校验输出） */
   selectedAnswers?: Record<string, unknown>;
+  /** 从本轮用户消息之前的原生业务回执投影；目录工具不能改变来源。 */
+  queryCandidate?: { task_id: string; version: number } | undefined;
   commands: CommandBridge;
   /** 原生历史受控回读；仅供 session_history_read 工具使用 */
   history: HistoryBridge;

@@ -265,6 +265,18 @@ describe("路由：协议 V3 与原生投影", () => {
     expect(((await rejected.json()) as { code?: string }).code).toBe("CLIENT_UPGRADE_REQUIRED");
   });
 
+  it("已移除的强制新问题字段被拒绝，不再存在隐藏路由开关", async () => {
+    const app = buildApp();
+    const created = await app.request("/sessions", {method:"POST", headers:{Authorization:"Bearer token-1"}});
+    const {session_id} = await created.json() as {session_id:string};
+    const response = await app.request(`/sessions/${session_id}/prompt`, {
+      method:"POST", headers:{"Content-Type":"application/json",Authorization:"Bearer token-1"},
+      body:JSON.stringify({protocol_version:3,request_id:"retired",message:"演示查询",send_as:"new_question"}),
+    });
+    expect(response.status).toBe(400);
+    expect(vi.mocked(fetch).mock.calls.some(([url])=>String(url).endsWith("/api/v1/questions"))).toBe(false);
+  });
+
   it("完整提问：accepted → 工具事件 → run_terminal，业务任务带 task_id", async () => {
     const app = buildApp();
     const created = await app.request("/sessions", {

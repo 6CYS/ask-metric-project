@@ -128,6 +128,7 @@ export interface QueryReference {
   task_id: string;
   version: number;
   change_field: "orgs" | "time" | "compose";
+  mode?: "explicit" | "candidate";
 }
 
 /** 结构化基础查询（basic-queries）契约：不调用模型，按正式编码与明确日期取数 */

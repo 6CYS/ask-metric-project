@@ -67,6 +67,7 @@ class QueryReferencePayload(BaseModel):
     task_id: str = Field(min_length=1, max_length=128)
     version: int = Field(ge=0)
     change_field: Literal["orgs", "time", "compose"] = "compose"
+    mode: Literal["explicit", "candidate"] = "explicit"
 
 
 class SubmitQuestionRequest(BaseModel):
@@ -254,6 +255,7 @@ def submit_question(
             task_id=payload.query_reference.task_id,
             version=payload.query_reference.version,
             change_field=payload.query_reference.change_field,
+            mode=payload.query_reference.mode,
         )
         if payload.query_reference is not None
         else None

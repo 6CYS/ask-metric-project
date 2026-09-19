@@ -280,8 +280,8 @@ function parsePromptInput(body: Record<string, unknown>): PromptInput | null {
     return null;
   }
   const input: PromptInput = { protocol_version: 3, request_id: requestId, message };
-  if (body.send_as !== undefined && body.send_as !== "new_question") return null;
-  if (body.send_as === "new_question") input.send_as = "new_question";
+  const allowed = new Set(["protocol_version", "request_id", "message", "clarification_target", "selected_answers"]);
+  if (Object.keys(body).some(key => !allowed.has(key))) return null;
   const target = body.clarification_target;
   if (target !== undefined) {
     if (!target || typeof target !== "object" || Array.isArray(target)) return null;
@@ -305,6 +305,5 @@ function parsePromptInput(body: Record<string, unknown>): PromptInput | null {
     if (!input.clarification_target) return null;
     input.selected_answers = body.selected_answers as Record<string, unknown>;
   }
-  if (input.send_as && input.clarification_target) return null;
   return input;
 }

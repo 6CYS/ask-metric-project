@@ -264,22 +264,6 @@ describe("metric_ask", () => {
     expect(clarify.target.clarification_id).toBe("cl-1");
   });
 
-  it("用户显式作为新问题发送时，clarify 被拒绝", async () => {
-    const backend = stubBackend({});
-    const bridge = new MemoryCommandBridge();
-    const request = testRequestContext(backend, bridge, { sendAs: "new_question" });
-    const tool = createMetricAskTool();
-
-    const result = await runTool(
-      tool,
-      { action: "clarify", target: { task_id: "task-1", version: 2, clarification_id: "cl-1" } },
-      request,
-    );
-    const payload = receiptJson(result);
-    expect((payload.error as { code: string }).code).toBe("CLARIFICATION_FORBIDDEN");
-    expect(backend.calls).toHaveLength(0);
-  });
-
   it("卡片目标与模型目标冲突时报错，不猜优先级", async () => {
     const backend = stubBackend({});
     const bridge = new MemoryCommandBridge();
@@ -333,4 +317,17 @@ describe("中断恢复与输入绑定回归", () => {
     expect(result.details.status).toBe("succeeded");
     expect(backend.calls.filter(c=>c.method==="submitClarification")).toHaveLength(1);
   });
+});
+
+it("new 的候选来源参与提交与幂等回放，第二次调用不新增任务", async () => {
+  const backend=stubBackend({getTask:async()=>({task_id:"task-1",version:2,status:"SUCCEEDED",result:{result_id:"result:task-1"}})});
+  const bridge=new MemoryCommandBridge();
+  const request=testRequestContext(backend,bridge);
+  request.queryCandidate={task_id:"prior",version:3};
+  const tool=createMetricAskTool();
+  await runTool(tool,{action:"new"},request);
+  await runTool(tool,{action:"new"},request);
+  const submissions=backend.calls.filter(call=>call.method==="submitQuestion");
+  expect(submissions).toHaveLength(1);
+  expect(submissions[0]?.args[3]).toEqual({task_id:"prior",version:3,change_field:"compose",mode:"candidate"});
 });

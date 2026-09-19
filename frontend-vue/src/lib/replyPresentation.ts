@@ -36,17 +36,18 @@ export function replyText(value: string): string {
     .trim()
 }
 
-/** 固定结果状态不使用模型解释；成功有数据时才保留模型整理。 */
+/** 失败原因使用工具的公开回执；不展示内部异常，也不以通用文案覆盖业务原因。 */
 export function governedReply(details: MetricAskDetails | undefined): string | undefined {
   if (!details) return undefined
-  if (details.status === "clarification_required") return details.clarification_prompt ?? details.clarification?.prompt
-  if (details.status === "unsupported") return "当前能力暂不支持该查询，请调整查询条件。"
-  if (details.status === "failed" || details.status === "error") {
+  const status = details.status.toLowerCase()
+  if (status === "clarification_required") return details.clarification_prompt ?? details.clarification?.prompt
+  if (status === "unsupported") return details.public_answer?.trim() || "当前能力暂不支持该查询，请调整查询条件。"
+  if (status === "failed" || status === "error") {
     if (details.error_code === "AUTH_REQUIRED") return "登录状态已失效，请重新登录后查询。"
     if (details.error_code === "PERMISSION_DENIED") return "当前账号无权执行该查询，请核对查询范围或联系管理员。"
-    return "本次查询未成功，请检查查询条件或稍后重试。"
+    return details.public_answer?.trim() || "本次查询未成功，请检查查询条件或稍后重试。"
   }
-  if (details.status === "succeeded" && (details.row_count ?? details.rows?.length ?? 0) === 0) {
+  if (status === "succeeded" && (details.row_count ?? details.rows?.length ?? 0) === 0) {
     return details.message?.trim() || "本次查询条件下暂无数据记录。"
   }
   return undefined

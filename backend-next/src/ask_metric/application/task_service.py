@@ -934,6 +934,7 @@ class QueryTaskApplicationService:
                 source_task_id=source.id,
                 source_version=source.version,
                 change_field=ref.change_field,
+                mode=ref.mode,
                 source_slots=source_state.slots or source_state.slot_frame,
                 source_logical_dsl=source_state.logical_dsl,
             )
@@ -1199,6 +1200,8 @@ def _question_fingerprint(command: SubmitQuestionCommand, conversation_id: str) 
                 "task_id": command.query_reference.task_id,
                 "version": command.query_reference.version,
                 "change_field": command.query_reference.change_field,
+                **({"mode": command.query_reference.mode}
+                   if command.query_reference.mode != "explicit" else {}),
             }} if command.query_reference is not None else {}),
         }
     )

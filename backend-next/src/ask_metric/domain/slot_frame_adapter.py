@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -27,6 +27,7 @@ _TASK = TypeAdapter(TaskType)
 _METRIC = TypeAdapter(MetricSlot)
 _FILTER = TypeAdapter(FilterSlot)
 _OPERATION = TypeAdapter(SlotOperation)
+_RELATION = TypeAdapter(Literal["independent", "followup", "ambiguous"] | None)
 _CHANGES = TypeAdapter(dict[ChangeField, ChangeAction])
 
 
@@ -52,6 +53,7 @@ def adapt_model_slot_frame(raw: Any) -> SlotFrameAdaptation:
         "ops": _operations(raw, errors),
         "options": raw.get("options") if isinstance(raw.get("options"), dict) else {},
         "missing": _strings(raw, "missing", errors),
+        "context_relation": _scalar(raw, "context_relation", None, _RELATION, errors),
         "changes": _scalar(raw, "changes", {}, _CHANGES, errors),
     }
     if raw.get("options") is not None and not isinstance(raw.get("options"), dict):
@@ -62,7 +64,7 @@ def adapt_model_slot_frame(raw: Any) -> SlotFrameAdaptation:
 def slot_frame_json_schema() -> dict[str, Any]:
     schema = SlotFrame.model_json_schema()
     # 仅收紧外部模型协议；历史 SlotFrame 的默认值与读取兼容保持不变。
-    schema["required"] = [*schema.get("required", []), "ops"]
+    schema["required"] = [*schema.get("required", []), "ops", "context_relation", "changes"]
     schema["properties"]["ops"]["description"] = (
         "必须显式输出操作数组；只有纯指标取值时才返回空数组。"
         "逐项保留实体占位符之外的请求，不能因为当前系统不支持就省略操作、维度或筛选。"

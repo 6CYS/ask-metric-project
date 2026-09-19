@@ -99,3 +99,12 @@ export function composeClarification(text: string, entities: ComposerEntity[], c
   const remainder = entities.reduce((value, entity) => value.split(entity.name).join(" "), text).replace(/\s+/g, " ").trim()
   return { set, add_ops: [], remove_ops: [], text: remainder, catalog_selection_mode: "append" }
 }
+
+/** 只有当前缺项的纯目录选择绑定澄清卡片；普通文字和完整新问题由对话链判断。 */
+export function selectedClarificationAnswer(text: string, entities: ComposerEntity[], clarification: BackendNextClarification): ComposerAnswer | undefined {
+  const kinds = clarificationCatalogKinds(clarification)
+  if (!entities.length || entities.some(entity => !kinds.includes(entity.kind))) return undefined
+  const answer = composeClarification(text, entities, clarification)
+  if (typeof answer === "string" || (answer.text ?? "").replace(/[\s，,、；;。.!！?？]/g, "")) return undefined
+  return answer
+}

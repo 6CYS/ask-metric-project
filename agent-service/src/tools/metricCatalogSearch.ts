@@ -12,7 +12,7 @@ export function createMetricCatalogSearchTool(): AgentHarnessTool<AskMetricReque
     label: "指标目录检索",
     description:
       "仅用于用户明确要求搜索、浏览某类指标或确认编码的目录问题，例如有哪些存款指标。" +
-      "用户直接输入一个或多个具体指标名称、或提出取数问题时，直接使用 metric_ask(new)，即使缺机构和日期也由后端创建正式澄清。" +
+      "用户输入具体指标名称或取数问题时使用 metric_ask；补充最新待澄清任务缺项用 clarify，独立查询用 new，沿用已完成查询用 followup。" +
       "本工具只检索启用目录，不能校验整句多指标覆盖、停用状态或代替业务澄清。" +
       "后端按确定性命中（exact/contains/lexical）排序并返回切片前总数 total，另附 embedding 近似推荐。",
     parameters: catalogSearchParameters,

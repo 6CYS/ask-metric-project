@@ -23,6 +23,7 @@ from ask_metric.domain.semantic_normalization import (
     normalize_slot_frame,
     parse_time_expression,
 )
+from ask_metric.domain.semantic_reference import ReferenceMergeUnsupported, validate_change_map
 from ask_metric.domain.semantics import (
     MetricCatalogItem,
     MetricMatch,
@@ -69,6 +70,10 @@ class InvalidSlotFrameError(ValueError):
     def __init__(self, errors: list[dict[str, Any]]) -> None:
         super().__init__("Model output is not a valid SlotFrame")
         self.errors = errors
+
+
+class ContextResolutionError(ValueError):
+    """候选来源与本轮关系不明确，禁止将省略句降级为缺指标的新问题。"""
 
 
 class MetricCandidateSearch(Protocol):
@@ -166,7 +171,10 @@ class SemanticEngine:
                 )
             ],
             "existing_slot_frame": (
-                {"mode": "reference_delta", **reference_context} if reference_context else None
+                {**reference_context, "mode": (
+                    "context_candidate" if reference_context.get("mode") == "candidate"
+                    else "reference_delta"
+                )} if reference_context else None
             ),
         }
         if reference_context and reference_context.get("change_field") == "compose":
@@ -206,7 +214,7 @@ class SemanticEngine:
                 error for error in adaptation.field_errors
                 if str(error["field"]).split("[", 1)[0]
                 in {"task", "ops", "filters", "dimensions", "options",
-                    "changes", "time", "orgs", "metrics"}
+                    "changes", "context_relation", "time", "orgs", "metrics"}
             ]
             if blocking_errors:
                 raise InvalidSlotFrameError(blocking_errors)
@@ -225,6 +233,64 @@ class SemanticEngine:
         # Intent routing is completed before slot extraction. Only metric queries
         # may enter this engine, so slot-model output cannot override that decision.
         frame.task = TaskType.METRIC_QUERY
+        if reference_context and reference_context.get("mode") == "candidate":
+            relation = frame.context_relation
+            debug["context_resolution"] = {"relation": relation,
+                                           "source_task_id": reference_context["source_task_id"]}
+            if relation not in {"independent", "followup"}:
+                raise ContextResolutionError("本轮上下文未确定，请说出要查询的指标、机构和日期。")
+            if relation == "independent":
+                if frame.changes:
+                    raise ContextResolutionError(
+                        "本轮上下文未确定，请说出要查询的指标、机构和日期。"
+                    )
+                # 独立问题的指标必须在本轮原文中有依据，不能从候选来源复制或省略。
+                phrases = frame.raw_metric_texts or (
+                    [frame.raw_metric_text] if frame.raw_metric_text else []
+                )
+                grounded = [p for p in phrases if normalize_semantic_text(p)
+                            and normalize_semantic_text(p) in normalize_semantic_text(question)]
+                if not resolution.matches and not grounded:
+                    raise ContextResolutionError(
+                        "本轮未明确新指标，请说出要查询的指标、机构和日期。"
+                    )
+                reference_context = None
+        # 固定日历语法由已有日期解析器保留；复杂自然语言仍由模型解释。
+        # 只在模型漏掉日期时补充可完整解析的单一日期，绝不恢复成来源旧日期。
+        if frame.time is None:
+            expression = extract_time_expression(protected_question)
+            availability = any(op.type == "availability" for op in frame.ops)
+            if expression and not (availability and expression in {
+                "最新", "最近", "最新一期", "最近一期", "当前最新",
+            }):
+                frame.missing.append("time")
+                if reference_context and reference_context.get("change_field") == "compose":
+                    frame.changes["time"] = "replace"
+                calendar_text = _normalize_calendar_text(protected_question)
+                remainder = calendar_text.replace(expression, "", 1)
+                if expression in calendar_text and not extract_time_expression(remainder):
+                    anchor = current_date
+                    if reference_context and re.fullmatch(
+                        rf"{_CALENDAR_MONTH_TOKEN}月(?:末)?", expression
+                    ):
+                        time = reference_context.get("source_logical_dsl", {}).get("time", {})
+                        start, end = time.get("start"), time.get("end")
+                        if start and end and start[:4] == end[:4]:
+                            anchor = date(int(start[:4]), 1, 1)
+                        elif start and end:
+                            raise ContextResolutionError("来源查询跨年，请明确这次月份对应的年份。")
+                    try:
+                        normalized_time = parse_time_expression(expression, today=anchor)
+                    except (SemanticValidationError, ValueError):
+                        frame.options["invalid_time_expression"] = expression
+                        frame.options["missing_time_reason"] = "invalid_date"
+                        frame.missing.append("time")
+                    else:
+                        frame.time = (
+                            f"{normalized_time.start}至{normalized_time.end}"
+                            if normalized_time.start else expression
+                        )
+                        frame.missing = [item for item in frame.missing if item != "time"]
         if resolution.matches and _plain_catalog_value_question(protected_question):
             # 全句只剩已确认实体、日期和取值语法时，没有额外操作；防止模型凭空加 detail。
             frame.ops = []
@@ -320,6 +386,53 @@ class SemanticEngine:
                         "field": "changes", "code": "explicit_entity_omitted",
                         "message": "本轮明确实体未被修改清单覆盖，禁止沿用旧实体执行",
                     }])
+            if reference_context.get("change_field") == "compose":
+                # 与来源完全相同且未声明修改的回填是空操作，规范化为继承；不同值不猜动作。
+                source_slots = SlotFrame.model_validate(reference_context["source_slots"])
+                for field in ("metrics", "orgs", "time", "ops", "filters", "dimensions"):
+                    if (field not in frame.changes
+                            and getattr(frame, field) == getattr(source_slots, field)):
+                        setattr(frame, field, None if field == "time" else [])
+                try:
+                    validate_change_map(frame)
+                except ReferenceMergeUnsupported as exc:
+                    # 只纠正动作映射一次。已提取的实体、日期、操作被冻结，不重复提槽。
+                    missing_actions = {
+                        field
+                        for field in ("metrics", "orgs", "time", "ops", "filters", "dimensions")
+                        if getattr(frame, field) and field not in frame.changes
+                    }
+                    if ((frame.raw_metric_text or frame.raw_metric_texts)
+                            and "metrics" not in frame.changes):
+                        missing_actions.add("metrics")
+                    repair_started = perf_counter()
+                    repaired = self.model_service.analyze(
+                        prompt="reference_change_map",
+                        context={"question": protected_question,
+                                 "source_json": _json(reference_context),
+                                 "delta_json": _json(frame.model_dump(mode="json")),
+                                 "error": str(exc)},
+                    )
+                    timings_ms["change_map_repair_ms"] = _elapsed_ms(repair_started)
+                    debug["change_map_repair"] = {"attempts": 1, "initial_error": str(exc)}
+                    try:
+                        additions = SlotFrame.model_validate(
+                            {"changes": repaired["changes"]}
+                        ).changes
+                        if set(additions) - set(frame.changes) - missing_actions:
+                            raise ReferenceMergeUnsupported("纠正只能补齐缺失的字段动作")
+                        if any(key in frame.changes and frame.changes[key] != value
+                               for key, value in additions.items()):
+                            raise ReferenceMergeUnsupported("纠正不能改变已声明的字段动作")
+                        frame.changes = {**frame.changes, **additions}
+                        validate_change_map(frame)
+                    except (
+                        ReferenceMergeUnsupported, ValidationError, KeyError, TypeError
+                    ) as invalid:
+                        raise InvalidSlotFrameError([{
+                            "field": "changes", "code": "inconsistent_change_map",
+                            "message": str(invalid),
+                        }]) from invalid
             frame = normalize_slot_frame(frame, metrics=metrics, organizations=organizations)
             timings_ms["semantic_normalization_ms"] = _elapsed_ms(normalization_started)
             timings_ms["semantic_total_ms"] = _elapsed_ms(total_started)
@@ -332,14 +445,8 @@ class SemanticEngine:
                 timings_ms,
                 {**debug, "slot_frame": frame.model_dump(mode="json")},
             )
-        fallback_metric_texts = _extract_requested_metric_texts(
-            question,
-            organization_terms=organization_terms,
-        )
-        # Natural-language boundary: the model owns extraction of unresolved
-        # metric phrases. The fallback parser is only used when the model omits
-        # both fields; otherwise organization-list punctuation can split an
-        # operation word such as “对比” into a false metric phrase.
+        # 未知指标短语须由模型从原文提取。没有指标时保持缺项，不能把删去日期/机构
+        # 后的残句当成指标；已命中目录的多指标完整性仍由下方残余检查保护。
         model_metric_texts = frame.raw_metric_texts or (
             [frame.raw_metric_text] if frame.raw_metric_text else []
         )
@@ -348,12 +455,7 @@ class SemanticEngine:
             for text in model_metric_texts
             if not _is_operation_only_metric_text(text, matcher)
         ]
-        validated_fallback_metric_texts = [
-            text
-            for text in fallback_metric_texts
-            if not _is_operation_only_metric_text(text, matcher)
-        ]
-        metric_texts = validated_model_metric_texts or validated_fallback_metric_texts
+        metric_texts = validated_model_metric_texts
         if resolution.matches:
             # 已命中的正式实体属于原文事实，模型不能把占位符改写成另一组指标。
             # 只在实体之外继续识别未命中的原文，完整保留多指标请求的覆盖范围。
@@ -547,9 +649,7 @@ class SemanticEngine:
             organizations=organizations,
             organization_aliases=config.organization_aliases,
         )
-        # The model owns natural-language date interpretation.  The backend only
-        # validates the normalized value; it must not recover or rewrite a missing
-        # model value with another set of date-expression rules.
+        # 模型解释自然语言；固定日历缺项已在上方共用解析器处理，此处统一验证结果。
         model_time = frame.time
         if frame.time is None:
             debug["time_resolution"] = {

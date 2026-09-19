@@ -7,7 +7,7 @@
  * 观察（SSE）使用独立的 lane.watch，与驱动 Context 分离，浏览器断线不中止执行。
  */
 import { createHash } from "node:crypto";
-import { historicalReadConflict, latestFollowupReference, queryReferenceContext } from "./queryContext.js";
+import { activeClarificationTarget, historicalReadConflict, latestFollowupReference, queryCandidateBeforeTurn, queryReferenceContext } from "./queryContext.js";
 import { modelUsage } from "./modelUsage.js";
 import { projectHistoricalResults } from "./modelContext.js";
 import {
@@ -107,7 +107,6 @@ export interface PromptInput {
   protocol_version: 3;
   request_id: string;
   message: string;
-  send_as?: "new_question";
   clarification_target?: { task_id: string; version: number; clarification_id: string };
   selected_answers?: Record<string, unknown>;
 }
@@ -245,7 +244,7 @@ export class HarnessHost {
       // 当前项目使用 OpenAI 兼容协议，provider-neutral ToolChoice 仅支持 auto/none。
       if (this.tools.some(tool => tool.name === "metric_ask") && request.timings?.model_ms.length === 0
         && Array.isArray(payload.tools) && payload.tools.length) {
-        return { payload: { ...payload, tool_choice: request.clarificationTarget || request.sendAs === "new_question"
+        return { payload: { ...payload, tool_choice: request.clarificationTarget
           ? { type: "function", function: { name: "metric_ask" } } : "required" } };
       }
       return undefined;
@@ -260,9 +259,22 @@ export class HarnessHost {
         }
       }
       if (event.toolName !== "metric_ask") return undefined;
-      // 点击卡片/作为新问题是用户已确认的输入事实，不能交给模型重新解释。
+      // 结构化澄清选择是用户确认的事实；普通文本由语义链判断对话关系。
       if (request.clarificationTarget) return { args: { action: "clarify", target: request.clarificationTarget } };
-      if (request.sendAs === "new_question") return { args: { action: "new" } };
+      if (event.args.action === "clarify") {
+        const entries = await lane.findEntries({ order: "oldestFirst" }, context);
+        const active = activeClarificationTarget(entries.filter(entry => entry.type === "message").map(entry => entry.message));
+        const target = event.args.target;
+        // 自然语言澄清只能引用正式待补充回执，禁止向失败任务提交模型编造的目标。
+        if (!active || !target || typeof target !== "object" || Array.isArray(target)
+          || target.task_id !== active.task_id || target.clarification_id !== active.clarification_id) {
+          return { block: { reason: "没有与该目标匹配的有效待补充回执，不能执行clarify或编造clarification_id。用户修改条件重新提问请使用metric_ask action=new；条件有缺项也应由新任务分析并返回澄清。", terminate: false } };
+        }
+      }
+      if (event.args.action === "new") {
+        const entries = await lane.findEntries({ order: "oldestFirst" }, context);
+        request.queryCandidate = queryCandidateBeforeTurn(entries.filter(entry => entry.type === "message").map(entry => entry.message));
+      }
       if (event.args.action === "followup") {
         const entries = await lane.findEntries({ order: "oldestFirst" }, context);
         const messages = entries.filter(entry => entry.type === "message").map(entry => entry.message);
@@ -270,8 +282,10 @@ export class HarnessHost {
         while (latestUser >= 0 && messages[latestUser]?.role !== "user") latestUser -= 1;
         const previous = messages.slice(0, latestUser).reverse().find(message => message.role === "toolResult" && businessEvidence(message.details));
         const previousEvidence = previous?.role === "toolResult" ? businessEvidence(previous.details) : undefined;
-        if (previousEvidence && ["error", "failed", "pending"].includes(previousEvidence.status.toLowerCase())) {
-          return { block: { reason: "上一轮修改未成功，请先确认本轮要沿用的机构和日期，不能自动退回更早成功查询。", terminate: false } };
+        if (previousEvidence && previousEvidence.status.toLowerCase() !== "succeeded") {
+          return { block: { reason: previousEvidence.status.toLowerCase() === "clarification_required"
+            ? "该来源仍待澄清，不能 followup。本轮已完整给出指标、机构、日期或另查独立问题时请用 metric_ask new；仅补充缺项时用 clarify。不要因旧任务待补充而要求用户重说已明确的条件。"
+            : "上一轮修改未成功，请先确认本轮要沿用的机构和日期，不能自动退回更早成功查询。", terminate: false } };
         }
         const source = event.args.source;
         const latest = latestFollowupReference(messages, request.originalMessage);
@@ -376,7 +390,6 @@ export class HarnessHost {
       commands: bridge,
       history: createHistoryBridge(hosted),
       timings: { startedAt: performance.now(), model_ms: [], tool_ms: [] },
-      ...(input.send_as ? { sendAs: input.send_as } : {}),
       ...(input.clarification_target ? { clarificationTarget: input.clarification_target } : {}),
       ...(input.selected_answers ? { selectedAnswers: input.selected_answers } : {}),
     };
@@ -513,7 +526,6 @@ export class HarnessHost {
         actor: deps.actor,
         backend: deps.backend.withTraceId?.(requestRef.value) ?? deps.backend,
         originalMessage: association.value.originalMessage,
-        ...(association.value.input?.send_as ? { sendAs: association.value.input.send_as } : {}),
         ...(association.value.input?.clarification_target ? { clarificationTarget: association.value.input.clarification_target } : {}),
         ...(association.value.input?.selected_answers ? { selectedAnswers: association.value.input.selected_answers } : {}),
         promptFingerprint: association.value.fingerprint,

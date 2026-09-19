@@ -28,6 +28,7 @@ from ask_metric.domain.intent_routing import (
 from ask_metric.domain.metric_matching import MetricMatcher
 from ask_metric.domain.query_capabilities import capability_error
 from ask_metric.domain.semantic_engine import (
+    ContextResolutionError,
     InvalidSlotFrameError,
     SemanticEngine,
     is_direct_catalog_query,
@@ -256,6 +257,14 @@ class SemanticTaskApplicationService:
                 intent_raw=intent_raw,
                 intent_model_ms=intent_model_ms,
             )
+        except ContextResolutionError as exc:
+            return self._finish_analysis_failure(
+                command, original_question, code="CONTEXT_CONFIRMATION_REQUIRED",
+                user_message=str(exc),
+                stage=QueryTaskStage.VALIDATION, error=exc, retryable=False,
+                analyze_started=analyze_started, intent=intent, intent_raw=intent_raw,
+                intent_model_ms=intent_model_ms,
+            )
         except InvalidSlotFrameError as exc:
             return self._finish_analysis_failure(
                 command,
@@ -301,6 +310,9 @@ class SemanticTaskApplicationService:
 
         advance_input = analysis.slot_frame
         resolved_time_override = None
+        if (reference and reference.get("mode") == "candidate"
+                and advance_input.context_relation == "independent"):
+            reference = None
         if reference is not None:
             # 引用追问：以冻结来源为底稿做单字段合并；超出范围明确失败，不静默降级
             try:
@@ -359,7 +371,7 @@ class SemanticTaskApplicationService:
             if supplied_reference is not None and reference is None:
                 state.query_reference = None
                 state.debug["input_routing"] = {
-                    "reason": "self_contained_catalog_query",
+                    "reason": "independent_question",
                     "supplied_reference": supplied_reference,
                 }
             state.timings_ms.update(analysis.timings_ms)

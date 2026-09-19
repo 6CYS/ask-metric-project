@@ -1,5 +1,6 @@
 """配置模型语义探针：只发送虚构目录，不连接业务数据库；从 backend-next 目录运行。"""
 
+import argparse
 import json
 from datetime import date
 from pathlib import Path
@@ -15,6 +16,9 @@ from ask_metric.domain.semantic_reference import freeze_source_reference, merge_
 from ask_metric.domain.semantics import MetricCatalogItem, OrganizationCatalogItem, SlotFrame
 from ask_metric.infrastructure.semantic.configuration import SemanticConfigRepository
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--contains", default="", help="只运行包含该文本的合成用例")
+args = parser.parse_args()
 settings = get_settings()
 service = get_model_service(
     SimpleNamespace(
@@ -23,6 +27,23 @@ service = get_model_service(
         )
     )
 )
+
+
+class RecordingModel:
+    def __init__(self, wrapped):
+        self.wrapped = wrapped
+        self.outputs = []
+
+    def __getattr__(self, name):
+        return getattr(self.wrapped, name)
+
+    def analyze(self, **kwargs):
+        result = self.wrapped.analyze(**kwargs)
+        self.outputs.append(result)
+        return result
+
+
+service = RecordingModel(service)
 metrics = [
     MetricCatalogItem(code="M1", name="演示指标甲"),
     MetricCatalogItem(code="M2", name="演示指标乙"),
@@ -55,9 +76,24 @@ cases = [
     ("换成乙机构2026年4月末的演示指标乙", "metric_value", None, "2026-04-30"),
     ("为什么这个指标下降，帮我分析原因", "unsupported", None, None),
 ]
+candidate_cases = [
+    ("乙机构四月份的呢？", "metric_value", None, "2026-04-01"),
+    ("四月换乙机构", "metric_value", None, "2026-04-01"),
+    ("乙机构，4月份", "metric_value", None, "2026-04-01"),
+    ("这个指标有数据的月份呢", "metric_availability", None, None),
+    ("虚构乙机构2026年5月演示指标乙是多少", "metric_value", None, "2026-05-01"),
+    ("另外查演示指标乙", "clarification", None, None),
+]
 report = []
-for question, shape, selection, start in cases:
-    item = {"question": question, "expected_shape": shape}
+for mode, (question, shape, selection, start) in [
+    *(("explicit", case) for case in cases),
+    *(("candidate", case) for case in candidate_cases),
+]:
+    if args.contains and args.contains not in question:
+        continue
+    source["mode"] = mode
+    service.outputs = []
+    item = {"question": question, "expected_shape": shape, "mode": mode}
     try:
         analysis = SemanticEngine(service).analyze(
             question,
@@ -68,7 +104,10 @@ for question, shape, selection, start in cases:
             reference_context=source,
         )
         item["extracted"] = analysis.slot_frame.model_dump(mode="json")
-        merged = merge_reference_frame(source, analysis.slot_frame)
+        if analysis.slot_frame.context_relation == "independent" and mode == "candidate":
+            merged = SimpleNamespace(frame=analysis.slot_frame, resolved_time=None)
+        else:
+            merged = merge_reference_frame(source, analysis.slot_frame)
         actual_shape = query_shape_for(merged.frame)
         unsupported = capability_error(merged.frame, actual_shape)
         if unsupported:
@@ -86,22 +125,28 @@ for question, shape, selection, start in cases:
             )
             dsl = result.logical_dsl
             passed = dsl is not None and result.query_shape == shape
+            if shape == "clarification":
+                passed = (
+                    dsl is None
+                    and set(result.slot_frame.missing) == {"orgs", "time"}
+                    and [m.code for m in result.slot_frame.metrics] == ["M2"]
+                )
             if passed and selection:
                 passed = dsl.ops[0].get("selection") == selection
             if passed and start:
                 passed = str(dsl.time.start) == start
             if passed and shape == "metric_availability" and not start:
                 passed = dsl.time.start is None and dsl.time.preset is None
-            if passed:
+            if passed and dsl:
                 passed = dsl.orgs == (
                     ["B"]
-                    if question.startswith(("那乙", "换成乙"))
+                    if question.startswith(("那乙", "换成乙", "乙机构", "四月换乙", "虚构乙"))
                     else ["A", "B"]
                     if question.startswith("再加")
                     else ["A"]
                 )
-            if passed:
-                passed = dsl.metrics == (["M2"] if question.startswith("换成乙") else ["M1"])
+            if passed and dsl:
+                passed = dsl.metrics == (["M2"] if "演示指标乙" in question else ["M1"])
             item.update(
                 actual_shape=result.query_shape,
                 pass_=passed,
@@ -109,10 +154,16 @@ for question, shape, selection, start in cases:
                 missing=result.slot_frame.missing,
             )
     except Exception as exc:
-        item.update(pass_=False, error_type=type(exc).__name__, error=str(exc)[:250])
+        item.update(
+            pass_=False,
+            error_type=type(exc).__name__,
+            error=str(exc)[:250],
+            validation_errors=getattr(exc, "errors", None),
+            model_outputs=service.outputs,
+        )
     report.append(item)
     print(
-        json.dumps({k: v for k, v in item.items() if k != "extracted"}, ensure_ascii=False),
+        json.dumps(item, ensure_ascii=False),
         flush=True,
     )
 if any(not item["pass_"] for item in report):

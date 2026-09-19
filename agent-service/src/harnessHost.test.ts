@@ -530,3 +530,67 @@ it("原生上下文投影保留完整会话，纯换机构纠正旧日期来源�
   expect(entryTexts(original).join("\n")).toContain("private-row-19");
   await host.close();
 });
+
+it("重开会话后先查目录再误选 new，仍提交本轮之前的候选来源", async () => {
+  const dir=tempDir();
+  const faux=createFauxModel([
+    {kind:"toolCall",name:"metric_ask",args:{action:"new"}},
+    {kind:"toolCall",name:"organization_search",args:{}},
+    {kind:"toolCall",name:"metric_ask",args:{action:"new"}},
+  ]);
+  const submissions:unknown[][]=[];
+  const backend={
+    submitQuestion:async(...args:unknown[])=>{submissions.push(args);return {task_id:`t${submissions.length}`,conversation_id:"c",status:"RUNNING",current_stage:"LOGICAL_DSL",version:1};},
+    executeTask:async()=>({task_id:`t${submissions.length}`,status:"succeeded",columns:[],rows:[],row_count:0}),
+    getTask:async()=>({task_id:`t${submissions.length}`,status:"SUCCEEDED",version:2,result:{result_id:`r${submissions.length}`}}),
+  } as unknown as BackendClient;
+  const directory:AgentHarnessTool<AskMetricRequestContext>={name:"organization_search",label:"目录",description:"机构目录",parameters:Type.Object({}),
+    execute:async()=>({content:[{type:"text",text:'{"items":[{"code":"B","name":"虚构乙机构"}]}'}],details:{kind:"organization_search",status:"ok"}})};
+  const store=new NativeSessionStore(dir);
+  const host=new HarnessHost(testConfig(dir),()=>({models:faux.models,model:faux.model}),store,[createMetricAskTool(),directory]);
+  const session=await host.createSession(ACTOR);
+  await host.runPrompt(session,{protocol_version:3,request_id:"prime-candidate",message:"虚构甲机构2026年3月演示指标甲"},{actor:ACTOR,backend});
+  await host.close(); await store.close();
+  const restoredStore=new NativeSessionStore(dir);
+  const restored=new HarnessHost(testConfig(dir),()=>({models:faux.models,model:faux.model}),restoredStore,[createMetricAskTool(),directory]);
+  try {
+    const reopened=await restored.openSession(ACTOR,session.sessionId);
+    const result=await restored.runPrompt(reopened!,{protocol_version:3,request_id:"next-candidate",message:"乙机构四月份的呢？"},{actor:ACTOR,backend});
+    expect(result.ok).toBe(true);
+    expect(submissions).toHaveLength(2);
+    expect(submissions[0]?.[3]).toBeUndefined();
+    expect(submissions[1]?.[3]).toEqual({task_id:"t1",version:2,change_field:"compose",mode:"candidate"});
+    expect(faux.providerCalls).toBe(3);
+  } finally { await restored.close(); await restoredStore.close(); }
+});
+
+it("失败后修改问题：拦截模型编造的澄清目标并允许同轮纠正为新查询", async () => {
+  const dir=tempDir();
+  const faux=createFauxModel([
+    {kind:"toolCall",name:"metric_ask",args:{action:"new"}},
+    {kind:"toolCall",name:"metric_ask",args:{action:"clarify",target:{task_id:"failed",version:0,clarification_id:"invented"}}},
+    {kind:"toolCall",name:"metric_ask",args:{action:"new"}},
+  ]);
+  const submissions:string[]=[];
+  let clarifications=0;
+  const backend={
+    submitQuestion:async(question:string)=>{
+      submissions.push(question);
+      return submissions.length===1
+        ? {task_id:"failed",conversation_id:"c",status:"FAILED",version:1,error_code:"METRIC_DISABLED",error_message:"指标甲未启用"}
+        : {task_id:"new",conversation_id:"c",status:"WAITING_USER",version:1,clarification:{id:"real",prompt:"请补充机构"}};
+    },
+    submitClarification:async()=>{clarifications++;throw new Error("不能向失败任务提交澄清");},
+  } as unknown as BackendClient;
+  const store=new NativeSessionStore(dir);
+  const host=new HarnessHost(testConfig(dir),()=>({models:faux.models,model:faux.model}),store,[createMetricAskTool()]);
+  try {
+    const session=await host.createSession(ACTOR);
+    await host.runPrompt(session,{protocol_version:3,request_id:"disabled",message:"指标甲、乙六月的数据"},{actor:ACTOR,backend});
+    const outcome=await host.runPrompt(session,{protocol_version:3,request_id:"corrected",message:"指标乙六月的数据"},{actor:ACTOR,backend});
+    expect(outcome.ok).toBe(true);
+    expect(clarifications).toBe(0);
+    expect(submissions).toEqual(["指标甲、乙六月的数据","指标乙六月的数据"]);
+    expect(faux.providerCalls).toBe(3);
+  } finally {await host.close();await store.close();}
+});

@@ -32,6 +32,7 @@ export interface MetricReadDetails {
   row_count?: number;
   columns?: string[];
   public_answer?: string;
+  error_code?: string;
 }
 
 export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext, typeof metricReadParameters, MetricReadDetails> {
@@ -60,7 +61,12 @@ export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext
               error_code: task.error_code ?? null,
               error_message: task.error_message ?? null,
             },
-            { kind: "metric_read", task_id: task.task_id, status: task.status },
+            { kind: "metric_read", task_id: task.task_id, status: task.status,
+              ...(task.status === "FAILED" ? {
+                public_answer: task.error_message ?? "本次查询未成功，请稍后回查原任务。",
+                ...(task.error_code ? { error_code: task.error_code } : {}),
+              } : {}),
+            },
           );
         }
         const page = await request.backend.getTaskResult(

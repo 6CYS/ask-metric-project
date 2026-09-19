@@ -29,7 +29,7 @@ npm run dev            # 默认 127.0.0.1:8020
 
 - `GET /health`：健康检查（无需鉴权）。
 - `POST /sessions`、`GET /sessions`、`GET /sessions/{id}`、`DELETE /sessions/{id}`：会话管理；历史消息由原生记录投影（含工具回执引用），删除活动会话返回 409。
-- `POST /sessions/{id}/prompt`：提问，SSE 事件流。请求体为 `{protocol_version: 3, request_id, message, send_as?, clarification_target?, selected_answers?}`；`request_id` 由浏览器每次确认发送生成，重试不变。旧协议请求返回 `CLIENT_UPGRADE_REQUIRED`。
+- `POST /sessions/{id}/prompt`：提问，SSE 事件流。请求体为 `{protocol_version: 3, request_id, message, clarification_target?, selected_answers?}`；`request_id` 由浏览器每次确认发送生成，重试不变。旧协议请求返回 `CLIENT_UPGRADE_REQUIRED`。
 - `GET /sessions/{id}/stream`：只读观察流（断线重连：快照 + 实时事件），不接纳新输入。
 - `POST /sessions/{id}/cancel`：显式停止指定 operation（原生 requestAbort）。
 
@@ -42,7 +42,7 @@ SSE 事件：`accepted`（含快照）、`snapshot`、`tool_start`、`tool_end`�
 
 刷新或传输中断后，前端通过 GET 观察原会话，不重新 POST 问题。已认证 GET 会接管原生未完成
 operation；是否存在 `current` 不能用来判断当前进程是否已有执行器。恢复仍使用原 request 和
-各业务阶段的幂等键。`send_as=new_question` 与 `clarification_target` 互斥，非法输入整体拒绝。
+各业务阶段的幂等键。普通文本由会话语义判断独立查询、追问或补充；只有当前缺项的纯目录选择携带 `clarification_target` 和 `selected_answers`。输入框不提供手动切换新问题的开关；旧 `send_as` 字段返回 400，需要同步更新前端。
 
 除 `/health` 外均需 `Authorization: Bearer <后端访问令牌>`，身份每次请求经后端
 `/api/v1/auth/me` 校验，不使用短期缓存。会话以原生 JSONL 持久化在

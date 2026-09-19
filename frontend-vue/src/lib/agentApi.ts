@@ -76,7 +76,6 @@ export interface MetricAskDetails {
 export interface AgentPromptInput {
   request_id: string
   message: string
-  send_as?: "new_question"
   clarification_target?: { task_id: string; version: number; clarification_id: string }
   selected_answers?: Record<string, unknown>
 }

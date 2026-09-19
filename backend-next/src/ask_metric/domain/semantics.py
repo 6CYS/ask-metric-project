@@ -122,6 +122,9 @@ class SlotFrame(BaseModel):
         ),
     )
     missing: list[str] = Field(default_factory=list)
+    context_relation: Literal["independent", "followup", "ambiguous"] | None = Field(
+        default=None, description="有候选来源时必须声明本轮与来源的关系；未确认关系禁止继承。",
+    )
     changes: dict[ChangeField, ChangeAction] = Field(
         default_factory=dict,
         description="引用追问的字段操作；值取本轮同名字段。未列出的字段继承来源。",

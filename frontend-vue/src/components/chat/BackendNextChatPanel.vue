@@ -39,7 +39,7 @@ import { useAuth } from "@/composables/useAuth"
 import { useQueryReadiness } from "@/composables/useQueryReadiness"
 import { copyText } from "@/lib/clipboard"
 import { archiveClarificationResponse } from "@/lib/conversationMessages"
-import { composeClarification, composeQuestion, type ComposerEntity } from "@/lib/composerEntities"
+import { composeQuestion, selectedClarificationAnswer, type ComposerEntity } from "@/lib/composerEntities"
 import { friendlyQueryError } from "@/lib/queryErrors"
 
 /**
@@ -107,8 +107,6 @@ const toolLabels: Record<string, string> = {
   session_history_read: "会话历史回读",
   org_catalog_search: "机构目录检索",
 }
-
-const sendAsNewQuestion = ref(false)
 
 const props = withDefaults(defineProps<{ initialMessage?: string }>(), { initialMessage: "" })
 const auth = useAuth()
@@ -722,24 +720,22 @@ function handleSubmit(text: string, entities: ComposerEntity[] = []) {
   const conversation = activeConversation.value
   if (!conversation || !label || activeConversationIsSending.value || conversation.running) return
   if (conversation.legacy) return
-  const clarificationMessage = sendAsNewQuestion.value ? undefined : activeClarificationMessage.value
+  const activeCard = activeClarificationMessage.value
+  const selectedAnswer = activeCard?.clarification && activeCard.clarificationTarget
+    ? selectedClarificationAnswer(text, entities, activeCard.clarification) : undefined
+  const clarificationMessage = selectedAnswer ? activeCard : undefined
   const kind = clarificationMessage ? "clarification_answer" : "question"
   const input: AgentPromptInput = {
     // request_id 每次确认发送生成；网络重试沿用同一值，不产生第二条用户消息
     request_id: createId(),
     message: label,
-    ...(sendAsNewQuestion.value ? { send_as: "new_question" as const } : {}),
   }
   if (clarificationMessage) {
     // 先取卡片目标与结构化选择，再归档（归档生成新对象，不影响已取到的引用）
     if (clarificationMessage.clarificationTarget) {
       input.clarification_target = clarificationMessage.clarificationTarget
     }
-    const clarification = clarificationMessage.clarification
-    if (clarification) {
-      const composed = composeClarification(text, entities, clarification)
-      if (typeof composed !== "string") input.selected_answers = composed
-    }
+    if (selectedAnswer) input.selected_answers = selectedAnswer
     // 澄清一经回答即归档为只读记录，仅最新待补充消息可交互。
     updateAssistantMessage(conversation.id, clarificationMessage.id, (item) => ({
       ...item,
@@ -747,7 +743,6 @@ function handleSubmit(text: string, entities: ComposerEntity[] = []) {
       response: archiveClarificationResponse(item.response),
     }))
   }
-  sendAsNewQuestion.value = false
   message.value = ""
   void runQuestion(conversation.id, label, kind, input)
 }
@@ -1146,10 +1141,7 @@ async function scrollToBottom() {
           <span>{{ queryReadiness.message }}<span v-if="queryReadiness.total > 0">（{{ queryReadiness.completed }}/{{ queryReadiness.total }}）</span></span></div>
         <p v-else-if="activeConversation?.legacy" class="mb-3 text-sm text-muted-foreground">旧格式会话仅支持查看，请新建对话继续提问。</p>
         <p v-else-if="activeConversation?.running && !activeConversationIsSending" class="mb-3 text-sm text-muted-foreground">该会话正在其他窗口运行，请稍候或新建对话。</p>
-        <label v-if="activeClarificationMessage && !activeConversationIsSending" class="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-          <input v-model="sendAsNewQuestion" type="checkbox" />作为新问题发送
-        </label>
-        <CatalogQuestionComposer :key="auth.user.value?.id" v-model="message" :context-key="`${activeConversationId}:${activeClarificationMessage?.clarification?.id ?? activeConversation?.messages.length ?? 0}`" :clarification="sendAsNewQuestion ? undefined : activeClarificationMessage?.clarification" :auto-open-clarification-id="autoOpenClarificationId" :is-submitting="activeConversationIsSending" :disabled="!queryReady || Boolean(activeConversation?.legacy) || Boolean(activeConversation?.running && !activeConversationIsSending)" :placeholder="composerPlaceholder" @submit="handleSubmit" @stop="stopActiveConversation" />
+        <CatalogQuestionComposer :key="auth.user.value?.id" v-model="message" :context-key="`${activeConversationId}:${activeClarificationMessage?.clarification?.id ?? activeConversation?.messages.length ?? 0}`" :clarification="activeClarificationMessage?.clarification" :auto-open-clarification-id="autoOpenClarificationId" :is-submitting="activeConversationIsSending" :disabled="!queryReady || Boolean(activeConversation?.legacy) || Boolean(activeConversation?.running && !activeConversationIsSending)" :placeholder="composerPlaceholder" @submit="handleSubmit" @stop="stopActiveConversation" />
       </div>
     </div>
   </section>

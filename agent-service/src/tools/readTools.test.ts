@@ -44,6 +44,11 @@ function backendWithResult(): BackendClient {
 }
 
 describe("metric_read", () => {
+  it("失败任务回读保留后端公开错误原因", async () => {
+    const backend={getTask:async()=>({task_id:"failed",version:1,status:"FAILED",error_code:"METRIC_DISABLED",error_message:"指标甲当前未启用"})} as unknown as BackendClient;
+    const result=await runTool(createMetricReadTool(),{kind:"task",task_id:"failed"},testRequestContext(backend,new MemoryCommandBridge()));
+    expect(businessEvidence(result.details)).toMatchObject({status:"FAILED",error_code:"METRIC_DISABLED",public_answer:"指标甲当前未启用"});
+  });
   it("原文随历史回读交给后端，条件冲突不交付事实并允许重新选择引用", async () => {
     let actualQuestion: string | undefined;
     const backend = {

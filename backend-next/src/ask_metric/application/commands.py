@@ -12,6 +12,7 @@ class QueryReference:
     task_id: str
     version: int
     change_field: Literal["orgs", "time", "compose"] = "compose"
+    mode: Literal["explicit", "candidate"] = "explicit"
 
 
 @dataclass(frozen=True)
