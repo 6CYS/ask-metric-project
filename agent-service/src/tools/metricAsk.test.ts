@@ -16,6 +16,7 @@ interface StubSpec {
   executeTask?: (...args: unknown[]) => unknown;
   submitClarification?: (...args: unknown[]) => unknown;
   getTask?: (...args: unknown[]) => unknown;
+  getTaskResult?: (...args: unknown[]) => unknown;
   lookupTask?: (...args: unknown[]) => unknown;
 }
 
@@ -45,7 +46,7 @@ function stubBackend(spec: StubSpec) {
             status: "succeeded",
             query_shape: "metric_value",
             columns: ["org_name", "metric_value"],
-            rows: [{ org_name: "无锡分行", metric_value: "15147420074.00" }],
+            rows: [{ org_name: "无锡分行", metric_value: "15147420074.00", metric_name: "存款余额", stat_date: "2026-08-31", unit: "元" }],
             row_count: 1,
           };
     },
@@ -66,6 +67,14 @@ function stubBackend(spec: StubSpec) {
             status: "WAITING_USER",
             clarification: { id: "cl-1", prompt: "请补充日期" },
           };
+    },
+    getTaskResult: async (...args: unknown[]) => {
+      calls.push({ method: "getTaskResult", args });
+      return spec.getTaskResult ? spec.getTaskResult(...args) : {
+        task_id: "task-1", result_id: "result:task-1", status: "succeeded",
+        columns: ["org_name", "metric_value"], rows: [{ org_name: "无锡分行", metric_value: "15147420074.00", metric_name: "存款余额", stat_date: "2026-08-31", unit: "元" }],
+        row_count: 1, truncated: false, offset: 0, limit: 20, next_offset: null, has_more: false,
+      };
     },
     lookupTask: async (...args: unknown[]) => {
       calls.push({ method: "lookupTask", args });
@@ -207,6 +216,9 @@ describe("metric_ask", () => {
     const replay = await runTool(tool, { action: "new" }, request);
     const payload = receiptJson(replay);
     expect(payload.idempotent_replay).toBe(true);
+    expect(replay.details.status).toBe("succeeded");
+    expect(replay.details.columns).toEqual(["org_name", "metric_value"]);
+    expect(replay.details.public_answer).toContain("15147420074.00");
     expect(payload.task_id).toBe("task-1");
     expect(backend.calls.filter((c) => c.method === "submitQuestion")).toHaveLength(1);
   });
@@ -233,7 +245,7 @@ describe("metric_ask", () => {
     );
     expect(receiptJson(result).status).toBe("succeeded");
     const submit = backend.calls.find((c) => c.method === "submitQuestion");
-    expect(submit?.args[3]).toEqual({ task_id: "task-1", version: 2, change_field: "orgs" });
+    expect(submit?.args[3]).toEqual({ task_id: "task-1", version: 2, change_field: "compose" });
   });
 
   it("模型把嵌套对象写成 JSON 字符串时由 prepareArguments 还原", () => {
@@ -284,5 +296,41 @@ describe("metric_ask", () => {
     const payload = receiptJson(result);
     expect((payload.error as { code: string }).code).toBe("CLARIFICATION_TARGET_MISMATCH");
     expect(backend.calls).toHaveLength(0);
+  });
+});
+
+describe("中断恢复与输入绑定回归", () => {
+  it("已分析落库后恢复跳过 analyze，成功回执保持统一", async () => {
+    const backend = stubBackend({
+      submitQuestion: () => ({task_id:"task-1",conversation_id:"conv-1",version:2,status:"RUNNING",current_stage:"LOGICAL_DSL"}),
+      getTask: () => ({task_id:"task-1",conversation_id:"conv-1",version:3,status:"SUCCEEDED",result:{result_id:"result:task-1"}}),
+    });
+    const result = await runTool(createMetricAskTool(), {action:"new"}, testRequestContext(backend,new MemoryCommandBridge()));
+    expect(backend.calls.filter(c=>c.method==="analyzeTask")).toHaveLength(0);
+    expect(backend.calls.filter(c=>c.method==="executeTask")).toHaveLength(1);
+    expect(result.details.status).toBe("succeeded");
+  });
+  it("明确回复澄清卡片不能 new 或 followup", async () => {
+    const backend=stubBackend({});
+    const request=testRequestContext(backend,new MemoryCommandBridge(), {clarificationTarget:{task_id:"t",version:1,clarification_id:"c"}});
+    for(const params of [{action:"new"},{action:"followup",source:{task_id:"old",version:2},change_field:"orgs"}]) {
+      expect(receiptJson(await runTool(createMetricAskTool(),params,request)).status).toBe("error");
+    }
+    expect(backend.calls).toHaveLength(0);
+  });
+  it("澄清提交后执行中断，登记仍 pending；恢复继续执行", async () => {
+    let executions=0;
+    const backend=stubBackend({
+      executeTask:()=>{ executions++; if(executions===1) throw new Error("connection lost"); return {task_id:"task-1",status:"succeeded",columns:[],rows:[],row_count:0}; },
+      getTask:()=>({task_id:"task-1",conversation_id:"conv-1",version:3,status:executions<2?"RUNNING":"SUCCEEDED",current_stage:"LOGICAL_DSL",result:executions<2?null:{result_id:"r"}}),
+    });
+    const bridge=new MemoryCommandBridge();
+    const request=testRequestContext(backend,bridge);
+    const params={action:"clarify",target:{task_id:"task-1",version:2,clarification_id:"c"}};
+    await expect(runTool(createMetricAskTool(),params,request)).rejects.toThrow("connection lost");
+    expect(bridge.record?.status).toBe("pending");
+    const result=await runTool(createMetricAskTool(),params,request);
+    expect(result.details.status).toBe("succeeded");
+    expect(backend.calls.filter(c=>c.method==="submitClarification")).toHaveLength(1);
   });
 });

@@ -1,9 +1,9 @@
 /**
- * metric_ask 工具：受治理问数的三种动作。
+ * metric_ask 工具：受治理问数及上下文澄清。
  *
  * - new：本轮原文提交新业务查询（提交→提槽→条件齐全则查询）；
  * - clarify：精确推进已有任务的澄清（同 task/version/clarification_id）；
- * - followup：引用一笔已完成查询，做单字段机构或日期替换并创建新任务。
+ * - followup：引用一笔已完成查询，组合修改条件或查询目标并创建新任务。
  *
  * 幂等：命令键由（owner+session+request+业务负载）指纹派生，不用随机键；
  * 同一 operation 只接纳一个独立写意图，clarify 的受控版本刷新不改变命令键。
@@ -17,6 +17,7 @@ import {
 } from "../backendClient.js";
 import { commandKey, phaseKey } from "../harnessHost.js";
 import type { AskMetricRequestContext, WriteCommandRecord } from "../requestContext.js";
+import { resultAnswer } from "../answerEvidence.js";
 import { MAX_ROWS_FOR_MODEL } from "./shared.js";
 
 const taskRef = Type.Object({
@@ -38,10 +39,14 @@ const metricAskParameters = Type.Union([
   Type.Object({
     action: Type.Literal("followup"),
     source: taskRef,
-    change_field: StringEnum(["orgs", "time"], {
-      description: "orgs=只替换机构；time=只替换日期。其他修改不支持",
-    }),
-  }, { description: "引用一笔已完成查询，替换机构或日期后创建新查询" }),
+    change_field: Type.Optional(Type.Literal("compose", {
+      description: "按本轮原文组合修改；具体字段由后端提槽确定",
+    })),
+  }, { description: "引用已完成查询并按本轮原文组合修改；后端解析修改并继承未修改条件" }),
+  Type.Object({
+    action: Type.Literal("clarify_context"),
+    reason: StringEnum(["ambiguous_source", "ambiguous_change"]),
+  }, { description: "仅在历史来源或修改含义有多个合理解释时澄清；不创建取数任务" }),
 ]);
 
 type Params = Static<typeof metricAskParameters>;
@@ -56,6 +61,10 @@ export interface MetricAskDetails {
   row_count?: number | undefined;
   truncated?: boolean | undefined;
   clarification?: unknown;
+  public_answer?: string;
+  error_code?: string;
+  retryable?: boolean;
+  next_action?: string;
 }
 
 type Receipt = AgentToolResult<MetricAskDetails>;
@@ -65,8 +74,8 @@ export function createMetricAskTool(): AgentHarnessTool<AskMetricRequestContext,
     name: "metric_ask",
     label: "指标问数",
     description:
-      "受治理的经营指标问数。action=new 提交新问题；action=clarify 把用户本轮补充提交到正在澄清的原任务（需要任务返回的 task_id/version/clarification_id）；" +
-      "action=followup 引用一笔已完成查询只换机构或日期。条件不足时返回澄清提示，如实转告用户，不代填条件。",
+      "受治理的经营指标问数。完整给齐指标、机构、日期的本轮问题必须 action=new（即使历史查过相同指标）；action=clarify 把用户本轮补充提交到正在澄清的原任务（需要任务返回的 task_id/version/clarification_id）；" +
+      "action=followup 只用于修改条件进行新取数；重看或再次显示已经查过的数据必须使用 metric_read(kind=result)，不要用 followup。条件不足时返回澄清提示，如实转告用户，不代填条件。",
     parameters: metricAskParameters,
     // 兼容层：部分模型会把嵌套对象序列化成 JSON 字符串，schema 校验前还原
     prepareArguments: (args: unknown) => {
@@ -86,16 +95,30 @@ export function createMetricAskTool(): AgentHarnessTool<AskMetricRequestContext,
     },
     execute: async (_toolCallId, params: Params, _onUpdate, request, _invocation, context) => {
       try {
+        if (params.action === "clarify_context") {
+          const message = params.reason === "ambiguous_source"
+            ? "请明确这次要沿用哪一笔查询的指标和机构，或直接说出要查询的指标与机构。"
+            : "请说明要保留哪些条件，以及要替换、追加或移除什么条件。";
+          return receipt({status: "context_required", message}, {kind: "metric_ask", status: "context_required", public_answer: message});
+        }
         if (params.action === "new") return await runNew(request, context.abortSignal);
         if (params.action === "clarify") return await runClarify(request, params.target, context.abortSignal);
         return await runFollowup(
           request,
           params.source,
-          params.change_field as "orgs" | "time",
+          "compose",
           context.abortSignal,
         );
       } catch (error) {
-        const handled = backendErrorReceipt(error);
+        const write = await request.commands.getWriteCommand();
+        // 响应丢失或内部错误先只读核对原任务；绝不换键重建业务。
+        if (write?.taskId && !(error instanceof BackendApiError && [401, 403].includes(error.status))) {
+          try {
+            const current = await request.backend.getTask(write.taskId, { signal: context.abortSignal });
+            if (current.status !== "RUNNING") return await replayTaskReceipt(request, write.taskId);
+          } catch { /* 保留原错误及任务引用，未知结果不能冒充失败或成功。 */ }
+        }
+        const handled = backendErrorReceipt(error, write?.taskId);
         if (handled) return handled;
         throw error;
       }
@@ -120,7 +143,7 @@ function businessPayload(request: AskMetricRequestContext, params: Params): Reco
     return {
       action: "followup",
       source: { task_id: params.source.task_id, version: params.source.version },
-      change_field: params.change_field,
+      change_field: "compose",
       original_text: request.originalMessage,
       selected_answers: request.selectedAnswers,
     };
@@ -160,7 +183,8 @@ function receipt(payload: Record<string, unknown>, details: MetricAskDetails): R
 function errorReceipt(code: string, message: string, taskId?: string): Receipt {
   return receipt(
     { status: "error", error: { code, message }, ...(taskId ? { task_id: taskId } : {}) },
-    { kind: "metric_ask", status: "error", ...(taskId ? { task_id: taskId } : {}) },
+    { kind: "metric_ask", status: "error", error_code: code, public_answer: message,
+      next_action: taskId ? "read_task" : "wait_user", ...(taskId ? { task_id: taskId } : {}) },
   );
 }
 
@@ -171,12 +195,12 @@ function limitReceipt(): Receipt {
   );
 }
 
-function backendErrorReceipt(error: unknown): Receipt | undefined {
+function backendErrorReceipt(error: unknown, taskId?: string): Receipt | undefined {
   if (!(error instanceof BackendApiError)) return undefined;
   if (error.status === 401 || error.status === 403) {
     return errorReceipt("AUTH_EXPIRED", "当前登录状态已失效，请提示用户刷新页面重新登录后再提问。");
   }
-  return errorReceipt(error.code ?? "BACKEND_ERROR", `后端请求失败：${error.message}`);
+  return errorReceipt(error.code ?? "BACKEND_ERROR", "本次查询未取得可核验结果，请稍后回查原任务。", taskId);
 }
 
 /**
@@ -197,7 +221,14 @@ async function gateWriteCommand(
   }
   if (existing.commandKey !== key) return { proceed: false, receipt: limitReceipt() };
   if (existing.status === "completed" && existing.taskId) {
-    return { proceed: false, receipt: await replayTaskReceipt(request, existing.taskId) };
+    const task = await request.backend.getTask(existing.taskId);
+    if (task.status !== "RUNNING") {
+      return { proceed: false, receipt: await replayTaskReceipt(request, existing.taskId) };
+    }
+    // 兼容旧版本过早写 completed 的记录：以业务阶段为准继续同一命令。
+    const pending: WriteCommandRecord = { ...existing, status: "pending" };
+    await request.commands.setWriteCommand(pending);
+    return { proceed: true, record: pending };
   }
   // pending（上次中断）或 conflict（待受控刷新）：继续原命令
   return { proceed: true, record: existing };
@@ -206,6 +237,13 @@ async function gateWriteCommand(
 /** 相同命令已完成时只读回读当前任务状态，不重复提交 */
 async function replayTaskReceipt(request: AskMetricRequestContext, taskId: string): Promise<Receipt> {
   const task = await request.backend.getTask(taskId);
+  if (task.status === "SUCCEEDED") {
+    const page = await request.backend.getTaskResult(taskId, 0, MAX_ROWS_FOR_MODEL);
+    const result = resultReceipt(taskId, task.version, { ...page, status: "succeeded", query_shape: page.query_shape ?? "metric_value" }, page.result_id);
+    const payload = JSON.parse((result.content[0] as { text: string }).text);
+    result.content = [{ type: "text", text: JSON.stringify({ ...payload, idempotent_replay: true }) }];
+    return result;
+  }
   return taskReceipt(task, true);
 }
 
@@ -255,7 +293,7 @@ function taskReceipt(task: TaskCommandResult, replayed: boolean): Receipt {
     },
     {
       kind: "metric_ask",
-      status: task.status,
+      status: task.status.toLowerCase(),
       task_id: task.task_id,
       version: task.version,
       ...(task.result?.result_id ? { result_id: task.result.result_id } : {}),
@@ -276,6 +314,7 @@ function resultReceipt(taskId: string, version: number | undefined, executed: Qu
       columns: executed.columns,
       // 仅样例行供模型核对口径；完整明细经 metric_read 分页读取
       sample_rows: sampleRows,
+      query_evidence: executed.evidence,
       row_count: executed.row_count,
       model_preview_truncated: executed.rows.length > MAX_ROWS_FOR_MODEL || executed.row_count > sampleRows.length,
       result_truncated: Boolean(executed.truncated),
@@ -286,6 +325,8 @@ function resultReceipt(taskId: string, version: number | undefined, executed: Qu
     {
       kind: "metric_ask",
       status: executed.status,
+      public_answer: executed.status === "succeeded" ? resultAnswer(executed) : "查询未成功，请检查条件后重试。",
+      ...(executed.error_code ? { error_code: executed.error_code } : {}),
       task_id: taskId,
       ...(version !== undefined ? { version } : {}),
       columns: executed.columns,
@@ -303,12 +344,14 @@ async function analyzeAndMaybeExecute(
   task: TaskCommandResult,
   signal: AbortSignal | undefined,
 ): Promise<Receipt> {
-  const analyzed = await request.backend.analyzeTask(task.task_id, task.version, {
-    signal,
-    requestId: phaseKey(key, "analyze"),
-  });
-  if (analyzed.status === "WAITING_USER" || analyzed.clarification) return taskReceipt(analyzed, false);
-  if (analyzed.status === "FAILED" || analyzed.error_code) return taskReceipt(analyzed, false);
+  if (task.status === "SUCCEEDED") return replayTaskReceipt(request, task.task_id);
+  if (task.status !== "RUNNING") return taskReceipt(task, false);
+  // 已落库的 LOGICAL_DSL / 执行阶段不能重复提槽；恢复只补尚未完成的阶段。
+  const analyzable = !task.current_stage || ["INTENT_ROUTING", "SLOT_EXTRACTION"].includes(task.current_stage);
+  const analyzed = analyzable
+    ? await request.backend.analyzeTask(task.task_id, task.version, { signal, requestId: phaseKey(key, "analyze") })
+    : task;
+  if (analyzed.status !== "RUNNING" || analyzed.clarification) return taskReceipt(analyzed, false);
   return executeTask(request, key, analyzed.task_id, analyzed.version, signal);
 }
 
@@ -329,6 +372,7 @@ async function executeTask(
 /* ---------------------------------- new ---------------------------------- */
 
 async function runNew(request: AskMetricRequestContext, signal: AbortSignal | undefined): Promise<Receipt> {
+  if (request.clarificationTarget) return errorReceipt("CLARIFICATION_REQUIRED", "用户正在回复指定澄清，请使用该卡片的目标继续补充。");
   const key = keyOf(request, { action: "new" });
   const gate = await gateWriteCommand(request, key, "new");
   if (!gate.proceed) return gate.receipt;
@@ -419,7 +463,9 @@ async function runClarify(
 
   let clarified: TaskCommandResult;
   try {
-    clarified = await submit(target.version);
+    const current = record.taskId ? await request.backend.getTask(record.taskId, { signal }) : undefined;
+    clarified = current && (current.status !== "WAITING_USER" || current.clarification?.id !== target.clarification_id)
+      ? current : await submit(target.version);
   } catch (error) {
     if (!(error instanceof BackendApiError) || error.code !== "TASK_VERSION_CONFLICT") throw error;
     // 受控版本刷新：同一澄清最多一次；条件校验后仍未变才允许
@@ -456,12 +502,13 @@ async function runClarify(
       throw second;
     }
   }
-  await save({ ...record, status: "completed", taskId: target.task_id });
-  // 条件已补齐（RUNNING）时继续执行；仍缺条件则返回新的澄清
-  if (clarified.status === "RUNNING" && !clarified.clarification) {
-    return executeTask(request, key, clarified.task_id, clarified.version, signal);
-  }
-  return taskReceipt(clarified, false);
+  await save({ ...record, status: "pending", taskId: target.task_id });
+  const result = clarified.status === "RUNNING" && !clarified.clarification
+    ? await executeTask(request, key, clarified.task_id, clarified.version, signal)
+    : await replayTaskReceipt(request, clarified.task_id);
+  await save({ ...record, status: "completed", taskId: target.task_id,
+    ...(result.details?.result_id ? { resultId: result.details.result_id } : {}) });
+  return result;
 }
 
 /* -------------------------------- followup -------------------------------- */
@@ -469,7 +516,7 @@ async function runClarify(
 async function runFollowup(
   request: AskMetricRequestContext,
   source: { task_id: string; version: number },
-  changeField: "orgs" | "time",
+  changeField: "compose",
   signal: AbortSignal | undefined,
 ): Promise<Receipt> {
   if (request.sendAs === "new_question") {
@@ -478,6 +525,7 @@ async function runFollowup(
       "用户已明确作为新问题发送，不能引用旧查询；请改用 action=new。",
     );
   }
+  if (request.clarificationTarget) return errorReceipt("CLARIFICATION_REQUIRED", "用户正在回复指定澄清，请继续原任务。");
   const params: Params = { action: "followup", source, change_field: changeField };
   const key = keyOf(request, params);
   const gate = await gateWriteCommand(request, key, "followup");

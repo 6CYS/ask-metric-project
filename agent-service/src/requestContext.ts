@@ -70,6 +70,10 @@ export interface AskMetricRequestContext {
   commands: CommandBridge;
   /** 原生历史受控回读；仅供 session_history_read 工具使用 */
   history: HistoryBridge;
+  /** 原生模型步骤，仅用于诊断及隔离摘要请求，不保存业务状态。 */
+  modelCall?: { model: string; step: "assistant" | "deferred" | "compaction" | "branch_summary"; attempt: number; startedAt: number; payloadBytes?: number };
+  /** 仅本次驱动的诊断耗时，不承载业务状态或模型记忆。 */
+  timings?: { startedAt: number; modelStartedAt?: number; toolStartedAt?: Record<string, number>; model_ms: number[]; tool_ms: number[] };
 }
 
 const REQUEST_KEY = createContextKey<AskMetricRequestContext>("askmetric.request");

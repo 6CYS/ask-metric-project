@@ -20,7 +20,7 @@ from ask_metric.core.config_crypto import (
     decrypt_config_value,
     load_config_sm4_key,
 )
-from ask_metric.core.request_context import outbound_subtransaction
+from ask_metric.core.request_context import get_log_context, get_request_id, outbound_subtransaction
 from ask_metric.infrastructure.model.configuration import (
     ModelConfigRepository,
     ModelEndpointConfig,
@@ -159,7 +159,13 @@ class ConfigurableModelService:
         if chat.chat_template_kwargs:
             payload["chat_template_kwargs"] = chat.chat_template_kwargs
         payload.update(chat.extra_body)
-        response = self._post(chat, payload)
+        started = perf_counter()
+        try:
+            response = self._post(chat, payload)
+        except Exception as exc:
+            _log_model_usage(prompt, chat.model, payload, None, started, type(exc).__name__)
+            raise
+        _log_model_usage(prompt, chat.model, payload, response, started)
         try:
             content = response["choices"][0]["message"]["content"]
             if chat.response_format == "json_object":
@@ -359,6 +365,33 @@ class ConfigurableModelService:
                 endpoint=endpoint.path,
             )
         return {authentication.header: f"{authentication.prefix}{secret}"}
+
+
+def _log_model_usage(
+    step: str, model: str, payload: dict[str, Any], response: dict[str, Any] | None,
+    started: float, error: str | None = None,
+) -> None:
+    """只记供应商用量及关联标识；缺失字段保留 null，不输出提示词或响应正文。"""
+    usage = (response or {}).get("usage")
+    usage = usage if isinstance(usage, dict) else {}
+
+    def count(value: Any) -> int | None:
+        return value if type(value) is int and value >= 0 else None
+
+    input_tokens = count(usage.get("prompt_tokens"))
+    output_tokens = count(usage.get("completion_tokens"))
+    total_tokens = count(usage.get("total_tokens"))
+    if total_tokens is None and input_tokens is not None and output_tokens is not None:
+        total_tokens = input_tokens + output_tokens
+    logger.info("model_usage %s", json.dumps({
+        "event": "model_usage", "layer": "backend", "step": step, "model": model,
+        "request_id": get_request_id(), "trace_id": get_log_context().trace_id,
+        "usage_known": input_tokens is not None and output_tokens is not None,
+        "input_tokens": input_tokens, "output_tokens": output_tokens,
+        "total_tokens": total_tokens, "error": error,
+        "payload_bytes": len(json.dumps(payload, ensure_ascii=False).encode("utf-8")),
+        "duration_ms": _duration_ms(started),
+    }, ensure_ascii=False))
 
 
 def _normalize_rerank_response(

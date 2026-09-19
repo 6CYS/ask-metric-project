@@ -54,13 +54,13 @@ router = APIRouter(prefix="/api/v1", tags=["query-tasks"])
 
 
 class QueryReferencePayload(BaseModel):
-    """单来源追问引用：仅机构或日期的单字段替换；后端校验归属/版本/权限。"""
+    """单来源组合追问引用；后端校验归属、版本、状态与权限。"""
 
     model_config = ConfigDict(extra="forbid")
 
     task_id: str = Field(min_length=1, max_length=128)
     version: int = Field(ge=0)
-    change_field: Literal["orgs", "time"]
+    change_field: Literal["orgs", "time", "compose"] = "compose"
 
 
 class SubmitQuestionRequest(BaseModel):
@@ -224,6 +224,7 @@ def submit_question(
 def analyze_query_task(
     task_id: str,
     payload: AnalyzeSemanticRequest,
+    request: Request,
     service: Annotated[SemanticTaskApplicationService, Depends(get_semantic_task_service)],
     actor: Annotated[ActorContext, Depends(require_actor)],
 ) -> TaskCommandResult:
@@ -232,6 +233,7 @@ def analyze_query_task(
             task_id=task_id,
             expected_version=payload.expected_version,
             actor=actor,
+            request_id=request.state.request_id,
         )
     )
 
@@ -392,6 +394,27 @@ def get_query_task_result(
 ) -> TaskResultPage:
     """统一结果读取：校验归属后返回不可变快照的分页事实，未就绪/缺快照明确报错。"""
     return service.get_task_result(task_id, actor, offset=offset, limit=limit)
+
+
+class ReadTaskResultRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    original_question: str = Field(min_length=1, max_length=QUESTION_MAX_LENGTH)
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=100, ge=1, le=100)
+
+
+@router.post("/query-tasks/{task_id}/result", response_model=TaskResultPage)
+def read_query_task_result(
+    task_id: str,
+    payload: ReadTaskResultRequest,
+    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
+    actor: Annotated[ActorContext, Depends(require_actor)],
+) -> TaskResultPage:
+    """Agent 历史回读：原文仅用于校验引用，不创建任务或执行 SQL。"""
+    return service.get_task_result(
+        task_id, actor, offset=payload.offset, limit=payload.limit,
+        read_question=payload.original_question,
+    )
 
 
 class CancelTaskRequest(BaseModel):

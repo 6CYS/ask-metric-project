@@ -7,11 +7,11 @@ from ask_metric.domain.basic_query import BasicQuerySpec
 
 @dataclass(frozen=True)
 class QueryReference:
-    """单来源追问引用：仅允许机构或日期的单字段替换，由后端校验后冻结。"""
+    """单来源追问引用：组合修改条件；兼容旧机构/日期协议，后端校验后冻结。"""
 
     task_id: str
     version: int
-    change_field: Literal["orgs", "time"]
+    change_field: Literal["orgs", "time", "compose"] = "compose"
 
 
 @dataclass(frozen=True)
@@ -27,6 +27,7 @@ class SubmitQuestionCommand:
 class AnalyzeSemanticCommand:
     task_id: str
     expected_version: int
+    request_id: str = ""
     actor: ActorContext | None = None
     channel: str = "web"
 

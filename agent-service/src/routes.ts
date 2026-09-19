@@ -6,16 +6,14 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import type { AgentHarnessTool } from "@earendil-works/pi-agent-core";
 import { BackendClient, BackendApiError, type BackendUser } from "./backendClient.js";
 import type { AgentServiceConfig } from "./config.js";
 import { HarnessHost, type HostedSession, type PromptInput } from "./harnessHost.js";
 import { getLegacySession, listLegacySessions, projectLegacyMessages } from "./legacySessions.js";
 import type { NativeSessionStore } from "./nativeSessions.js";
-import type { AskMetricRequestContext } from "./requestContext.js";
-import { projectEntries, projectSnapshot, projectWatchEvent } from "./sessionProjection.js";
+import { projectEntries, projectSnapshot, projectWatchEvent, projectBusinessTasks } from "./sessionProjection.js";
 
-type Variables = { user: BackendUser; token: string };
+type Variables = { user: BackendUser; token: string; startedAt: number; authMs: number };
 
 const MESSAGE_MAX_LENGTH = 4000;
 
@@ -30,6 +28,7 @@ export function createApp(
 
   // 除健康检查外均要求有效 Bearer；身份以后端当次校验为准，不使用短期缓存
   app.use("*", async (c, next) => {
+    c.set("startedAt", performance.now());
     const header = c.req.header("Authorization") ?? "";
     const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
     if (!token) {
@@ -38,6 +37,7 @@ export function createApp(
     const client = new BackendClient(config.backendBaseUrl, token, config.backendTimeoutMs);
     try {
       const user = await client.getMe();
+      c.set("authMs", Math.round(performance.now() - c.get("startedAt")));
       c.set("user", user);
       c.set("token", token);
       return next();
@@ -106,7 +106,7 @@ export function createApp(
     const entries = await hosted.lane.findEntries({ order: "oldestFirst" }, BACKGROUND_CONTEXT);
     const info = await hosted.lane.inspectExecution(BACKGROUND_CONTEXT);
     // 重启后存在未完成 operation 时，借本次已认证请求重新授权恢复
-    if (hosted.open.length > 0 && !info.current) {
+    if (hosted.open.length > 0) {
       const backend = new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs);
       void host.resumeOpenOperations(hosted, { actor: user, backend }).catch((error: unknown) => {
         console.error(`会话 ${hosted.sessionId} 恢复未完成操作失败:`, error instanceof Error ? error.message : error);
@@ -167,21 +167,31 @@ export function createApp(
         await send("snapshot", projectSnapshot(watch.snapshot) as unknown as Record<string, unknown>);
         if (!active) {
           // 无活动操作：直接给出终态，前端据此停止等待
-          await send("run_terminal", { run_status: "idle", answer_status: "idle", business_tasks: [] });
+          await send("run_terminal", { run_status: "idle", answer_status: "idle", business_tasks: projectBusinessTasks(projectEntries(watch.snapshot.transcript)) });
           return;
         }
         await new Promise<void>((resolve) => {
+          stream.onAbort(() => { watch.unsubscribe(); resolve(); });
           watch.start((event) => {
             const projected = projectWatchEvent(event);
-            if (projected) void send(projected.type, projected as unknown as Record<string, unknown>);
+            if (projected) void send(projected.type, projected as unknown as Record<string, unknown>).catch(() => {});
             if (event.type === "run_end") {
-              void send("run_terminal", {
-                run_status: "status" in event ? event.status : "unknown",
-                answer_status: "status" in event && event.status === "completed" ? "ok" : "failed",
-                business_tasks: [],
-              }).then(() => resolve());
+              void (async () => {
+                const messages = projectEntries(await hosted.lane.findEntries({ order: "oldestFirst" }, BACKGROUND_CONTEXT));
+                await send("snapshot", { messages, running: false, operation_id: null });
+                await send("run_terminal", {
+                  run_status: event.status, answer_status: event.status === "completed" ? "ok" : "failed",
+                  business_tasks: projectBusinessTasks(messages),
+                });
+              })().catch(() => {}).finally(resolve);
             }
           });
+          if (hosted.open.length) {
+            const backend = new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs);
+            void host.resumeOpenOperations(hosted, { actor: user, backend }).catch(() => {
+              void send("error", {message: "执行恢复暂未成功，请稍后重新打开此会话。"}).catch(() => {}).finally(resolve);
+            });
+          }
         });
       } finally {
         watch.unsubscribe();
@@ -235,24 +245,24 @@ export function createApp(
       // 观察与驱动分离：浏览器断线只取消观察，不中止执行
       const watch = await host.watch(hosted);
       // 先投影原子快照，再订阅增量事件（原生 watch 的顺序约定）
-      await send("accepted", { snapshot: projectSnapshot(watch.snapshot) });
+      await send("accepted", { snapshot: projectSnapshot(watch.snapshot) }).catch(() => {});
       watch.start((event) => {
         const projected = projectWatchEvent(event);
-        if (projected) void send(projected.type, projected as unknown as Record<string, unknown>);
+        if (projected) void send(projected.type, projected as unknown as Record<string, unknown>).catch(() => {});
       });
       try {
         const driven = await host.drivePrompt(hosted, admitted);
         const record = driven.ok && driven.outcome.kind === "settled" ? driven.outcome.outcome : undefined;
-        const write = await admitted.request.commands.getWriteCommand();
+        const messages = projectEntries(await hosted.lane.findEntries({ order: "oldestFirst" }, BACKGROUND_CONTEXT));
+        await send("snapshot", { messages, running: false, operation_id: null }).catch(() => {});
         await send("run_terminal", {
           run_status: record?.status ?? (driven.ok ? "unknown" : "failed"),
           answer_status: record?.status === "completed" ? "ok" : "failed",
           // 失败原因透传（如模型网关 402 配额不足），由前端转成通俗提示
           error_code: record?.error?.code ?? null,
-          business_tasks: write?.taskId
-            ? [{ task_id: write.taskId, ...(write.resultId ? { result_id: write.resultId } : {}) }]
-            : [],
-        });
+          business_tasks: projectBusinessTasks(messages),
+          timings_ms: { auth_ms: c.get("authMs"), total_ms: Math.round(performance.now() - c.get("startedAt")), model_ms: admitted.request.timings?.model_ms, tool_ms: admitted.request.timings?.tool_ms },
+        }).catch(() => {});
       } finally {
         watch.unsubscribe();
       }
@@ -270,13 +280,15 @@ function parsePromptInput(body: Record<string, unknown>): PromptInput | null {
     return null;
   }
   const input: PromptInput = { protocol_version: 3, request_id: requestId, message };
+  if (body.send_as !== undefined && body.send_as !== "new_question") return null;
   if (body.send_as === "new_question") input.send_as = "new_question";
   const target = body.clarification_target;
-  if (target && typeof target === "object") {
+  if (target !== undefined) {
+    if (!target || typeof target !== "object" || Array.isArray(target)) return null;
     const candidate = target as Record<string, unknown>;
     if (
-      typeof candidate.task_id === "string"
-      && typeof candidate.clarification_id === "string"
+      typeof candidate.task_id === "string" && candidate.task_id.trim().length > 0 && candidate.task_id.length <= 128
+      && typeof candidate.clarification_id === "string" && candidate.clarification_id.trim().length > 0 && candidate.clarification_id.length <= 128
       && typeof candidate.version === "number"
       && Number.isInteger(candidate.version)
       && candidate.version >= 0
@@ -286,10 +298,13 @@ function parsePromptInput(body: Record<string, unknown>): PromptInput | null {
         version: candidate.version,
         clarification_id: candidate.clarification_id,
       };
-    }
+    } else return null;
   }
-  if (body.selected_answers && typeof body.selected_answers === "object") {
+  if (body.selected_answers !== undefined) {
+    if (!body.selected_answers || typeof body.selected_answers !== "object" || Array.isArray(body.selected_answers)) return null;
+    if (!input.clarification_target) return null;
     input.selected_answers = body.selected_answers as Record<string, unknown>;
   }
+  if (input.send_as && input.clarification_target) return null;
   return input;
 }

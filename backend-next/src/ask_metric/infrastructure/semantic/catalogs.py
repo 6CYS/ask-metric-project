@@ -17,6 +17,7 @@ from ask_metric.infrastructure.db.models import (
 
 class MetricCatalogRepository(Protocol):
     def list_enabled(self) -> list[MetricCatalogItem]: ...
+    def list_disabled(self) -> list[MetricCatalogItem]: ...
 
 
 class OrganizationCatalogRepository(Protocol):
@@ -30,6 +31,12 @@ class SqlAlchemyMetricCatalogRepository:
 
     def __init__(self, session: Session) -> None:
         self.session = session
+
+    def list_disabled(self) -> list[MetricCatalogItem]:
+        return [MetricCatalogItem(code=term.metric_code, name=term.metric_name, unit=term.unit)
+                for term in self.session.execute(
+                    select(MetricTerm).where(MetricTerm.enabled.is_(False))
+                ).scalars()]
 
     def list_enabled(self) -> list[MetricCatalogItem]:
         term_version = self.session.execute(

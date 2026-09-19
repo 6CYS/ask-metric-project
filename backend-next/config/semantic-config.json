@@ -16,10 +16,14 @@
     "ranking",
     "top_n",
     "detail",
-    "drill_down"
+    "drill_down",
+    "availability"
   ],
   "default_time": "latest",
-  "required_slots": ["time", "orgs"],
+  "required_slots": [
+    "time",
+    "orgs"
+  ],
   "organization_aliases": {
     "江苏农商联合银行": [
       "省农信",

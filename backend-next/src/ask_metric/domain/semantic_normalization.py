@@ -103,6 +103,8 @@ def to_logical_dsl(
         time=(
             resolved_time_override
             if resolved_time_override is not None
+            else LogicalTimeRange()
+            if not frame.time and any(op.type == "availability" for op in frame.ops)
             else parse_time_expression(frame.time, today=today, default=config.default_time)
         ),
         orgs=[org_by_name.get(name, name) for name in frame.orgs],
@@ -323,6 +325,8 @@ def _parse_month_count(value: str) -> int:
 
 
 def query_shape_for(frame: SlotFrame) -> str:
+    if any(op.type == "availability" for op in frame.ops):
+        return "metric_availability"
     task_shapes = {
         "anomaly_detection": "anomaly",
         "trend_forecast": "forecast",

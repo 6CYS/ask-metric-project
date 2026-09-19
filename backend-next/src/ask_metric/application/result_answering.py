@@ -68,6 +68,23 @@ def render_fact_answer(
     comparison_facts = _build_facts(comparisons, source="entity_comparison")
     selected = comparison_facts or row_facts
 
+    if plan.shape.value == "metric_availability":
+        groups: dict[tuple[str, str], list[str]] = {}
+        for row in rows:
+            key = (str(row.get("org_name", row.get("org_code", ""))),
+                   str(row.get("metric_name", row.get("metric_code", ""))))
+            groups.setdefault(key, []).append(str(row["available_period"]))
+        selection = plan.parameters.get("selection", "all")
+        label = {"earliest": "最早有数据的期间", "latest": "最新有数据的期间"}.get(
+            selection, "有数据的期间")
+        message = "\n".join(
+            f"{org}的{metric}{label}：{'、'.join(periods[:20])}"
+            + ("；更多期间请查看数据明细。" if len(periods) > 20 else "。")
+            for (org, metric), periods in groups.items()
+        ) or "查询完成，暂无匹配的有值日期。"
+        return RenderedFactAnswer(message=message, template_id="metric_availability",
+                                  fact_ids=[fact.fact_id for fact in row_facts], facts=row_facts)
+
     if not selected:
         return RenderedFactAnswer(
             message="查询完成，暂无匹配数据。",

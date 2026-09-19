@@ -15,9 +15,9 @@ export class AgentApiError extends Error {
   }
 }
 
-/** 会话为内存态，服务重启即清空；404 需要前端容错重建会话。 */
+/** 原生会话持久化；404 不可自动重建并重发。 */
 export class AgentSessionNotFoundError extends AgentApiError {
-  constructor(message = "智能助手会话不存在或已随服务重启清空，请重新发起提问。") {
+  constructor(message = "智能助手会话不存在，请选择其他会话或新建会话。") {
     super(message, 404)
     this.name = "AgentSessionNotFoundError"
   }
@@ -53,11 +53,12 @@ export interface AgentSessionDetail {
 
 /** metric_ask / 结构化查询工具结束时附带的结构化结果引用；完整明细经后端 result 接口分页读取。 */
 export interface MetricAskDetails {
-  kind: "metric_ask" | "metric_query_structured"
+  kind: "metric_ask" | "metric_query_structured" | "metric_read"
   task_id?: string
   version?: number
   result_id?: string
   status: string
+  public_answer?: string
   columns?: string[]
   rows?: Record<string, unknown>[]
   row_count?: number
@@ -76,8 +77,11 @@ export interface AgentPromptInput {
   selected_answers?: Record<string, unknown>
 }
 
+export type AgentSnapshot = Pick<AgentSessionDetail, "messages" | "running" | "operation_id">
+
 export type AgentStreamEvent =
-  | { type: "accepted"; operation_id?: string; request_id?: string }
+  | { type: "accepted"; operation_id?: string; request_id?: string; snapshot?: AgentSnapshot }
+  | ({ type: "snapshot" } & AgentSnapshot)
   | { type: "text_delta"; delta: string }
   | { type: "tool_start"; tool: string; tool_call_id?: string }
   | { type: "tool_end"; tool: string; tool_call_id?: string; details: unknown; isError: boolean }
@@ -87,7 +91,8 @@ export type AgentStreamEvent =
       run_status: string
       answer_status: string
       error_code?: string | null
-      business_tasks?: Array<{ task_id: string; result_id?: string }>
+      business_tasks?: Array<{ task_id: string; status: string; result_id?: string | null; error_code?: string | null }>
+      timings_ms?: { auth_ms: number; total_ms: number; model_ms?: number[]; tool_ms?: number[] }
     }
   | { type: "error"; message?: string }
 
@@ -170,17 +175,25 @@ export interface AgentPromptOptions {
  * fetch abort 只停止观察，不取消服务端执行；停止需调用 cancelAgentOperation。
  */
 export async function promptAgentSession(sessionId: string, input: AgentPromptInput, options: AgentPromptOptions) {
+  return streamAgentSession(sessionId, input, options)
+}
+
+export function observeAgentSession(sessionId: string, options: AgentPromptOptions) {
+  return streamAgentSession(sessionId, undefined, options)
+}
+
+async function streamAgentSession(sessionId: string, input: AgentPromptInput | undefined, options: AgentPromptOptions) {
   const token = getAccessToken()
   let response: Response
   try {
-    response = await fetch(`${agentApiBase}/sessions/${encodeURIComponent(sessionId)}/prompt`, {
-      method: "POST",
+    response = await fetch(`${agentApiBase}/sessions/${encodeURIComponent(sessionId)}/${input ? "prompt" : "stream"}`, {
+      method: input ? "POST" : "GET",
       headers: {
         "Content-Type": "application/json",
         Accept: "text/event-stream",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ protocol_version: 3, ...input }),
+      ...(input ? { body: JSON.stringify({ protocol_version: 3, ...input }) } : {}),
       signal: options.signal ?? null,
     })
   } catch (error) {
@@ -224,6 +237,9 @@ export async function promptAgentSession(sessionId: string, input: AgentPromptIn
     if (!terminated) {
       throw new AgentApiError("智能助手连接中断，回答可能不完整；请刷新查看最终状态。", 0)
     }
+  } catch (error) {
+    if (isAgentAbortError(error) || error instanceof AgentApiError) throw error
+    throw new AgentApiError("智能助手连接中断，正在重新获取执行状态。", 0)
   } finally {
     // 断线只停止观察：服务端原生 operation 继续执行，重连后可读快照恢复。
     reader.cancel().catch(() => {})

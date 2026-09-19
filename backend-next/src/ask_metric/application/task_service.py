@@ -40,6 +40,7 @@ from ask_metric.application.task_results import (
 )
 from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.query_execution import QueryExecutionResult
+from ask_metric.domain.semantic_engine import explicit_catalog_references
 from ask_metric.domain.semantic_reference import (
     ReferenceSourceInvalid,
     freeze_source_reference,
@@ -745,7 +746,8 @@ class QueryTaskApplicationService:
             return _task_result(task)
 
     def get_task_result(
-        self, task_id: str, actor: ActorContext, *, offset: int = 0, limit: int = 100
+        self, task_id: str, actor: ActorContext, *, offset: int = 0, limit: int = 100,
+        read_question: str | None = None,
     ) -> TaskResultPage:
         """统一结果读取：从不可变 ResultArtifact 返回分页事实，不触发 SQL 或重算。"""
         with self.uow_factory() as uow:
@@ -768,6 +770,30 @@ class QueryTaskApplicationService:
                     details={"task_id": task.id, "status": task.status},
                 )
             result = QueryExecutionResult.model_validate(saved)
+            if read_question is not None:
+                config = (
+                    self.semantic_config_repository.load()
+                    if self.semantic_config_repository is not None else None
+                )
+                requested = explicit_catalog_references(
+                    read_question,
+                    metrics=uow.metric_catalog.list_enabled(),
+                    organizations=uow.organization_catalog.list_enabled(),
+                    organization_aliases=config.organization_aliases if config else {},
+                )
+                # 历史结果即使零行也必须按正式条件核对，不能由模型选中哪个引用就交付哪个。
+                dsl = result.evidence.get("logical_dsl") or artifact.get("logical_dsl") or {}
+                conflicts = {
+                    field: {"requested": sorted(codes), "selected": dsl.get(field, [])}
+                    for field, codes in requested.items()
+                    if codes and not codes.issubset(set(dsl.get(field, [])))
+                }
+                if conflicts:
+                    raise TaskConflictError(
+                        "RESULT_REFERENCE_CONFLICT",
+                        "所选历史结果与本轮明确指定的机构或指标不一致，请重新定位已有结果。",
+                        details={"task_id": task.id, "conflicts": conflicts},
+                    )
             page_rows = result.rows[offset : offset + limit]
             next_offset = offset + len(page_rows)
             return TaskResultPage(

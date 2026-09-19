@@ -60,6 +60,13 @@ def advance_slot_frame(
     沿用来源规范区间）；此时不再按今天校验/解析 frame.time。
     """
     normalized = normalize_slot_frame(frame, metrics=metrics, organizations=organizations)
+    from ask_metric.domain.query_capabilities import CAPABILITIES
+
+    capability = CAPABILITIES.get(query_shape_for(normalized))
+    availability = capability is not None and not capability.requires_time
+    if (availability and not normalized.time
+            and not normalized.options.get("invalid_time_expression")):
+        normalized.missing = [item for item in normalized.missing if item != "time"]
     if resolved_time_override is not None:
         normalized.options.pop("missing_time_reason", None)
     elif normalized.time:
@@ -77,6 +84,7 @@ def advance_slot_frame(
         for slot in config.required_slots:
             if (
                 slot == "time"
+                and not availability
                 and not normalized.time
                 and resolved_time_override is None
                 and slot not in normalized.missing
@@ -205,23 +213,33 @@ def semantic_patch_from_text(
 
     if "orgs" in current.missing:
         normalized_text = normalize_semantic_text(text)
-        matched_orgs = []
+        # 一个别名对应多家是歧义；多个独立、明确的名称是合法列表。
+        term_owners: dict[str, set[str]] = {}
         for organization in organizations:
-            terms = [organization.name, *organization.aliases]
-            if any(
-                normalized_term and normalized_term in normalized_text
-                for term in terms
-                if (normalized_term := normalize_semantic_text(term))
-            ):
-                matched_orgs.append(organization.name)
-        if len(matched_orgs) == 1:
-            values["orgs"] = matched_orgs
+            for term in [organization.name, *organization.aliases]:
+                normalized = normalize_semantic_text(term)
+                if normalized:
+                    term_owners.setdefault(normalized, set()).add(organization.name)
+        remaining = normalized_text
+        matched_orgs: list[str] = []
+        ambiguous = False
+        for term in sorted(term_owners, key=len, reverse=True):
+            if term not in remaining:
+                continue
+            owners = term_owners[term]
+            if len(owners) != 1:
+                ambiguous = True
+            else:
+                matched_orgs.extend(owners)
+            remaining = remaining.replace(term, " ")
+        if matched_orgs and not ambiguous:
+            values["orgs"] = list(dict.fromkeys(matched_orgs))
 
     if "metrics" in current.missing:
         resolution = MetricMatcher(metrics).resolve(text)
-        if len(resolution.matches) == 1 and not resolution.ambiguous_candidates:
-            match = resolution.matches[0]
-            values["metrics"] = [{"code": match.code, "name": match.name}]
+        if resolution.matches and not resolution.ambiguous_candidates:
+            values["metrics"] = [{"code": match.code, "name": match.name}
+                                 for match in resolution.matches]
 
     return SemanticPatch(set=values)
 
@@ -274,6 +292,12 @@ def resolved_question(frame: SlotFrame | dict[str, Any]) -> str:
         organization_text = "各家农商行"
     else:
         organization_text = "、".join(current.orgs) or "所选机构"
+    availability = next((item for item in current.ops if item.type == "availability"), None)
+    if availability is not None:
+        label = "月份" if availability.grain == "month" else "日期"
+        selection = {"earliest": "最早", "latest": "最新", "all": "全部"}[availability.selection]
+        period = f"在{current.time}范围内" if current.time else ""
+        return f"{organization_text}{metric_text}{period}{selection}有数据的{label}有哪些？"
     time_text = (
         "最新"
         if current.time in {None, "latest", "最新", "最近", "最新一期", "最近一期", "当前最新"}

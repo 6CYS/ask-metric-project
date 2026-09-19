@@ -24,6 +24,9 @@ import {
   type Entry,
 } from "@earendil-works/pi-agent-core";
 import type { AgentServiceConfig } from "./config.js";
+import { createMetricAskTool } from "./tools/metricAsk.js";
+import { createMetricReadTool } from "./tools/readTools.js";
+import { BackendApiError } from "./backendClient.js";
 import { HarnessHost } from "./harnessHost.js";
 import { wrapStreamsWithAuthorization } from "./models.js";
 import { NativeSessionStore } from "./nativeSessions.js";
@@ -48,6 +51,7 @@ interface FauxModel {
   model: Model<"openai-completions">;
   models: ReturnType<typeof createModels>;
   providerCalls: number;
+  contexts: unknown[];
 }
 
 function buildAssistant(model: Model<"openai-completions">, reply: FauxReply): AssistantMessage {
@@ -86,6 +90,7 @@ function buildAssistant(model: Model<"openai-completions">, reply: FauxReply): A
 /** 预编排模型桩：按调用顺序返回脚本响应，记录每次调用供断言 */
 function createFauxModel(script: FauxReply[], contextWindow = 128_000): FauxModel {
   let calls = 0;
+  const contexts: unknown[] = [];
   const model: Model<"openai-completions"> = {
     id: "faux-1",
     name: "faux-1",
@@ -113,11 +118,13 @@ function createFauxModel(script: FauxReply[], contextWindow = 128_000): FauxMode
     return stream;
   };
   const streams: ProviderStreams = {
-    stream: () => {
+    stream: (_model, context) => {
+      contexts.push(structuredClone(context));
       calls += 1;
       return respond(script[Math.min(calls - 1, script.length - 1)]!);
     },
-    streamSimple: () => {
+    streamSimple: (_model, context) => {
+      contexts.push(structuredClone(context));
       calls += 1;
       return respond(script[Math.min(calls - 1, script.length - 1)]!);
     },
@@ -131,7 +138,7 @@ function createFauxModel(script: FauxReply[], contextWindow = 128_000): FauxMode
   });
   const models = createModels();
   models.setProvider(provider);
-  return { streams, model, models, get providerCalls() { return calls; }, set providerCalls(_v: number) { /* 只读 */ } } as FauxModel;
+  return { streams, model, models, contexts, get providerCalls() { return calls; }, set providerCalls(_v: number) { /* 只读 */ } } as FauxModel;
 }
 
 function createStubTool(calls: string[]): AgentHarnessTool<AskMetricRequestContext> {
@@ -271,7 +278,7 @@ describe("P1 原生最小闭环", () => {
     const faux = createFauxModel(
       [
         { kind: "text", text: "第一轮回答", inputTokens: 950 },
-        { kind: "text", text: "历史摘要：用户问过测试数值。", inputTokens: 100 },
+        { kind: "text", text: "历史摘要：用户问过2026年3月末测试数值。", inputTokens: 100 },
         { kind: "text", text: "第二轮回答", inputTokens: 200 },
       ],
       1000,
@@ -291,6 +298,7 @@ describe("P1 原生最小闭环", () => {
     const entries = await hosted.lane.findEntries(undefined, BACKGROUND_CONTEXT);
     const compaction = entries.filter((entry) => entry.type === "compaction");
     expect(compaction.length).toBeGreaterThan(0);
+    expect(compaction.some(entry => entry.summary.includes("2026年3月末"))).toBe(true);
     await host.close();
   });
 
@@ -392,4 +400,133 @@ describe("P1 原生最小闭环", () => {
     await host2.close();
     await store2.close();
   });
+});
+
+describe("原生恢复及交付边界", () => {
+  it("接纳后中断，原生重开恢复完整结构化输入", async () => {
+    const dir=tempDir();
+    const faux=createFauxModel([{kind:"toolCall",name:"capture",args:{}},{kind:"text",text:"完成"}]);
+    const captured: AskMetricRequestContext[]=[];
+    const tool: AgentHarnessTool<AskMetricRequestContext>={name:"capture",label:"capture",description:"capture",parameters:Type.Object({}),execute:async(_a,_b,_c,request)=>{captured.push(request);return {content:[{type:"text",text:"ok"}],details:{}};}};
+    const make=()=>new HarnessHost(testConfig(dir),()=>({models:faux.models,model:faux.model}),new NativeSessionStore(dir),[tool]);
+    const first=make(); const session=await first.createSession(ACTOR);
+    const input={protocol_version:3 as const,request_id:"recover-card",message:"已选择机构",clarification_target:{task_id:"task",version:2,clarification_id:"cl"},selected_answers:{set:{orgs:["江阴"]}}};
+    expect((await first.admitPrompt(session,input,{actor:ACTOR,backend:{} as BackendClient})).ok).toBe(true);
+    await first.close();
+    const second=make(); const restored=(await second.openSession(ACTOR,session.sessionId))!;
+    expect(restored.open.length).toBeGreaterThan(0);
+    expect((await restored.lane.inspectExecution(BACKGROUND_CONTEXT)).current).not.toBeNull();
+    await second.resumeOpenOperations(restored,{actor:ACTOR,backend:{} as BackendClient});
+    expect(captured[0]?.clarificationTarget).toEqual(input.clarification_target);
+    expect(captured[0]?.selectedAnswers).toEqual(input.selected_answers);
+    expect(captured[0]?.originalMessage).toBe(input.message);
+    expect(restored.open).toHaveLength(0);
+    await second.close();
+  });
+});
+
+
+it("真实 pi 校验链还原字符串 source，业务回执原生结束，无复述模型调用", async () => {
+  const dir=tempDir();
+  const faux=createFauxModel([{kind:"toolCall",name:"metric_ask",args:{action:"followup",source:JSON.stringify({task_id:"source",version:3}),change_field:"compose"}}]);
+  let submitted: unknown[]=[];
+  const backend={
+    submitQuestion:async(...args:unknown[])=>{submitted=args;return {task_id:"t",conversation_id:"c",status:"RUNNING",current_stage:"LOGICAL_DSL",version:1};},
+    executeTask:async()=>({task_id:"t",status:"succeeded",columns:[],rows:[],row_count:0}),
+    getTask:async()=>({task_id:"t",status:"SUCCEEDED",version:2,result:{result_id:"r"}}),
+  } as unknown as BackendClient;
+  const host=new HarnessHost(testConfig(dir),()=>({models:faux.models,model:faux.model}),new NativeSessionStore(dir),[createMetricAskTool()]);
+  const session=await host.createSession(ACTOR);
+  const outcome=await host.runPrompt(session,{protocol_version:3,request_id:"source-string",message:"那江阴呢"},{actor:ACTOR,backend});
+  expect(outcome.ok).toBe(true);
+  expect(submitted[3]).toEqual({task_id:"source",version:3,change_field:"compose"});
+  expect(faux.providerCalls).toBe(1);
+  await host.close();
+});
+
+it("业务 500 后原生结束，恶意金额候选没有机会进入交付", async () => {
+  const dir = tempDir();
+  const faux = createFauxModel([
+    { kind: "toolCall", name: "metric_ask", args: { action: "new" } },
+    { kind: "text", text: "江阴农商行金额15147420074元。" },
+  ]);
+  const tool: AgentHarnessTool<AskMetricRequestContext> = {
+    name: "metric_ask", label: "问数", description: "失败注入", parameters: Type.Object({action: Type.String()}),
+    execute: async () => ({ content: [{type: "text", text: "查询失败"}],
+      details: {kind: "metric_ask", task_id: "failed-task", status: "error", error_code: "INTERNAL_SERVER_ERROR"} }),
+  };
+  const host = new HarnessHost(testConfig(dir), () => ({models: faux.models, model: faux.model}), new NativeSessionStore(dir), [tool]);
+  const session = await host.createSession(ACTOR);
+  const outcome = await host.runPrompt(session, {protocol_version: 3, request_id: "failure-injection", message: "那江阴呢？"}, {actor: ACTOR, backend: {} as BackendClient});
+  expect(outcome.ok).toBe(true);
+  expect(faux.providerCalls).toBe(1);
+  const { projectEntries, projectBusinessTasks } = await import("./sessionProjection.js");
+  const messages = projectEntries(await session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT));
+  expect(JSON.stringify(messages)).not.toContain("15147420074");
+  expect(projectBusinessTasks(messages)[0]?.status).toBe("error");
+  expect(messages.some(message => message.role === "assistant" && message.text.includes("未取得可核验"))).toBe(true);
+  await host.close();
+});
+
+it("连续两次历史引用冲突后停止，不能交付模型猜测事实", async () => {
+  const dir = tempDir();
+  const args = {kind: "result", task_id: "wrong", result_id: "result:wrong"};
+  const faux = createFauxModel([
+    {kind: "toolCall", name: "metric_read", args},
+    {kind: "toolCall", name: "metric_read", args},
+    {kind: "text", text: "乙行金额987654321元。"},
+  ]);
+  let reads = 0;
+  const backend = {getTaskResult: async () => {
+    reads++;
+    throw new BackendApiError(409, "机构冲突", "RESULT_REFERENCE_CONFLICT");
+  }} as unknown as BackendClient;
+  const host = new HarnessHost(testConfig(dir), () => ({models: faux.models, model: faux.model}),
+    new NativeSessionStore(dir), [createMetricReadTool()]);
+  const session = await host.createSession(ACTOR);
+  const outcome = await host.runPrompt(session, {
+    protocol_version: 3, request_id: "read-conflict", message: "刚才乙行的数据再显示",
+  }, {actor: ACTOR, backend});
+  expect(outcome.ok).toBe(true);
+  expect(reads).toBe(2);
+  expect(faux.providerCalls).toBe(3);
+  const {projectEntries} = await import("./sessionProjection.js");
+  const messages = projectEntries(await session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT));
+  expect(JSON.stringify(messages)).not.toContain("987654321");
+  expect(messages.some(message => message.role === "assistant" && message.text.includes("未能通过校验"))).toBe(true);
+  await host.close();
+});
+
+it("原生上下文投影保留完整会话，纯换机构纠正旧日期来源，不增加模型调用", async () => {
+  const dir=tempDir();
+  const faux=createFauxModel([
+    {kind:"toolCall",name:"metric_ask",args:{action:"new"}},
+    {kind:"toolCall",name:"metric_read",args:{}},
+    {kind:"toolCall",name:"metric_ask",args:{action:"followup",source:{task_id:"old",version:3},change_field:"orgs"}},
+  ]);
+  const captured:unknown[]=[];
+  function tool(name:string):AgentHarnessTool<AskMetricRequestContext> {
+    return {name,label:name,description:"受控测试回执",parameters:Type.Object({
+      action:Type.Optional(Type.String()),source:Type.Optional(Type.Object({task_id:Type.String(),version:Type.Integer()})),change_field:Type.Optional(Type.String()),
+    }),execute:async(_id,args)=>{
+      captured.push(args);
+      const task=name==="metric_read"?"latest":"old";
+      const date=name==="metric_read"?"2026-04-30":"2026-03-31";
+      return {content:[{type:"text",text:JSON.stringify({task_id:task,result_id:`r:${task}`,version:3,status:"succeeded",row_count:20,
+        rows:Array.from({length:20},(_,i)=>({metric_value:`private-row-${i}`})),
+        query_evidence:{logical_dsl:{time:{start:date,end:date},metrics:["M"],orgs:["O"]}},
+      })}],details:{kind:name,task_id:task,result_id:`r:${task}`,status:"succeeded",row_count:20,public_answer:"查询完成"}};
+    }};
+  }
+  const host=new HarnessHost(testConfig(dir),()=>({models:faux.models,model:faux.model}),new NativeSessionStore(dir),[tool("metric_ask"),tool("metric_read")]);
+  const session=await host.createSession(ACTOR);
+  for(const [i,message] of ["甲行3月末余额","读取乙行4月末已完成结果","再看甲行"].entries()) {
+    await host.runPrompt(session,{protocol_version:3,request_id:`projection-${i}`,message},{actor:ACTOR,backend:{} as BackendClient});
+  }
+  expect(faux.providerCalls).toBe(3);
+  expect(captured[2]).toMatchObject({source:{task_id:"latest",version:3},change_field:"orgs"});
+  expect(JSON.stringify(faux.contexts[2])).not.toContain("private-row-");
+  const original=await session.lane.findEntries({order:"oldestFirst"},BACKGROUND_CONTEXT);
+  expect(entryTexts(original).join("\n")).toContain("private-row-19");
+  await host.close();
 });

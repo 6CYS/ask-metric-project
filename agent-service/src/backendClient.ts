@@ -100,6 +100,8 @@ export interface QueryExecutionResult {
   message?: string | null;
   /** 受控计算结果（如机构对比明细），由后端确定性产出 */
   comparisons?: Record<string, unknown>[];
+  /** 已执行查询的正式条件；空结果同样有证据，不能靠样例行还原上下文。 */
+  evidence?: Record<string, unknown>;
 }
 
 /** 统一结果读取的分页视图（GET /query-tasks/{id}/result） */
@@ -125,7 +127,7 @@ export interface TaskResultPage {
 export interface QueryReference {
   task_id: string;
   version: number;
-  change_field: "orgs" | "time";
+  change_field: "orgs" | "time" | "compose";
 }
 
 /** 结构化基础查询（basic-queries）契约：不调用模型，按正式编码与明确日期取数 */
@@ -180,7 +182,13 @@ export class BackendClient {
     private readonly baseUrl: string,
     private readonly token: string,
     private readonly timeoutMs: number,
+    private readonly traceId?: string,
   ) {}
+
+  /** 保留各阶段幂等键，另用 Trace-ID 关联同一用户问答。 */
+  withTraceId(traceId: string): BackendClient {
+    return new BackendClient(this.baseUrl, this.token, this.timeoutMs, traceId);
+  }
 
   private async request<T>(path: string, init: RequestInit = {}, options: CallOptions = {}): Promise<T> {
     const controller = new AbortController();
@@ -196,6 +204,7 @@ export class BackendClient {
         ...((init.headers as Record<string, string> | undefined) ?? {}),
       };
       if (options.requestId) headers["X-Request-ID"] = options.requestId;
+      if (this.traceId) headers["X-Trace-ID"] = this.traceId;
       if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
       const response = await fetch(`${this.baseUrl}${path}`, { ...init, signal, headers });
       if (!response.ok) {
@@ -309,7 +318,14 @@ export class BackendClient {
   }
 
   /** 统一结果读取：不可变快照的分页事实 */
-  getTaskResult(taskId: string, offset = 0, limit = 100, options?: CallOptions): Promise<TaskResultPage> {
+  getTaskResult(taskId: string, offset = 0, limit = 100, options?: CallOptions, originalQuestion?: string): Promise<TaskResultPage> {
+    if (originalQuestion !== undefined) {
+      return this.request<TaskResultPage>(
+        `/api/v1/query-tasks/${encodeURIComponent(taskId)}/result`,
+        { method: "POST", body: JSON.stringify({ original_question: originalQuestion, offset, limit }) },
+        options,
+      );
+    }
     const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
     return this.request<TaskResultPage>(
       `/api/v1/query-tasks/${encodeURIComponent(taskId)}/result?${query}`,
@@ -331,6 +347,10 @@ export class BackendClient {
       { method: "POST", body: JSON.stringify({ expected_version: expectedVersion }) },
       { ...options, requestId },
     );
+  }
+
+  metricCatalogOverview(options?: CallOptions): Promise<{total: number; groups: Array<{unit: string; count: number; examples: Array<{code: string; name: string}>}>}> {
+    return this.request("/api/v1/catalog/metrics/overview", {}, options);
   }
 
   basicQueries(spec: BasicQuerySpec, idempotencyKey: string, options?: CallOptions): Promise<BasicQueryResponse> {

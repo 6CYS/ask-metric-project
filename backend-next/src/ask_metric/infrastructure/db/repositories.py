@@ -218,13 +218,22 @@ class SqlAlchemyQueryTaskRepository:
         return self.session.execute(statement).scalar_one_or_none()
 
     def get_owned_for_update(self, task_id: str, user_id: str) -> QueryTask | None:
-        statement = (
-            select(QueryTask)
-            .join(ChatConversation, ChatConversation.id == QueryTask.conversation_id)
-            .where(QueryTask.id == task_id, ChatConversation.owner_user_id == user_id)
-            .with_for_update()
-        )
-        return self.session.execute(statement).scalar_one_or_none()
+        # 窄锁：只按主键锁任务行。联表 FOR UPDATE 会扫描会话表的 owner 二级索引并产生
+        # next-key 锁，外部连接一旦在该区间持有间隙锁，该用户的全部任务都会被卡死。
+        # 会话归属不可变，归属校验用普通读即可，不需要进入写锁范围。
+        task = self.session.execute(
+            select(QueryTask).where(QueryTask.id == task_id).with_for_update()
+        ).scalar_one_or_none()
+        if task is None:
+            return None
+        owner = self.session.execute(
+            select(ChatConversation.owner_user_id).where(
+                ChatConversation.id == task.conversation_id
+            )
+        ).scalar_one_or_none()
+        if owner != user_id:
+            return None
+        return task
 
     def find_by_idempotency_key(
         self, conversation_id: str, idempotency_key: str

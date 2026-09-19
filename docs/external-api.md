@@ -92,13 +92,18 @@ Bearer 认证，必填 `Idempotency-Key`（1～128 字符）。仍受查询就�
 | 异步Webhook回调 | **未实现** | 需要后续定义签名、重试和去重 |
 
 `frontend-vue/src/lib/api.ts`中仍有旧后端SSE客户端代码，但正式`backend-next`没有对应路由，
-该代码不能作为外部对接合同。
+该代码不能作为外部对接合同。独立 Node `agent-service` 已提供协议 V3 的 SSE 提问与重连，
+其路径和生命周期见 [Agent 服务说明](../agent-service/README.md)，不可与本文后端路由混用。
 
 ### 独立查询边界
 
-同一会话中的每个新问题独立解析。完成查询后仅问“那江阴呢？”，会新建任务并澄清缺失的指标、日期，
-不继承上一轮条件。当前未完成任务仍通过任务版本和澄清编号继续；历史结果使用读取/下载接口。
-不支持自然语言历史指代、结果裁剪或跨任务追问执行，也不接入新的上层框架。
+同一会话中的新问题默认独立解析，不凭 `conversation_id` 隐式继承上一轮条件。
+智能助手的追问显式提交 `query_reference`（来源 task_id、version，change_field 默认 compose），
+后端校验来源归属、版本、成功状态和权限后冻结条件；支持组合修改机构、指标、日期和查询目标。
+旧 orgs/time 仍按单字段协议校验。模型提取的修改清单必须与实际新值一致，不允许忽略限制后执行。
+数据覆盖查询返回 `query_shape=metric_availability`，日期是输出，可省略时间筛选。
+完整合同与升级要求见[通用追问与数据覆盖查询](通用追问与数据覆盖查询.md)。
+当前未完成任务通过任务版本和澄清编号继续；历史结果使用读取/下载接口，不重新执行取数。
 
 ## 2. 基础约定
 
@@ -326,6 +331,7 @@ QueryTask或调用模型；调用方应在提交前提示用户缩短问题。
 POST /api/v1/query-tasks/{task_id}/analyze
 Authorization: Bearer <token>
 Content-Type: application/json
+Idempotency-Key: analyze:<stable-command-key>
 ```
 
 ```json
@@ -333,6 +339,10 @@ Content-Type: application/json
   "expected_version": 0
 }
 ```
+
+`Idempotency-Key` 可选；Agent 恢复时复用原分析阶段键。相同键与原 `expected_version`
+返回已处理任务的当前状态，不再次调用模型；同键用于不同版本返回 `IDEMPOTENCY_KEY_REUSED`。
+未提供时使用本次请求关联标识，不保证跨请求重放。
 
 可能结果：
 
@@ -598,6 +608,18 @@ EXECUTION
 RESULT_FORMATTING
 ```
 
+### 4.8 不可变结果读取
+
+`GET /api/v1/query-tasks/{task_id}/result?offset=0&limit=100` 按任务归属读取已执行结果，不重新查询。
+
+Agent 对用户原文所指的历史结果使用同路径的 `POST`，请求体为：
+
+```json
+{"original_question":"刚才江阴3月的数据再显示一下","offset":0,"limit":20}
+```
+
+该 POST 是只读校验与分页读取，不创建任务或执行业务 SQL。后端用当前目录的无歧义名称、别名匹配原文中的机构和指标，与不可变结果的正式 DSL 核对；包括零行结果在内，冲突返回 HTTP 409、`RESULT_REFERENCE_CONFLICT`，不返回业务事实。Agent 可据此重新选择已有结果，不能改成新查询。它不负责猜测原文未明示的实体或解析任意自然语言历史指代；GET 兼容原有页面结果加载与分页。
+
 ## 5. 会话接口
 
 | 方法 | 路径 | 说明 |
@@ -622,6 +644,7 @@ RESULT_FORMATTING
 | --- | --- | --- | --- |
 | GET | `/api/v1/catalog/metrics` | 登录用户 | 指标、同义词、启停用和向量状态 |
 | GET | `/api/v1/catalog/metrics/search?keyword=&limit=` | 登录用户 | 指标目录检索：确定性命中（exact/contains/lexical）计入`total`，embedding top-k 仅作`semantic_suggestions`近似推荐 |
+| GET | `/api/v1/catalog/metrics/overview` | 登录用户 | 实时启用指标总数及按单位分组的数量与名称示例；不执行问数 |
 | POST | `/api/v1/catalog/metrics` | 系统管理员 | 新增指标，自动触发向量同步 |
 | PUT | `/api/v1/catalog/metrics/{metric_code}` | 系统管理员 | 修改指标和同义词 |
 | DELETE | `/api/v1/catalog/metrics/{metric_code}` | 系统管理员 | 逻辑停用指标 |
@@ -674,6 +697,7 @@ RESULT_FORMATTING
 旧跨任务追问、历史指代任务的分析、澄清、执行返回 `CROSS_TASK_CONTEXT_RETIRED`（409），
 提示新建完整问题；任务和会话的历史读取、导出不受该执行限制影响，仍需校验用户归属。
 `MULTITURN_*` 不再是有效运行开关。升级须同步前后端和实际持久提示词。
+上述退出规则针对旧上下文协议；当前显式 `query_reference` 的受控追问不属于旧接口。
 
 ## 7. 幂等、并发和重试
 

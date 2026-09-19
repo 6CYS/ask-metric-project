@@ -5,6 +5,7 @@ lookup 未找到时 404 且不创建任务。
 """
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -13,6 +14,7 @@ from ask_metric.application.commands import CancelTaskCommand
 from ask_metric.application.requests import ActorContext
 from ask_metric.application.task_service import QueryTaskApplicationService
 from ask_metric.core.errors import ApplicationError
+from ask_metric.domain.semantics import MetricCatalogItem, OrganizationCatalogItem
 from ask_metric.domain.task import QueryTaskState
 from ask_metric.infrastructure.db.models import ChatConversation, QueryTask
 
@@ -125,6 +127,45 @@ def _cancel(task_id: str, version: int, request_id: str = "req-cancel-1") -> Can
 
 
 class TestGetTaskResult:
+    @pytest.mark.parametrize(
+        "question,conflict",
+        [
+            ("刚才乙行3月的数据再显示", True),
+            ("重看甲行贷款余额", True),
+            ("重看甲行存款余额", False),
+            ("刚才的数据再显示一下", False),
+        ],
+    )
+    def test_empty_result_read_checks_explicit_catalog_conditions(self, question, conflict):
+        task = _succeeded_task()
+        state = QueryTaskState.model_validate(task.state_json)
+        saved = state.result_artifact["result"]
+        saved.update(rows=[], row_count=0, evidence={
+            "logical_dsl": {"orgs": ["A"], "metrics": ["M1"]},
+        })
+        task.state_json = state.model_dump(mode="json")
+        original_state = task.state_json.copy()
+        uow = _FakeUow(task)
+        uow.organization_catalog = SimpleNamespace(list_enabled=lambda: [
+            OrganizationCatalogItem(code="A", name="甲农村商业银行", aliases=["甲行"]),
+            OrganizationCatalogItem(code="B", name="乙农村商业银行", aliases=["乙行"]),
+        ])
+        uow.metric_catalog = SimpleNamespace(list_enabled=lambda: [
+            MetricCatalogItem(code="M1", name="存款余额"),
+            MetricCatalogItem(code="M2", name="贷款余额"),
+        ])
+        service = QueryTaskApplicationService(uow_factory=lambda: uow)
+        if conflict:
+            with pytest.raises(ApplicationError) as error:
+                service.get_task_result("task-1", ACTOR, read_question=question)
+            assert error.value.code == "RESULT_REFERENCE_CONFLICT"
+        else:
+            page = service.get_task_result("task-1", ACTOR, read_question=question)
+            assert page.row_count == 0
+            assert page.result_id == "result:task-1"
+        assert task.state_json == original_state
+        assert task.version == 3
+
     def test_paged_rows_from_artifact(self) -> None:
         service = _service(_succeeded_task())
         page = service.get_task_result("task-1", ACTOR, offset=1, limit=2)

@@ -74,6 +74,7 @@ class _Shape(Enum):
     RANKING = auto()  # 机构排名 TopN
     AT_PERIODS = auto()  # 多期间取值
     PERIOD_COMPARE = auto()  # 基期/本期对比
+    AVAILABILITY = auto()  # 先按实体和日期粒度去重，再选全部/最早/最新覆盖
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,10 @@ _T = QueryTemplateId
 # 场景唯一注册表：场景 →（形态、日期谓词、必需参数）。新增场景只在这里加一行；
 # 必需参数缺失即中止，不拼出不完整 SQL。
 _SCENARIOS: dict[QueryTemplateId, _Scenario] = {
+    _T.METRIC_AVAILABILITY: _Scenario(
+        _Shape.AVAILABILITY, _TimeKind.NONE,
+        _params("filter_dates", "start_date", "end_date", "grain", "selection"),
+    ),
     _T.METRIC_VALUE_LATEST: _Scenario(_Shape.WINDOW_VALUE, _TimeKind.NONE, _params()),
     _T.METRIC_VALUE_AS_OF: _Scenario(_Shape.WINDOW_VALUE, _TimeKind.AS_OF, _params("end_date")),
     _T.METRIC_VALUE_IN_RANGE: _Scenario(
@@ -171,6 +176,7 @@ class _DialectAdapter:
             _Shape.RANKING: self.ranking,
             _Shape.AT_PERIODS: self.at_periods,
             _Shape.PERIOD_COMPARE: self.period_compare,
+            _Shape.AVAILABILITY: self.availability,
         }
         return handlers[scenario.shape](scenario)
 
@@ -200,6 +206,24 @@ class _DialectAdapter:
     def period_compare(self, scenario: _Scenario) -> Select:
         raise self._unsupported(scenario)
 
+    def availability(self, scenario: _Scenario) -> Select:
+        raise self._unsupported(scenario)
+
+    def _availability_result(self, periods: Select) -> Select:
+        # 每个指标/机构独立计算边界，不能把多实体的日期隐式取交集。
+        bounds = self._parse(
+            "SELECT *, MIN(available_period) OVER (PARTITION BY metric_code, org_code) "
+            "AS earliest_period, MAX(available_period) OVER (PARTITION BY metric_code, org_code) "
+            "AS latest_period FROM available_periods"
+        )
+        return self._parse(
+            "SELECT metric_code, org_code, available_period, first_date, last_date "
+            "FROM availability_bounds WHERE :selection = 'all' "
+            "OR (:selection = 'earliest' AND available_period = earliest_period) "
+            "OR (:selection = 'latest' AND available_period = latest_period) "
+            "ORDER BY metric_code, org_code, available_period LIMIT :limit"
+        ).with_("available_periods", as_=periods).with_("availability_bounds", as_=bounds)
+
     # ---------- 共用片段 ----------
 
     def _parse(self, sql: str) -> Select:
@@ -219,6 +243,21 @@ class _MySqlAdapter(_DialectAdapter):
 
     name = "mysql"
     read_dialect = "mysql"
+
+    def availability(self, scenario: _Scenario) -> Select:
+        period = (
+            "CASE WHEN :grain = 'month' THEN DATE_FORMAT(stat_date, '%Y-%m') "
+            "ELSE DATE_FORMAT(stat_date, '%Y-%m-%d') END"
+        )
+        periods = self._parse(
+            f"SELECT metric_code, org_code, {period} AS available_period, "
+            "MIN(stat_date) AS first_date, MAX(stat_date) AS last_date FROM metric_values "
+            "WHERE metric_code IN :metric_codes AND " + self._org_filter("") +
+            " AND metric_value IS NOT NULL AND (:filter_dates = FALSE OR "
+            "stat_date BETWEEN CAST(:start_date AS DATE) AND CAST(:end_date AS DATE)) "
+            f"GROUP BY metric_code, org_code, {period}"
+        )
+        return self._availability_result(periods)
 
     def _value_columns(self) -> list[str]:
         # mysql 取值类查询的统一输出列：名称来自 metric_terms，缺失时回退事实表名称。
@@ -500,6 +539,30 @@ class _InceptorAdapter(_DialectAdapter):
 
     name = "inceptor"
     read_dialect = "hive"
+
+    def availability(self, scenario: _Scenario) -> Select:
+        period = (
+            "CASE WHEN :grain = 'month' THEN SUBSTR(CAST(stat_date AS STRING), 1, 7) "
+            "ELSE SUBSTR(CAST(stat_date AS STRING), 1, 10) END"
+        )
+        periods = self._parse(
+            f"SELECT metric_code, org_code, {period} AS available_period, "
+            "MIN(stat_date) AS first_date, MAX(stat_date) AS last_date FROM facts "
+            f"GROUP BY metric_code, org_code, {period}"
+        )
+        predicate = (
+            f"(:filter_dates = FALSE OR {self._date_field} BETWEEN "
+            "CAST(:start_date AS DATE) AND CAST(:end_date AS DATE))"
+        )
+        # normalized/facts 必须排在依赖它们的覆盖 CTE 前。
+        final = self._availability_result(periods)
+        final.args["with_"].set("expressions", [
+            exp.CTE(this=self._normalized(predicate),
+                    alias=exp.TableAlias(this=exp.to_identifier("normalized"))),
+            exp.CTE(this=self._facts(), alias=exp.TableAlias(this=exp.to_identifier("facts"))),
+            *final.args["with_"].expressions,
+        ])
+        return final
 
     # inceptor 取值类查询的统一输出列。
     _VALUE_COLUMNS = (

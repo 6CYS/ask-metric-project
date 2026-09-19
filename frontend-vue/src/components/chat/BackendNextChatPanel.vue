@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { AlertTriangle, Bot, Check, Copy, Ellipsis, LoaderCircle, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Trash2 } from "@lucide/vue"
-import { computed, nextTick, onActivated, onMounted, ref, watch } from "vue"
+import { computed, nextTick, onActivated, onMounted, onBeforeUnmount, ref, watch } from "vue"
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from "reka-ui"
 
 import CatalogQuestionComposer from "@/components/chat/CatalogQuestionComposer.vue"
@@ -21,6 +21,8 @@ import {
   isAgentAbortError,
   listAgentSessions,
   promptAgentSession,
+  observeAgentSession,
+  type AgentSnapshot,
   type AgentPromptInput,
   type AgentSessionDetail,
   type AgentStreamEvent,
@@ -87,8 +89,13 @@ const toolLabels: Record<string, string> = {
   metric_ask: "指标问数",
   metric_query_structured: "指标结构化查询",
   metric_catalog_search: "指标目录检索",
+  metric_catalog_overview: "可查询指标总览",
+  metric_read: "结果回读",
+  session_history_read: "会话历史回读",
   org_catalog_search: "机构目录检索",
 }
+
+const sendAsNewQuestion = ref(false)
 
 const props = withDefaults(defineProps<{ initialMessage?: string }>(), { initialMessage: "" })
 const auth = useAuth()
@@ -148,8 +155,9 @@ function formatMessageTime(value?: string) {
 const activeConversation = computed(() => conversations.value.find((item) => item.id === activeConversationId.value) ?? conversations.value[0])
 const activeConversationIsSending = computed(() => Boolean(activeConversation.value && sendingConversationIds.value.has(activeConversation.value.id)))
 const activeClarificationMessage = computed(() => {
-  const latestFirst = [...(activeConversation.value?.messages ?? [])].reverse()
-  return latestFirst.find((item) => item.role === "assistant" && item.status === "done" && Boolean(item.clarification))
+  const messages = activeConversation.value?.messages ?? []
+  const latest = messages[messages.length - 1]
+  return latest?.role === "assistant" && latest.status === "done" && latest.clarification ? latest : undefined
 })
 const composerPlaceholder = computed(() => {
   const clarification = activeClarificationMessage.value?.clarification
@@ -180,6 +188,9 @@ watch(() => auth.user.value?.id ?? null, (userId) => {
 })
 
 onMounted(() => void synchronizeAuthenticatedUser(auth.user.value?.id ?? null))
+onBeforeUnmount(() => {
+  for (const controller of abortControllers.values()) controller.abort()
+})
 
 onActivated(() => {
   const userId = auth.user.value?.id ?? null
@@ -196,6 +207,7 @@ function resetChatSessionState() {
   conversations.value = []
   activeConversationId.value = ""
   sendingConversationIds.value = new Set()
+  for (const controller of abortControllers.values()) controller.abort()
   abortControllers.clear()
   isHistoryLoading.value = false
   isConversationLoading.value = false
@@ -337,7 +349,10 @@ function finalizeAssistantMessage(chatMessage: DisplayMessage): DisplayMessage {
   }
   const details = chatMessage.metricAskDetails
   if (details && details.status === "succeeded") {
-    return { ...chatMessage, response: responseFromMetricAsk(details, chatMessage.content) }
+    const response = responseFromMetricAsk(details, chatMessage.content)
+    if (chatMessage.response?.debug?.task_id === details.task_id && chatMessage.response?.result) response.result = chatMessage.response.result
+    return { ...chatMessage, response }
+
   }
   if (details && details.status === "unsupported" && !chatMessage.content.trim()) {
     return { ...chatMessage, content: "当前能力暂不支持该查询，请调整问题后重试。" }
@@ -347,7 +362,7 @@ function finalizeAssistantMessage(chatMessage: DisplayMessage): DisplayMessage {
 
 function asMetricAskDetails(value: unknown): MetricAskDetails | undefined {
   const kind = value && typeof value === "object" ? (value as { kind?: unknown }).kind : undefined
-  return kind === "metric_ask" || kind === "metric_query_structured"
+  return kind === "metric_ask" || kind === "metric_query_structured" || kind === "metric_read"
     ? value as MetricAskDetails
     : undefined
 }
@@ -372,7 +387,7 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
       const last = messages[messages.length - 1]
       if (last?.role === "assistant") {
         // 跨轮次合并助手片段：两侧都有内容时补段落分隔，避免首尾粘连
-        last.content = last.content.trim() && text.trim() ? `${last.content}\n\n${text}` : last.content + text
+        if (text.trim()) last.content = text
         last.toolCalls = [...(last.toolCalls ?? []), ...tools.map((tool) => ({ id: createId(), tool, status: "done" as const }))]
         if (!last.createdAt) last.createdAt = historyTimestamp(item.timestamp)
       } else {
@@ -395,19 +410,26 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
       if (details.status === "clarification_required" && details.clarification) {
         last.response = archiveClarificationResponse(clarificationResponse(details.clarification, details.clarification_prompt ?? details.clarification.prompt))
         last.content = last.response?.answer ?? last.content
+        last.metricAskClarification = details.clarification
+        if (details.task_id && details.version !== undefined) last.clarificationTarget = {
+          task_id: details.task_id, version: details.version, clarification_id: details.clarification.id,
+        }
       } else if (details.status === "succeeded") {
         last.metricAskDetails = details
       }
     }
+  }
+  const last = messages[messages.length - 1]
+  if (last?.metricAskClarification && !detail.running && !detail.legacy) {
+    last.clarification = last.metricAskClarification
+    last.response = clarificationResponse(last.clarification, last.clarification.prompt)
   }
   // 结果表在最终助手文本合并完成后再构造，保证回答与表格一致。
   return {
     messages: messages.map((item) => {
       if (item.role !== "assistant" || !item.metricAskDetails) return item
       const details = item.metricAskDetails
-      const { metricAskDetails, ...rest } = item
-      void metricAskDetails
-      return { ...rest, response: responseFromMetricAsk(details, item.content) }
+      return { ...item, response: responseFromMetricAsk(details, item.content) }
     }),
   }
 }
@@ -464,6 +486,7 @@ async function selectConversation(conversationId: string) {
   persistActiveConversation()
   const conversation = conversations.value.find((item) => item.id === conversationId)
   if (!conversation || conversation.loaded || !conversation.serverId) {
+    if (conversation?.running && conversation.serverId) void reconnectConversation(conversationId)
     await scrollToBottom()
     return
   }
@@ -486,6 +509,7 @@ async function selectConversation(conversationId: string) {
     await scrollToBottom()
     // 历史会话的结果表同样只从后端快照回填
     void hydrateResultTables(conversationId)
+    if (detail.running) void reconnectConversation(conversationId)
   } catch (error) {
     if (error instanceof AgentSessionNotFoundError) {
       // 服务端会话已被删除（或存储被清理），直接从列表移除。
@@ -626,12 +650,13 @@ function handleSubmit(text: string, entities: ComposerEntity[] = []) {
   const conversation = activeConversation.value
   if (!conversation || !label || activeConversationIsSending.value || conversation.running) return
   if (conversation.legacy) return
-  const clarificationMessage = activeClarificationMessage.value
+  const clarificationMessage = sendAsNewQuestion.value ? undefined : activeClarificationMessage.value
   const kind = clarificationMessage ? "clarification_answer" : "question"
   const input: AgentPromptInput = {
     // request_id 每次确认发送生成；网络重试沿用同一值，不产生第二条用户消息
     request_id: createId(),
     message: label,
+    ...(sendAsNewQuestion.value ? { send_as: "new_question" as const } : {}),
   }
   if (clarificationMessage) {
     // 先取卡片目标与结构化选择，再归档（归档生成新对象，不影响已取到的引用）
@@ -650,6 +675,7 @@ function handleSubmit(text: string, entities: ComposerEntity[] = []) {
       response: archiveClarificationResponse(item.response),
     }))
   }
+  sendAsNewQuestion.value = false
   message.value = ""
   void runQuestion(conversation.id, label, kind, input)
 }
@@ -678,7 +704,9 @@ async function runQuestion(conversationId: string, question: string, kind: strin
     await streamPrompt(conversationId, serverId, input, assistantId, controller)
   } catch (error) {
     // 404 不自动新建会话并重发：输入保留在消息里，由用户决定下一步
-    failMessage(conversationId, assistantId, error)
+    if (error instanceof AgentApiError && (error.status === 0 || error.status === 409)) {
+      await reconnectConversation(conversationId, assistantId, controller)
+    } else failMessage(conversationId, assistantId, error)
   } finally {
     abortControllers.delete(conversationId)
     markConversationSending(conversationId, false)
@@ -698,6 +726,7 @@ async function ensureServerSession(conversationId: string) {
     persisted: true,
     createdAt: created.created_at,
   }))
+  persistActiveConversation()
   return created.session_id
 }
 
@@ -712,21 +741,26 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
   if (event.type === "error") {
     throw new AgentApiError(event.message?.trim() || "智能助手处理失败，请稍后重试。", 0)
   }
+  if (event.type === "snapshot") {
+    applyAgentSnapshot(conversationId, event, assistantId)
+    return
+  }
   if (event.type === "accepted") {
-    // 记录原生 operation 供显式停止；快照内容由后续事件驱动
+    if (event.snapshot) applyAgentSnapshot(conversationId, event.snapshot, assistantId)
+    // operation 用于停止；accepted 与重连共用完整快照。
     if (event.operation_id) {
       updateConversation(conversationId, (item) => ({ ...item, activeOperationId: event.operation_id ?? null }))
     }
     return
   }
   if (event.type === "run_terminal") {
-    const failed = event.answer_status !== "ok"
+    const failed = !["ok", "idle"].includes(event.answer_status)
     updateAssistantMessage(conversationId, assistantId, (item) => {
       const finalized = finalizeAssistantMessage({ ...item, status: failed ? "error" : "done" })
       if (failed && !finalized.content.trim()) {
         // 模型侧失败（如网关配额不足）给可读原因，不留空白失败
         finalized.content = event.error_code === "assistant_error"
-          ? "模型服务暂时不可用（可能额度不足），请稍后重试；若持续失败请联系管理员检查模型网关。"
+          ? "模型服务暂时不可用，请稍后重试；若持续失败请联系管理员检查模型网关。"
           : "本次提问处理失败，请稍后重试。"
       }
       return {
@@ -782,9 +816,63 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
         ...(target ? { clarificationTarget: target } : {}),
       }
     }
-    return { ...item, toolCalls, metricAskDetails: details }
+    return finalizeAssistantMessage({ ...item, content: details.public_answer ?? item.content, toolCalls, metricAskDetails: details })
   })
+  if (event.type === "tool_end") void hydrateResultTables(conversationId)
   void scrollToBottom()
+}
+
+function applyAgentSnapshot(conversationId: string, snapshot: AgentSnapshot, assistantId?: string) {
+  updateConversation(conversationId, item => {
+    const detail: AgentSessionDetail = { session_id: item.serverId ?? item.id, created_at: item.createdAt ?? "", ...snapshot }
+    const restored = conversationFromDetail(detail).messages
+    const last = restored[restored.length - 1]
+    if (snapshot.running && last?.role !== "assistant") restored.push({ id: assistantId ?? createId(), role: "assistant", content: "", status: "pending", toolCalls: [] })
+    const assistant = restored[restored.length - 1]
+    if (assistant?.role === "assistant" && assistantId) assistant.id = assistantId
+    for (const message of restored) {
+      const taskId = message.response?.debug?.task_id
+      const cached = item.messages.find(old => taskId && old.response?.debug?.task_id === taskId && old.response?.result)
+      if (message.response && cached?.response?.result) message.response.result = cached.response.result
+    }
+    return { ...item, loaded: true, running: snapshot.running, activeOperationId: snapshot.operation_id, messages: restored }
+  })
+  void hydrateResultTables(conversationId)
+}
+
+async function reconnectConversation(conversationId: string, assistantId?: string, existingController?: AbortController) {
+  const conversation = conversations.value.find(item => item.id === conversationId)
+  if (!conversation?.serverId || (!existingController && abortControllers.has(conversationId))) return
+  const controller = existingController ?? new AbortController()
+  abortControllers.set(conversationId, controller)
+  markConversationSending(conversationId, true)
+  try {
+    // 仅重新观察原 operation，不重发用户输入；重连失败有限结束并保留运行状态。
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await observeAgentSession(conversation.serverId, {
+          signal: controller.signal,
+          onEvent: event => {
+            const current = conversations.value.find(item => item.id === conversationId)
+            const id = assistantId ?? [...(current?.messages ?? [])].reverse().find(item => item.role === "assistant")?.id ?? createId()
+            handleStreamEvent(conversationId, id, event)
+          },
+        })
+        return
+      } catch (error) {
+        if (isAgentAbortError(error) || !(error instanceof AgentApiError) || error.status !== 0) throw error
+        if (attempt === 2) throw error
+        await new Promise(resolve => window.setTimeout(resolve, 500 * (attempt + 1)))
+      }
+    }
+  } catch (error) {
+    if (!isAgentAbortError(error)) historyError.value = "连接暂时中断，后台任务可能仍在执行。重新打开此会话可继续查看。"
+  } finally {
+    if (!existingController) {
+      abortControllers.delete(conversationId)
+      markConversationSending(conversationId, false)
+    }
+  }
 }
 
 function failMessage(conversationId: string, messageId: string, error: unknown) {
@@ -805,6 +893,8 @@ function failMessage(conversationId: string, messageId: string, error: unknown) 
 }
 
 /** 结果表数据只从后端不可变快照读取：工具明细只带引用，行数据按 task_id 拉取后回填。 */
+const resultLoads = new Map<string, ReturnType<typeof getBackendTaskResult>>()
+
 async function hydrateResultTables(conversationId: string) {
   const conversation = conversations.value.find((item) => item.id === conversationId)
   if (!conversation) return
@@ -814,7 +904,13 @@ async function hydrateResultTables(conversationId: string) {
     const rowCount = typeof response?.debug?.row_count === "number" ? response.debug.row_count : 0
     if (!taskId || !response || response.result || rowCount <= 0 || rowCount > 100) continue
     try {
-      const page = await getBackendTaskResult(taskId, 0, 100)
+      let pending = resultLoads.get(taskId)
+      if (!pending) {
+        pending = getBackendTaskResult(taskId, 0, 100)
+        resultLoads.set(taskId, pending)
+        void pending.finally(() => resultLoads.delete(taskId)).catch(() => {})
+      }
+      const page = await pending
       updateAssistantMessage(conversationId, chatMessage.id, (item) => {
         if (!item.response || item.response.result) return item
         return {
@@ -960,10 +1056,10 @@ async function scrollToBottom() {
           <span>{{ queryReadiness.message }}<span v-if="queryReadiness.total > 0">（{{ queryReadiness.completed }}/{{ queryReadiness.total }}）</span></span></div>
         <p v-else-if="activeConversation?.legacy" class="mb-3 text-sm text-muted-foreground">旧格式会话仅支持查看，请新建对话继续提问。</p>
         <p v-else-if="activeConversation?.running && !activeConversationIsSending" class="mb-3 text-sm text-muted-foreground">该会话正在其他窗口运行，请稍候或新建对话。</p>
-        <div v-if="activeConversationIsSending" class="mb-3 flex justify-end">
-          <BaseButton variant="outline" size="sm" class="text-muted-foreground" @click="stopActiveConversation">停止生成</BaseButton>
-        </div>
-        <CatalogQuestionComposer :key="auth.user.value?.id" v-model="message" :context-key="`${activeConversationId}:${activeClarificationMessage?.clarification?.id ?? activeConversation?.messages.length ?? 0}`" :clarification="activeClarificationMessage?.clarification" :auto-open-clarification-id="autoOpenClarificationId" :is-submitting="activeConversationIsSending" :disabled="!queryReady || Boolean(activeConversation?.legacy) || Boolean(activeConversation?.running && !activeConversationIsSending)" :placeholder="composerPlaceholder" @submit="handleSubmit" />
+        <label v-if="activeClarificationMessage && !activeConversationIsSending" class="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
+          <input v-model="sendAsNewQuestion" type="checkbox" />作为新问题发送
+        </label>
+        <CatalogQuestionComposer :key="auth.user.value?.id" v-model="message" :context-key="`${activeConversationId}:${activeClarificationMessage?.clarification?.id ?? activeConversation?.messages.length ?? 0}`" :clarification="sendAsNewQuestion ? undefined : activeClarificationMessage?.clarification" :auto-open-clarification-id="autoOpenClarificationId" :is-submitting="activeConversationIsSending" :disabled="!queryReady || Boolean(activeConversation?.legacy) || Boolean(activeConversation?.running && !activeConversationIsSending)" :placeholder="composerPlaceholder" @submit="handleSubmit" @stop="stopActiveConversation" />
       </div>
     </div>
   </section>

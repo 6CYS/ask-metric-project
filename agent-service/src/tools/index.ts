@@ -5,6 +5,7 @@
  */
 import type { AgentHarnessTool } from "@earendil-works/pi-agent-core";
 import type { AskMetricRequestContext } from "../requestContext.js";
+import { createMetricCatalogOverviewTool } from "./metricCatalogOverview.js";
 import { createMetricAskTool } from "./metricAsk.js";
 import { createMetricCatalogSearchTool } from "./metricCatalogSearch.js";
 import { createOrgCatalogSearchTool } from "./orgCatalogSearch.js";
@@ -25,6 +26,7 @@ export function createAskMetricTools(): AgentHarnessTool<AskMetricRequestContext
     createMetricReadTool(),
     createSessionHistoryReadTool(),
     createMetricCatalogSearchTool(),
+    createMetricCatalogOverviewTool(),
     createOrgCatalogSearchTool(),
   ] as AgentHarnessTool<AskMetricRequestContext>[];
 }

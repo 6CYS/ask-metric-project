@@ -33,6 +33,10 @@ const resultPageSize = ref<number>(RESULT_PAGE_SIZE_OPTIONS[0])
 const isDownloading = ref(false)
 const downloadError = ref("")
 const isDataDetailsOpen = ref(Boolean(props.response.result?.table?.rows.length))
+// Agent 先交付回执再异步读取结果；首批行到达时展开，后续更新不覆盖用户的折叠选择。
+watch(() => Boolean(props.response.result?.table?.rows.length), (hasRows, hadRows) => {
+  if (hasRows && !hadRows) isDataDetailsOpen.value = true
+})
 const isAnswerCopied = ref(false)
 const answerCopyError = ref("")
 const statusLabels: Record<string, string> = {

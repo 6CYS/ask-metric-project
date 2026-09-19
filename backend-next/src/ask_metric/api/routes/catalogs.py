@@ -104,6 +104,28 @@ def list_metrics(
     )
 
 
+@router.get("/metrics/overview")
+def metric_catalog_overview(
+    uow: Annotated[SqlAlchemyUnitOfWork, Depends(get_uow)],
+) -> dict[str, object]:
+    """只读启用目录的概览；示例跨目录分布取样，不调用模型或执行指标 SQL。"""
+    with uow:
+        items = uow.metric_catalog.list_enabled()
+    groups: dict[str, list] = {}
+    for item in sorted(items, key=lambda metric: metric.code):
+        groups.setdefault(item.unit or "未标注单位", []).append(item)
+    return {
+        "total": len(items),
+        "groups": [
+            {"unit": unit, "count": len(metrics), "examples": [
+                {"code": metrics[index].code, "name": metrics[index].name}
+                for index in sorted({0, len(metrics) // 2, len(metrics) - 1})
+            ]}
+            for unit, metrics in sorted(groups.items())
+        ],
+    }
+
+
 def _metric_hit_payload(hit: CatalogSearchHit) -> dict[str, object]:
     return {
         "metric_code": hit.code,

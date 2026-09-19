@@ -7,10 +7,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from ask_metric.domain.query_capabilities import CAPABILITIES
 from ask_metric.domain.semantics import LogicalDSL
 
 
 class SupportedQueryShape(StrEnum):
+    METRIC_AVAILABILITY = "metric_availability"
     METRIC_VALUE = "metric_value"
     METRIC_TREND = "metric_trend"
     METRIC_PERIOD_COMPARE = "metric_period_compare"
@@ -18,6 +20,7 @@ class SupportedQueryShape(StrEnum):
 
 
 class QueryTemplateId(StrEnum):
+    METRIC_AVAILABILITY = "metric_availability"
     METRIC_VALUE_LATEST = "metric_value_latest"
     METRIC_VALUE_AS_OF = "metric_value_as_of"
     METRIC_VALUE_IN_RANGE = "metric_value_in_range"
@@ -153,7 +156,24 @@ class QueryPlanner:
         result_operations = [
             operation for operation in dsl.ops if operation.get("type") == "entity_compare"
         ]
-        if shape == SupportedQueryShape.METRIC_VALUE:
+        if shape == SupportedQueryShape.METRIC_AVAILABILITY:
+            operation = next(item for item in dsl.ops if item.get("type") == "availability")
+            if dsl.time.preset or any(dsl.options.get(key) for key in (
+                "target_dates", "time_windows", "current_date", "base_date", "time_mode",
+            )):
+                raise UnsupportedQueryError("Availability supports one optional date range only")
+            if not normalized_orgs:
+                raise QueryPlanError("Availability requires an explicit authorized organization")
+            grain, selection = operation.get("grain", "month"), operation.get("selection", "all")
+            if grain not in {"day", "month"} or selection not in {"all", "earliest", "latest"}:
+                raise QueryPlanError("Invalid availability grain or selection")
+            template = QueryTemplateId.METRIC_AVAILABILITY
+            base_parameters.update({
+                "filter_dates": dsl.time.start is not None,
+                "start_date": dsl.time.start, "end_date": dsl.time.end,
+                "grain": grain, "selection": selection,
+            })
+        elif shape == SupportedQueryShape.METRIC_VALUE:
             template, value_parameters = _value_plan(dsl, compare_entities=bool(result_operations))
             if self.dialect == "inceptor" and "period_starts" in value_parameters:
                 # Inceptor deployments differ in JSON_TABLE/array expansion support.
@@ -251,13 +271,9 @@ def _validate_operation_support(dsl: LogicalDSL, shape: SupportedQueryShape) -> 
         raise UnsupportedQueryError(
             "Operations are not supported by governed metric templates: " + ", ".join(unsupported)
         )
-    allowed_by_shape = {
-        SupportedQueryShape.METRIC_VALUE: {"entity_compare"},
-        SupportedQueryShape.METRIC_TREND: {"trend"},
-        SupportedQueryShape.METRIC_PERIOD_COMPARE: {"period_compare"},
-        SupportedQueryShape.METRIC_RANKING: {"ranking", "top_n"},
-    }
-    unexpected = sorted(set(operation_types) - allowed_by_shape[shape])
+    if shape == SupportedQueryShape.METRIC_AVAILABILITY and len(dsl.ops) != 1:
+        raise UnsupportedQueryError("Availability requires exactly one operation")
+    unexpected = sorted(set(operation_types) - CAPABILITIES[shape.value].operations)
     if unexpected:
         raise UnsupportedQueryError(
             f"Operations cannot be combined with {shape.value}: " + ", ".join(unexpected)

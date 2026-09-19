@@ -226,6 +226,9 @@ class QueryExecutionApplicationService:
                 "template": plan.template.value,
                 "coverage_notice": coverage_notice,
                 "missing_metric_notice": missing_metric_notice,
+                "response_kind": (
+                    "availability" if plan.shape.value == "metric_availability" else "values"
+                ),
             },
             query_shape=plan.shape.value,
             columns=list(rows[0]) if rows else [],
@@ -961,6 +964,17 @@ def _missing_metric_notice(
     truncated: bool,
 ) -> str | None:
     """Disclose wholly absent metrics only when the returned selection is complete."""
+    if plan.shape.value == "metric_availability" and not truncated and rows:
+        returned = {(row.get("metric_code"), row.get("org_code")) for row in rows}
+        missing = [(metric, org) for metric in plan.parameters["metric_codes"]
+                   for org in plan.parameters["org_codes"] if (metric, org) not in returned]
+        if missing:
+            metrics = {item["code"]: item["name"] for item in plan.catalog.get("metrics", [])}
+            orgs = {item["code"]: item["name"] for item in plan.catalog.get("organizations", [])}
+            labels = [f"{orgs.get(org, org)}的{metrics.get(metric, metric)}"
+                      for metric, org in missing[:8]]
+            return "以下查询对象在所选范围没有可用日期：" + "、".join(labels) + (
+                f"等{len(missing)}项。" if len(missing) > 8 else "。")
     if truncated or not rows or plan.shape.value not in {"metric_value", "metric_trend"}:
         return None
     requested = list(dict.fromkeys(plan.parameters.get("metric_codes", [])))

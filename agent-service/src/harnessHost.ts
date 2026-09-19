@@ -7,6 +7,9 @@
  * 观察（SSE）使用独立的 lane.watch，与驱动 Context 分离，浏览器断线不中止执行。
  */
 import { createHash } from "node:crypto";
+import { historicalReadConflict, latestFollowupReference, queryReferenceContext } from "./queryContext.js";
+import { modelUsage } from "./modelUsage.js";
+import { projectHistoricalResults } from "./modelContext.js";
 import {
   AgentHarness,
   BACKGROUND_CONTEXT,
@@ -37,6 +40,7 @@ import {
   type HistoryEntrySummary,
   type WriteCommandRecord,
 } from "./requestContext.js";
+import { businessEvidence, evidenceAnswer } from "./answerEvidence.js";
 import { buildBusinessSystemPrompt } from "./prompts/businessSystemPrompt.js";
 
 /** 原生应用 values 的命名空间；只存归属与请求关联，不存 Agent 状态/槽位/业务结果 */
@@ -53,6 +57,8 @@ export interface RequestAssociation {
   createdAt: number;
   /** 本请求已接纳的独立业务写意图（同一 operation 最多一个） */
   write?: WriteCommandRecord;
+  input?: PromptInput;
+  timings_ms?: { model: number[]; tools: number[]; drive_total: number };
 }
 
 const requestValue = (requestId: string) => value<RequestAssociation>(NS, `request/${requestId}`);
@@ -191,7 +197,7 @@ export class HarnessHost {
         BACKGROUND_CONTEXT,
       );
       const lane = await harness.lane("main", { createAt: null }, BACKGROUND_CONTEXT);
-      this.registerHooks(harness);
+      this.registerHooks(harness, lane);
       return {
         sessionId,
         ownerUserId: actor.id,
@@ -208,18 +214,137 @@ export class HarnessHost {
   }
 
   /** /no_think 等提供方兼容只作用于发送副本，不改用户原文与原生历史 */
-  private registerHooks(harness: AgentHarness<AskMetricRequestContext>): void {
+  private registerHooks(harness: AgentHarness<AskMetricRequestContext>, lane: AgentLane): void {
+    // 原生 usage 事件同时覆盖业务调用、自动压缩和分支摘要；after_response 不覆盖原生摘要。
+    harness.events.on("usage", (event, context) => {
+      if (event.row.adjustment) return;
+      const request = requireRequestContext(context);
+      console.info(JSON.stringify({
+        event: "model_usage", layer: "agent", usage_id: event.row.id,
+        request_id: request.requestId, session_id: request.sessionId, operation_id: request.operationId,
+        step: request.modelCall?.step ?? "unknown", attempt: request.modelCall?.attempt ?? null,
+        model: request.modelCall?.model ?? null,
+        payload_bytes: request.modelCall?.payloadBytes ?? null,
+        duration_ms: request.modelCall ? Math.round(performance.now() - request.modelCall.startedAt) : null,
+        ...modelUsage(event.row.usage),
+      }));
+    });
+    harness.hooks.on("before_request", (event, context) => {
+      const request = requireRequestContext(context);
+      request.modelCall = { step: event.step, model: event.model.id, attempt: event.attempt, startedAt: performance.now() };
+      const timings = request.timings;
+      if (timings) timings.modelStartedAt = performance.now();
+      return undefined;
+    });
+    harness.hooks.on("before_payload", (event, context) => {
+      const request = requireRequestContext(context);
+      const payload = event.payload as Record<string, unknown>;
+      if (request.modelCall) request.modelCall.payloadBytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
+      if (request.modelCall?.step === "compaction" || request.modelCall?.step === "branch_summary") return undefined;
+      // 问数入口首轮必须取得工具证据；后续目录/状态回读继续由原生循环选择。
+      // 当前项目使用 OpenAI 兼容协议，provider-neutral ToolChoice 仅支持 auto/none。
+      if (this.tools.some(tool => tool.name === "metric_ask") && request.timings?.model_ms.length === 0
+        && Array.isArray(payload.tools) && payload.tools.length) {
+        return { payload: { ...payload, tool_choice: request.clarificationTarget || request.sendAs === "new_question"
+          ? { type: "function", function: { name: "metric_ask" } } : "required" } };
+      }
+      return undefined;
+    });
+    harness.hooks.on("before_tool", async (event, context) => {
+      const request = requireRequestContext(context);
+      if (request.timings) (request.timings.toolStartedAt ??= {})[event.toolCallId] = performance.now();
+      if (event.toolName === "metric_read" && event.args.kind === "result") {
+        const entries = await lane.findEntries({order: "oldestFirst"}, context);
+        if (historicalReadConflict(entries.filter(entry => entry.type === "message").map(entry => entry.message), event.args.task_id, request.originalMessage)) {
+          return {block: {reason: "该结果日期比当前连续追问基准更早，但用户没有要求历史日期。纯换机构应使用 metric_ask followup，继承最新成功任务的日期；不能读该机构旧日期。", terminate: false}};
+        }
+      }
+      if (event.toolName !== "metric_ask") return undefined;
+      // 点击卡片/作为新问题是用户已确认的输入事实，不能交给模型重新解释。
+      if (request.clarificationTarget) return { args: { action: "clarify", target: request.clarificationTarget } };
+      if (request.sendAs === "new_question") return { args: { action: "new" } };
+      if (event.args.action === "followup") {
+        const entries = await lane.findEntries({ order: "oldestFirst" }, context);
+        const messages = entries.filter(entry => entry.type === "message").map(entry => entry.message);
+        let latestUser = messages.length - 1;
+        while (latestUser >= 0 && messages[latestUser]?.role !== "user") latestUser -= 1;
+        const previous = messages.slice(0, latestUser).reverse().find(message => message.role === "toolResult" && businessEvidence(message.details));
+        const previousEvidence = previous?.role === "toolResult" ? businessEvidence(previous.details) : undefined;
+        if (previousEvidence && ["error", "failed", "pending"].includes(previousEvidence.status.toLowerCase())) {
+          return { block: { reason: "上一轮修改未成功，请先确认本轮要沿用的机构和日期，不能自动退回更早成功查询。", terminate: false } };
+        }
+        const source = event.args.source;
+        const latest = latestFollowupReference(messages, request.originalMessage);
+        if (latest && source && typeof source === "object" && !Array.isArray(source) && source.task_id !== latest.task_id) {
+          // 来源由本分支最新成功回执决定；回读后继续追问也必须继承刚展示的条件。
+          if (typeof latest?.task_id === "string" && Number.isInteger(latest.version)) {
+            return { args: { ...event.args, source: { task_id: latest.task_id, version: latest.version as number } } };
+          }
+          return { block: { reason: "省略追问必须沿用最近成功回执的机构和日期；请先读取该任务版本后再 followup。", terminate: false } };
+        }
+      }
+      return undefined;
+    });
+    harness.hooks.on("after_tool", (event, context) => {
+      const timings = requireRequestContext(context).timings;
+      const started = timings?.toolStartedAt?.[event.toolCallId];
+      if (timings && started !== undefined) {
+        timings.tool_ms.push(Math.round(performance.now() - started));
+        delete timings.toolStartedAt?.[event.toolCallId];
+      }
+      // 基础问数/澄清的完整回执已由后端确认，使用 pi 原生终止能力直接交付，
+      // 不再串行调用一个模型复述确定性事实。目录与 task 状态读取仍继续原生循环。
+      const evidence = businessEvidence(event.details);
+      if (evidence) return { terminate: true };
+      return undefined;
+    });
+    harness.hooks.on("after_response", async (event, context) => {
+      const request = requireRequestContext(context);
+      // 原生压缩与分支摘要不是业务回答，不能被数字过滤、工具强制或回执替换改写。
+      if (request.modelCall?.step === "compaction" || request.modelCall?.step === "branch_summary") return undefined;
+      const timings = request.timings;
+      if (timings?.modelStartedAt !== undefined) timings.model_ms.push(Math.round(performance.now() - timings.modelStartedAt));
+      // 只读取原生当前分支，不维护第二份会话记忆；重启后仍遵守相同交付规则。
+      const entries = await lane.findEntries({ order: "oldestFirst" }, context);
+      const messages = entries.filter(entry => entry.type === "message").map(entry => entry.message);
+      let start = messages.length - 1;
+      while (start >= 0 && messages[start]?.role !== "user") start -= 1;
+      const current = messages.slice(start + 1);
+      const receipts = current.filter(message => message.role === "toolResult");
+      const confirmationNeeded = receipts.some(message => message.content.some(block => block.type === "text" && block.text.includes("上一轮修改未成功")));
+      if (confirmationNeeded) return { message: { ...event.message, content: [{ type: "text" as const, text: "上一轮修改没有成功。本次要查询哪个机构、哪个日期？请明确这两个条件后继续。" }], stopReason: "stop" as const } };
+      const write = await requireRequestContext(context).commands.getWriteCommand();
+      const evidence = receipts.map(message => businessEvidence(message.details)).filter(item => item &&
+        (!write?.taskId || item.task_id === write.taskId)).at(-1);
+      if (evidence) {
+        return { message: { ...event.message, content: [{ type: "text" as const, text: evidenceAnswer(evidence) }], stopReason: "stop" as const } };
+      }
+      // 确定性参数错误最多允许一次纠正；不让相同错误消耗无限模型调用。
+      if (receipts.filter(message => message.isError ||
+        (message.details as {status?: string} | undefined)?.status === "reference_mismatch").length >= 2) {
+        return { message: { ...event.message, content: [{ type: "text" as const, text: "本次工具参数未能通过校验，请完整描述查询条件后重试。" }], stopReason: "stop" as const } };
+      }
+      // 没有工具证据的纯文本不得交付金额；工具调用前正文同样不能抢先泄露事实。
+      const hasCalls = event.message.content.some(block => block.type === "toolCall");
+      if (hasCalls) return { message: { ...event.message, content: event.message.content.filter(block => block.type !== "text") } };
+      const text = event.message.content.filter(block => block.type === "text").map(block => block.text).join("");
+      if (/\d/.test(text) && this.tools.some(tool => tool.name === "metric_ask")) {
+        return { message: { ...event.message, content: [{ type: "text" as const, text: "本轮尚未取得查询结果，请确认要查询的指标、机构和日期。" }] } };
+      }
+      return undefined;
+    });
     const suffix = this.config.model.userMessageSuffix;
-    if (!suffix) return;
     harness.hooks.on("transform_context", (event) => {
-      const messages = [...event.messages];
+      const messages = projectHistoricalResults(event.messages);
       const last = messages[messages.length - 1] as
         | { role?: string; content?: unknown }
         | undefined;
-      if (last?.role === "user" && typeof last.content === "string") {
+      if (last?.role === "user" && Array.isArray(last.content) && suffix) {
+        messages[messages.length - 1] = { ...last, content: [...last.content, {type: "text", text: suffix}] } as never;
+      } else if (last?.role === "user" && typeof last.content === "string") {
         messages[messages.length - 1] = { ...last, content: last.content + suffix } as never;
       }
-      return { messages };
+      return { messages, systemPrompt: event.systemPrompt + queryReferenceContext(event.messages) };
     });
   }
 
@@ -242,7 +367,7 @@ export class HarnessHost {
     const bridge = this.createCommandBridge(hosted, input.request_id);
     const requestContext: AskMetricRequestContext = {
       actor: deps.actor,
-      backend: deps.backend,
+      backend: deps.backend.withTraceId?.(input.request_id) ?? deps.backend,
       originalMessage: input.message,
       promptFingerprint: fingerprint,
       sessionId: hosted.sessionId,
@@ -250,6 +375,7 @@ export class HarnessHost {
       operationId,
       commands: bridge,
       history: createHistoryBridge(hosted),
+      timings: { startedAt: performance.now(), model_ms: [], tool_ms: [] },
       ...(input.send_as ? { sendAs: input.send_as } : {}),
       ...(input.clarification_target ? { clarificationTarget: input.clarification_target } : {}),
       ...(input.selected_answers ? { selectedAnswers: input.selected_answers } : {}),
@@ -260,6 +386,7 @@ export class HarnessHost {
         requestValue(input.request_id),
         {
           fingerprint,
+          input,
           originalMessage: input.message,
           operationId,
           lane: "main",
@@ -294,6 +421,13 @@ export class HarnessHost {
       { operationId: admitted.operationId, waitForRetry: true, pollDeferred: false },
       admitted.context,
     );
+    const timings = admitted.request.timings;
+    if (timings) {
+      const stored = await hosted.session.getValue(requestValue(admitted.request.requestId), BACKGROUND_CONTEXT);
+      const summary = { model: timings.model_ms, tools: timings.tool_ms, drive_total: Math.round(performance.now() - timings.startedAt) };
+      if (stored) await hosted.session.setValue(requestValue(admitted.request.requestId), { ...stored.value, timings_ms: summary }, BACKGROUND_CONTEXT);
+      console.info(JSON.stringify({ event: "agent_request_timing", session_id: hosted.sessionId, operation_id: admitted.operationId, request_id: admitted.request.requestId, timings_ms: summary }));
+    }
     if (!driven.ok) {
       return { ok: false, code: "SESSION_CLOSED", message: driven.error.message };
     }
@@ -361,7 +495,9 @@ export class HarnessHost {
     deps: { actor: BackendUser; backend: BackendClient },
   ): Promise<number> {
     let resumed = 0;
-    for (const operation of hosted.open) {
+    // 同步取走本次待恢复列表，多个 GET 不会重复推进；失败项保留供下次认证重试。
+    const pending = hosted.open.splice(0);
+    for (const operation of pending) {
       if (operation.lane !== "main" || operation.kind !== "run") continue;
       const requestRef = await hosted.session.getValue(
         operationRequestValue(operation.operationId),
@@ -375,17 +511,27 @@ export class HarnessHost {
       if (!association) continue;
       const requestContext: AskMetricRequestContext = {
         actor: deps.actor,
-        backend: deps.backend,
+        backend: deps.backend.withTraceId?.(requestRef.value) ?? deps.backend,
         originalMessage: association.value.originalMessage,
+        ...(association.value.input?.send_as ? { sendAs: association.value.input.send_as } : {}),
+        ...(association.value.input?.clarification_target ? { clarificationTarget: association.value.input.clarification_target } : {}),
+        ...(association.value.input?.selected_answers ? { selectedAnswers: association.value.input.selected_answers } : {}),
         promptFingerprint: association.value.fingerprint,
         sessionId: hosted.sessionId,
         requestId: requestRef.value,
         operationId: operation.operationId,
         commands: this.createCommandBridge(hosted, requestRef.value),
         history: createHistoryBridge(hosted),
+        timings: { startedAt: performance.now(), model_ms: [], tool_ms: [] },
       };
-      const result = await hosted.lane.resume(withRequestContext(requestContext, BACKGROUND_CONTEXT));
-      if (result.ok) resumed += 1;
+      try {
+        const result = await hosted.lane.resume(withRequestContext(requestContext, BACKGROUND_CONTEXT));
+        if (!result.ok) throw new Error("原生操作恢复暂时失败");
+        resumed += 1;
+      } catch (error) {
+        hosted.open.push(operation);
+        throw error;
+      }
     }
     return resumed;
   }

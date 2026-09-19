@@ -70,6 +70,23 @@ class DrillDownOperation(BaseModel):
     dimension: str = Field(min_length=1)
 
 
+class AvailabilityOperation(BaseModel):
+    """查询实际有值的数据日期；零有效，空值不计入覆盖。"""
+
+    type: Literal["availability"] = "availability"
+    grain: Literal["day", "month"] = "month"
+    selection: Literal["all", "earliest", "latest"] = "all"
+
+
+class UnsupportedOperation(BaseModel):
+    type: Literal["unsupported"] = "unsupported"
+    capability: str = Field(min_length=1, max_length=100)
+
+
+ChangeField = Literal["metrics", "orgs", "time", "ops", "filters", "dimensions"]
+ChangeAction = Literal["replace", "add", "remove", "clear"]
+
+
 SlotOperation = Annotated[
     AggregateOperation
     | TrendOperation
@@ -78,7 +95,9 @@ SlotOperation = Annotated[
     | RankingOperation
     | TopNOperation
     | DetailOperation
-    | DrillDownOperation,
+    | DrillDownOperation
+    | AvailabilityOperation
+    | UnsupportedOperation,
     Field(discriminator="type"),
 ]
 
@@ -103,6 +122,10 @@ class SlotFrame(BaseModel):
         ),
     )
     missing: list[str] = Field(default_factory=list)
+    changes: dict[ChangeField, ChangeAction] = Field(
+        default_factory=dict,
+        description="引用追问的字段操作；值取本轮同名字段。未列出的字段继承来源。",
+    )
 
     @field_validator("raw_metric_text", mode="before")
     @classmethod

@@ -115,7 +115,7 @@ function stubBackendFetch() {
           status: "succeeded",
           query_shape: "metric_value",
           columns: ["org_name", "metric_value"],
-          rows: [{ org_name: "无锡分行", metric_value: "15147420074.00" }],
+          rows: [{ org_name: "无锡分行", metric_value: "15147420074.00", metric_name: "存款余额", stat_date: "2026-08-31", unit: "元" }],
           row_count: 1,
         });
       }
@@ -208,6 +208,45 @@ describe("路由：协议 V3 与原生投影", () => {
     return createApp(config, host, store);
   }
 
+  it("重启后 GET 观察流推进原 operation，只创建一笔业务任务", async () => {
+    const config = testConfig(dir);
+    const firstStore = new NativeSessionStore(dir);
+    const firstModel = fauxModel();
+    const first = new HarnessHost(config, () => firstModel, firstStore, createAskMetricTools());
+    const session = await first.createSession(USER);
+    // accept 已落盘，模型和业务工具尚未执行；重开后 current 与 open 同时非空。
+    const { BackendClient } = await import("./backendClient.js");
+    const admitted = await first.admitPrompt(session, {
+      protocol_version: 3, request_id: "recovered-request", message: "查询存款余额",
+    }, { actor: USER, backend: new BackendClient(config.backendBaseUrl, "token-1", 5000) });
+    expect(admitted.ok).toBe(true);
+    await first.close();
+    await firstStore.close();
+
+    const restoredStore = new NativeSessionStore(dir);
+    const restoredModel = fauxModel();
+    const restored = new HarnessHost(config, () => restoredModel, restoredStore, createAskMetricTools());
+    try {
+      const app = createApp(config, restored, restoredStore);
+      const response = await app.request(`/sessions/${session.sessionId}/stream`, {
+        headers: { Authorization: "Bearer token-1" },
+      });
+      const events = await readSse(response);
+      const initial = events.find(event => event.type === "snapshot")!;
+      expect(initial.data.running).toBe(true);
+      if (admitted.ok) expect(initial.data.operation_id).toBe(admitted.operationId);
+      expect(events.at(-1)?.data).toMatchObject({ run_status: "completed",
+        business_tasks: [{ task_id: "task-1", status: "succeeded", result_id: "result:task-1" }],
+      });
+      const requests = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+      expect(requests.filter(url => url.endsWith("/api/v1/questions"))).toHaveLength(1);
+      expect(requests.filter(url => url.endsWith("/execute"))).toHaveLength(1);
+    } finally {
+      await restored.close();
+      await restoredStore.close();
+    }
+  });
+
   it("缺 protocol_version=3 的旧请求被拒绝", async () => {
     const app = buildApp();
     const created = await app.request("/sessions", {
@@ -249,13 +288,14 @@ describe("路由：协议 V3 与原生投影", () => {
     expect(types).toContain("accepted");
     expect(types).toContain("tool_start");
     expect(types).toContain("tool_end");
-    expect(types).toContain("message_done");
+    expect(types).toContain("snapshot");
+    expect(types).not.toContain("text_delta");
     expect(types[types.length - 1]).toBe("run_terminal");
 
     const terminal = events[events.length - 1]!.data;
     expect(terminal.run_status).toBe("completed");
     expect(terminal.answer_status).toBe("ok");
-    expect(terminal.business_tasks).toEqual([{ task_id: "task-1", result_id: "result:task-1" }]);
+    expect(terminal.business_tasks).toEqual([{ task_id: "task-1", result_id: "result:task-1", status: "succeeded", error_code: null }]);
     expect(terminal.protocol_version).toBe(3);
 
     // 历史投影：原生记录重读得到同一消息序列

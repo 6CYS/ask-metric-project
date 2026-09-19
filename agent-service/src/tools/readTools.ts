@@ -4,6 +4,7 @@
  */
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentHarnessTool, AgentToolResult } from "@earendil-works/pi-agent-core";
+import { resultAnswer } from "../answerEvidence.js";
 import { BackendApiError } from "../backendClient.js";
 import type { AskMetricRequestContext } from "../requestContext.js";
 
@@ -28,6 +29,9 @@ export interface MetricReadDetails {
   task_id?: string;
   result_id?: string;
   status: string;
+  row_count?: number;
+  columns?: string[];
+  public_answer?: string;
 }
 
 export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext, typeof metricReadParameters, MetricReadDetails> {
@@ -36,7 +40,9 @@ export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext
     label: "任务与结果读取",
     description:
       "只读：kind=task 查看任务当前状态/版本/澄清目标；kind=result 按 offset 分页读取已确认结果（默认 20 行，最多 100 行）。" +
-      "用于澄清前确认版本、读取完整结果；不会重新查询。",
+      "用户要求重看、再次显示、找回先前数据时必须使用 kind=result，按历史回执的机构、日期、指标选择对应结果，即使它不是最新一笔。" +
+      "成功的零行结果（暂无数据）也有 result_id，可以回读；根据正式查询条件匹配，不得因 rows 为空而重新创建任务或澄清指标。" +
+      "仅说“再看某机构”而未要求历史结果时，应使用 metric_ask(followup) 沿用最新日期，不能读该机构旧日期。不会重新查询。",
     parameters: metricReadParameters,
     execute: async (_toolCallId, params, _onUpdate, request, _invocation, context) => {
       try {
@@ -62,6 +68,7 @@ export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext
           params.offset ?? 0,
           params.limit ?? 20,
           { signal: context.abortSignal },
+          request.originalMessage,
         );
         if (page.result_id !== params.result_id) {
           return json<MetricReadDetails>(
@@ -79,6 +86,7 @@ export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext
             result_id: page.result_id,
             columns: page.columns,
             rows: page.rows,
+            query_evidence: page.evidence,
             comparisons: page.comparisons,
             row_count: page.row_count,
             result_truncated: page.truncated,
@@ -92,11 +100,21 @@ export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext
             task_id: page.task_id,
             result_id: page.result_id,
             status: page.status,
+            row_count: page.row_count,
+            columns: page.columns,
+            public_answer: resultAnswer(page),
           },
         );
       } catch (error) {
         if (error instanceof BackendApiError) {
           const code = error.code ?? "BACKEND_ERROR";
+          if (code === "RESULT_REFERENCE_CONFLICT") {
+            // 未取得可交付事实，继续原生循环纠正引用；不得把它当作查询成功或重建业务任务。
+            return json<MetricReadDetails>({
+              status: "reference_mismatch", code, conflicts: error.details,
+              message: "该引用与用户原文明示条件冲突，不能交付。请从历史索引选择同时匹配机构、日期和指标的另一个已有结果；不要创建新任务。",
+            }, {kind: "metric_read", status: "reference_mismatch", task_id: params.task_id});
+          }
           const message =
             error.status === 404
               ? "任务不存在或无权访问。"
@@ -104,7 +122,7 @@ export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext
                 ? "结果尚未就绪，任务还未成功完成。"
                 : code === "RESULT_SNAPSHOT_MISSING"
                   ? "结果快照缺失，无法回放；请重新查询。"
-                  : `后端请求失败：${error.message}`;
+                  : "结果读取暂时失败，请稍后重试。";
           return json<MetricReadDetails>(
             { status: "error", error: { code, message } },
             { kind: "metric_read", task_id: params.task_id, status: "error" },

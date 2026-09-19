@@ -125,12 +125,14 @@ class SemanticEngine:
                 *config.organization_aliases.get(organization.name, []),
             ]
         ]
+        resolved_org_codes: list[str] = []
         protected_question = _protect_resolved_entities(
             question,
             metric_matches=resolution.matches,
             ambiguous_metric_spans=resolution.ambiguous_spans,
             organizations=organizations,
             organization_aliases=config.organization_aliases,
+            resolved_org_codes=resolved_org_codes,
         )
         timings_ms["catalog_match_ms"] = _elapsed_ms(catalog_started)
         model_context = {
@@ -155,11 +157,23 @@ class SemanticEngine:
                     ),
                 }
                 for item in organizations
+                # 已确认实体沿用保护阶段的编码；歧义别名仍在原文中，保留所有相关候选。
+                # 完整目录继续用于下方校验与集合展开，不发送无关机构给模型。
+                if item.code in resolved_org_codes or any(
+                    term and term in protected_question
+                    for term in [item.name, *item.aliases,
+                                 *config.organization_aliases.get(item.name, [])]
+                )
             ],
             "existing_slot_frame": (
-                reference_context["source_slots"] if reference_context else None
+                {"mode": "reference_delta", **reference_context} if reference_context else None
             ),
         }
+        if reference_context and reference_context.get("change_field") == "compose":
+            model_context["existing_slot_frame"]["mentioned_entities"] = {
+                "org_codes": resolved_org_codes,
+                "metrics": [{"code": item.code, "name": item.name} for item in resolution.matches],
+            }
         chat_started = perf_counter()
         raw = self.model_service.analyze(
             prompt="slot_extraction",
@@ -191,7 +205,8 @@ class SemanticEngine:
             blocking_errors = [
                 error for error in adaptation.field_errors
                 if str(error["field"]).split("[", 1)[0]
-                in {"task", "ops", "filters", "dimensions", "options"}
+                in {"task", "ops", "filters", "dimensions", "options",
+                    "changes", "time", "orgs", "metrics"}
             ]
             if blocking_errors:
                 raise InvalidSlotFrameError(blocking_errors)
@@ -210,6 +225,113 @@ class SemanticEngine:
         # Intent routing is completed before slot extraction. Only metric queries
         # may enter this engine, so slot-model output cannot override that decision.
         frame.task = TaskType.METRIC_QUERY
+        if resolution.matches and _plain_catalog_value_question(protected_question):
+            # 全句只剩已确认实体、日期和取值语法时，没有额外操作；防止模型凭空加 detail。
+            frame.ops = []
+        if reference_context is not None:
+            # 来源已冻结，只解析本轮变化；不能把省略句残留文字送入新问题指标兜底。
+            # 显式指标、筛选和操作仍保留，由引用合并边界拒绝不支持的修改。
+            if reference_context.get("change_field") == "compose":
+                # 只解析模型选择的修改对象，不能把“去掉甲、保留乙”中的乙也加到移除清单。
+                resolved_orgs = []
+                pending_orgs = []
+                for text in frame.orgs:
+                    matches = [item for item in organizations if text == item.code or
+                               normalize_semantic_text(text) in {
+                                   normalize_semantic_text(term) for term in
+                                   [item.name, *item.aliases,
+                                    *config.organization_aliases.get(item.name, [])]}]
+                    if len(matches) == 1:
+                        resolved_orgs.append(matches[0].name)
+                    else:
+                        pending_orgs.append(text)
+                frame.orgs = list(dict.fromkeys(resolved_orgs))
+                if frame.options.get("organization_scope"):
+                    frame = self._merge_code_detected_entities(
+                        frame, question=question, matches=resolution.matches,
+                        organizations=organizations,
+                        organization_aliases=config.organization_aliases,
+                    )
+                    if frame.dimensions and "dimensions" not in frame.changes:
+                        frame.changes["dimensions"] = "replace"
+                if pending_orgs:
+                    frame.missing.append("orgs")
+                    frame.options["organization_clarification_items"] = [
+                        {"id": f"orgs.{index}", "raw_text": text}
+                        for index, text in enumerate(pending_orgs)]
+                elif frame.orgs:
+                    frame.missing = [field for field in frame.missing if field != "orgs"]
+            else:
+                frame = self._merge_code_detected_entities(
+                    frame, question=question, matches=resolution.matches,
+                    organizations=organizations, organization_aliases=config.organization_aliases,
+                )
+                if resolution.matches:
+                    frame.raw_metric_texts = list(dict.fromkeys(
+                        [*frame.raw_metric_texts, *(item.name for item in resolution.matches)]))
+            # 引用变更中的指标也走正式目录匹配；未提指标的省略句不做残句兜底。
+            candidates = []
+            if reference_context.get("change_field") == "compose":
+                phrases = frame.raw_metric_texts or (
+                    [frame.raw_metric_text] if frame.raw_metric_text else []
+                )
+                if phrases:
+                    selected = []
+                    pending = []
+                    for index, phrase in enumerate(phrases):
+                        phrase = next(
+                            (item.name for item in metrics if item.code == phrase), phrase
+                        )
+                        match = matcher.resolve(phrase)
+                        decision = self._resolve_metrics(
+                            phrase, question_metric_text=phrase, metrics=metrics,
+                            matcher=matcher, organization_terms=[],
+                            deterministic_matches=match.matches,
+                            ambiguous_candidates=match.ambiguous_candidates, config=config,
+                            timings_ms=timings_ms, debug=debug,
+                        )
+                        selected.extend(decision.selected)
+                        candidates.extend(decision.candidates)
+                        if not decision.selected:
+                            pending.append({"id": f"metrics.{index}", "raw_text": phrase,
+                                            "options": [item.model_dump(mode="json")
+                                                        for item in decision.candidates]})
+                    frame.metrics = [
+                        MetricSlot(code=item.code, name=item.name)
+                        for item in deduplicate_metrics(selected)
+                    ]
+                    if pending:
+                        frame.missing.append("metrics")
+                        frame.options["metric_clarification_items"] = pending
+                    else:
+                        frame.missing = [item for item in frame.missing if item != "metrics"]
+                # 用户明确提到的新实体不得因模型漏字段而退回旧实体查询。
+                # 来源已有实体可能只是“保留”的说明，不强行加入移除/追加列表。
+                source_slots = SlotFrame.model_validate(reference_context["source_slots"])
+                covered_orgs = set(source_slots.orgs) | set(frame.orgs)
+                omitted_orgs = [item for item in organizations
+                                if item.code in resolved_org_codes
+                                and item.name not in covered_orgs]
+                covered_metrics = {item.code for item in [*source_slots.metrics, *frame.metrics]}
+                omitted_metrics = [item for item in resolution.matches
+                                   if item.code not in covered_metrics]
+                if omitted_orgs or omitted_metrics:
+                    raise InvalidSlotFrameError([{
+                        "field": "changes", "code": "explicit_entity_omitted",
+                        "message": "本轮明确实体未被修改清单覆盖，禁止沿用旧实体执行",
+                    }])
+            frame = normalize_slot_frame(frame, metrics=metrics, organizations=organizations)
+            timings_ms["semantic_normalization_ms"] = _elapsed_ms(normalization_started)
+            timings_ms["semantic_total_ms"] = _elapsed_ms(total_started)
+            debug["mode"] = "reference_delta"
+            return SemanticAnalysis(
+                frame,
+                resolution.matches,
+                candidates,
+                protected_question,
+                timings_ms,
+                {**debug, "slot_frame": frame.model_dump(mode="json")},
+            )
         fallback_metric_texts = _extract_requested_metric_texts(
             question,
             organization_terms=organization_terms,
@@ -232,6 +354,30 @@ class SemanticEngine:
             if not _is_operation_only_metric_text(text, matcher)
         ]
         metric_texts = validated_model_metric_texts or validated_fallback_metric_texts
+        if resolution.matches:
+            # 已命中的正式实体属于原文事实，模型不能把占位符改写成另一组指标。
+            # 只在实体之外继续识别未命中的原文，完整保留多指标请求的覆盖范围。
+            residual = _outside_metric_text(question, resolution.matches)
+            extended_org_terms = [
+                *organization_terms,
+                *[term + "行" for term in organization_terms if term.endswith("农商")],
+            ]
+            unresolved = _extract_requested_metric_texts(
+                residual, organization_terms=extended_org_terms
+            )
+            unresolved = [
+                text for text in unresolved if not _is_operation_only_metric_text(text, matcher)
+            ]
+            grounded_model = [
+                text
+                for text in validated_model_metric_texts
+                if normalize_semantic_text(text) in normalize_semantic_text(residual)
+            ]
+            metric_texts = [match.name for match in resolution.matches] + (
+                grounded_model or (
+                    [] if any(op.type == "availability" for op in frame.ops) else unresolved
+                )
+            )
         frame.raw_metric_texts = list(dict.fromkeys(metric_texts))
         frame.raw_metric_text = (
             "、".join(frame.raw_metric_texts)
@@ -304,11 +450,7 @@ class SemanticEngine:
                             ),
                         )
                     )
-            pending_metric_items = [
-                item
-                for item, has_metric_evidence in unresolved_metric_items
-                if has_metric_evidence or not selected_metrics
-            ]
+            pending_metric_items = [item for item, has_metric_evidence in unresolved_metric_items]
             decision = _MetricDecision(
                 deduplicate_metrics(selected_metrics),
                 deduplicate_metrics(candidate_metrics),
@@ -866,6 +1008,7 @@ def _protect_resolved_entities(
     organizations: list[OrganizationCatalogItem],
     organization_aliases: dict[str, list[str]],
     ambiguous_metric_spans: list[tuple[int, int]] | None = None,
+    resolved_org_codes: list[str] | None = None,
 ) -> str:
     """Replace confirmed entity spans with opaque, self-closing placeholders."""
 
@@ -909,6 +1052,8 @@ def _protect_resolved_entities(
             if position < 0:
                 break
             end = position + len(term)
+            if term.endswith("农商") and question[end : end + 1] == "行":
+                end += 1
             candidates.append((position, end, organization.code))
             search_start = end
 
@@ -920,6 +1065,8 @@ def _protect_resolved_entities(
             continue
         spans.append((start, end, f'<ORG code="{code}"/>'))
         occupied.append((start, end))
+        if resolved_org_codes is not None:
+            resolved_org_codes.append(code)
 
     output: list[str] = []
     cursor = 0
@@ -933,7 +1080,22 @@ def _protect_resolved_entities(
     return "".join(output)
 
 
+def _normalize_calendar_text(text: str) -> str:
+    """统一日期词内部的排版空白；不拼接数字片段，也不删除一般文本分隔。"""
+    number = r"0-9零〇一二两三四五六七八九十"
+    text = re.sub(rf"(?<=[{number}])\s+(?=[年月日])", "", text)
+    text = re.sub(rf"(?<=[年月])\s+(?=[{number}])", "", text)
+    text = re.sub(r"(?<=月)\s+(?=[份末底])", "", text)
+    # 提取和从原句剥离日期共用相同写法，避免“月份”残留为待识别指标。
+    return re.sub(
+        rf"({_CALENDAR_MONTH_TOKEN}月)份?(底)?",
+        lambda match: match.group(1) + ("末" if match.group(2) else ""),
+        text,
+    )
+
+
 def extract_time_expression(text: str) -> str | None:
+    text = _normalize_calendar_text(text)
     fixed_holiday = re.search(
         r"(?:(\d{4})年)?(双十一|双十二|元旦|国庆)(?:当天|当日)?",
         text,
@@ -1041,6 +1203,7 @@ def _requests_synchronized_organization_scope(model_scope: Any) -> bool:
 
 
 def _extract_organization_mentions(text: str) -> list[str]:
+    text = _normalize_calendar_text(text)
     time_expression = extract_time_expression(text)
     if time_expression:
         text = text.replace(time_expression, " ", 1)
@@ -1119,7 +1282,7 @@ def _extract_requested_metric_text(
     *,
     organization_terms: list[str] | None = None,
 ) -> str | None:
-    value = text.strip()
+    value = _normalize_calendar_text(text).strip()
     calendar_prefix = r"(?:(?:今年|本年|去年|上年|前年|\d{4}年|\d+年前))?"
     value = re.sub(
         rf"{calendar_prefix}{_CALENDAR_MONTH_TOKEN}月\d{{1,2}}日",
@@ -1183,6 +1346,66 @@ def _extract_requested_metric_text(
         value,
     ).strip(" 。.，,、；;")
     return value or None
+
+
+def explicit_catalog_references(
+    question: str,
+    *,
+    metrics: list[MetricCatalogItem],
+    organizations: list[OrganizationCatalogItem],
+    organization_aliases: dict[str, list[str]],
+) -> dict[str, set[str]]:
+    """只返回原文明示且无歧义的目录实体；与语义解析共用最长名称保护规则。"""
+    resolution = MetricMatcher(metrics).resolve(question)
+    org_codes: list[str] = []
+    _protect_resolved_entities(
+        question,
+        metric_matches=resolution.matches,
+        organizations=organizations,
+        organization_aliases=organization_aliases,
+        resolved_org_codes=org_codes,
+    )
+    return {"orgs": set(org_codes), "metrics": {match.code for match in resolution.matches}}
+
+
+def is_direct_catalog_query(
+    question: str,
+    *,
+    metrics: list[MetricCatalogItem],
+    organizations: list[OrganizationCatalogItem],
+    organization_aliases: dict[str, list[str]],
+    require_complete: bool = False,
+) -> bool:
+    resolution = MetricMatcher(metrics).resolve(question)
+    if not resolution.matches or resolution.ambiguous_candidates:
+        return False
+    protected = _protect_resolved_entities(
+        question,
+        metric_matches=resolution.matches,
+        organizations=organizations,
+        organization_aliases=organization_aliases,
+    )
+    if require_complete and (
+        '<ORG code="' not in protected or not extract_time_expression(protected)
+    ):
+        return False
+    return _plain_catalog_value_question(protected)
+
+
+def _plain_catalog_value_question(protected: str) -> bool:
+    value = _normalize_calendar_text(re.sub(r"<(?:METRIC|ORG)\s[^>]*/>", " ", protected))
+    for _ in range(12):
+        expression = extract_time_expression(value)
+        if not expression or expression not in value:
+            break
+        value = value.replace(expression, " ", 1)
+    # 完整消耗输入才成立；比较、排名、明细、筛选等残留词均不能被删除或降级。
+    return bool(
+        re.fullmatch(
+            r"(?:(?:请|帮我|麻烦|查询|查一下|查|的|和|与|以及|及|分别|是多少|有多少|多少|是什么)|[\s，,、。.?？：:；;])+",
+            value,
+        )
+    )
 
 
 def _extract_requested_metric_texts(

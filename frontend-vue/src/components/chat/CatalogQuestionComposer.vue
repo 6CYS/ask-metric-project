@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, LoaderCircle, Plus, Search, Send, X } from "@lucide/vue"
+import { Check, CircleStop, LoaderCircle, Plus, Search, Send, X } from "@lucide/vue"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import { getCachedMetricCatalog, getCachedOrganizationCatalog } from "@/lib/api"
@@ -7,7 +7,7 @@ import { clarificationCatalogKinds, consumeCatalogCommand, entityKey, toggleComp
 import type { BackendNextClarification } from "@/types/api"
 
 const props = defineProps<{ modelValue: string; contextKey: string; placeholder?: string; isSubmitting?: boolean; disabled?: boolean; clarification?: BackendNextClarification; autoOpenClarificationId?: string }>()
-const emit = defineEmits<{ "update:modelValue": [value: string]; submit: [text: string, entities: ComposerEntity[]] }>()
+const emit = defineEmits<{ "update:modelValue": [value: string]; submit: [text: string, entities: ComposerEntity[]]; stop: [] }>()
 const input = ref<HTMLTextAreaElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const kind = ref<ComposerEntity["kind"] | null>(null)
@@ -176,7 +176,8 @@ function finishSelection() {
       <BaseButton variant="ghost" size="icon" class="text-muted-foreground" :disabled="isDisabled" aria-label="添加指标或机构" :aria-expanded="Boolean(kind)" title="添加指标或机构（也可输入 /指标、/机构）" @click="togglePicker"><Plus /></BaseButton>
       <textarea ref="input" :value="modelValue" :placeholder="placeholder || '输入问题，或选择指标、机构'" rows="1" aria-label="指标问题" class="block max-h-36 min-h-8 min-w-0 flex-1 resize-none overflow-y-auto overscroll-contain bg-transparent py-1 text-[15px] leading-6 outline-none placeholder:text-muted-foreground" :disabled="isDisabled" @focus="closePicker" @blur="rememberCursor" @click="rememberCursor" @keyup="rememberCursor" @select="rememberCursor" @input="handleInput" @compositionend="handleInput" @keydown="handleKeydown" />
       <span v-if="length > 900" class="shrink-0 text-xs" :class="length > 1000 ? 'text-destructive' : 'text-muted-foreground'">{{ length }}/1000</span>
-      <BaseButton type="submit" size="icon" :disabled="!canSend" aria-label="发送" title="Enter 发送 · Shift+Enter 换行"><LoaderCircle v-if="isSubmitting" class="animate-spin" /><Send v-else /></BaseButton>
+      <BaseButton v-if="isSubmitting" size="icon" aria-label="停止生成" title="停止生成" @click="emit('stop')"><CircleStop /></BaseButton>
+      <BaseButton v-else type="submit" size="icon" :disabled="!canSend" aria-label="发送" title="Enter 发送 · Shift+Enter 换行"><Send /></BaseButton>
     </div>
   </form>
 </template>

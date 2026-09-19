@@ -11,8 +11,10 @@ export function createMetricCatalogSearchTool(): AgentHarnessTool<AskMetricReque
     name: "metric_catalog_search",
     label: "指标目录检索",
     description:
-      "在正式指标目录中检索指标：后端按确定性命中（exact/contains/lexical）排序并返回切片前命中总数 total，" +
-      "另附 embedding 语义近似推荐。用于确认指标是否存在及准确编码。",
+      "仅用于用户明确要求搜索、浏览某类指标或确认编码的目录问题，例如有哪些存款指标。" +
+      "用户直接输入一个或多个具体指标名称、或提出取数问题时，直接使用 metric_ask(new)，即使缺机构和日期也由后端创建正式澄清。" +
+      "本工具只检索启用目录，不能校验整句多指标覆盖、停用状态或代替业务澄清。" +
+      "后端按确定性命中（exact/contains/lexical）排序并返回切片前总数 total，另附 embedding 近似推荐。",
     parameters: catalogSearchParameters,
     execute: async (_toolCallId, params: Static<typeof catalogSearchParameters>, _onUpdate, request, _invocation, context) => {
       const result = await request.backend.searchMetrics(params.keyword, params.limit ?? 10, { signal: context.abortSignal });
@@ -28,7 +30,8 @@ export function createMetricCatalogSearchTool(): AgentHarnessTool<AskMetricReque
               usage_hint:
                 "match_type 为 exact/contains/lexical 的条目是确定性命中，可锁定编码用于 metric_query_structured；" +
                 "semantic_suggestions 仅是语义近似推荐，不得据此锁定编码。未命中或 has_more 时不要断定指标不存在，" +
-                "改用 metric_ask 并把用户原句完整传入（不得删改指标名称中的任何字样）。",
+                "取数请求应改用 metric_ask，由宿主提交用户原句（不得删改指标名称中的任何字样）。" +
+                "禁止根据局部检索结果自己追问机构和日期；必须先调用 metric_ask，让后端校验全部指标并生成正式澄清。",
             }),
           },
         ],

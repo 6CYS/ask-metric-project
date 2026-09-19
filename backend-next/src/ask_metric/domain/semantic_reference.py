@@ -1,7 +1,7 @@
-"""单来源追问的引用合并：只做来源字段合并，不读聊天历史、不调用模型。
+"""合并经校验的来源与本轮字段操作；不读聊天历史，不调用模型。
 
-第一阶段只支持原文可核验的单字段机构替换或日期替换；指标、筛选、操作等
-其他已确认字段保持来源值。超出范围的修改显式拒绝，不静默丢弃用户条件。
+compose 支持多字段替换、追加、移除和清空；旧单字段协议保留严格边界。
+最终能力、目录、权限及日期要求由共享语义和执行链重新校验。
 """
 
 from dataclasses import dataclass
@@ -22,7 +22,7 @@ _DATE_OPTION_KEYS = (
 
 
 class ReferenceMergeUnsupported(ValueError):
-    """追问修改超出当前支持范围（多字段同改、追加、指标/筛选/操作变化）。"""
+    """追问修改清单不一致或超出当前协议能力。"""
 
 
 class ReferenceSourceInvalid(ValueError):
@@ -41,7 +41,7 @@ def freeze_source_reference(
     *,
     source_task_id: str,
     source_version: int,
-    change_field: Literal["orgs", "time"],
+    change_field: Literal["orgs", "time", "compose"],
     source_slots: dict[str, Any] | None,
     source_logical_dsl: dict[str, Any] | None,
 ) -> dict[str, Any]:
@@ -63,15 +63,20 @@ def merge_reference_frame(
     reference: dict[str, Any],
     extracted: SlotFrame,
 ) -> MergedReference:
-    """以冻结来源为底稿，应用本轮原文支持的单字段替换。
-
-    extracted 是模型对本轮追问原文的抽取结果，只提供被替换字段的新值；
-    发现原文同时修改其他字段（指标短语、另一字段）时拒绝合并。
-    """
+    """以冻结来源为底稿应用本轮修改；旧 orgs/time 协议保持单字段限制。"""
     source = SlotFrame.model_validate(reference["source_slots"])
     change_field = reference.get("change_field")
-    if extracted.raw_metric_texts:
+    if change_field == "compose":
+        return _compose_reference(reference, source, extracted)
+    if extracted.raw_metric_texts or extracted.raw_metric_text or extracted.metrics:
         raise ReferenceMergeUnsupported("追问涉及指标变化，暂不支持；请完整描述新问题")
+    if extracted.filters or extracted.dimensions:
+        raise ReferenceMergeUnsupported("追问涉及筛选或维度变化，暂不支持；请完整描述新问题")
+    extra_options = set(extracted.options) - set(_DATE_OPTION_KEYS) - {
+        "missing_org_reason", "invalid_time_expression", "missing_metric_text",
+    }
+    if extra_options:
+        raise ReferenceMergeUnsupported("追问涉及查询口径变化，暂不支持；请完整描述新问题")
     if extracted.ops:
         raise ReferenceMergeUnsupported("追问涉及查询操作变化，暂不支持；请完整描述新问题")
 
@@ -99,6 +104,8 @@ def merge_reference_frame(
             for key, value in source.options.items()
             if key not in _DATE_OPTION_KEYS
         }
+        options.update({key: value for key, value in extracted.options.items()
+                        if key in _DATE_OPTION_KEYS})
         merged = source.model_copy(
             update={
                 "time": extracted.time,
@@ -109,6 +116,83 @@ def merge_reference_frame(
         return MergedReference(frame=merged, resolved_time=None)
 
     raise ReferenceMergeUnsupported(f"不支持的引用修改字段: {change_field}")
+
+
+def _compose_reference(
+    reference: dict[str, Any], source: SlotFrame, delta: SlotFrame,
+) -> MergedReference:
+    changes = dict(delta.changes)
+    if not changes:
+        raise ReferenceMergeUnsupported("未能确定本次追问要修改的条件，请说明要查询的目标")
+    allowed_options = {*_DATE_OPTION_KEYS, "time_mode", "invalid_time_expression",
+                       "organization_scope", "organization_scope_text", "organization_scope_count",
+                       "missing_metric_text", "metric_clarification_items", "missing_org_reason",
+                       "missing_org_text", "missing_org_texts", "organization_clarification_items"}
+    if set(delta.options) - allowed_options:
+        raise ReferenceMergeUnsupported("追问包含尚未支持的查询参数，本次未执行取数")
+    # 操作清单与值必须一致，不能悄悄丢弃模型抽取出的额外限制。
+    for field in ("metrics", "orgs", "time", "ops", "filters", "dimensions"):
+        value = getattr(delta, field)
+        if value and field not in changes:
+            raise ReferenceMergeUnsupported(f"追问的 {field} 条件未声明修改方式，请重新表述")
+    if (delta.raw_metric_text or delta.raw_metric_texts) and "metrics" not in changes:
+        raise ReferenceMergeUnsupported("指标指代与修改方式不一致，请明确要沿用或修改的指标")
+    merged = source.model_copy(deep=True)
+    merged.changes = changes
+    merged.missing = []
+    for field, action in changes.items():
+        old, value = getattr(source, field), getattr(delta, field)
+        if field == "time" and action not in {"replace", "clear"}:
+            raise ReferenceMergeUnsupported("日期支持替换或清空；多个期间请明确完整日期范围")
+        if action == "clear":
+            if value:
+                raise ReferenceMergeUnsupported(f"清空 {field} 时不能同时提供新值")
+            updated = None if field == "time" else []
+        elif action == "replace":
+            if not value and field not in delta.missing and field in {"metrics", "orgs", "time"}:
+                raise ReferenceMergeUnsupported(f"替换 {field} 需要明确新条件；清空请明确说明")
+            updated = value
+        elif action == "add":
+            if not value and field not in delta.missing:
+                raise ReferenceMergeUnsupported(f"追加 {field} 需要明确新条件")
+            updated = [*old, *(item for item in value if item not in old)]
+        else:
+            if not value or any(item not in old for item in value):
+                raise ReferenceMergeUnsupported("要移除的条件不在来源查询中，请明确移除对象")
+            updated = [item for item in old if item not in value]
+        setattr(merged, field, updated)
+        if field in delta.missing and action != "clear":
+            merged.missing.append(field)
+    if "metrics" in changes:
+        merged.raw_metric_text = delta.raw_metric_text
+        merged.raw_metric_texts = list(delta.raw_metric_texts)
+    # 来源的诊断候选不能污染本轮；普通查询选项仍继承并接受执行能力校验。
+    diagnostic = {"missing_metric_text", "metric_clarification_items", "missing_org_reason",
+                  "organization_clarification_items"}
+    merged.options = {k: v for k, v in source.options.items() if k not in diagnostic}
+    if "orgs" in changes:
+        for key in ("organization_scope", "organization_scope_text"):
+            merged.options.pop(key, None)
+    availability = any(op.type == "availability" for op in merged.ops)
+    # 可用日期是输出；切换为覆盖查询时不能把上一期日期当作隐含筛选。
+    if "time" not in changes and availability and "ops" in changes:
+        merged.time = None
+        merged.changes["time"] = "clear"
+    if "time" in merged.changes:
+        for key in (*_DATE_OPTION_KEYS, "time_mode", "invalid_time_expression"):
+            merged.options.pop(key, None)
+    merged.options.update(delta.options)
+    if "ops" in changes and not any(op.type == "period_compare" for op in merged.ops):
+        for key in ("current_date", "base_date"):
+            merged.options.pop(key, None)
+    if "time" in merged.changes and merged.changes["time"] == "clear":
+        for key in (*_DATE_OPTION_KEYS, "time_mode", "invalid_time_expression"):
+            merged.options.pop(key, None)
+    # 继承无日期的覆盖查询也是合法的；切回取值后会由必填规则要求时间。
+    resolved = None
+    if "time" not in merged.changes and merged.time:
+        resolved = _source_time(reference)
+    return MergedReference(frame=merged, resolved_time=resolved)
 
 
 def _source_time(reference: dict[str, Any]) -> LogicalTimeRange | None:

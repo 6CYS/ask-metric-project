@@ -6,6 +6,8 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from ask_metric.domain.semantics import (
+    ChangeAction,
+    ChangeField,
     FilterSlot,
     MetricSlot,
     SlotFrame,
@@ -25,6 +27,7 @@ _TASK = TypeAdapter(TaskType)
 _METRIC = TypeAdapter(MetricSlot)
 _FILTER = TypeAdapter(FilterSlot)
 _OPERATION = TypeAdapter(SlotOperation)
+_CHANGES = TypeAdapter(dict[ChangeField, ChangeAction])
 
 
 def adapt_model_slot_frame(raw: Any) -> SlotFrameAdaptation:
@@ -49,6 +52,7 @@ def adapt_model_slot_frame(raw: Any) -> SlotFrameAdaptation:
         "ops": _operations(raw, errors),
         "options": raw.get("options") if isinstance(raw.get("options"), dict) else {},
         "missing": _strings(raw, "missing", errors),
+        "changes": _scalar(raw, "changes", {}, _CHANGES, errors),
     }
     if raw.get("options") is not None and not isinstance(raw.get("options"), dict):
         errors.append(_error("options", "invalid_type", "Expected an object; used {}"))

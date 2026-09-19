@@ -4,6 +4,7 @@
  * 一律按 entry_id/seq、operation_id、tool_call_id 稳定关联。
  */
 import type { Entry, LaneSnapshot } from "@earendil-works/pi-agent-core";
+import { businessEvidence, evidenceAnswer, type BusinessEvidence } from "./answerEvidence.js";
 import type { MetricAskDetails } from "./tools/metricAsk.js";
 
 /** 历史消息条目（与前端 AgentSessionMessage 对齐） */
@@ -61,6 +62,7 @@ function toolCallNames(content: unknown): string[] {
  */
 export function projectEntries(entries: Entry[]): ProjectedMessage[] {
   const messages: ProjectedMessage[] = [];
+  let evidence: BusinessEvidence | undefined;
   for (const entry of entries) {
     if (entry.type !== "message") continue;
     const message = entry.message as {
@@ -74,16 +76,18 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
     };
     const timestamp = message.timestamp ?? entry.timestamp ?? null;
     if (message.role === "user") {
+      evidence = undefined;
       messages.push({ role: "user", text: visibleText(message.content), timestamp, entry_id: entry.id });
     } else if (message.role === "assistant") {
       messages.push({
         role: "assistant",
-        text: visibleText(message.content),
+        text: evidence ? evidenceAnswer(evidence) : (toolCallNames(message.content).length ? "" : safeUnverifiedText(visibleText(message.content))),
         tools: toolCallNames(message.content),
         timestamp,
         entry_id: entry.id,
       });
     } else if (message.role === "toolResult") {
+      evidence = businessEvidence(message.details) ?? evidence;
       messages.push({
         role: "tool",
         tool: message.toolName ?? "",
@@ -93,6 +97,8 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
         timestamp,
         entry_id: entry.id,
       });
+      const current = businessEvidence(message.details);
+      if (current) messages.push({ role: "assistant", text: evidenceAnswer(current), tools: [], timestamp, entry_id: `${entry.id}:answer` });
     }
   }
   return messages;
@@ -122,18 +128,11 @@ export function projectWatchEvent(event: {
   isError?: boolean;
 }): ProjectedEvent | null {
   if (event.type === "message_update") {
-    // 只投影文本增量；思考帧与工具参数帧不下发
-    if (event.frame?.type === "text_delta" && typeof event.frame.delta === "string") {
-      return { type: "text_delta", delta: event.frame.delta };
-    }
+    // 原生帧在 after_response 之前产生，事实正文必须等持久化后统一投影。
     return null;
   }
-  if (event.type === "message_end") {
-    const message = event.message as { role?: string; content?: unknown } | undefined;
-    if (message?.role !== "assistant") return null;
-    const text = visibleText(message.content);
-    return text.trim() ? { type: "message_done", text } : null;
-  }
+  if (event.type === "message_end") return null;
+
   if (event.type === "tool_start") {
     return { type: "tool_start", tool: event.toolName ?? "", tool_call_id: event.toolCallId ?? "" };
   }
@@ -155,9 +154,27 @@ export function latestResultRef(messages: ProjectedMessage[]): { task_id: string
     const message = messages[index];
     if (message?.role !== "tool") continue;
     const details = message.details as MetricAskDetails | null | undefined;
-    if (details?.kind === "metric_ask" && details.task_id && details.status === "succeeded") {
+    if ((details?.kind === "metric_ask" || (details as { kind?: string })?.kind === "metric_read") && details?.task_id && details.status === "succeeded") {
       return { task_id: details.task_id, ...(details.result_id ? { result_id: details.result_id } : {}) };
     }
   }
   return null;
+}
+
+function safeUnverifiedText(text: string): string {
+  return /\d/.test(text) ? "本轮没有可核验的查询结果。" : text;
+}
+
+/** 三种状态分别输出，不能把 Agent completed 当成查询成功。 */
+export function projectBusinessTasks(messages: ProjectedMessage[]): Array<Record<string, unknown>> {
+  let start = messages.length - 1;
+  while (start >= 0 && messages[start]?.role !== "user") start -= 1;
+  const tasks = new Map<string, BusinessEvidence>();
+  for (const message of messages.slice(start + 1)) {
+    if (message.role !== "tool") continue;
+    const evidence = businessEvidence(message.details);
+    if (evidence?.task_id) tasks.set(evidence.task_id, evidence);
+  }
+  return [...tasks.values()].map(item => ({ task_id: item.task_id, status: item.status,
+    result_id: item.result_id ?? null, error_code: item.error_code ?? null }));
 }

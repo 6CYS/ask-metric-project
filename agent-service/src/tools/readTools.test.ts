@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { BackendApiError, type BackendClient } from "../backendClient.js";
+import { businessEvidence } from "../answerEvidence.js";
 import type { HistoryBridge } from "../requestContext.js";
 import { createMetricReadTool, createSessionHistoryReadTool } from "./readTools.js";
 import { MemoryCommandBridge, receiptJson, runTool, testRequestContext } from "./testUtils.js";
@@ -43,6 +44,22 @@ function backendWithResult(): BackendClient {
 }
 
 describe("metric_read", () => {
+  it("原文随历史回读交给后端，条件冲突不交付事实并允许重新选择引用", async () => {
+    let actualQuestion: string | undefined;
+    const backend = {
+      getTaskResult: async (_id: string, _offset: number, _limit: number, _options: unknown, question: string) => {
+        actualQuestion = question;
+        throw new BackendApiError(409, "引用机构冲突", "RESULT_REFERENCE_CONFLICT", {orgs: {requested: ["B"], selected: ["A"]}});
+      },
+    } as unknown as BackendClient;
+    const request = testRequestContext(backend, new MemoryCommandBridge());
+    request.originalMessage = "刚才乙行的数据再显示";
+    const result = await runTool(createMetricReadTool(), {kind: "result", task_id: "a", result_id: "result:a"}, request);
+    expect(actualQuestion).toBe(request.originalMessage);
+    expect(receiptJson(result).status).toBe("reference_mismatch");
+    expect(businessEvidence(result.details)).toBeUndefined();
+  });
+
   it("task 模式返回状态、版本与澄清目标", async () => {
     const bridge = new MemoryCommandBridge();
     const request = testRequestContext(backendWithResult(), bridge);
