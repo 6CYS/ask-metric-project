@@ -1,3 +1,5 @@
+import type { AssistantBlock } from "@/lib/assistantText"
+
 /** 问数运行日志。字段与后端 QueryRunRead 保持一致。 */
 export type QueryRunItem = {
   id: number | string
@@ -199,6 +201,8 @@ export type ChatResponse = {
   conversation_id?: string | null
   intent: string
   answer: string
+  /** 服务端给出的回答正文结构块；缺失/null/空数组时前端回退 markdown 解析。 */
+  answer_blocks?: AssistantBlock[] | null
   result: null | {
     type: string
     table?: {

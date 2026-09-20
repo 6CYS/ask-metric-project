@@ -12,12 +12,13 @@ import { StringEnum, Type, type Static } from "@earendil-works/pi-ai";
 import type { AgentHarnessTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import {
   BackendApiError,
+  type AnswerBlock,
   type QueryExecutionResult,
   type TaskCommandResult,
 } from "../backendClient.js";
 import { commandKey, phaseKey } from "../harnessHost.js";
 import type { AskMetricRequestContext, WriteCommandRecord } from "../requestContext.js";
-import { resultAnswer } from "../answerEvidence.js";
+import { resultAnswer, resultAnswerBlocks } from "../answerEvidence.js";
 import { MAX_ROWS_FOR_MODEL } from "./shared.js";
 
 const taskRef = Type.Object({
@@ -62,6 +63,7 @@ export interface MetricAskDetails {
   truncated?: boolean | undefined;
   clarification?: unknown;
   public_answer?: string;
+  public_answer_blocks?: AnswerBlock[];
   error_code?: string;
   retryable?: boolean;
   next_action?: string;
@@ -304,6 +306,7 @@ function taskReceipt(task: TaskCommandResult, replayed: boolean): Receipt {
 
 function resultReceipt(taskId: string, version: number | undefined, executed: QueryExecutionResult, resultId?: string): Receipt {
   const sampleRows = executed.rows.slice(0, MAX_ROWS_FOR_MODEL);
+  const blocks = resultAnswerBlocks(executed);
   return receipt(
     {
       status: executed.status,
@@ -327,6 +330,7 @@ function resultReceipt(taskId: string, version: number | undefined, executed: Qu
       kind: "metric_ask",
       status: executed.status,
       public_answer: executed.status === "succeeded" ? resultAnswer(executed) : "查询未成功，请检查条件后重试。",
+      ...(blocks ? { public_answer_blocks: blocks } : {}),
       ...(executed.error_code ? { error_code: executed.error_code } : {}),
       task_id: taskId,
       ...(version !== undefined ? { version } : {}),

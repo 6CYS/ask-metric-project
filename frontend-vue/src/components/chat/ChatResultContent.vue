@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { replyText } from "@/lib/replyPresentation"
+import { stripInternalDisplayHints } from "@/lib/replyPresentation"
 import { Bug, ChartColumn, Check, Copy, Download, LoaderCircle, Search, Table2 } from "@lucide/vue"
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from "vue"
 
 import BaseBadge from "@/components/ui/BaseBadge.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import ListPagination from "@/components/ListPagination.vue"
+import ChatAnswerSegments from "@/components/chat/ChatAnswerSegments.vue"
 import type { ChatResponse } from "@/types/api"
 import { exportBackendNextTaskResult } from "@/lib/api"
 import { clarificationTranscript } from "@/lib/conversationMessages"
 import { copyText } from "@/lib/clipboard"
-import { parseAssistantText, type AssistantParagraph } from "@/lib/assistantText"
+import { flattenAssistantBlocks, parseAssistantBlocks, type AssistantBlock, type AssistantTableAlign } from "@/lib/assistantText"
 import { paginateResultRows, RESULT_PAGE_SIZE_OPTIONS, resultTotalPages } from "@/lib/resultPagination"
 import {
   formatResultTableValue,
@@ -65,7 +66,11 @@ const rawDisplayAnswer = computed(() => {
   const count = props.response.result?.table?.rows.length
   return typeof count !== "number" ? props.response.answer : count ? `查询完成，找到 ${count} 条记录。` : "查询完成，暂无匹配数据。"
 })
-const displayAnswer = computed(() => replyText(rawDisplayAnswer.value))
+// answerSource 保留 markdown 结构供块级渲染；displayAnswer 是纯文本副本，供复制等场景使用
+const answerSource = computed(() => stripInternalDisplayHints(rawDisplayAnswer.value))
+// 服务端给出的结构化回答块；非空时渲染与复制都优先使用它
+const responseBlocks = computed(() => props.response.answer_blocks?.length ? props.response.answer_blocks : null)
+const displayAnswer = computed(() => flattenAssistantBlocks(responseBlocks.value ?? parseAssistantBlocks(answerSource.value)))
 const renderedAnswer = ref("")
 const answerStreamComplete = ref(true)
 let answerFrame = 0
@@ -101,20 +106,32 @@ function renderAnswer(answer: string) {
   answerFrame = window.requestAnimationFrame(renderFrame)
 }
 
-watch(displayAnswer, renderAnswer, { immediate: true })
+watch(answerSource, renderAnswer, { immediate: true })
 onBeforeUnmount(stopAnswerStream)
 
-const answerParagraphs = computed<AssistantParagraph[]>(() => {
-  const paragraphs = parseAssistantText(renderedAnswer.value.trim())
-  if (paragraphs.length !== 1) return paragraphs
-  const only = paragraphs[0]!
-  // 沿用原有阅读习惯：单段纯文本按句末标点拆成多段
-  if (only.some((segment) => segment.bold)) return paragraphs
-  const text = only.map((segment) => segment.text).join("").trim()
+/** 沿用原有阅读习惯：单段无加粗的纯文本按句末标点拆成多段，两路块来源统一套用 */
+function splitSingleParagraph(blocks: AssistantBlock[]): AssistantBlock[] {
+  if (blocks.length !== 1) return blocks
+  const only = blocks[0]!
+  if (only.type !== "paragraph" || only.segments.some((segment) => segment.bold)) return blocks
+  const text = only.segments.map((segment) => segment.text).join("").trim()
   if (!text) return []
   const sentences = text.match(/[^。！？!?]+[。！？!?]?/g)?.map((item) => item.trim()).filter(Boolean) ?? []
-  return sentences.length > 1 ? sentences.map((item) => [{ text: item, bold: false }]) : [[{ text, bold: false }]]
+  if (sentences.length <= 1) return [{ type: "paragraph", segments: [{ text, bold: false }] }]
+  return sentences.map((item) => ({ type: "paragraph" as const, segments: [{ text: item, bold: false }] }))
+}
+
+const answerBlocks = computed<AssistantBlock[]>(() => {
+  // 流式结束后优先使用服务端结构化块；流式进行中及无块时按 markdown 解析回退
+  const blocks = answerStreamComplete.value && responseBlocks.value
+    ? responseBlocks.value
+    : parseAssistantBlocks(renderedAnswer.value.trim())
+  return splitSingleParagraph(blocks)
 })
+
+function answerAlignClass(align: AssistantTableAlign | undefined) {
+  return align === "center" ? "text-center" : align === "right" ? "text-right" : "text-left"
+}
 const resultRowCount = computed(() => props.response.result?.table?.rows.length ?? 0)
 const hasResultRows = computed(() => resultRowCount.value > 0)
 const resultRows = computed(() => props.response.result?.table?.rows ?? [])
@@ -187,9 +204,19 @@ async function copyAnswer() {
 <template>
   <div class="flex min-w-0 flex-col gap-3">
     <div v-if="showAnswer" class="group/answer relative space-y-1.5 break-words pr-9 leading-7" aria-live="polite">
-      <p v-for="(paragraph, index) in answerParagraphs" :key="index"><template v-for="(segment, segmentIndex) in paragraph" :key="segmentIndex"><strong v-if="segment.bold" class="font-semibold">{{ segment.text }}</strong><template v-else>{{ segment.text }}</template></template></p>
+      <template v-for="(block, index) in answerBlocks" :key="index">
+        <p v-if="block.type === 'paragraph'"><ChatAnswerSegments :segments="block.segments" /></p>
+        <ul v-else-if="block.type === 'list' && !block.ordered" class="list-disc space-y-1 ps-6"><li v-for="(item, itemIndex) in block.items" :key="itemIndex"><ChatAnswerSegments :segments="item" /></li></ul>
+        <ol v-else-if="block.type === 'list'" class="list-decimal space-y-1 ps-6"><li v-for="(item, itemIndex) in block.items" :key="itemIndex"><ChatAnswerSegments :segments="item" /></li></ol>
+        <div v-else class="max-w-full overflow-x-auto rounded-md border border-border/70">
+          <table class="w-full min-w-max text-sm">
+            <thead v-if="block.header.length"><tr class="border-b bg-muted/50"><th v-for="(cell, cellIndex) in block.header" :key="cellIndex" class="h-9 px-3 text-left font-medium whitespace-nowrap" :class="answerAlignClass(block.aligns[cellIndex])"><ChatAnswerSegments :segments="cell" /></th></tr></thead>
+            <tbody><tr v-for="(row, rowIndex) in block.rows" :key="rowIndex" class="border-b last:border-b-0 hover:bg-muted/40"><td v-for="(cell, cellIndex) in row" :key="cellIndex" class="px-3 py-2 whitespace-nowrap" :class="answerAlignClass(block.aligns[cellIndex])"><ChatAnswerSegments :segments="cell" /></td></tr></tbody>
+          </table>
+        </div>
+      </template>
       <span v-if="!answerStreamComplete" class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" />
-      <button v-if="answerStreamComplete && answerParagraphs.length" type="button" class="absolute -top-1 right-0 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :title="isAnswerCopied ? '已复制' : '复制回答'" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button>
+      <button v-if="answerStreamComplete && answerBlocks.length" type="button" class="absolute -top-1 right-0 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :title="isAnswerCopied ? '已复制' : '复制回答'" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button>
     </div>
     <p v-if="answerCopyError" class="text-xs text-[#78663E]">{{ answerCopyError }}</p>
 

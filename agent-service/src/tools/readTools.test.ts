@@ -97,6 +97,46 @@ describe("metric_read", () => {
     );
     expect((receiptJson(mismatch).error as { code: string }).code).toBe("RESULT_MISMATCH");
   });
+
+  it("result 模式透传 answer_blocks；无该字段时 details 不含此键", async () => {
+    const blocks = [
+      {type:"paragraph",segments:[{text:"无锡分行存款余额为",bold:false},{text:"15147420074.00元",bold:true}]},
+    ];
+    const backend = {
+      async getTaskResult() {
+        return {
+          task_id: "task-1",
+          result_id: "result:task-1",
+          status: "succeeded",
+          query_shape: "metric_value",
+          columns: ["org_name", "metric_value"],
+          rows: [{ org_name: "无锡分行", metric_value: "15147420074.00" }],
+          comparisons: [],
+          row_count: 1,
+          truncated: true,
+          offset: 0,
+          limit: 20,
+          next_offset: null,
+          has_more: false,
+          message: null,
+          evidence: {},
+          answer_blocks: blocks,
+        };
+      },
+    } as unknown as BackendClient;
+    const request = testRequestContext(backend, new MemoryCommandBridge());
+    const tool = createMetricReadTool();
+    const page = await runTool(tool, { kind: "result", task_id: "task-1", result_id: "result:task-1" }, request);
+    // 截断时在末尾追加独立提示段落块
+    expect(page.details.public_answer_blocks).toEqual([
+      ...blocks,
+      {type:"paragraph",segments:[{text:"（结果存在截断，完整结果请查看数据明细。）",bold:false}]},
+    ]);
+    expect(page.details.public_answer).toContain("结果存在截断");
+
+    const plain = await runTool(tool, { kind: "result", task_id: "task-1", result_id: "result:task-1" }, testRequestContext(backendWithResult(), new MemoryCommandBridge()));
+    expect("public_answer_blocks" in plain.details).toBe(false);
+  });
 });
 
 describe("session_history_read", () => {

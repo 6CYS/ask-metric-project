@@ -19,6 +19,14 @@ export function catalogOverviewReply(overview: CatalogOverviewDetails): string {
     + "\n目录存在不代表指定机构和日期有数据，具体情况需查询确认。"
     + (overview.catalog === "metrics" ? "你可以输入指标名称检索，或描述查询需求。" : "你可以输入机构名称进一步检索。")
 }
+/** 兼容旧工具快照中曾被模型复述的内部展示提示，不改动业务结论。 */
+const INTERNAL_DISPLAY_HINT = /(?:具体)?明细数据已在用户界面以结果表展示[，,]\s*回答正文(?:不要|不)逐条罗列数值[，,]\s*简洁概括即可[。.]?/g
+
+/** 只清理内部展示提示，保留 markdown 结构，供块级解析路径使用。 */
+export function stripInternalDisplayHints(value: string): string {
+  return value.replace(INTERNAL_DISPLAY_HINT, "").trim()
+}
+
 export function replyText(value: string): string {
   const lines: string[] = []
   for (const token of markdown.parse(value, {})) {
@@ -30,10 +38,7 @@ export function replyText(value: string): string {
       }).join(""))
     } else if (token.type === "fence" || token.type === "code_block") lines.push(token.content.trimEnd())
   }
-  // 兼容旧工具快照中曾被模型复述的内部展示提示，不改动业务结论。
-  return lines.join("\n")
-    .replace(/(?:具体)?明细数据已在用户界面以结果表展示[，,]\s*回答正文(?:不要|不)逐条罗列数值[，,]\s*简洁概括即可[。.]?/g, "")
-    .trim()
+  return stripInternalDisplayHints(lines.join("\n"))
 }
 
 /** 失败原因使用工具的公开回执；不展示内部异常，也不以通用文案覆盖业务原因。 */

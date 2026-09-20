@@ -114,6 +114,39 @@ describe("metric_ask", () => {
     expect((submitKey as string).length).toBe(64);
   });
 
+  it("成功回执透传后端 answer_blocks；后端无该字段时 details 不含此键", async () => {
+    const blocks = [
+      {type:"paragraph",segments:[{text:"2026年08月31日，无锡分行的存款余额为",bold:false},{text:"15147420074.00元",bold:true},{text:"。",bold:false}]},
+    ];
+    const succeededTask = {
+      task_id: "task-1",
+      conversation_id: "conv-1",
+      version: 2,
+      status: "SUCCEEDED",
+      result: { result_id: "result:task-1", status: "succeeded", row_count: 1 },
+    };
+    const backend = stubBackend({
+      getTask: async () => succeededTask,
+      executeTask: async () => ({
+        task_id: "task-1",
+        status: "succeeded",
+        query_shape: "metric_value",
+        columns: ["org_name", "metric_value"],
+        rows: [{ org_name: "无锡分行", metric_value: "15147420074.00", metric_name: "存款余额", stat_date: "2026-08-31", unit: "元" }],
+        row_count: 1,
+        answer_blocks: blocks,
+      }),
+    });
+    const withBlocks = await runTool(createMetricAskTool(), { action: "new" }, testRequestContext(backend, new MemoryCommandBridge()));
+    expect(withBlocks.details.public_answer_blocks).toEqual(blocks);
+    expect(withBlocks.details.public_answer).toContain("15147420074.00");
+
+    // 默认桩不含 answer_blocks：details 不出现该键，前端回退纯文本
+    const plain = stubBackend({ getTask: async () => succeededTask });
+    const withoutBlocks = await runTool(createMetricAskTool(), { action: "new" }, testRequestContext(plain, new MemoryCommandBridge()));
+    expect("public_answer_blocks" in withoutBlocks.details).toBe(false);
+  });
+
   it("clarify：补充继续原任务，不重新 POST /questions", async () => {
     const backend = stubBackend({
       submitClarification: async () => ({

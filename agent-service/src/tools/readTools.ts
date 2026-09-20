@@ -4,8 +4,8 @@
  */
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentHarnessTool, AgentToolResult } from "@earendil-works/pi-agent-core";
-import { resultAnswer } from "../answerEvidence.js";
-import { BackendApiError } from "../backendClient.js";
+import { resultAnswer, resultAnswerBlocks } from "../answerEvidence.js";
+import { BackendApiError, type AnswerBlock } from "../backendClient.js";
 import type { AskMetricRequestContext } from "../requestContext.js";
 
 /* ------------------------------- metric_read ------------------------------ */
@@ -32,6 +32,7 @@ export interface MetricReadDetails {
   row_count?: number;
   columns?: string[];
   public_answer?: string;
+  public_answer_blocks?: AnswerBlock[];
   error_code?: string;
 }
 
@@ -85,6 +86,7 @@ export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext
             { kind: "metric_read", task_id: params.task_id, status: "error" },
           );
         }
+        const blocks = resultAnswerBlocks(page);
         return json<MetricReadDetails>(
           {
             status: page.status,
@@ -109,6 +111,7 @@ export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext
             row_count: page.row_count,
             columns: page.columns,
             public_answer: resultAnswer(page),
+            ...(blocks ? { public_answer_blocks: blocks } : {}),
           },
         );
       } catch (error) {

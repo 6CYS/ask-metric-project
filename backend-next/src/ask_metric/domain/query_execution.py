@@ -69,6 +69,8 @@ class QueryExecutionResult(BaseModel):
     error_code: str | None = None
     error_message: str | None = None
     message: str | None = None
+    # 与 message 同源的结构化正文块，供前端免解析渲染；旧快照无此字段读回为 None。
+    answer_blocks: list[dict[str, Any]] | None = None
     task_version: int | None = None
     task_status: str | None = None
     idempotent_replay: bool = False

@@ -206,6 +206,7 @@ class QueryExecutionApplicationService:
         message = _execution_message(plan, rows, coverage_notice=coverage_notice)
         message = _prepend_coverage_notice(message, truncation_notice)
         rendered_answer = None
+        answer_blocks: list[dict[str, Any]] | None = None
         if rows:
             answer_started = perf_counter()
             rendered_answer = render_fact_answer(plan, rows, comparisons)
@@ -214,9 +215,21 @@ class QueryExecutionApplicationService:
                 coverage_notice,
             )
             message = _prepend_coverage_notice(message, truncation_notice)
+            # answer_blocks 与 message 同步组装：截断/覆盖提示以前置段落块对齐
+            # message 中的 "\n\n" 前缀，正文块保持模板产出原样。
+            answer_blocks = [
+                *([_notice_block(truncation_notice)] if truncation_notice else []),
+                *([_notice_block(coverage_notice)] if coverage_notice else []),
+                *rendered_answer.blocks,
+            ]
             timings_ms["answer_rendering_ms"] = _elapsed_ms(answer_started)
         if missing_metric_notice:
             message = f"{message}\n\n{missing_metric_notice}"
+            if answer_blocks is not None:
+                answer_blocks.append(_notice_block(missing_metric_notice))
+        if answer_blocks is None:
+            # 无结果行时也给单段落块，前端无需区分空态渲染。
+            answer_blocks = [_notice_block(message)]
         result = QueryExecutionResult(
             run_id=run_id,
             task_id=command.task_id,
@@ -239,6 +252,7 @@ class QueryExecutionApplicationService:
             row_count=len(rows),
             truncated=truncated,
             message=message,
+            answer_blocks=answer_blocks,
             latency_ms=execution.latency_ms,
             task_version=execution_version + 1,
             task_status=QueryTaskStatus.SUCCEEDED.value,
@@ -1122,6 +1136,10 @@ def _prepend_coverage_notice(message: str, coverage_notice: str | None) -> str:
             break
         body = body[len(matched_prefix) :].lstrip()
     return f"{coverage_notice}\n\n{body}" if body else coverage_notice
+
+
+def _notice_block(text: str) -> dict[str, Any]:
+    return {"type": "paragraph", "segments": [{"text": text, "bold": False}]}
 
 
 def _parse_result_date(value: Any) -> date | None:

@@ -87,6 +87,18 @@ export interface TaskCommandResult {
   } | null;
 }
 
+/** 回答正文片段：bold 标记加粗渲染 */
+export interface AnswerSegment {
+  text: string;
+  bold: boolean;
+}
+
+/** 回答正文的结构化块：后端确定性渲染产出，缺省（null/缺字段）时前端回退纯文本解析 */
+export type AnswerBlock =
+  | { type: "paragraph"; segments: AnswerSegment[] }
+  | { type: "list"; ordered: boolean; items: AnswerSegment[][] }
+  | { type: "table"; header: AnswerSegment[][]; rows: AnswerSegment[][][]; aligns: ("left" | "center" | "right")[] };
+
 export interface QueryExecutionResult {
   task_id: string;
   status: "succeeded" | "failed" | "unsupported";
@@ -98,6 +110,8 @@ export interface QueryExecutionResult {
   error_code?: string | null;
   error_message?: string | null;
   message?: string | null;
+  /** 结构化回答正文；null/缺省表示无 */
+  answer_blocks?: AnswerBlock[] | null;
   /** 受控计算结果（如机构对比明细），由后端确定性产出 */
   comparisons?: Record<string, unknown>[];
   /** 已执行查询的正式条件；空结果同样有证据，不能靠样例行还原上下文。 */
@@ -120,6 +134,8 @@ export interface TaskResultPage {
   next_offset: number | null;
   has_more: boolean;
   message?: string | null;
+  /** 结构化回答正文；null/缺省表示无 */
+  answer_blocks?: AnswerBlock[] | null;
   evidence?: Record<string, unknown>;
 }
 

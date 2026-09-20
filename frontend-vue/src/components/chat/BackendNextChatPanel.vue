@@ -320,10 +320,15 @@ function responseFromMetricAsk(details: MetricAskDetails, answer: string): ChatR
   const rows = details.rows ?? []
   const columns = details.columns?.length ? details.columns : rows.length ? Object.keys(rows[0]!) : []
   const rowCount = details.row_count ?? rows.length
+  // 服务端结构化回答块优先：仅在非空数组时透传，其余交给前端 markdown 解析回退
+  const answerBlocks = Array.isArray(details.public_answer_blocks) && details.public_answer_blocks.length
+    ? details.public_answer_blocks
+    : null
   return {
     message_id: details.task_id ?? createId(),
     intent: "metric_query",
     answer: governedReply(details) ?? (answer.trim() || (rowCount ? `查询完成，找到 ${rowCount} 条记录。` : "查询完成，暂无匹配数据。")),
+    ...(answerBlocks ? { answer_blocks: answerBlocks } : {}),
     result: hasRows && rowCount <= 100 && columns.length ? { type: "metric_query", table: { columns, rows } } : null,
     metric_definition: null,
     clarification: null,

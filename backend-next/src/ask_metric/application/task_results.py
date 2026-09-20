@@ -42,6 +42,8 @@ class TaskResultPage(BaseModel):
     next_offset: int | None = None
     has_more: bool = False
     message: str | None = None
+    # 结构化正文块；旧快照无此字段时透传 None，前端回退渲染 message。
+    answer_blocks: list[dict[str, Any]] | None = None
     evidence: dict[str, Any] = Field(default_factory=dict)
 
 

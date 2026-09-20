@@ -832,6 +832,7 @@ class QueryTaskApplicationService:
                 next_offset=next_offset if next_offset < len(result.rows) else None,
                 has_more=next_offset < len(result.rows),
                 message=result.message,
+                answer_blocks=result.answer_blocks,
                 evidence=result.evidence,
             )
 

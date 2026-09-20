@@ -1,4 +1,5 @@
 import { clearAccessToken, getAccessToken, setAuthFailureReason } from "@/lib/authSession"
+import type { AssistantBlock } from "@/lib/assistantText"
 import type { BackendNextClarification } from "@/types/api"
 
 /**
@@ -70,6 +71,8 @@ export interface MetricAskDetails {
   clarification_prompt?: string
   /** 后端结构化澄清对象原样透传，供前端渲染澄清表单。 */
   clarification?: BackendNextClarification | null
+  /** 服务端给出的回答正文结构块；缺失/null/空数组表示回退前端 markdown 解析。 */
+  public_answer_blocks?: AssistantBlock[] | null
 }
 
 /** 提问输入（协议 V3）：request_id 由浏览器每次确认发送生成，网络重试不变 */
