@@ -11,6 +11,7 @@ import { createMetricCatalogSearchTool } from "./metricCatalogSearch.js";
 import { createOrgCatalogSearchTool } from "./orgCatalogSearch.js";
 import { createMetricReadTool, createSessionHistoryReadTool } from "./readTools.js";
 import { createStructuredQueryTool } from "./structuredQuery.js";
+import { createDataAvailabilityTool } from "./dataAvailability.js";
 
 export { createMetricAskTool, type MetricAskDetails } from "./metricAsk.js";
 export { createMetricCatalogSearchTool } from "./metricCatalogSearch.js";
@@ -19,10 +20,12 @@ export { createMetricReadTool, createSessionHistoryReadTool } from "./readTools.
 export { createStructuredQueryTool } from "./structuredQuery.js";
 export type { CatalogSearchDetails, StructuredQueryDetails } from "./shared.js";
 
-/** 普通自然语言会话的默认工具集：结构化快路径不在其中，避免绕过语义治理 */
+/** pi 选择业务工具；结构化查询仍接受后端目录、权限与能力校验。 */
 export function createAskMetricTools(): AgentHarnessTool<AskMetricRequestContext>[] {
   return [
     createMetricAskTool(),
+    createDataAvailabilityTool(),
+    createStructuredQueryTool(),
     createMetricReadTool(),
     createSessionHistoryReadTool(),
     createMetricCatalogSearchTool(),

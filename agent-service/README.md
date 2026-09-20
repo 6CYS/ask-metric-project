@@ -52,40 +52,20 @@ operation；是否存在 `current` 不能用来判断当前进程是否已有执
 
 ## Agent 工具
 
-默认六个工具（普通自然语言会话）：
+默认工具由 pi 根据目标选择：
 
-- `metric_ask`：受治理问数与上下文澄清。`new` 提交新问题（提交→提槽→条件齐全则查询）；`clarify` 把用户本轮补充精确提交到原任务的澄清（同 task/version/clarification_id，受控版本刷新最多一次）；`followup` 引用一笔已完成查询组合修改条件（统一提交 `query_reference.change_field=compose`，具体修改由后端解析和校验）；`clarify_context` 在来源或修改含义不明确时询问用户，不创建取数任务。
-- `metric_read`：只读任务状态（`kind=task`）或分页读取不可变结果（`kind=result`，默认 20 行、最多 100 行）。
-- `session_history_read`：原生分支历史回读（list/entry，跨压缩条目，只读当前分支祖先）。
-- `metric_catalog_search` / `org_catalog_search`：正式指标/机构目录检索，委托后端受治理检索接口按确定性命中排序；只有 exact/contains/lexical 命中可锁定编码。
-- `metric_catalog_overview`：实时启用指标数量、单位分组和示例，经 `/api/v1/catalog/metrics/overview` 读取；不要求机构和日期，不创建问数任务。
+- `data_availability`：通过 `/api/v1/data-availability` 查询指定机构与可选日期范围内有记录的指标名称（`dimension=metrics`）或日期（`dimension=dates`）。指标发现不要求先指定指标；机构编码必须来自正式目录或已确认工具回执。后端继续校验目录、当前用户权限并执行只读模板 SQL。
+- `metric_catalog_overview`：介绍启用指标目录、数量和名称示例，不代表某机构或时期实际有数据。指定机构或时间的覆盖问题不能用全目录概览代替。
+- `metric_catalog_search` / `org_catalog_search`：确认正式实体编码，语义近似推荐不能直接锁定编码。
+- `metric_query_structured`：pi 已确认指标编码、机构和绝对日期时调用 `/api/v1/basic-queries`，适用于覆盖查询后选定指标继续取数。返回真实任务版本与结果引用，支持后续回读；后端保留目录、权限和查询能力校验。区间全部数据用 `all_in_range`，不自动缩为今天或最后一期。
+- `metric_ask`：基础自然语言取值及任务澄清。`new` 提交本轮原文；`clarify` 补充正式待澄清任务；`followup` 引用已完成任务修改条件；`clarify_context` 询问有歧义的历史来源。不把归因、异常、预测、血缘或指标发现交给此入口分类。
+- `metric_read` / `session_history_read`：按用户权限读取正式结果、任务状态及当前会话历史。
 
-另提供以下专项工具：
+覆盖回执保存实际 `request`、分页、名称和范围说明。pi 在多轮中沿用这些已确认条件，本轮明确修改优先；“我要指标名称”调整查询维度，“下一页”只调整页码。覆盖回执没有问数任务 ID，不可编造引用。结果正文由回执生成，实时、刷新和历史展示共用同一投影。
 
-- `data_availability`：查询授权范围的数据可用日期、所选组合的覆盖情况及共同日期；具体名称先经目录检索确认。
-- `catalog_overview`：介绍可查询哪些指标或机构，一次读取受权限约束的目录摘要。
-- `metric_calculate`：将当前提问的数据引用与表达式交给后端计算，页面直接展示结果及来源。
+归因、异常洞察等目标由 pi 判断所需能力；当前未注册相应分析工具时明确说明限制，不以普通取值冒充完成分析。后端基础问数不再调用高层 `intent_routing`，只进行提槽、目录/日期/操作校验、澄清和执行。未知或不支持的操作保留并拒绝，不能删除后执行普通查询。
 
-只输入具体指标名称时，仍交给 `metric_ask` 校验完整请求并创建正式澄清。局部目录搜索不能替代
-完整指标覆盖校验；正式长名称中的“增幅、排名”保持原义，混入停用指标返回 `METRIC_DISABLED`，
-不会静默执行剩余指标。连续追问引用最近成功查询，历史回读按原文明确的历史指代选择结果。
-
-`metric_query_structured`（`/api/v1/basic-queries` 结构化快通道）能力保留，但不在普通自然语言
-会话默认启用，避免绕过语义治理。
-
-`catalog_overview` 调用 `GET /api/v1/catalog/overview?catalog=metrics|organizations&limit=8`，
-示例上限为 20。它不接受搜索词；具体名称使用目录检索工具，取数使用查询工具。
-纯目录概览由前端根据工具结果生成中文介绍，实时与历史共用；组合取数任务仍继续执行，
-不会因概览强制结束。概览不证明某机构、日期存在数据，也不推断分类、更新频率或覆盖期。
-后端 `CATALOG_OVERVIEW_METRIC_CODES` 可配置代表性指标，详见后端 README。
-升级需同步后端、Agent 和前端，无数据库迁移；旧历史缺少概览结果时保持原展示。
-
-同一会话的消息和工具结果交给 harness 理解追问，沿用已确认条件，本轮明确条件优先；调用后端时提交完整问题。待澄清任务按任务与澄清编号补充。参数、限制和升级说明见
-[通用表达式计算工具](../docs/calculation-tools.md)。
-
-幂等：业务命令键由（owner+session+request+业务负载）指纹派生，同一 operation 只接纳一个独立
-写意图，第二个不同写意图返回 `TURN_QUERY_LIMIT`；提交/分析/澄清/执行各阶段使用稳定派生键，
-不使用随机键。成功执行的重放从后端 ResultArtifact 回读完整明细，不重跑 SQL。
+升级需重启后端和 agent（`npm run build` 后使用 `npm start`，开发模式由 watch 加载）。无需数据库迁移或删除历史。旧会话与旧任务只读兼容保留。后端持久 prompts 中的 `intent_routing` 已退役且加载时忽略；自定义 `slot_extraction` 必须同步基础查询边界，保留业务模型配置与密钥。
 
 ## 模型输入与用量诊断
 

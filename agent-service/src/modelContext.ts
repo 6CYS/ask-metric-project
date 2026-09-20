@@ -10,7 +10,7 @@ export function projectHistoricalResults(messages: readonly AgentMessage[]): Age
   while (currentTurn >= 0 && messages[currentTurn]?.role !== "user") currentTurn -= 1;
   return messages.map((message, index) => {
     if (index >= currentTurn || message.role !== "toolResult" || message.isError
-      || !["metric_ask", "metric_read"].includes(message.toolName)
+      || !["metric_ask", "metric_read", "metric_query_structured"].includes(message.toolName)
       || message.content.length !== 1 || message.content[0]?.type !== "text") return message;
     let receipt: unknown;
     try { receipt = JSON.parse(message.content[0].text); } catch { return message; }

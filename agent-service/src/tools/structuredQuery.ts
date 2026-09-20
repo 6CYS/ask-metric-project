@@ -1,5 +1,5 @@
 /**
- * metric_query_structured 工具：结构化基础查询快速通道（保留兼容，普通自然语言会话默认不启用）。
+ * metric_query_structured 工具：结构化基础查询快速通道（pi 已确认正式实体与查询范围）。
  * agent 自行完成实体锁定与日期换算后，以正式编码和明确日期调用后端 basic-queries（不调用后端语义模型）。
  * 编码不是授权凭据，后端仍按当前用户权限与启用目录校验；幂等键由参数指纹派生，不用随机键。
  */
@@ -8,6 +8,7 @@ import type { AgentHarnessTool } from "@earendil-works/pi-agent-core";
 import { commandKey } from "../harnessHost.js";
 import { BackendApiError, type BasicQuerySpec } from "../backendClient.js";
 import type { AskMetricRequestContext } from "../requestContext.js";
+import { resultAnswer } from "../answerEvidence.js";
 import {
   MAX_ROWS_FOR_MODEL,
   backendErrorResult,
@@ -52,7 +53,7 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
     description:
       "以正式指标编码、机构编码和明确日期直接取数（不经过语义解析）。仅当指标、机构、日期都能确定为正式编码和绝对日期时使用；" +
       "条件不明确、叫法拿不准或需要澄清的问题改用 metric_ask。日期规则：明确的某月末/某日用 start=end 并 selection=exact；" +
-      "某月末时点取值用该月1日至月末日、selection=latest_in_range；整月或区间取值用对应区间、selection=latest_in_range；逐月趋势用 all_in_range。" +
+      "某月末时点取值用该月1日至月末日、selection=latest_in_range；明确要求最新一期用 latest_in_range；整月或区间全部取值用 all_in_range，不得擅自缩小时间范围。" +
       "排名榜单与名次反查（“第1名/前N名是哪家机构”“排名第几的是谁”）用 selection=ranking：值指标编码须先确认，org_codes 至多一个范围机构、" +
       "空数组表示全省汇总直接下级，问第1名用 top_n=1，问排名最后用 order=asc；单位为“名”的排名指标不能用 ranking 反查机构。",
     parameters: structuredQueryParameters,
@@ -103,6 +104,9 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
           spec,
         });
         const { result } = await request.backend.basicQueries(spec, key, { signal: context.abortSignal });
+        // 正式任务回执提供结果引用和版本，供后续回读/追问；不能从编码拼造任务 ID。
+        const task = result.status === "succeeded"
+          ? await request.backend.getTask(result.task_id, {signal: context.abortSignal}) : undefined;
         const sampleRows = result.rows.slice(0, MAX_ROWS_FOR_MODEL);
         // 非成功状态必须给模型可读原因（含 error_code），模型拿到原因后才能去 search 或如实转述
         const readableMessage =
@@ -115,6 +119,10 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
               type: "text",
               text: JSON.stringify({
                 status: result.status,
+                task_id: result.task_id,
+                version: task?.version,
+                result_id: task?.result?.result_id,
+                query_evidence: result.evidence,
                 columns: result.columns,
                 // 仅样例行供模型核对口径；明细数值的完整展示由用户界面的结果表承担
                 sample_rows: sampleRows,
@@ -130,6 +138,9 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
           details: {
             kind: "metric_query_structured",
             task_id: result.task_id,
+            version: task?.version,
+            result_id: task?.result?.result_id,
+            public_answer: result.status === "succeeded" ? resultAnswer(result) : readableMessage ?? "查询未成功。",
             status: result.status,
             columns: result.columns,
             rows: result.rows,

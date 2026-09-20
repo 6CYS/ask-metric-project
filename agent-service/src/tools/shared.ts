@@ -34,6 +34,9 @@ export const catalogSearchParameters = Type.Object({
 export interface StructuredQueryDetails {
   kind: "metric_query_structured";
   task_id?: string;
+  version?: number | undefined;
+  result_id?: string | undefined;
+  public_answer?: string | undefined;
   status: string;
   columns?: string[];
   rows?: Record<string, unknown>[];

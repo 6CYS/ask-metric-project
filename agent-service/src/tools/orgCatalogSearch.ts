@@ -26,7 +26,7 @@ export function createOrgCatalogSearchTool(): AgentHarnessTool<AskMetricRequestC
               items: result.items,
               usage_hint:
                 "仅确定性命中可用于确认机构编码；空结果表示目录未确认到该机构，不得猜测编码，" +
-                "改用 metric_ask 并把用户原句完整传入。",
+                "请用户明确机构名称；覆盖查询不能改用 metric_ask 或扩大为全部机构。",
             }),
           },
         ],

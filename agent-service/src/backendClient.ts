@@ -16,6 +16,33 @@ export interface BackendUser {
   role_code: string;
 }
 
+export interface AvailabilityRequest {
+  dimension: "metrics" | "dates";
+  org_codes: string[];
+  metric_codes?: string[];
+  start?: string;
+  end?: string;
+  match?: "any" | "all";
+  page?: number;
+  page_size?: number;
+}
+
+export interface AvailabilityResult {
+  status: "succeeded";
+  request: AvailabilityRequest;
+  mode: string;
+  metric_count: number;
+  org_count: number;
+  org_names: string[];
+  metric_names?: string[];
+  items?: Array<{metric_code: string; metric_name: string}>;
+  groups: Array<{date_count: number; earliest: string | null; latest: string | null; dates: string[]; has_more: boolean}>;
+  page: number;
+  page_size: number;
+  has_more?: boolean;
+  notice: string;
+}
+
 /** 目录检索命中类型：exact/contains/lexical 为确定性命中，semantic 仅为语义近似推荐 */
 export type CatalogMatchType = "exact" | "contains" | "lexical" | "semantic";
 
@@ -368,6 +395,10 @@ export class BackendClient {
 
   metricCatalogOverview(options?: CallOptions): Promise<{total: number; groups: Array<{unit: string; count: number; examples: Array<{code: string; name: string}>}>}> {
     return this.request("/api/v1/catalog/metrics/overview", {}, options);
+  }
+
+  dataAvailability(spec: AvailabilityRequest, options?: CallOptions): Promise<AvailabilityResult> {
+    return this.request("/api/v1/data-availability", {method: "POST", body: JSON.stringify(spec)}, options);
   }
 
   basicQueries(spec: BasicQuerySpec, idempotencyKey: string, options?: CallOptions): Promise<BasicQueryResponse> {

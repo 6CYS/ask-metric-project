@@ -19,7 +19,7 @@ export function businessEvidence(details: unknown): BusinessEvidence | undefined
   const value = details as BusinessEvidence;
   if (typeof value.status !== "string") return undefined;
   if (value.kind === "metric_read" && !value.result_id && !["error", "failed"].includes(value.status.toLowerCase())) return undefined;
-  return ["metric_ask", "metric_read", "metric_query_structured", "metric_catalog_overview"].includes(value.kind) ? value : undefined;
+  return ["metric_ask", "metric_read", "metric_query_structured", "metric_catalog_overview", "data_availability"].includes(value.kind) ? value : undefined;
 }
 
 export function evidenceAnswer(evidence: BusinessEvidence): string {

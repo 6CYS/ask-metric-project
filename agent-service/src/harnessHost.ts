@@ -7,7 +7,7 @@
  * 观察（SSE）使用独立的 lane.watch，与驱动 Context 分离，浏览器断线不中止执行。
  */
 import { createHash } from "node:crypto";
-import { activeClarificationTarget, historicalReadConflict, latestFollowupReference, queryCandidateBeforeTurn, queryReferenceContext } from "./queryContext.js";
+import { activeClarificationTarget, coverageContext, historicalReadConflict, latestFollowupReference, queryCandidateBeforeTurn, queryReferenceContext } from "./queryContext.js";
 import { modelUsage } from "./modelUsage.js";
 import { projectHistoricalResults } from "./modelContext.js";
 import {
@@ -196,6 +196,10 @@ export class HarnessHost {
         BACKGROUND_CONTEXT,
       );
       const lane = await harness.lane("main", { createAt: null }, BACKGROUND_CONTEXT);
+      // 原生会话持久化工具白名单；升级后同步注册集，旧会话也能选择新增覆盖工具。
+      // 仅在空闲时更新，不改变正在恢复的操作的工具配置。
+      const execution = await lane.inspectExecution(BACKGROUND_CONTEXT);
+      if (!execution.current) await lane.setActiveTools(this.tools.map(tool => tool.name), BACKGROUND_CONTEXT);
       this.registerHooks(harness, lane);
       return {
         sessionId,
@@ -240,12 +244,12 @@ export class HarnessHost {
       const payload = event.payload as Record<string, unknown>;
       if (request.modelCall) request.modelCall.payloadBytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
       if (request.modelCall?.step === "compaction" || request.modelCall?.step === "branch_summary") return undefined;
-      // 问数入口首轮必须取得工具证据；后续目录/状态回读继续由原生循环选择。
-      // 当前项目使用 OpenAI 兼容协议，provider-neutral ToolChoice 仅支持 auto/none。
-      if (this.tools.some(tool => tool.name === "metric_ask") && request.timings?.model_ms.length === 0
+      // 仅显式提交澄清选择时固定工具。其他目标由 pi 判断是否需要工具，
+      // 不支持的分析可直接说明限制，不能强迫它编造一个基础问数调用。
+      if (request.clarificationTarget && this.tools.some(tool => tool.name === "metric_ask")
+        && request.timings?.model_ms.length === 0
         && Array.isArray(payload.tools) && payload.tools.length) {
-        return { payload: { ...payload, tool_choice: request.clarificationTarget
-          ? { type: "function", function: { name: "metric_ask" } } : "required" } };
+        return { payload: { ...payload, tool_choice: { type: "function", function: { name: "metric_ask" } } } };
       }
       return undefined;
     });
@@ -358,7 +362,7 @@ export class HarnessHost {
       } else if (last?.role === "user" && typeof last.content === "string") {
         messages[messages.length - 1] = { ...last, content: last.content + suffix } as never;
       }
-      return { messages, systemPrompt: event.systemPrompt + queryReferenceContext(event.messages) };
+      return { messages, systemPrompt: event.systemPrompt + queryReferenceContext(event.messages) + coverageContext(event.messages) };
     });
   }
 

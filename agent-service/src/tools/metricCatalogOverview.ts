@@ -7,7 +7,7 @@ import { BackendApiError } from "../backendClient.js";
 export function createMetricCatalogOverviewTool(): AgentHarnessTool<AskMetricRequestContext> {
   return {
     name: "metric_catalog_overview", label: "可查询指标总览",
-    description: "回答你可以查询哪些指标、有哪些指标可查。读取当前数据库启用指标数量及按单位分组的名称示例，不需要机构、日期，不创建查询任务。查某类具体名称用 metric_catalog_search。",
+    description: "仅介绍系统指标目录本身。指定机构或时间内哪些指标实际有数据必须使用 data_availability，不用本工具。读取当前数据库启用指标数量及按单位分组的名称示例，不需要机构、日期，不创建查询任务。查某类具体名称用 metric_catalog_search。",
     parameters: Type.Object({}),
     execute: async (_id, _params, _update, request, _invocation, context) => {
       try {

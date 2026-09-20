@@ -29,25 +29,25 @@ const taskRef = Type.Object({
 const metricAskParameters = Type.Union([
   Type.Object({
     action: Type.Literal("new"),
-  }, { description: "全新业务查询：本轮用户原文由宿主直接提交，模型无需复述" }),
+  }, { additionalProperties: false, description: "独立基础查询，且用户原文不依赖覆盖结果。覆盖查询后沿用范围选指标必须用 metric_query_structured，不选 new" }),
   Type.Object({
     action: Type.Literal("clarify"),
     target: Type.Intersect([
       taskRef,
       Type.Object({ clarification_id: Type.String({ minLength: 1, maxLength: 128 }) }),
     ]),
-  }, { description: "补充已有任务的澄清条件：用户本轮的补充文字由宿主提交到原任务" }),
+  }, { additionalProperties: false, description: "补充已有任务的澄清条件：用户本轮的补充文字由宿主提交到原任务" }),
   Type.Object({
     action: Type.Literal("followup"),
     source: taskRef,
     change_field: Type.Optional(Type.Literal("compose", {
       description: "按本轮原文组合修改；具体字段由后端提槽确定",
     })),
-  }, { description: "引用已完成查询并按本轮原文组合修改；后端解析修改并继承未修改条件" }),
+  }, { additionalProperties: false, description: "引用已完成查询并按本轮原文组合修改；后端解析修改并继承未修改条件" }),
   Type.Object({
     action: Type.Literal("clarify_context"),
     reason: StringEnum(["ambiguous_source", "ambiguous_change"]),
-  }, { description: "仅在历史来源或修改含义有多个合理解释时澄清；不创建取数任务" }),
+  }, { additionalProperties: false, description: "仅在历史来源或修改含义有多个合理解释时澄清；不创建取数任务" }),
 ]);
 
 type Params = Static<typeof metricAskParameters>;
@@ -76,7 +76,7 @@ export function createMetricAskTool(): AgentHarnessTool<AskMetricRequestContext,
     name: "metric_ask",
     label: "指标问数",
     description:
-      "受治理的经营指标问数。完整给齐指标、机构、日期的本轮问题必须 action=new（即使历史查过相同指标）；action=clarify 把用户本轮补充提交到正在澄清的原任务（需要任务返回的 task_id/version/clarification_id）；" +
+      "仅基础指标取值及查询条件澄清，不承接归因、异常洞察、预测、血缘或指标发现；指标发现使用 data_availability。仅用户原文独立给齐条件时 action=new；覆盖回执后选指标取值使用 metric_query_structured（本工具不会继承覆盖范围）。独立问题（即使历史查过相同指标）；action=clarify 把用户本轮补充提交到正在澄清的原任务（需要任务返回的 task_id/version/clarification_id）；" +
       "action=followup 只用于修改条件进行新取数；重看或再次显示已经查过的数据必须使用 metric_read(kind=result)，不要用 followup。条件不足时返回澄清提示，如实转告用户，不代填条件。",
     parameters: metricAskParameters,
     // 兼容层：部分模型会把嵌套对象序列化成 JSON 字符串，schema 校验前还原
