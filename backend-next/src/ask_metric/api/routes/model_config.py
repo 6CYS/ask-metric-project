@@ -379,10 +379,10 @@ def test_model_connection(
     try:
         if role == "chat":
             result = tested_service.analyze(
-                prompt="intent_routing",
+                prompt="clarification",
                 context={
-                    "question": "查询本月指标值",
-                    "allowed_intents_json": '["metric_query"]',
+                    "missing_json": '["time"]',
+                    "candidates_json": "{}",
                 },
             )
             summary = f"JSON field count: {len(result)}"

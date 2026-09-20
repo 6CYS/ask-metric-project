@@ -227,7 +227,10 @@ class PromptConfigRepository:
         self.path = path
 
     def load(self) -> PromptRuntimeConfig:
-        return PromptRuntimeConfig.model_validate(_read_json(self.path))
+        data = _read_json(self.path)
+        # 持久配置可来自旧版本；退役提示词不再加载或暴露，保留磁盘文件供回退。
+        data.get("prompts", {}).pop("intent_routing", None)
+        return PromptRuntimeConfig.model_validate(data)
 
     def save(self, config: PromptRuntimeConfig) -> None:
         _write_json(self.path, config.model_dump(mode="json"))

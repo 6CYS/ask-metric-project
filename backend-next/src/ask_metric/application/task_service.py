@@ -228,7 +228,7 @@ class QueryTaskApplicationService:
                 },
                 actor_context=command.actor.model_dump(mode="json"),
             )
-            initial_stage = QueryTaskStage.INTENT_ROUTING
+            initial_stage = QueryTaskStage.SLOT_EXTRACTION
             if command.query_reference is not None:
                 # 单来源追问：提交时校验并冻结来源条件，作为后续分析的派生依据
                 state.query_reference = self._freeze_query_reference(

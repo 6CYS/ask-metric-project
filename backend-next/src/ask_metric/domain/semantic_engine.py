@@ -30,7 +30,6 @@ from ask_metric.domain.semantics import (
     MetricSlot,
     OrganizationCatalogItem,
     SlotFrame,
-    TaskType,
 )
 from ask_metric.domain.slot_frame_adapter import adapt_model_slot_frame, slot_frame_json_schema
 from ask_metric.infrastructure.model.catalog_vectors import (
@@ -230,9 +229,8 @@ class SemanticEngine:
                 else [{"field": "$", "code": "invalid_type", "message": str(exc)}]
             )
             raise InvalidSlotFrameError(errors) from exc
-        # Intent routing is completed before slot extraction. Only metric queries
-        # may enter this engine, so slot-model output cannot override that decision.
-        frame.task = TaskType.METRIC_QUERY
+        # 不再有前置意图分类；保留模型给出的任务/操作交由能力校验拒绝，
+        # 不能把旧模型返回的分析目标强制改成普通指标取值。
         if reference_context and reference_context.get("mode") == "candidate":
             relation = frame.context_relation
             debug["context_resolution"] = {"relation": relation,

@@ -97,7 +97,7 @@ FastAPI 后端负责账号与机构权限、指标目录、会话任务、语义
 升级时同步部署前后端，并备份后合并实际 `PROMPT_CONFIG_PATH` 指向的持久配置：
 
 - 删除 `conversation_contextualization`、`multiturn_context_patch`、`result_reference_selection` 提示词；
-  合并默认 `intent_routing` 和 `slot_extraction` 中独立问题、缺失条件不猜测的要求，保留自定义模型协议。
+  合并默认 `slot_extraction` 中独立问题、缺失条件不猜测的要求，保留自定义模型协议。
 - 移除运行环境的 `MULTITURN_*` 配置项；这些项已没有运行入口，不能恢复旧功能。
 - 集成 `/api/v1/integrations/ask` 的 `history` / `messages` 仍兼容接收，但不参与解析；续澄清须传 `clarification_id`。
   `reply_to_task_id` 等旧引用仅保留请求协议兼容，不用于条件继承。
@@ -117,7 +117,7 @@ FastAPI 后端负责账号与机构权限、指标目录、会话任务、语义
 
 1. 停止旧服务并备份持久配置。移除旧 `ANALYSIS_*` 环境项；无需为普通问数安装 LangGraph。
 2. 合并仓库 `config/prompts.json` 到实际 `PROMPT_CONFIG_PATH` 指向的文件：更新
-   `intent_routing`、`slot_extraction` 的独立查询协议，删除 `analysis_target` 和 `analysis_action`，
+   `slot_extraction` 的基础查询协议（`intent_routing` 已退役），删除 `analysis_target` 和 `analysis_action`，
    并按上节移除跨任务提示词。
    保留已经维护的目录保护、澄清文案和其他自定义配置，不整份覆盖生产持久配置。
    新协议删除了分析历史占位符；管理页面不允许变更占位符集合，须通过受控的配置文件发布完成。
@@ -463,7 +463,7 @@ python -m ask_metric sync-org-catalog --strict-scope
 提槽仅向模型发送本轮已匹配机构与歧义别名的所有相关候选；机构完整目录继续用于后端校验、
 权限与全机构集合展开。未知机构保持澄清，追问的冻结条件仍由后端提供和合并。
 
-`model_usage` 日志区分 `intent_routing` 与 `slot_extraction`，记录供应商实际输入、输出和总
+`model_usage` 日志记录 `slot_extraction` 等实际调用阶段，记录供应商实际输入、输出和总
 Token、模型名、请求标识、Trace-ID、耗时及请求字节数。失败或供应商未返回的字段为 null；
 `usage_known=false` 不能计作零消耗。HTTP 成功但响应解析失败的已发生用量仍被记录。
 不记录提示词、问题、回答或凭据；本日志是诊断用量，不能直接代替供应商账单。
@@ -528,3 +528,12 @@ Inceptor依赖部署驱动与服务端超时。大范围日期统计仍需结合
 此模式仅支持 `match=any`，共同日期查询仍使用 `dimension=dates`。
 升级须同步 Agent、前后端和实际持久配置中的 `data_available_metrics` 模板登记，
 部署对应方言的 `data_available_metrics.sql`；无需建表或数据库迁移。
+
+
+### pi 工具选择与基础查询边界
+
+高层任务选择由 pi 负责。基础问数提交从 `SLOT_EXTRACTION` 开始，不再调用意图路由模型，也不执行归因、异常洞察等任务分支。目录、日期、操作组合和权限校验保留；提槽结果中的不支持操作仍在澄清前拒绝，不能降级普通取值。历史 `INTENT_ROUTING` 阶段、旧任务和结果仍可读取，不迁移或删除既有数据。
+
+`POST /api/v1/data-availability` 为 pi 提供专门覆盖查询：`dimension=metrics` 返回范围内有记录的正式指标，`dates` 返回有记录的日期；二者不承诺每天均有有效数值。结果包含查询范围、总数和分页，继续按当前用户权限执行只读 SQL。
+
+升级时重启后端与 agent。仓库默认 prompts 已移除 `intent_routing`；旧持久配置中的该项在加载时忽略，不再显示为可用提示词。若使用自定义 `PROMPT_CONFIG_PATH`，需合并 `slot_extraction` 的基础查询边界（分析目标输出 unsupported 操作，不能删除目标）。不要覆盖自定义模型连接、凭据或其他提示词。模型连接测试改用澄清提示词，不依赖退役路由。

@@ -17,12 +17,12 @@ from ask_metric.application.query_execution_service import (
 )
 from ask_metric.application.result_enrichment import CatalogResultEnricher
 from ask_metric.application.result_processing import process_query_result
-from ask_metric.application.semantic_task_service import _looks_beyond_initial_scope
 from ask_metric.application.semantic_workflow import advance_slot_frame
 from ask_metric.core.config import PROJECT_DIR, get_settings
-from ask_metric.domain.intent_routing import RoutedIntent, parse_intent_classification
+from ask_metric.domain.query_capabilities import capability_error
 from ask_metric.domain.query_execution import QueryPlanner, json_safe
 from ask_metric.domain.semantic_engine import SemanticEngine
+from ask_metric.domain.semantic_normalization import query_shape_for
 from ask_metric.infrastructure.db.session import get_app_session_factory, get_query_engine
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
 from ask_metric.infrastructure.model.configuration import (
@@ -183,33 +183,6 @@ def main() -> None:
                 for key, value in case.items()
                 if key not in {"id", "question"}
             }
-            intent = parse_intent_classification(
-                model.analyze(
-                    prompt="intent_routing",
-                    context={
-                        "question": question,
-                        "allowed_intents_json": json.dumps(
-                            [item.value for item in RoutedIntent],
-                            ensure_ascii=False,
-                        ),
-                    },
-                )
-            )
-            if intent.intent is not RoutedIntent.METRIC_QUERY:
-                return {
-                    "id": index,
-                    "status": "out_of_scope",
-                    "question": question,
-                    "intent": intent.intent.value,
-                    "expected": expected,
-                }
-            if _looks_beyond_initial_scope(question):
-                return {
-                    "id": index,
-                    "status": "out_of_scope",
-                    "question": question,
-                    "expected": expected,
-                }
             analysis = engine.analyze(
                 question,
                 metrics=metrics,
@@ -217,6 +190,17 @@ def main() -> None:
                 config=semantic_config,
                 current_date=current_date,
             )
+            unsupported = capability_error(
+                analysis.slot_frame, query_shape_for(analysis.slot_frame)
+            )
+            if unsupported:
+                return {
+                    "id": index,
+                    "status": "out_of_scope",
+                    "question": question,
+                    "expected": expected,
+                    "message": unsupported,
+                }
             advanced = advance_slot_frame(
                 analysis.slot_frame,
                 metrics=metrics,

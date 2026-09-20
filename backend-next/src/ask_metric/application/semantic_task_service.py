@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Callable
 from datetime import UTC, date, datetime
@@ -19,12 +18,6 @@ from ask_metric.application.query_scope import require_current_query_scope
 from ask_metric.application.semantic_workflow import SemanticAdvance, advance_slot_frame
 from ask_metric.application.task_results import TaskCommandResult
 from ask_metric.core.errors import ApplicationError
-from ask_metric.domain.intent_routing import (
-    IntentClassification,
-    InvalidIntentClassification,
-    RoutedIntent,
-    parse_intent_classification,
-)
 from ask_metric.domain.metric_matching import MetricMatcher
 from ask_metric.domain.query_capabilities import capability_error
 from ask_metric.domain.semantic_engine import (
@@ -101,7 +94,7 @@ class SemanticTaskApplicationService:
         self.today_provider = today_provider
 
     def analyze(self, command: AnalyzeSemanticCommand) -> TaskCommandResult:
-        # 先验证归属、版本和可执行阶段。读完状态即离开 with，首次意图模型调用
+        # 先验证归属、版本和可执行阶段。读完状态即离开 with，语义模型调用
         # 不占用这个数据库工作单元；结果落库时还需再次检查版本，防止覆盖新状态。
         analyze_started = perf_counter()
         with self.uow_factory() as uow:
@@ -128,8 +121,6 @@ class SemanticTaskApplicationService:
             disabled = uow.metric_catalog.list_disabled()
             organizations = uow.organization_catalog.list_enabled()
 
-        intent_started = perf_counter()
-        intent_raw: dict[str, Any] | None = None
         supplied_reference = reference
         if reference is not None and is_direct_catalog_query(
             original_question,
@@ -141,73 +132,6 @@ class SemanticTaskApplicationService:
             # 原文已独立给齐所有条件时，不让模型误选 followup 把新问题缩成单字段替换。
             # 来源归属已在提交期校验；此处不继承其条件，后续仍走完整目录/权限/DSL 校验。
             reference = None
-        direct_catalog_query = reference is None and is_direct_catalog_query(
-            original_question,
-            metrics=[*metrics, *disabled],
-            organizations=organizations,
-            organization_aliases=config.organization_aliases,
-        )
-        if reference is not None or direct_catalog_query:
-            intent_raw = {
-                "source": "query_reference" if reference else "catalog_exact",
-                "intent": "metric_query",
-            }
-            # 已验证的引用追问：不经过孤立意图路由（"那江阴呢？"离开上下文无法判断），
-            # 直接进入受治理指标语义解析；来源冻结条件在提交时已校验。
-            intent = IntentClassification(intent=RoutedIntent.METRIC_QUERY, confidence=1.0)
-            intent_model_ms = 0
-        else:
-            try:
-                intent_raw = self.model_service.analyze(
-                    prompt="intent_routing",
-                    context={
-                        "question": original_question,
-                        "allowed_intents_json": json.dumps(
-                            [item.value for item in RoutedIntent],
-                            ensure_ascii=False,
-                        ),
-                    },
-                )
-                intent = parse_intent_classification(intent_raw)
-            except ModelServiceUnavailable as exc:
-                intent_model_ms = _elapsed_ms(intent_started)
-                return self._finish_analysis_failure(
-                    command,
-                    original_question,
-                    code=_model_service_error_code(exc),
-                    user_message=_model_service_user_message(exc),
-                    stage=QueryTaskStage.INTENT_ROUTING,
-                    error=exc,
-                    retryable=True,
-                    analyze_started=analyze_started,
-                    intent_model_ms=intent_model_ms,
-                    intent_raw=intent_raw,
-                )
-            except (InvalidModelResponse, InvalidIntentClassification) as exc:
-                intent_model_ms = _elapsed_ms(intent_started)
-                return self._finish_analysis_failure(
-                    command,
-                    original_question,
-                    code="INTENT_ROUTING_INVALID",
-                    user_message="问题意图识别结果无效，请重新提问或稍后重试。",
-                    stage=QueryTaskStage.INTENT_ROUTING,
-                    error=exc,
-                    retryable=True,
-                    analyze_started=analyze_started,
-                    intent_model_ms=intent_model_ms,
-                    intent_raw=intent_raw,
-                )
-            intent_model_ms = _elapsed_ms(intent_started)
-
-        if intent.intent is not RoutedIntent.METRIC_QUERY:
-            return self._finish_intent_boundary(
-                command,
-                original_question,
-                intent=intent,
-                intent_raw=intent_raw,
-                intent_model_ms=intent_model_ms,
-                analyze_started=analyze_started,
-            )
         # 不按原句关键词猜查询能力：先保护目录名称并提取操作，再由 QueryPlanner
         # 在执行前统一校验。名称里的“明细”等词不能直接让正式指标失去查询资格。
         disabled_codes = {metric.code for metric in disabled}
@@ -229,9 +153,6 @@ class SemanticTaskApplicationService:
                 error=ValueError("requested disabled metrics"),
                 retryable=False,
                 analyze_started=analyze_started,
-                intent=intent,
-                intent_raw=intent_raw,
-                intent_model_ms=intent_model_ms,
             )
         current_date = self.today_provider()
         try:
@@ -253,17 +174,13 @@ class SemanticTaskApplicationService:
                 error=exc,
                 retryable=True,
                 analyze_started=analyze_started,
-                intent=intent,
-                intent_raw=intent_raw,
-                intent_model_ms=intent_model_ms,
             )
         except ContextResolutionError as exc:
             return self._finish_analysis_failure(
                 command, original_question, code="CONTEXT_CONFIRMATION_REQUIRED",
                 user_message=str(exc),
                 stage=QueryTaskStage.VALIDATION, error=exc, retryable=False,
-                analyze_started=analyze_started, intent=intent, intent_raw=intent_raw,
-                intent_model_ms=intent_model_ms,
+                analyze_started=analyze_started,
             )
         except InvalidSlotFrameError as exc:
             return self._finish_analysis_failure(
@@ -275,9 +192,6 @@ class SemanticTaskApplicationService:
                 error=exc,
                 retryable=True,
                 analyze_started=analyze_started,
-                intent=intent,
-                intent_raw=intent_raw,
-                intent_model_ms=intent_model_ms,
             )
         except InvalidModelResponse as exc:
             return self._finish_analysis_failure(
@@ -289,9 +203,6 @@ class SemanticTaskApplicationService:
                 error=exc,
                 retryable=True,
                 analyze_started=analyze_started,
-                intent=intent,
-                intent_raw=intent_raw,
-                intent_model_ms=intent_model_ms,
             )
         except ValueError as exc:
             return self._finish_analysis_failure(
@@ -303,9 +214,6 @@ class SemanticTaskApplicationService:
                 error=exc,
                 retryable=False,
                 analyze_started=analyze_started,
-                intent=intent,
-                intent_raw=intent_raw,
-                intent_model_ms=intent_model_ms,
             )
 
         advance_input = analysis.slot_frame
@@ -329,9 +237,6 @@ class SemanticTaskApplicationService:
                     error=exc,
                     retryable=False,
                     analyze_started=analyze_started,
-                    intent=intent,
-                    intent_raw=intent_raw,
-                    intent_model_ms=intent_model_ms,
                 )
 
         unsupported = capability_error(advance_input, query_shape_for(advance_input))
@@ -339,8 +244,7 @@ class SemanticTaskApplicationService:
             return self._finish_analysis_failure(
                 command, original_question, code="QUERY_UNSUPPORTED", user_message=unsupported,
                 stage=QueryTaskStage.VALIDATION, error=ValueError(unsupported), retryable=False,
-                analyze_started=analyze_started, intent=intent, intent_raw=intent_raw,
-                intent_model_ms=intent_model_ms,
+                analyze_started=analyze_started,
             )
 
         with self.uow_factory() as uow:
@@ -375,12 +279,6 @@ class SemanticTaskApplicationService:
                     "supplied_reference": supplied_reference,
                 }
             state.timings_ms.update(analysis.timings_ms)
-            _record_intent_routing(
-                state,
-                intent=intent,
-                raw_output=intent_raw,
-                duration_ms=intent_model_ms,
-            )
             state.debug.update(
                 {
                     "question": original_question,
@@ -495,9 +393,6 @@ class SemanticTaskApplicationService:
         error: Exception,
         retryable: bool,
         analyze_started: float,
-        intent: IntentClassification | None = None,
-        intent_raw: dict[str, Any] | None = None,
-        intent_model_ms: int | None = None,
     ) -> TaskCommandResult:
         error_reference = uuid4().hex
         error_debug = {
@@ -533,21 +428,6 @@ class SemanticTaskApplicationService:
             _require_version(task, command.expected_version)
             _require_analyzable(task)
             state = QueryTaskState.model_validate(task.state_json or {})
-            if intent is not None and intent_model_ms is not None:
-                _record_intent_routing(
-                    state,
-                    intent=intent,
-                    raw_output=intent_raw,
-                    duration_ms=intent_model_ms,
-                )
-            elif intent_model_ms is not None:
-                state.timings_ms["intent_model_ms"] = intent_model_ms
-                state.debug["intent_routing"] = {
-                    "prompt": "intent_routing",
-                    "enable_thinking": False,
-                    "duration_ms": intent_model_ms,
-                    "valid": False,
-                }
             state.timings_ms["analyze_total_ms"] = max(
                 0, round((perf_counter() - analyze_started) * 1000)
             )
@@ -569,7 +449,7 @@ class SemanticTaskApplicationService:
                 task_id=task.id,
                 conversation_id=task.conversation_id,
                 user_message=original_question,
-                intent=(intent.intent.value if intent is not None else task.intent or "unknown"),
+                intent=task.intent or "metric_query",
                 query_shape=task.query_shape,
                 query_plan={"error": error_debug},
                 status="failed",
@@ -599,103 +479,10 @@ class SemanticTaskApplicationService:
                 status=QueryTaskStatus.FAILED.value,
                 current_stage=stage.value,
                 state_json=state.model_dump(mode="json"),
-                intent=intent.intent.value if intent is not None else task.intent,
+                intent=task.intent or "metric_query",
                 query_shape=task.query_shape,
                 error_code=code,
                 error_message=user_message,
-                completed_at=datetime.now(UTC),
-            )
-            if updated is None:
-                raise _version_conflict(task.id, command.expected_version)
-            uow.commit()
-            return _result(updated, message_id=message_id, continuation_token=None)
-
-    def _finish_intent_boundary(
-        self,
-        command: AnalyzeSemanticCommand,
-        original_question: str,
-        *,
-        intent: IntentClassification,
-        intent_raw: dict[str, Any] | None,
-        intent_model_ms: int,
-        analyze_started: float,
-    ) -> TaskCommandResult:
-        message, error_code = _intent_boundary_message(intent.intent)
-        with self.uow_factory() as uow:
-            task = (
-                uow.tasks.get_owned_for_update(command.task_id, command.actor.user_id or "")
-                if command.actor is not None
-                else uow.tasks.get_for_update(command.task_id)
-            )
-            if task is None:
-                raise SemanticTaskNotFoundError(command.task_id)
-            replay = _analysis_replay(task, command)
-            if replay is not None:
-                return replay
-            _require_version(task, command.expected_version)
-            state = QueryTaskState.model_validate(task.state_json or {})
-            _record_intent_routing(
-                state,
-                intent=intent,
-                raw_output=intent_raw,
-                duration_ms=intent_model_ms,
-            )
-            state.timings_ms["analyze_total_ms"] = _elapsed_ms(analyze_started)
-            state.timings_ms["total_ms"] = _terminal_total_ms(state.timings_ms)
-            state.debug.update({"question": original_question, "intent_boundary": message})
-            append_task_trace(
-                state,
-                stage=QueryTaskStage.RESULT_FORMATTING.value,
-                status=QueryTaskStatus.SUCCEEDED.value,
-                node=(
-                    "non_metric_chat"
-                    if intent.intent in {RoutedIntent.NON_METRIC_CHAT, RoutedIntent.OTHER}
-                    else "intent_not_available"
-                ),
-                detail={"intent": intent.intent.value, "error_code": error_code},
-            )
-            _add_terminal_run(
-                uow,
-                task=task,
-                intent=intent.intent.value,
-                query_shape=intent.intent.value,
-                status=(
-                    "success"
-                    if intent.intent in {RoutedIntent.NON_METRIC_CHAT, RoutedIntent.OTHER}
-                    else "unsupported"
-                ),
-                failed_node=None,
-                error_type=None,
-                error_message=None,
-                state=state,
-            )
-            message_id = str(uuid4())
-            uow.messages.add(
-                ChatMessage(
-                    id=message_id,
-                    conversation_id=task.conversation_id,
-                    task_id=task.id,
-                    role="assistant",
-                    content=message,
-                    created_at=datetime.now(UTC),
-                    payload={
-                        "kind": "intent_boundary",
-                        "intent": intent.intent.value,
-                        "message": message,
-                    },
-                )
-            )
-            _record_analysis(state, command)
-            updated = uow.tasks.update_optimistically(
-                task_id=task.id,
-                expected_version=command.expected_version,
-                status=QueryTaskStatus.SUCCEEDED.value,
-                current_stage=QueryTaskStage.RESULT_FORMATTING.value,
-                state_json=state.model_dump(mode="json"),
-                intent=intent.intent.value,
-                query_shape=intent.intent.value,
-                error_code=error_code,
-                error_message=message,
                 completed_at=datetime.now(UTC),
             )
             if updated is None:
@@ -825,37 +612,6 @@ def _debug_clarification(value: dict[str, Any] | None) -> dict[str, Any] | None:
     return {key: item for key, item in value.items() if key != "continuation_token"}
 
 
-def _add_terminal_run(
-    uow: SqlAlchemyUnitOfWork,
-    *,
-    task: QueryTask,
-    intent: str,
-    query_shape: str,
-    status: str,
-    failed_node: str | None,
-    error_type: str | None,
-    error_message: str | None,
-    state: QueryTaskState,
-) -> None:
-    runs = getattr(uow, "runs", None)
-    if runs is None:
-        return
-    runs.add(
-        QueryRun(
-            task_id=task.id,
-            conversation_id=task.conversation_id,
-            user_message=task.original_question,
-            intent=intent,
-            query_shape=query_shape,
-            query_plan={"trace": state.debug.get("trace", [])},
-            status=status,
-            failed_node=failed_node,
-            error_type=error_type,
-            error_message=error_message,
-        )
-    )
-
-
 def _model_failure_stage(error: Exception) -> QueryTaskStage:
     endpoint = getattr(error, "endpoint", None)
     if isinstance(endpoint, str) and endpoint.rstrip("/").rsplit("/", 1)[-1] in {
@@ -888,67 +644,6 @@ def _model_service_user_message(error: ModelServiceUnavailable) -> str:
         "configuration": "大模型服务尚未正确配置，请联系管理员。",
         "concurrency": "当前问数请求较多，请稍后重试。",
     }.get(error.category, "大模型服务暂时不可用，请稍后重试。")
-
-
-def _record_intent_routing(
-    state: QueryTaskState,
-    *,
-    intent: IntentClassification,
-    raw_output: dict[str, Any] | None,
-    duration_ms: int,
-) -> None:
-    state.timings_ms["intent_model_ms"] = duration_ms
-    source = (raw_output or {}).get("source", "llm")
-    state.debug["intent_routing"] = {
-        "prompt": "intent_routing",
-        "source": source,
-        "enable_thinking": False,
-        "duration_ms": duration_ms,
-        "output": raw_output,
-        "intent": intent.intent.value,
-        "confidence": intent.confidence,
-        "valid": True,
-    }
-    append_task_trace(
-        state,
-        stage=QueryTaskStage.INTENT_ROUTING.value,
-        status="completed",
-        node="intent_classified",
-        detail={
-            "intent": intent.intent.value,
-            "confidence": intent.confidence,
-            "source": source,
-            "enable_thinking": False,
-            "duration_ms": duration_ms,
-        },
-    )
-
-
-def _intent_boundary_message(intent: RoutedIntent) -> tuple[str, str]:
-    if intent in {RoutedIntent.NON_METRIC_CHAT, RoutedIntent.OTHER}:
-        return (
-            "这不属于问数问题。当前系统仅支持经营指标问数，暂不支持闲聊或其他类型的问题。",
-            "NON_METRIC_QUERY_UNSUPPORTED",
-        )
-    if intent is RoutedIntent.ATTRIBUTION_ANALYSIS:
-        return (
-            "已识别为归因分析。当前版本暂不支持机构贡献度归因，也不支持解读涨跌的"
-            "业务动因；可改用指标取值、两期对比或机构排名查询。",
-            "INTENT_NOT_AVAILABLE",
-        )
-    labels = {
-        RoutedIntent.ANOMALY_DETECTION: "异常检测",
-        RoutedIntent.TREND_FORECAST: "趋势预测",
-        RoutedIntent.METRIC_EXPLANATION: "指标解释",
-        RoutedIntent.DATA_LINEAGE: "数据血缘",
-        RoutedIntent.INSIGHT_REPORT: "洞察报告",
-    }
-    label = labels.get(intent, intent.value)
-    return (
-        f"已识别为{label}。当前版本暂不支持该能力，"
-        "仅支持单次指标查询、当前任务澄清和历史结果查看/导出。",
-        "INTENT_NOT_AVAILABLE",
-    )
 
 
 def _elapsed_ms(started: float) -> int:
