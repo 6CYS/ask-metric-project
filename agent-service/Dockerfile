@@ -12,6 +12,7 @@ ENV NODE_ENV=production AGENT_SERVICE_HOST=0.0.0.0 AGENT_DATA_DIR=/app/data
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
+COPY skills ./skills
 RUN mkdir /app/data && chown node:node /app/data
 USER node
 EXPOSE 8020

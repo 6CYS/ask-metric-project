@@ -33,7 +33,7 @@ const structuredQueryParameters = Type.Object({
   end: Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "结束日期 YYYY-MM-DD（含）" }),
   selection: StringEnum(["exact", "latest_in_range", "all_in_range", "ranking"], {
     description:
-      "exact：起止必须同日的指定日原值；latest_in_range：范围内最后一个可用日期的原值（月末时点查询用此值）；all_in_range：范围内全部已有数据点；" +
+      "exact：起止必须同日的指定日原值，明确月末使用该月最后一天；latest_in_range：用户指定范围内最后一个可用日期的原值，不得为月末自行扩展或倒退日期范围；all_in_range：范围内全部已有数据点；" +
       "ranking：排名榜单与名次反查，按范围机构（缺省全省汇总直接下级）的下级排序取前 top_n 名，结果行自带机构、数值和名次",
   }),
   order: Type.Optional(
@@ -50,24 +50,19 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
   return {
     name: "metric_query_structured",
     label: "指标结构化查询",
-    description:
-      "以正式指标编码、机构编码和明确日期直接取数（不经过语义解析）。仅当指标、机构、日期都能确定为正式编码和绝对日期时使用；" +
-      "条件不明确、叫法拿不准或需要澄清的问题改用 metric_ask。日期规则：明确的某月末/某日用 start=end 并 selection=exact；" +
-      "某月末时点取值用该月1日至月末日、selection=latest_in_range；明确要求最新一期用 latest_in_range；整月或区间全部取值用 all_in_range，不得擅自缩小时间范围。" +
-      "排名榜单与名次反查（“第1名/前N名是哪家机构”“排名第几的是谁”）用 selection=ranking：值指标编码须先确认，org_codes 至多一个范围机构、" +
-      "空数组表示全省汇总直接下级，问第1名用 top_n=1，问排名最后用 order=asc；单位为“名”的排名指标不能用 ranking 反查机构。",
+    description: "用途：正式编码、日期和取值口径已确认时直接取数，包括覆盖后取值、组合计算的基础取数、批量查询或排名。不适用：条件未明的自然语言提槽、历史结果重显或业务归因。前提：正式机构/指标编码有目录或成功回执依据，完整绝对日期已确认；无需预先查覆盖，沿用覆盖范围时不能用样例日期替代。返回：执行条件、任务/结果引用、样例行、截断标记和可计算事实。",
     parameters: structuredQueryParameters,
     execute: async (_toolCallId, params: Static<typeof structuredQueryParameters>, _onUpdate, request, _invocation, context) => {
       if (!isCalendarDate(params.start) || !isCalendarDate(params.end) || params.start > params.end) {
         return {
           content: [{ type: "text", text: JSON.stringify({ status: "error", message: "日期必须是 YYYY-MM-DD 且 start 不晚于 end" }) }],
-          details: { kind: "metric_query_structured" as const, status: "error" },
+          details: { kind: "metric_query_structured" as const, status: "error", retryable: true, public_answer: "查询参数未通过校验，请核对日期与机构范围。" },
         };
       }
       if (params.selection === "exact" && params.start !== params.end) {
         return {
           content: [{ type: "text", text: JSON.stringify({ status: "error", message: "selection=exact 时 start 与 end 必须是同一天" }) }],
-          details: { kind: "metric_query_structured" as const, status: "error" },
+          details: { kind: "metric_query_structured" as const, status: "error", retryable: true, public_answer: "查询参数未通过校验，请核对日期与机构范围。" },
         };
       }
       const isRanking = params.selection === "ranking";
@@ -75,17 +70,25 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
       if (isRanking && params.org_codes.length > 1) {
         return {
           content: [{ type: "text", text: JSON.stringify({ status: "error", message: "selection=ranking 时 org_codes 至多一个范围机构，空数组表示全省汇总的直接下级" }) }],
-          details: { kind: "metric_query_structured" as const, status: "error" },
+          details: { kind: "metric_query_structured" as const, status: "error", retryable: true, public_answer: "查询参数未通过校验，请核对日期与机构范围。" },
         };
       }
       if (!isRanking && params.org_codes.length === 0) {
         return {
           content: [{ type: "text", text: JSON.stringify({ status: "error", message: "org_codes 不能为空；仅 selection=ranking 允许空数组（缺省为全省汇总直接下级）" }) }],
-          details: { kind: "metric_query_structured" as const, status: "error" },
+          details: { kind: "metric_query_structured" as const, status: "error", retryable: true, public_answer: "查询参数未通过校验，请核对日期与机构范围。" },
         };
       }
       try {
+        let conversationId = await request.commands.getConversationId();
+        if (!conversationId) {
+          const created = await request.backend.createAgentQueryContext(request.sessionId, {signal: context.abortSignal});
+          conversationId = created.conversation_id;
+          await request.commands.setConversationId(conversationId);
+        }
         const spec: BasicQuerySpec = {
+          conversation_id: conversationId,
+          calculation_context: {scope_id: request.operationId, user_question: request.originalMessage},
           metric_codes: [...new Set(params.metric_codes)],
           org_codes: [...new Set(params.org_codes)],
           time: { start: params.start, end: params.end },
@@ -126,6 +129,9 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
                 columns: result.columns,
                 // 仅样例行供模型核对口径；明细数值的完整展示由用户界面的结果表承担
                 sample_rows: sampleRows,
+                facts: (result.facts ?? []).slice(0, 100),
+                fact_count: result.facts?.length ?? 0,
+                facts_truncated: (result.facts?.length ?? 0) > 100,
                 row_count: result.row_count,
                 truncated: Boolean(result.truncated),
                 error_code: result.error_code ?? null,

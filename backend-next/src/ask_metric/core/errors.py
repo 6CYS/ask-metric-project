@@ -10,6 +10,12 @@ from ask_metric.core.request_context import get_request_id
 
 logger = logging.getLogger(__name__)
 
+# 校验错误 details 允许透传的约束白名单；input 等含原始值的键永不外泄
+_SAFE_CONSTRAINT_KEYS = frozenset({
+    "pattern", "min_length", "max_length", "ge", "gt", "le", "lt",
+    "min_items", "max_items", "max_digits", "decimal_places",
+})
+
 
 class ErrorResponse(BaseModel):
     code: str
@@ -37,10 +43,25 @@ class ApplicationError(Exception):
 def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def handle_request_validation(request: Request, exc: RequestValidationError):
-        # FastAPI's default validation response echoes input, including login/SSO secrets.
-        errors = [{"loc": list(error["loc"]), "type": error["type"],
-                   "msg": "Invalid request value"} for error in exc.errors()]
-        return JSONResponse(status_code=422, content={"detail": errors})
+        # 校验错误与领域错误共用同一信封，调用方只需一种解析路径。
+        # 脱敏边界：只暴露字段路径与约束白名单，绝不回显输入值（含登录/SSO 秘密）。
+        fields = []
+        for error in exc.errors():
+            loc = [str(part) for part in error.get("loc", ()) if part != "body"]
+            ctx = error.get("ctx") or {}
+            expected = {key: value for key, value in ctx.items() if key in _SAFE_CONSTRAINT_KEYS}
+            fields.append({
+                "path": ".".join(loc) or "root",
+                "rule": str(error.get("type", "")),
+                **({"expected": expected} if expected else {}),
+            })
+        body = ErrorResponse(
+            code="REQUEST_INVALID",
+            message="请求参数未通过校验。",
+            request_id=get_request_id(),
+            details={"fields": fields},
+        )
+        return JSONResponse(status_code=422, content=body.model_dump())
 
     @app.exception_handler(ApplicationError)
     async def handle_application_error(request: Request, exc: ApplicationError) -> JSONResponse:

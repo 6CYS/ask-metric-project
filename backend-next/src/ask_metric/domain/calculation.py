@@ -46,6 +46,7 @@ class CalculationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     conversation_id: str = Field(min_length=1, max_length=128)
     scope_id: str = Field(min_length=1, max_length=128)
+    scope_policy: Literal["same_org_date", "cross_date", "cross_org", "explicit"] = "same_org_date"
     expressions: list[CalculationExpression] = Field(min_length=1, max_length=10)
     bindings: dict[Name, FactBinding] = Field(min_length=1, max_length=100)
     constants: dict[Name, UserConstant] = Field(default_factory=dict, max_length=20)
@@ -102,6 +103,9 @@ def quantity(value: str | int | Decimal, unit: str) -> Quantity:
     return Quantity(decimal_value(value), ((unit, 1),))
 
 
+AGGREGATE_FUNCTIONS = ("sum", "avg", "min", "max")
+
+
 def _aggregate(kind: str, *args: Quantity) -> Quantity:
     if not args or len(args) > 100 or any(item.units != args[0].units for item in args):
         raise CalculationError("聚合至少需要一个值，且所有值单位必须一致。")
@@ -119,7 +123,7 @@ def evaluate_expression(spec: CalculationExpression, bindings: dict[str, Quantit
     """只开放纯数学节点；不开放属性、索引、赋值、循环、幂或任意函数。"""
     functions = {
         kind: (lambda *args, kind=kind: _aggregate(kind, *args))
-        for kind in ("sum", "avg", "min", "max")
+        for kind in AGGREGATE_FUNCTIONS
     }
     functions["abs"] = lambda value: Quantity(abs(value.value), value.units)
     try:

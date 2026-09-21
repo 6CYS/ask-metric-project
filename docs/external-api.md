@@ -63,6 +63,11 @@ Pydantic 请求格式错误仍使用既有 422 校验响应；缺失或无效 Be
 
 ### 结构化基础查询（basic-queries）
 
+Agent 调用时通过 `calculation_context.user_question` 携带宿主绑定的当前用户原文。
+若所选编码来自短名称/别名，却与原文中更完整的正式指标名冲突，后端在创建任务前返回
+HTTP 422、`QUERY_METRIC_REFERENCE_CONFLICT`，由 pi 核对完整名称后重试；后端不静默替换编码。
+该校验复用正式目录最长名称匹配，不是通用意图识别或权限判断；不带该上下文的编码接口保持原契约，权限校验仍独立执行。
+
 `POST /api/v1/basic-queries` 为上层工具编排提供不调用模型的基础取数。使用现有
 Bearer 认证，必填 `Idempotency-Key`（1～128 字符）。仍受查询就绪检查、当前用户权限和
 启用目录约束；请求中的编码不是授权凭据。接口不接受 SQL、自然语言、身份声明、
@@ -790,13 +795,22 @@ Agent 对用户原文所指的历史结果使用同路径的 `POST`，请求体�
 }
 ```
 
-部分FastAPI参数校验或管理接口仍可能返回：
+参数校验失败（HTTP 422）同样返回标准结构，`details.fields` 给出字段级定位（不回显输入值）：
 
 ```json
-{"detail": "..."}
+{
+  "code": "REQUEST_INVALID",
+  "message": "请求参数未通过校验。",
+  "request_id": "request-id",
+  "details": {
+    "fields": [
+      {"path": "constants._", "rule": "string_pattern_mismatch", "expected": {"pattern": "^[a-zA-Z][a-zA-Z0-9_]{0,31}$"}}
+    ]
+  }
+}
 ```
 
-调用方必须兼容`code/message/request_id/details`和`detail`两种错误正文。
+反向代理等中间层仍可能返回非标准错误正文（如`{"detail": "..."}`或纯文本），调用方应保留对非标准正文的容忍。
 
 常见错误：
 
@@ -813,8 +827,10 @@ Agent 对用户原文所指的历史结果使用同路径的 `POST`，请求体�
 | 409 | `TASK_VERSION_CONFLICT` | GET最新任务后决定下一步 |
 | 409 | `IDEMPOTENCY_KEY_REUSED` | 修正幂等键生成逻辑 |
 | 409 | 澄清引用过期/不匹配 | 使用最新澄清或continuation token |
-| 400/422 | 请求校验失败 | 修正请求，不自动重试 |
+| 400/422 | `REQUEST_INVALID` 等请求校验失败 | 按`details.fields`修正请求，不自动重试 |
 | 200 + `unsupported` | `QUERY_UNSUPPORTED` | 场景尚未实现 |
+| 200 + 任务 `FAILED` | `QUERY_CALCULATION_REQUIRED` | 语义入口确认条件完整的 sum/avg/min/max 运算；可由上层按完整目标重新取数并调用 calculations，不可将中间原值当作完成 |
+| 200 + 任务 `FAILED` | `SLOT_FRAME_VALIDATION_FAILED` | 后端已尝试一次结构纠正仍不合法；保留任务及字段诊断，未执行 SQL |
 | 200 + `failed` | `QUERY_EXECUTION_FAILED`等 | 记录task_id和request_id后排查 |
 | 500 | `INTERNAL_SERVER_ERROR` | 有限重试并告警 |
 
@@ -1050,3 +1066,10 @@ GET /health/ready
 - [ ] Nginx超时或缓冲配置是否同步；
 - [ ] 数字农商、鼎鼎适配器和Vue调用是否同步回归；
 - [ ] README和技术栈文档中的能力描述是否同步。
+
+
+### 完整新问题与澄清提交边界
+
+语义澄清接口收到纯文本答案时，若正式目录与完整查询语法能够确认它已独立包含指标、机构和日期，返回 HTTP 409 / `CLARIFICATION_INDEPENDENT_QUERY`，`details.write_applied=false`、`next_action=new`。该校验在追加消息、更新任务与记录幂等结果之前执行，旧任务及版本保持原样；客户端应以新查询提交原文。
+
+仅补日期/指标的文字仍走原澄清流程。用户显式指定澄清卡片的结构化答案（包括 `{text: ...}`）保持指定任务语义。Agent 只对上述明确未写入的拒绝允许模型同轮纠正为 `new`；超时、响应丢失和未知错误不能据此更换写命令。

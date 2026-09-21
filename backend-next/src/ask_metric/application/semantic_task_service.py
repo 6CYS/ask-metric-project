@@ -18,6 +18,7 @@ from ask_metric.application.query_scope import require_current_query_scope
 from ask_metric.application.semantic_workflow import SemanticAdvance, advance_slot_frame
 from ask_metric.application.task_results import TaskCommandResult
 from ask_metric.core.errors import ApplicationError
+from ask_metric.domain.calculation import AGGREGATE_FUNCTIONS
 from ask_metric.domain.metric_matching import MetricMatcher
 from ask_metric.domain.query_capabilities import capability_error
 from ask_metric.domain.semantic_engine import (
@@ -241,10 +242,25 @@ class SemanticTaskApplicationService:
 
         unsupported = capability_error(advance_input, query_shape_for(advance_input))
         if unsupported:
+            # 只有条件完整且明确为有界聚合时允许转交计算；未知指标或其他限制不能绕过。
+            calculation_required = (
+                not advance_input.missing and bool(advance_input.metrics)
+                and len(advance_input.ops) == 1 and advance_input.ops[0].type == "aggregate"
+                and advance_input.ops[0].method in AGGREGATE_FUNCTIONS
+                and not advance_input.filters and not advance_input.dimensions
+            )
             return self._finish_analysis_failure(
-                command, original_question, code="QUERY_UNSUPPORTED", user_message=unsupported,
+                command, original_question,
+                code="QUERY_CALCULATION_REQUIRED" if calculation_required else "QUERY_UNSUPPORTED",
+                user_message=("本请求包含数学运算，需要重新取数后使用受控计算。"
+                              if calculation_required else unsupported),
                 stage=QueryTaskStage.VALIDATION, error=ValueError(unsupported), retryable=False,
                 analyze_started=analyze_started,
+                diagnostics={"operations": [op.model_dump(mode="json") for op in advance_input.ops],
+                             "missing": advance_input.missing,
+                             "pending_metrics": advance_input.options.get(
+                                 "metric_clarification_items"),
+                             "query_shape": query_shape_for(advance_input)},
             )
 
         with self.uow_factory() as uow:
@@ -393,6 +409,7 @@ class SemanticTaskApplicationService:
         error: Exception,
         retryable: bool,
         analyze_started: float,
+        diagnostics: dict[str, Any] | None = None,
     ) -> TaskCommandResult:
         error_reference = uuid4().hex
         error_debug = {
@@ -404,6 +421,15 @@ class SemanticTaskApplicationService:
             "error_reference": error_reference,
             "occurred_at": datetime.now(UTC).isoformat(),
         }
+        if diagnostics:
+            error_debug["diagnostics"] = diagnostics
+        if isinstance(error, InvalidSlotFrameError):
+            # 仅保存脱敏字段诊断，不保存完整模型响应或输入值。
+            error_debug["field_validation_errors"] = [
+                {key: value for key, value in item.items()
+                 if key in {"field", "code", "loc", "type", "message"}}
+                for item in error.errors
+            ]
         if not getattr(error, "_ask_metric_alert_logged", False):
             logger.error(
                 "semantic_task_failed task_id=%s stage=%s code=%s error_reference=%s",

@@ -233,3 +233,26 @@ def deduplicate_metrics(items: list[MetricCatalogItem]) -> list[MetricCatalogIte
         # setdefault 只在键不存在时写入；直接赋值则会覆盖前面优先级更高的对象。
         values.setdefault(item.code, item)
     return list(values.values())
+
+
+def conflicting_metric_references(
+    question: str, selected_codes: list[str], catalog: list[MetricCatalogItem],
+) -> list[tuple[MetricCatalogItem, MetricMatch]]:
+    """校验明确完整名称被另一指标短名称/别名替代的冲突，不承担工具选择或编码替换。"""
+    matches = MetricMatcher(catalog).resolve(question).matches
+    explicit_codes = {match.code for match in matches}
+    conflicts = []
+    for item in catalog:
+        if item.code not in selected_codes or item.code in explicit_codes:
+            continue
+        # 用户明确提供编码时保持编码查询语义；自然语言的不完整指代仍由 pi 判断。
+        if re.search(rf"(?<![\w]){re.escape(item.code)}(?![\w])", question, re.ASCII):
+            continue
+        terms = [normalize_semantic_text(term) for term in [item.name, *item.aliases]]
+        for match in matches:
+            full = normalize_semantic_text(match.matched_text)
+            if match.source == "standard_name" and any(
+                term and len(term) < len(full) and term in full for term in terms
+            ):
+                conflicts.append((item, match))
+    return conflicts

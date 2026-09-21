@@ -71,6 +71,7 @@ type DisplayMessage = {
   calculations?: CalculationDetails[]
   metricAskClarification?: BackendNextClarification
   answerStreaming?: boolean
+  answerDelivered?: boolean
   availabilityError?: string
   availability?: AvailabilityDetails[]
   catalogOverviews?: CatalogOverviewDetails[]
@@ -98,6 +99,11 @@ type DisplayConversation = {
 }
 
 const toolLabels: Record<string, string> = {
+  business_skill_read: "确认查询方法",
+  business_capability_explain: "说明当前能力",
+  answer_evidence_check: "核验回答依据",
+  answer_present: "交付回答",
+  data_availability: "查看数据覆盖",
   metric_ask: "指标问数",
   metric_query_structured: "指标结构化查询",
   metric_calculate: "可靠计算工具",
@@ -327,8 +333,8 @@ function responseFromMetricAsk(details: MetricAskDetails, answer: string): ChatR
   return {
     message_id: details.task_id ?? createId(),
     intent: "metric_query",
-    answer: governedReply(details) ?? (answer.trim() || (rowCount ? `查询完成，找到 ${rowCount} 条记录。` : "查询完成，暂无匹配数据。")),
-    ...(answerBlocks ? { answer_blocks: answerBlocks } : {}),
+    answer: answer.trim() || governedReply(details) || (rowCount ? `查询完成，找到 ${rowCount} 条记录。` : "查询完成，暂无匹配数据。"),
+    ...(answerBlocks && (!answer.trim() || answer.trim() === details.public_answer) ? { answer_blocks: answerBlocks } : {}),
     result: hasRows && rowCount <= 100 && columns.length ? { type: "metric_query", table: { columns, rows } } : null,
     metric_definition: null,
     clarification: null,
@@ -359,10 +365,16 @@ function clarificationResponse(clarification: BackendNextClarification, prompt: 
 
 /** done/error 收尾：按本轮收集到的工具明细生成最终结构化响应。 */
 function finalizeAssistantMessage(chatMessage: DisplayMessage): DisplayMessage {
+  if (chatMessage.answerDelivered) {
+    const details = chatMessage.metricAskDetails
+    return details?.status === "succeeded"
+      ? { ...chatMessage, response: responseFromMetricAsk(details, chatMessage.content) }
+      : chatMessage
+  }
   const calculationCalls = chatMessage.toolCalls?.filter(call => call.tool === "metric_calculate") ?? []
   const lastCalculation = calculationCalls[calculationCalls.length - 1]
   if (lastCalculation?.status === "error") {
-    return { ...chatMessage, content: "本次计算未成功，暂不能提供可靠的计算结果，请重新查询所需指标后再计算。" }
+    return { ...chatMessage, content: chatMessage.content || "本次计算未成功，暂不能提供可靠的计算结果，请重新查询所需指标后再计算。" }
   }
 
   const clarification = chatMessage.metricAskClarification
@@ -381,19 +393,30 @@ function finalizeAssistantMessage(chatMessage: DisplayMessage): DisplayMessage {
   if (fixed !== undefined) return { ...chatMessage, content: fixed }
   if (chatMessage.availabilityError && !details) return { ...chatMessage, content: chatMessage.availabilityError }
   if (chatMessage.availability?.length && !details && !chatMessage.calculations?.length) {
-    return { ...chatMessage, content: chatMessage.availability.map(availabilityReply).join("\n") }
+    return { ...chatMessage, content: chatMessage.content || chatMessage.availability.map(availabilityReply).join("\n") }
   }
   if (chatMessage.catalogOverviews?.length && !chatMessage.metricAskDetails && !chatMessage.calculations?.length) {
-    return { ...chatMessage, content: chatMessage.catalogOverviews.map(catalogOverviewReply).join("\n\n") }
+    return { ...chatMessage, content: chatMessage.content || chatMessage.catalogOverviews.map(catalogOverviewReply).join("\n\n") }
   }
   return chatMessage
 }
 
 function asMetricAskDetails(value: unknown): MetricAskDetails | undefined {
   const kind = value && typeof value === "object" ? (value as { kind?: unknown }).kind : undefined
+  // 只读任务状态不等于读取结果，不能将 SUCCEEDED 状态回执渲染成空数据答案。
+  if (kind === "metric_read" && !(value as MetricAskDetails).result_id
+    && !["error", "failed"].includes(String((value as MetricAskDetails).status).toLowerCase())) return undefined
   return kind === "metric_ask" || kind === "metric_query_structured" || kind === "metric_read"
     ? value as MetricAskDetails
     : undefined
+}
+
+function asDeliveredAnswer(value: unknown): { public_answer: string } | undefined {
+  if (!value || typeof value !== "object") return undefined
+  const details = value as { kind?: string; delivery?: string; status?: string; public_answer?: unknown }
+  return details.kind === "answer_present" && details.delivery === "business_answer_v1"
+    && details.status === "delivered" && typeof details.public_answer === "string"
+    ? { public_answer: details.public_answer } : undefined
 }
 
 function historyTimestamp(value: number | null | undefined) {
@@ -454,10 +477,21 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
         else calls.push(call)
         assistant.toolCalls = calls
       }
+      if ((item.details as { answer_selected?: boolean } | null)?.answer_selected === false) continue
+      const delivery = asDeliveredAnswer(item.details)
+      if (delivery && assistant?.role === "assistant") {
+        assistant.content = delivery.public_answer
+        assistant.answerDelivered = true
+        continue
+      }
       if ((item.details as AvailabilityDetails)?.kind === "data_availability") {
         const last = messages[messages.length - 1]
         if (last?.role === "assistant") {
-          if ((item.details as AvailabilityDetails).status === "succeeded") last.availability = last.availability?.length ? last.availability : [item.details as AvailabilityDetails]
+          if ((item.details as AvailabilityDetails).status === "succeeded") {
+            last.availability = last.availability?.length ? last.availability : [item.details as AvailabilityDetails]
+            // 工具参数可在同轮纠正；成功回执必须清除先前失败的展示状态。
+            last.availabilityError = undefined
+          }
           else last.availabilityError = "数据覆盖查询未完成，请确认登录和查询条件，或缩小范围后重试；这不代表没有数据。"
         }
         continue
@@ -469,7 +503,11 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
       }
       if ((item.details as CalculationDetails)?.kind === "metric_calculate") {
         const last = messages[messages.length - 1]
-        if (last?.role === "assistant") last.calculations = [...(last.calculations ?? []), item.details as CalculationDetails]
+        if (last?.role === "assistant") {
+          const calculation = item.details as CalculationDetails
+          last.calculations = [...(last.calculations ?? []).filter(previous =>
+            !(calculation.status === "succeeded" && previous.retryable)), calculation]
+        }
         continue
       }
       const details = asMetricAskDetails(item.details)
@@ -504,7 +542,7 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
       void metricAskDetails
       return details.status === "succeeded"
         ? { ...rest, response: responseFromMetricAsk(details, item.content) }
-        : { ...rest, content: governedReply(details) ?? item.content }
+        : { ...rest, content: item.answerDelivered ? item.content : governedReply(details) ?? item.content }
     }),
   }
 }
@@ -871,10 +909,13 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
     } else {
       toolCalls.push({ id: event.tool_call_id || createId(), tool: event.tool, status: event.isError ? "error" : "done" })
     }
+    const delivery = asDeliveredAnswer(event.details)
+    if (delivery) return { ...item, toolCalls, answerDelivered: true, content: delivery.public_answer }
     if ((event.details as AvailabilityDetails)?.kind === "data_availability") {
       if ((event.details as AvailabilityDetails).status !== "succeeded") return { ...item, toolCalls,
         availabilityError: "数据覆盖查询未完成，请确认登录和查询条件，或缩小范围后重试；这不代表没有数据。" }
-      return { ...item, toolCalls, availability: item.availability?.length ? item.availability : [event.details as AvailabilityDetails] }
+      return { ...item, toolCalls, availabilityError: undefined,
+        availability: item.availability?.length ? item.availability : [event.details as AvailabilityDetails] }
     }
     if ((event.details as CatalogOverviewDetails)?.kind === "catalog_overview") {
       return { ...item, toolCalls, catalogOverviews: [...(item.catalogOverviews ?? []), event.details as CatalogOverviewDetails] }
@@ -882,7 +923,8 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
     if ((event.details as CalculationDetails)?.kind === "metric_calculate") {
       const calculation = event.details as CalculationDetails
       const taskIds = calculation.task_id ? [...new Set([...(item.taskIds ?? []), calculation.task_id])] : item.taskIds
-      return { ...item, toolCalls, taskIds, calculations: [...(item.calculations ?? []), calculation] }
+      return { ...item, toolCalls, taskIds, calculations: [...(item.calculations ?? []).filter(previous =>
+        !(calculation.status === "succeeded" && previous.retryable)), calculation] }
     }
     const details = asMetricAskDetails(event.details)
     if (!details) return { ...item, toolCalls }

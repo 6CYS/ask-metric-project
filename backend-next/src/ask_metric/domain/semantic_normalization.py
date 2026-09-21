@@ -26,6 +26,79 @@ class SemanticValidationError(ValueError):
 _CALENDAR_MONTH_TOKEN = r"(?:\d{1,2}|[一二三四五六七八九十]{1,3})"
 
 
+def normalize_calendar_text(text: str) -> str:
+    """统一日期词内部的排版空白；不拼接数字片段，也不删除一般文本分隔。"""
+    number = r"0-9零〇一二两三四五六七八九十"
+    text = re.sub(rf"(?<=[{number}])\s+(?=[年月日])", "", text)
+    text = re.sub(rf"(?<=[年月])\s+(?=[{number}])", "", text)
+    text = re.sub(r"(?<=月)\s+(?=[份末底])", "", text)
+    # 提取和从原句剥离日期共用相同写法，避免“月份”残留为待识别指标。
+    return re.sub(
+        rf"({_CALENDAR_MONTH_TOKEN}月)份?(底)?",
+        lambda match: match.group(1) + ("末" if match.group(2) else ""),
+        text,
+    )
+
+
+# 日期补全和指标残句识别共用周期语法，避免同一日期词在两处被解释为不同含义。
+CALENDAR_PERIOD_PATTERN = (
+    r"(?:(?P<year>\d{4})年|(?P<relative>今年|本年|去年|上年|前年))?"
+    r"(?P<period>(?:第)?[一二三四1-4]季度|[上下]半年)"
+)
+CALENDAR_RECURRENCE_PATTERN = r"(?:每(?:个)?|各)(?:季度|年|季|月|周|日|天)(?:初|末|底)?"
+
+
+def explicit_calendar_boundary_dates(
+    question: str, expression: str, *, today: date,
+) -> list[str] | None:
+    """将明确的周期初末展开为离散日期；复合或否定表达留给语义解析。"""
+    directives = re.findall(CALENDAR_RECURRENCE_PATTERN, question)
+    if not directives:
+        return None
+    # 不从复杂句中抽取一个片段覆盖模型已解析的其他日期条件。
+    if re.search(
+        rf"(?:不(?:要|用|含|包括|是)?|排除|除去|除了?|而非)\s*{CALENDAR_RECURRENCE_PATTERN}",
+        question,
+    ):
+        return None
+    rules = set()
+    for directive in directives:
+        match = re.fullmatch(r"(?:每(?:个)?|各)(季度|年|季|月|周)(初|末|底)", directive)
+        if not match:
+            return None
+        unit = "季度" if match.group(1) == "季" else match.group(1)
+        rules.add((unit, "初" if match.group(2) == "初" else "末"))
+    if len(rules) != 1:
+        return None
+    unit, boundary = rules.pop()
+    period = parse_time_expression(expression, today=today)
+    if period.start is None or period.end is None:
+        return None
+    if unit == "周":
+        current = period.start - timedelta(days=period.start.weekday())
+    else:
+        months = {"月": 1, "季度": 3, "年": 12}[unit]
+        current = date(period.start.year, ((period.start.month - 1) // months) * months + 1, 1)
+    dates = []
+    while current <= period.end:
+        if unit == "周":
+            last = current + timedelta(days=min(6, (date.max - current).days))
+        else:
+            last_month = current.month + months - 1
+            last = date(current.year, last_month, calendar.monthrange(current.year, last_month)[1])
+        target = current if boundary == "初" else last
+        if period.start <= target <= period.end:
+            dates.append(target.isoformat())
+            if len(dates) > 1000:
+                raise SemanticValidationError(["time"], "周期日期过多，请缩小查询时间范围。")
+        if last == date.max:
+            break
+        current = last + timedelta(days=1)
+    if not dates:
+        raise SemanticValidationError(["time"], "所选区间不包含指定的周期初末，请调整日期范围。")
+    return dates
+
+
 def normalize_slot_frame(
     frame: SlotFrame,
     *,
@@ -120,7 +193,7 @@ def parse_time_expression(
 ) -> LogicalTimeRange:
     if not expression:
         return LogicalTimeRange(preset="latest" if default == "latest" else None)
-    value = expression.strip()
+    value = normalize_calendar_text(expression).strip()
     if value in {"latest", "最新", "最近", "最新一期", "最近一期", "当前最新"}:
         return LogicalTimeRange(preset="latest")
     current_year_match = re.fullmatch(rf"今年({_CALENDAR_MONTH_TOKEN})月(末)?", value)
@@ -195,20 +268,23 @@ def parse_time_expression(
         end = current_quarter_start - timedelta(days=1)
         start_month = ((end.month - 1) // 3) * 3 + 1
         return LogicalTimeRange(start=date(end.year, start_month, 1), end=end)
-    explicit_quarter_match = re.fullmatch(
-        r"(?:(今年|本年)|(\d{4})年)?(?:第)?([一二三四1-4])季度",
-        value,
-    )
-    if explicit_quarter_match:
-        year = int(explicit_quarter_match.group(2) or today.year)
-        quarter_text = explicit_quarter_match.group(3)
-        quarter = (
-            int(quarter_text)
-            if quarter_text.isdigit()
-            else {"一": 1, "二": 2, "三": 3, "四": 4}[quarter_text]
-        )
-        start_month = (quarter - 1) * 3 + 1
-        end_month = start_month + 2
+    calendar_period = re.fullmatch(CALENDAR_PERIOD_PATTERN, value)
+    if calendar_period:
+        year = int(calendar_period.group("year") or today.year)
+        year -= {"去年": 1, "上年": 1, "前年": 2}.get(calendar_period.group("relative"), 0)
+        token = calendar_period.group("period")
+        if token.endswith("半年"):
+            span = 6
+            index = 1 if token == "上半年" else 2
+        else:
+            span = 3
+            number = token.removeprefix("第").removesuffix("季度")
+            index = (
+                int(number) if number.isdigit()
+                else {"一": 1, "二": 2, "三": 3, "四": 4}[number]
+            )
+        start_month = (index - 1) * span + 1
+        end_month = start_month + span - 1
         return LogicalTimeRange(
             start=date(year, start_month, 1),
             end=date(year, end_month, calendar.monthrange(year, end_month)[1]),

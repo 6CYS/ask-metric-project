@@ -194,8 +194,16 @@ class QueryPlanner:
                     value_parameters[f"period_end_{index}"] = ends[source_index]
             base_parameters.update(value_parameters)
         elif shape == SupportedQueryShape.METRIC_TREND:
-            template = QueryTemplateId.METRIC_TREND
-            base_parameters.update(_trend_parameters(dsl))
+            target_dates = _target_dates(dsl.options.get("target_dates"))
+            if target_dates:
+                # 月末等离散趋势必须执行已确认日期集合，不能退化为首尾之间所有日期。
+                template = QueryTemplateId.METRIC_VALUE_AT_DATES
+                base_parameters.update({"stat_dates": target_dates})
+            elif dsl.options.get("time_windows"):
+                raise UnsupportedQueryError("Trend time windows require explicit target dates")
+            else:
+                template = QueryTemplateId.METRIC_TREND
+                base_parameters.update(_trend_parameters(dsl))
         elif shape == SupportedQueryShape.METRIC_PERIOD_COMPARE:
             template = QueryTemplateId.METRIC_PERIOD_COMPARE
             base_parameters.update(_period_parameters(dsl))

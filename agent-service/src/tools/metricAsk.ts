@@ -28,17 +28,17 @@ const taskRef = Type.Object({
 
 const metricAskParameters = Type.Union([
   Type.Object({
-    action: Type.Literal("new"),
-  }, { additionalProperties: false, description: "独立基础查询，且用户原文不依赖覆盖结果。覆盖查询后沿用范围选指标必须用 metric_query_structured，不选 new" }),
+    action: Type.Literal("new", {description: "独立请求新任务，条件允许不全。完整重述指标、机构、日期且不依赖历史时也选 new，即使旧任务待澄清。依赖来源的改条件不选 new。"}),
+  }, { additionalProperties: false, description: '独立基础查询只传 {"action":"new"}，原文由宿主绑定，不传 target、question 或提槽字段。覆盖查询后沿用范围选指标必须用 metric_query_structured，不选 new' }),
   Type.Object({
-    action: Type.Literal("clarify"),
+    action: Type.Literal("clarify", {description: "仅回答当前任务待补字段，依赖该任务保留其他条件。完整独立新问题用 new；已成功任务改条件用 followup。"}),
     target: Type.Intersect([
       taskRef,
       Type.Object({ clarification_id: Type.String({ minLength: 1, maxLength: 128 }) }),
     ]),
   }, { additionalProperties: false, description: "补充已有任务的澄清条件：用户本轮的补充文字由宿主提交到原任务" }),
   Type.Object({
-    action: Type.Literal("followup"),
+    action: Type.Literal("followup", {description: "依赖成功来源修改条件或取值粒度；从单日改完整月份仍选 followup。需要继承任何未重述条件时不能选 new。"}),
     source: taskRef,
     change_field: Type.Optional(Type.Literal("compose", {
       description: "按本轮原文组合修改；具体字段由后端提槽确定",
@@ -57,6 +57,7 @@ export interface MetricAskDetails {
   task_id?: string | undefined;
   version?: number | undefined;
   result_id?: string | undefined;
+  source_task_id?: string;
   status: string;
   columns?: string[] | undefined;
   row_count?: number | undefined;
@@ -66,6 +67,7 @@ export interface MetricAskDetails {
   public_answer_blocks?: AnswerBlock[];
   error_code?: string;
   retryable?: boolean;
+  recovery_kind?: string;
   next_action?: string;
 }
 
@@ -76,8 +78,9 @@ export function createMetricAskTool(): AgentHarnessTool<AskMetricRequestContext,
     name: "metric_ask",
     label: "指标问数",
     description:
-      "仅基础指标取值及查询条件澄清，不承接归因、异常洞察、预测、血缘或指标发现；指标发现使用 data_availability。仅用户原文独立给齐条件时 action=new；覆盖回执后选指标取值使用 metric_query_structured（本工具不会继承覆盖范围）。独立问题（即使历史查过相同指标）；action=clarify 把用户本轮补充提交到正在澄清的原任务（需要任务返回的 task_id/version/clarification_id）；" +
-      "action=followup 只用于修改条件进行新取数；重看或再次显示已经查过的数据必须使用 metric_read(kind=result)，不要用 followup。条件不足时返回澄清提示，如实转告用户，不代填条件。",
+      "用途：基础取值、修改条件及澄清。动作按本轮是否依赖来源选择：依赖成功查询改机构、指标、日期范围或粒度用 followup；依赖待补任务仅回答缺项用 clarify；无需来源的独立查询用 new，允许条件不全。完整重述指标、机构、日期且无沿用指代，是 new，不因旧任务待澄清改成 clarify。日期从单日改整月但未重述机构/指标，是 followup，不因需要重新取数改成 new。" +
+      "前提：new 只传 action；followup 的 source 取成功回执 task_id/version；clarify 的 target 取当前待补回执 task_id/version/clarification_id。用户原文、身份和会话由宿主绑定。来源或修改存在歧义用 clarify_context。" +
+      "不适用：覆盖发现、覆盖后选指标、历史重显、自定义计算、归因预测。覆盖后取值用 metric_query_structured，历史重显用 metric_read result；自定义运算需要基础事实与 metric_calculate。返回：正式任务/版本/结果引用及执行条件，或待补字段和 clarification_id；条件不足不代填。",
     parameters: metricAskParameters,
     // 兼容层：部分模型会把嵌套对象序列化成 JSON 字符串，schema 校验前还原
     prepareArguments: (args: unknown) => {
@@ -105,12 +108,13 @@ export function createMetricAskTool(): AgentHarnessTool<AskMetricRequestContext,
         }
         if (params.action === "new") return await runNew(request, context.abortSignal);
         if (params.action === "clarify") return await runClarify(request, params.target, context.abortSignal);
-        return await runFollowup(
+        const result = await runFollowup(
           request,
           params.source,
           "compose",
           context.abortSignal,
         );
+        return {...result, details: {...result.details, source_task_id: params.source.task_id}};
       } catch (error) {
         const write = await request.commands.getWriteCommand();
         // 响应丢失或内部错误先只读核对原任务；绝不换键重建业务。
@@ -173,7 +177,7 @@ function clarifyAnswers(request: AskMetricRequestContext): unknown {
   if (request.selectedAnswers && Object.keys(request.selectedAnswers).length > 0) {
     return { ...request.selectedAnswers, text: request.originalMessage };
   }
-  return request.originalMessage;
+  return request.clarificationTarget ? {text: request.originalMessage} : request.originalMessage;
 }
 
 function receipt(payload: Record<string, unknown>, details: MetricAskDetails): Receipt {
@@ -184,24 +188,33 @@ function receipt(payload: Record<string, unknown>, details: MetricAskDetails): R
 }
 
 function errorReceipt(code: string, message: string, taskId?: string): Receipt {
+  const calculationRequired = code === "QUERY_CALCULATION_REQUIRED";
+  const independentQuery = code === "CLARIFICATION_INDEPENDENT_QUERY";
   return receipt(
-    { status: "error", error: { code, message }, ...(taskId ? { task_id: taskId } : {}) },
+    { status: "error", error: { code, message }, ...(taskId ? { task_id: taskId } : {}),
+      ...(calculationRequired ? {usage_hint: "后端已确认本次目标包含有界数学运算。请取齐完整目标的基础事实并调用 metric_calculate；不能只返回原值或覆盖列表。需要核对公式与单位规则时可查阅 result-calculation。"} : {}) },
     { kind: "metric_ask", status: "error", error_code: code, public_answer: message,
-      next_action: taskId ? "read_task" : "wait_user", ...(taskId ? { task_id: taskId } : {}) },
+      ...(calculationRequired ? {retryable: true, recovery_kind: "metric_calculate"} : {}),
+      ...(independentQuery ? {retryable: true, recovery_kind: "metric_ask_new"} : {}),
+      next_action: independentQuery ? "new" : taskId ? "read_task" : "wait_user", ...(taskId ? { task_id: taskId } : {}) },
   );
 }
 
 function limitReceipt(): Receipt {
   return errorReceipt(
     "TURN_QUERY_LIMIT",
-    "一轮提问只支持一个业务查询或修改；其余部分请分开发送。",
+    "本轮已接纳一个基础语义查询命令，不能更换该命令。已确认范围的补查可使用结构化查询，计算使用事实引用。",
   );
 }
 
 function backendErrorReceipt(error: unknown, taskId?: string): Receipt | undefined {
   if (!(error instanceof BackendApiError)) return undefined;
-  if (error.status === 401 || error.status === 403) {
+  if (error.status === 403) return errorReceipt("FORBIDDEN", "无权访问所选数据，请确认机构权限。", taskId);
+  if (error.status === 401) {
     return errorReceipt("AUTH_EXPIRED", "当前登录状态已失效，请提示用户刷新页面重新登录后再提问。");
+  }
+  if (error.code === "REFERENCE_UNAVAILABLE") {
+    return errorReceipt(error.code, "无法沿用所选历史查询的条件，请明确本次要查询的指标、机构和日期。", taskId);
   }
   return errorReceipt(error.code ?? "BACKEND_ERROR", "本次查询未取得可核验结果，请稍后回查原任务。", taskId);
 }
@@ -217,7 +230,8 @@ async function gateWriteCommand(
   action: WriteCommandRecord["action"],
 ): Promise<{ proceed: true; record: WriteCommandRecord } | { proceed: false; receipt: Receipt }> {
   const existing = await request.commands.getWriteCommand();
-  if (!existing) {
+  if (!existing || (existing.status === "rejected" && existing.action === "clarify"
+    && !existing.taskId && action === "new")) {
     const record: WriteCommandRecord = { commandKey: key, action, status: "pending" };
     await request.commands.setWriteCommand(record);
     return { proceed: true, record };
@@ -319,6 +333,9 @@ function resultReceipt(taskId: string, version: number | undefined, executed: Qu
       // 仅样例行供模型核对口径；完整明细经 metric_read 分页读取
       sample_rows: sampleRows,
       query_evidence: executed.evidence,
+      facts: (executed.facts ?? []).slice(0, 100),
+      fact_count: executed.facts?.length ?? 0,
+      facts_truncated: (executed.facts?.length ?? 0) > 100,
       row_count: executed.row_count,
       model_preview_truncated: executed.rows.length > MAX_ROWS_FOR_MODEL || executed.row_count > sampleRows.length,
       result_truncated: Boolean(executed.truncated),
@@ -391,6 +408,7 @@ async function runNew(request: AskMetricRequestContext, signal: AbortSignal | un
     submitted = await request.backend.submitQuestion(request.originalMessage, conversationId, key, reference, {
       signal,
       requestId: key,
+      calculationContext: {scope_id: request.operationId, user_question: request.originalMessage},
     });
   } catch (error) {
     if (error instanceof BackendApiError) throw error;
@@ -405,6 +423,7 @@ async function runNew(request: AskMetricRequestContext, signal: AbortSignal | un
       submitted = await request.backend.submitQuestion(request.originalMessage, null, key, reference, {
         signal,
         requestId: key,
+        calculationContext: {scope_id: request.operationId, user_question: request.originalMessage},
       });
     } else {
       // 提交结果未知：不假报失败也不重跑，交回模型说明
@@ -469,6 +488,12 @@ async function runClarify(
     clarified = current && (current.status !== "WAITING_USER" || current.clarification?.id !== target.clarification_id)
       ? current : await submit(target.version);
   } catch (error) {
+    if (error instanceof BackendApiError && error.status === 409
+      && error.code === "CLARIFICATION_INDEPENDENT_QUERY" && !record.taskId) {
+      // 只有后端明确在写入前拒绝才释放写意图；超时、未知异常和已接纳任务不能换键。
+      await save({...record, status: "rejected"});
+      return errorReceipt(error.code, "这是独立完整新查询，后端未修改旧任务。请使用 metric_ask action=new 提交本轮原文，不要继续 clarify。");
+    }
     if (!(error instanceof BackendApiError) || error.code !== "TASK_VERSION_CONFLICT") throw error;
     // 受控版本刷新：同一澄清最多一次；条件校验后仍未变才允许
     if (gate.record.refreshed) {
@@ -533,7 +558,7 @@ async function runFollowup(
     conversationId,
     key,
     { task_id: source.task_id, version: source.version, change_field: changeField },
-    { signal, requestId: key },
+    { signal, requestId: key, calculationContext: {scope_id: request.operationId, user_question: request.originalMessage} },
   );
   await request.commands.setWriteCommand({ ...gate.record, status: "pending", taskId: submitted.task_id });
   const result = await analyzeAndMaybeExecute(request, key, submitted, signal);

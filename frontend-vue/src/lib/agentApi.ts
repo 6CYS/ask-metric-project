@@ -86,6 +86,7 @@ export interface AgentPromptInput {
 export type AgentSnapshot = Pick<AgentSessionDetail, "messages" | "running" | "operation_id">
 
 export interface CalculationDetails {
+  retryable?: boolean
   kind: "metric_calculate"
   status: string
   calculation_id?: string

@@ -67,9 +67,19 @@ def slot_frame_json_schema() -> dict[str, Any]:
     schema["required"] = [*schema.get("required", []), "ops", "context_relation", "changes"]
     schema["properties"]["ops"]["description"] = (
         "必须显式输出操作数组；只有纯指标取值时才返回空数组。"
+        "多个指标用和、及、与连接表示分别取值，不表示aggregate或sum。"
+        "未知、不存在或停用是目录解析结果，不是unsupported操作。基础取值即使指标不存在，也只写raw_metric_texts并返回ops=[]，由目录校验发起指标澄清；不得添加“查询不存在的指标”之类的能力标签。"
+        "每项操作必须有实体占位符之外的原文操作语义依据，不能凭指标名补运算。"
         "逐项保留实体占位符之外的请求，不能因为当前系统不支持就省略操作、维度或筛选。"
-        "请求原始记录用detail，按其他维度展开用drill_down；名称占位符内文字不是操作。"
+        "指标在日期区间的全部已有值、每日明细用trend且grain=day，保持整个起止范围，不求和。客户、账户或交易级底层明细才用detail，按其他维度展开用drill_down；名称占位符内文字不是操作。"
         "后端根据结构判断是否支持，不要擅自把这些请求改成指标取值。"
+    )
+    schema["properties"]["changes"]["description"] = (
+        "字段动作映射；键只能是metrics/orgs/time/ops/filters/dimensions。"
+        "options不是独立变化字段，禁止changes.options。"
+        "target_dates、time_windows和time_mode等日期派生参数写在options，"
+        "与time一起由changes.time=replace替换；其他派生参数随所属ops等字段变更。"
+        "不要把参数值或派生选项名称作为changes的键。"
     )
     return schema
 
@@ -193,7 +203,10 @@ def _validation_error(field: str, exc: ValidationError, action: str) -> dict[str
     return {
         "field": field,
         "code": "validation_error",
-        "message": "; ".join(error["msg"] for error in exc.errors(include_url=False)),
+        "message": "; ".join(
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in exc.errors(include_url=False, include_input=False)
+        ),
         "action": action,
     }
 

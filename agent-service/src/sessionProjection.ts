@@ -4,13 +4,14 @@
  * 一律按 entry_id/seq、operation_id、tool_call_id 稳定关联。
  */
 import type { Entry, LaneSnapshot } from "@earendil-works/pi-agent-core";
-import { businessEvidence, evidenceAnswer, type BusinessEvidence } from "./answerEvidence.js";
+import { businessEvidence, combinedEvidenceAnswer, evidenceAnswer, presentedAnswer, type BusinessEvidence } from "./answerEvidence.js";
+import { EVIDENCE_BLOCKED_ANSWER, TOOL_LIMIT_ANSWER, mayDeliverWithoutEvidence } from "./replyGuard.js";
 import type { MetricAskDetails } from "./tools/metricAsk.js";
 
 /** 历史消息条目（与前端 AgentSessionMessage 对齐） */
 export type ProjectedMessage =
   | { role: "user"; text: string; timestamp: number | null; entry_id: string }
-  | { role: "assistant"; text: string; tools: string[]; timestamp: number | null; entry_id: string }
+  | { role: "assistant"; text: string; tools: string[]; tool_calls?: { id: string; tool: string }[]; timestamp: number | null; entry_id: string }
   | {
       role: "tool";
       tool: string;
@@ -62,7 +63,8 @@ function toolCallNames(content: unknown): string[] {
  */
 export function projectEntries(entries: Entry[]): ProjectedMessage[] {
   const messages: ProjectedMessage[] = [];
-  let evidence: BusinessEvidence | undefined;
+  let evidence: BusinessEvidence[] = [];
+  let question = "";
   for (const entry of entries) {
     if (entry.type !== "message") continue;
     const message = entry.message as {
@@ -73,21 +75,32 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
       toolCallId?: string;
       details?: unknown;
       isError?: boolean;
+      errorMessage?: string;
     };
     const timestamp = message.timestamp ?? entry.timestamp ?? null;
     if (message.role === "user") {
-      evidence = undefined;
+      evidence = [];
+      question = visibleText(message.content);
       messages.push({ role: "user", text: visibleText(message.content), timestamp, entry_id: entry.id });
     } else if (message.role === "assistant") {
       messages.push({
         role: "assistant",
-        text: evidence ? evidenceAnswer(evidence) : (toolCallNames(message.content).length ? "" : safeUnverifiedText(visibleText(message.content))),
+        text: toolCallNames(message.content).length ? "" : visibleText(message.content) === EVIDENCE_BLOCKED_ANSWER
+          ? EVIDENCE_BLOCKED_ANSWER : visibleText(message.content) === TOOL_LIMIT_ANSWER
+          ? [combinedEvidenceAnswer(evidence), TOOL_LIMIT_ANSWER].filter(Boolean).join("\n\n") : evidence.length
+          ? combinedEvidenceAnswer(evidence) + (message.errorMessage ? "\n\n本轮处理未完成，以上仅为已取得的结果。" : "")
+          : safeUnverifiedText(visibleText(message.content), question),
         tools: toolCallNames(message.content),
+        tool_calls: Array.isArray(message.content) ? (message.content as MessageContentBlock[])
+          .filter(block => block.type === "toolCall" && block.id && block.name)
+          .map(block => ({id: block.id!, tool: block.name!})) : [],
         timestamp,
         entry_id: entry.id,
       });
     } else if (message.role === "toolResult") {
-      evidence = businessEvidence(message.details) ?? evidence;
+      // 校验/拦截只记入执行过程，不伪造成业务证据覆盖宿主最终说明。
+      const current = businessEvidence(message.details);
+      if (current) evidence.push(current);
       messages.push({
         role: "tool",
         tool: message.toolName ?? "",
@@ -97,8 +110,27 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
         timestamp,
         entry_id: entry.id,
       });
-      const current = businessEvidence(message.details);
-      if (current) messages.push({ role: "assistant", text: evidenceAnswer(current), tools: [], timestamp, entry_id: `${entry.id}:answer` });
+      const delivered = presentedAnswer(message.details);
+      if (delivered) {
+        // 最终正文和表格使用同一引用选择；执行日志保留所有步骤，重连不复活排查结果。
+        let start = messages.length - 1;
+        while (start >= 0 && messages[start]?.role !== "user") start -= 1;
+        let index = 0;
+        for (const item of messages.slice(start + 1)) {
+          if (item.role !== "tool" || !businessEvidence(item.details)) continue;
+          index += 1;
+          item.details = {...item.details as object, answer_selected: delivered.evidence_refs.includes(`e${index}`)};
+        }
+        messages.push({role: "assistant", text: delivered.public_answer, tools: [], timestamp, entry_id: `${entry.id}:answer`});
+      } else if (current && !current.retryable && !["succeeded", "catalog", "reference_mismatch"].includes(current.status.toLowerCase())) {
+        messages.push({role: "assistant", text: evidenceAnswer(current), tools: [], timestamp, entry_id: `${entry.id}:answer`});
+      }
+      // 原生 before_tool 的终止拦截不会再产生 assistant；只交付宿主固定的预算理由，
+      // 不把任意工具错误当作正文，也不让中间成功掩盖整轮未完成。
+      if (message.isError && visibleText(message.content) === TOOL_LIMIT_ANSWER) {
+        messages.push({role: "assistant", text: [combinedEvidenceAnswer(evidence), TOOL_LIMIT_ANSWER].filter(Boolean).join("\n\n"),
+          tools: [], timestamp, entry_id: `${entry.id}:answer`});
+      }
     }
   }
   return messages;
@@ -161,8 +193,9 @@ export function latestResultRef(messages: ProjectedMessage[]): { task_id: string
   return null;
 }
 
-function safeUnverifiedText(text: string): string {
-  return /\d/.test(text) ? "本轮没有可核验的查询结果。" : text;
+function safeUnverifiedText(text: string, question: string): string {
+  // 历史/重连与宿主使用同一规则，列表序号、用户给定日期不能被误判为无证据金额。
+  return mayDeliverWithoutEvidence(text, question) ? text : EVIDENCE_BLOCKED_ANSWER;
 }
 
 /** 三种状态分别输出，不能把 Agent completed 当成查询成功。 */
@@ -173,7 +206,7 @@ export function projectBusinessTasks(messages: ProjectedMessage[]): Array<Record
   for (const message of messages.slice(start + 1)) {
     if (message.role !== "tool") continue;
     const evidence = businessEvidence(message.details);
-    if (evidence?.task_id) tasks.set(evidence.task_id, evidence);
+    if (evidence?.task_id && evidence.kind !== "metric_calculate") tasks.set(evidence.task_id, evidence);
   }
   return [...tasks.values()].map(item => ({ task_id: item.task_id, status: item.status,
     result_id: item.result_id ?? null, error_code: item.error_code ?? null }));

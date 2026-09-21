@@ -29,7 +29,15 @@ export interface ModelBundle {
 export function wrapStreamsWithAuthorization(
   inner: ProviderStreams,
   authorize: () => boolean,
+  timeoutMs?: number,
 ): ProviderStreams {
+  const timed = <T extends {signal?: AbortSignal; timeoutMs?: number}>(options: T | undefined): T | undefined => {
+    if (!timeoutMs) return options;
+    // SDK 请求超时不一定覆盖已开始的流；组合总时限与用户取消信号，避免流式参数永久挂起。
+    const deadline = AbortSignal.timeout(timeoutMs);
+    return {...options, timeoutMs, signal: options?.signal
+      ? AbortSignal.any([options.signal, deadline]) : deadline} as T;
+  };
   const denied = (model: Model<"openai-completions">): ReturnType<ProviderStreams["streamSimple"]> => {
     const stream = createAssistantMessageEventStream();
     const message: AssistantMessage = {
@@ -59,11 +67,11 @@ export function wrapStreamsWithAuthorization(
   const guarded: ProviderStreams = {
     stream: (model, context, options) => {
       if (!authorize()) return denied(model as Model<"openai-completions">);
-      return inner.stream(model, context, options);
+      return normalizeProviderAbort(inner.stream(model, context, timed(options)), model as Model<"openai-completions">, options?.signal);
     },
     streamSimple: (model, context, options) => {
       if (!authorize()) return denied(model as Model<"openai-completions">);
-      return inner.streamSimple(model, context, options);
+      return normalizeProviderAbort(inner.streamSimple(model, context, timed(options)), model as Model<"openai-completions">, options?.signal);
     },
   };
   if (inner.fetchDeferred) {
@@ -77,6 +85,36 @@ export function wrapStreamsWithAuthorization(
     guarded.cancelDeferred = inner.cancelDeferred.bind(inner);
   }
   return guarded;
+}
+
+/** 本地模型超时不等于用户取消；pi 仅在持久化取消状态下接纳 aborted。 */
+function normalizeProviderAbort(
+  source: ReturnType<ProviderStreams["streamSimple"]>, model: Model<"openai-completions">, callerSignal?: AbortSignal,
+): ReturnType<ProviderStreams["streamSimple"]> {
+  const output = createAssistantMessageEventStream();
+  const normalize = (message: AssistantMessage): AssistantMessage => message.stopReason === "aborted" && !callerSignal?.aborted
+    ? {...message, stopReason: "error", errorMessage: "MODEL_REQUEST_TIMEOUT: 模型请求中断或超时，请稍后重试。"}
+    : message;
+  void (async () => {
+    for await (const event of source) {
+      if (event.type === "error") {
+        const error = normalize(event.error);
+        output.push({...event, error, reason: error.stopReason === "aborted" ? "aborted" : "error"});
+      } else output.push(event);
+    }
+    output.end(normalize(await source.result()));
+  })().catch(() => {
+    const error: AssistantMessage = {
+      role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
+      timestamp: Date.now(), stopReason: callerSignal?.aborted ? "aborted" : "error",
+      errorMessage: "MODEL_STREAM_FAILED: 模型响应流未完成。",
+      usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0}},
+    };
+    output.push({type: "error", reason: callerSignal?.aborted ? "aborted" : "error", error});
+    output.end(error);
+  });
+  return output;
 }
 
 export function createAskMetricModels(
@@ -115,7 +153,7 @@ export function createAskMetricModels(
       },
     },
     models: [model],
-    api: wrapStreamsWithAuthorization(openAICompletionsApi(), authorize),
+    api: wrapStreamsWithAuthorization(openAICompletionsApi(), authorize, config.modelTimeoutMs),
   });
 
   const models = createModels();

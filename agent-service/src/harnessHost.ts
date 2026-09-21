@@ -7,11 +7,13 @@
  * 观察（SSE）使用独立的 lane.watch，与驱动 Context 分离，浏览器断线不中止执行。
  */
 import { createHash } from "node:crypto";
-import { activeClarificationTarget, coverageContext, historicalReadConflict, latestFollowupReference, queryCandidateBeforeTurn, queryReferenceContext } from "./queryContext.js";
+import { activeClarificationTarget, coverageContext, unconfirmedToolCodes, historicalReadConflict, knownSuccessfulSource, queryCandidateBeforeTurn, queryReferenceContext } from "./queryContext.js";
+import { auditToolCall, withToolExecutionAudit } from "./toolAudit.js";
 import { modelUsage } from "./modelUsage.js";
 import { projectHistoricalResults } from "./modelContext.js";
 import {
   AgentHarness,
+  type Skill,
   BACKGROUND_CONTEXT,
   LaneBusy,
   value,
@@ -40,11 +42,14 @@ import {
   type HistoryEntrySummary,
   type WriteCommandRecord,
 } from "./requestContext.js";
-import { businessEvidence, evidenceAnswer } from "./answerEvidence.js";
+import { businessEvidence, combinedEvidenceAnswer, currentTurnEvidence, evidenceAnswer, presentedAnswer } from "./answerEvidence.js";
+import { createEvidenceRepairTool, EVIDENCE_BLOCKED_ANSWER, EVIDENCE_REPAIR_TOOL, TOOL_LIMIT_ANSWER, mayDeliverWithoutEvidence } from "./replyGuard.js";
+import { businessKnowledgeCatalog, projectBusinessSkillContext } from "./businessSkills.js";
 import { buildBusinessSystemPrompt } from "./prompts/businessSystemPrompt.js";
 
 /** 原生应用 values 的命名空间；只存归属与请求关联，不存 Agent 状态/槽位/业务结果 */
 const NS = "askmetric";
+const MAX_TOOL_CALLS_PER_OPERATION = 24;
 const ownerValue = value<string>(NS, "owner");
 const conversationValue = value<string>(NS, "conversationId");
 
@@ -130,7 +135,7 @@ export class HarnessHost {
     private readonly createModels: (authorize: () => boolean) => ModelBundle,
     private readonly store: NativeSessionStore,
     private readonly tools: AgentHarnessTool<AskMetricRequestContext>[],
-    private readonly options: { retry?: RetryPolicy } = {},
+    private readonly options: { retry?: RetryPolicy; skills?: Skill[] } = {},
   ) {}
 
   async createSession(actor: BackendUser): Promise<HostedSession> {
@@ -176,16 +181,18 @@ export class HarnessHost {
       const authorization = { authorized: true };
       this.authorization.set(sessionId, authorization);
       const bundle = this.createModels(() => authorization.authorized);
+      const runtimeTools = [...this.tools, createEvidenceRepairTool()].map(withToolExecutionAudit);
       const { harness, open } = await AgentHarness.create(
         {
           session,
           models: bundle.models,
           model: bundle.model,
-          tools: this.tools,
+          tools: runtimeTools,
           toolExecution: "sequential",
           // 工具上下文即当次请求绑定；缺请求上下文说明链路被绕过，直接失败
           toolContext: (context) => requireRequestContext(context),
-          systemPrompt: () => buildBusinessSystemPrompt(new Date().toISOString().slice(0, 10)),
+          resources: { skills: this.options.skills ?? [] },
+          systemPrompt: () => buildBusinessSystemPrompt(new Intl.DateTimeFormat("en-CA", {timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit"}).format(new Date())) + businessKnowledgeCatalog(this.options.skills ?? []),
           compaction: {
             enabled: this.config.compaction.enabled,
             reserveTokens: this.config.compaction.reserveTokens,
@@ -199,7 +206,7 @@ export class HarnessHost {
       // 原生会话持久化工具白名单；升级后同步注册集，旧会话也能选择新增覆盖工具。
       // 仅在空闲时更新，不改变正在恢复的操作的工具配置。
       const execution = await lane.inspectExecution(BACKGROUND_CONTEXT);
-      if (!execution.current) await lane.setActiveTools(this.tools.map(tool => tool.name), BACKGROUND_CONTEXT);
+      if (!execution.current) await lane.setActiveTools(runtimeTools.map(tool => tool.name), BACKGROUND_CONTEXT);
       this.registerHooks(harness, lane);
       return {
         sessionId,
@@ -239,11 +246,19 @@ export class HarnessHost {
       if (timings) timings.modelStartedAt = performance.now();
       return undefined;
     });
-    harness.hooks.on("before_payload", (event, context) => {
+    harness.hooks.on("before_payload", async (event, context) => {
       const request = requireRequestContext(context);
-      const payload = event.payload as Record<string, unknown>;
+      let payload = event.payload as Record<string, unknown>;
       if (request.modelCall) request.modelCall.payloadBytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
       if (request.modelCall?.step === "compaction" || request.modelCall?.step === "branch_summary") return undefined;
+      // 业务工具始终提供给 pi 自主选择；内部核验工具仅由交付拦截注入。
+      if (Array.isArray(payload.tools)) {
+        payload = {...payload, tools: payload.tools.filter(raw => {
+          const definition = raw as {name?: string; function?: {name?: string}};
+          const name = definition.function?.name ?? definition.name;
+          return name !== EVIDENCE_REPAIR_TOOL;
+        })};
+      }
       // 仅显式提交澄清选择时固定工具。其他目标由 pi 判断是否需要工具，
       // 不支持的分析可直接说明限制，不能强迫它编造一个基础问数调用。
       if (request.clarificationTarget && this.tools.some(tool => tool.name === "metric_ask")
@@ -251,57 +266,78 @@ export class HarnessHost {
         && Array.isArray(payload.tools) && payload.tools.length) {
         return { payload: { ...payload, tool_choice: { type: "function", function: { name: "metric_ask" } } } };
       }
-      return undefined;
+      const entries = await lane.findEntries({order: "oldestFirst"}, context);
+      const messages = entries.filter(entry => entry.type === "message").map(entry => entry.message);
+      const last = messages.at(-1);
+      if (last?.role === "toolResult" && last.toolName === EVIDENCE_REPAIR_TOOL
+        && currentTurnEvidence(messages).length > 1 && this.tools.some(tool => tool.name === "answer_present")) {
+        // pi 已主动结束业务步骤：此处约束最终输出格式，引用内容仍由 pi 选择。
+        // 选择校验失败后恢复普通工具循环，允许继续查询与纠错。
+        return {payload: {...payload, tool_choice: {type: "function", function: {name: "answer_present"}}}};
+      }
+      return {payload};
     });
     harness.hooks.on("before_tool", async (event, context) => {
       const request = requireRequestContext(context);
       if (request.timings) (request.timings.toolStartedAt ??= {})[event.toolCallId] = performance.now();
-      if (event.toolName === "metric_read" && event.args.kind === "result") {
-        const entries = await lane.findEntries({order: "oldestFirst"}, context);
-        if (historicalReadConflict(entries.filter(entry => entry.type === "message").map(entry => entry.message), event.args.task_id, request.originalMessage)) {
-          return {block: {reason: "该结果日期比当前连续追问基准更早，但用户没有要求历史日期。纯换机构应使用 metric_ask followup，继承最新成功任务的日期；不能读该机构旧日期。", terminate: false}};
+      const decide = async () => {
+        // 从原生记录统计本轮预算，恢复后不重置；业务状态仍由后端管理。
+        const budgetEntries = await lane.findEntries({order: "oldestFirst"}, context);
+        const budgetMessages = budgetEntries.filter(entry => entry.type === "message").map(entry => entry.message);
+        let turnStart = budgetMessages.length - 1;
+        while (turnStart >= 0 && budgetMessages[turnStart]?.role !== "user") turnStart -= 1;
+        const toolCount = budgetMessages.slice(turnStart + 1).filter(message => message.role === "toolResult").length;
+        if (toolCount >= MAX_TOOL_CALLS_PER_OPERATION) return {block: {reason: TOOL_LIMIT_ANSWER, terminate: true}};
+        if (["metric_query_structured", "data_availability"].includes(event.toolName)) {
+          const missing = unconfirmedToolCodes(budgetMessages, event.args);
+          if (missing.length) return {block:{reason:`${missing.join("、")} 包含没有正式回执依据的编码。请先读取对应目录并逐字使用返回编码；存在 exact 命中时优先使用 exact 项，不猜测缩写或选择近似项。`,terminate:false}};
         }
-      }
-      if (event.toolName !== "metric_ask") return undefined;
-      // 结构化澄清选择是用户确认的事实；普通文本由语义链判断对话关系。
-      if (request.clarificationTarget) return { args: { action: "clarify", target: request.clarificationTarget } };
-      if (event.args.action === "clarify") {
-        const entries = await lane.findEntries({ order: "oldestFirst" }, context);
-        const active = activeClarificationTarget(entries.filter(entry => entry.type === "message").map(entry => entry.message));
-        const target = event.args.target;
-        // 自然语言澄清只能引用正式待补充回执，禁止向失败任务提交模型编造的目标。
-        if (!active || !target || typeof target !== "object" || Array.isArray(target)
-          || target.task_id !== active.task_id || target.clarification_id !== active.clarification_id) {
-          return { block: { reason: "没有与该目标匹配的有效待补充回执，不能执行clarify或编造clarification_id。用户修改条件重新提问请使用metric_ask action=new；条件有缺项也应由新任务分析并返回澄清。", terminate: false } };
-        }
-      }
-      if (event.args.action === "new") {
-        const entries = await lane.findEntries({ order: "oldestFirst" }, context);
-        request.queryCandidate = queryCandidateBeforeTurn(entries.filter(entry => entry.type === "message").map(entry => entry.message));
-      }
-      if (event.args.action === "followup") {
-        const entries = await lane.findEntries({ order: "oldestFirst" }, context);
-        const messages = entries.filter(entry => entry.type === "message").map(entry => entry.message);
-        let latestUser = messages.length - 1;
-        while (latestUser >= 0 && messages[latestUser]?.role !== "user") latestUser -= 1;
-        const previous = messages.slice(0, latestUser).reverse().find(message => message.role === "toolResult" && businessEvidence(message.details));
-        const previousEvidence = previous?.role === "toolResult" ? businessEvidence(previous.details) : undefined;
-        if (previousEvidence && previousEvidence.status.toLowerCase() !== "succeeded") {
-          return { block: { reason: previousEvidence.status.toLowerCase() === "clarification_required"
-            ? "该来源仍待澄清，不能 followup。本轮已完整给出指标、机构、日期或另查独立问题时请用 metric_ask new；仅补充缺项时用 clarify。不要因旧任务待补充而要求用户重说已明确的条件。"
-            : "上一轮修改未成功，请先确认本轮要沿用的机构和日期，不能自动退回更早成功查询。", terminate: false } };
-        }
-        const source = event.args.source;
-        const latest = latestFollowupReference(messages, request.originalMessage);
-        if (latest && source && typeof source === "object" && !Array.isArray(source) && source.task_id !== latest.task_id) {
-          // 来源由本分支最新成功回执决定；回读后继续追问也必须继承刚展示的条件。
-          if (typeof latest?.task_id === "string" && Number.isInteger(latest.version)) {
-            return { args: { ...event.args, source: { task_id: latest.task_id, version: latest.version as number } } };
+        if (event.toolName === "metric_read" && event.args.kind === "result") {
+          const entries = await lane.findEntries({order: "oldestFirst"}, context);
+          if (historicalReadConflict(entries.filter(entry => entry.type === "message").map(entry => entry.message), event.args.task_id, request.originalMessage)) {
+            return {block: {reason: "该结果日期比当前连续追问基准更早，但用户没有要求历史日期。纯换机构应使用 metric_ask followup，继承最新成功任务的日期；不能读该机构旧日期。", terminate: false}};
           }
-          return { block: { reason: "省略追问必须沿用最近成功回执的机构和日期；请先读取该任务版本后再 followup。", terminate: false } };
         }
-      }
-      return undefined;
+        if (event.toolName !== "metric_ask") return undefined;
+        // 结构化澄清选择是用户确认的事实；普通文本由语义链判断对话关系。
+        if (request.clarificationTarget) return { args: { action: "clarify", target: request.clarificationTarget } };
+        if (event.args.action === "clarify") {
+          const entries = await lane.findEntries({ order: "oldestFirst" }, context);
+          const active = activeClarificationTarget(entries.filter(entry => entry.type === "message").map(entry => entry.message));
+          const target = event.args.target;
+          // 自然语言澄清只能引用正式待补充回执，禁止向失败任务提交模型编造的目标。
+          if (!active || !target || typeof target !== "object" || Array.isArray(target)
+            || target.task_id !== active.task_id || target.clarification_id !== active.clarification_id) {
+            return { block: { reason: "没有与该目标匹配的有效待补充回执，不能执行 clarify 或编造 clarification_id。修改已有成功查询的机构、日期或指标请使用 followup，source 取查询引用中的 task_id 和 version；独立基础问题用 new，允许缺条件并由后端返回澄清。", terminate: false } };
+          }
+        }
+        if (event.args.action === "new") {
+          const entries = await lane.findEntries({ order: "oldestFirst" }, context);
+          request.queryCandidate = queryCandidateBeforeTurn(entries.filter(entry => entry.type === "message").map(entry => entry.message));
+        }
+        if (event.args.action === "followup") {
+          const entries = await lane.findEntries({ order: "oldestFirst" }, context);
+          const messages = entries.filter(entry => entry.type === "message").map(entry => entry.message);
+          let latestUser = messages.length - 1;
+          while (latestUser >= 0 && messages[latestUser]?.role !== "user") latestUser -= 1;
+          const previous = messages.slice(0, latestUser).reverse().find(message => message.role === "toolResult" && businessEvidence(message.details));
+          const previousEvidence = previous?.role === "toolResult" ? businessEvidence(previous.details) : undefined;
+          if (previousEvidence && previousEvidence.status.toLowerCase() !== "succeeded") {
+            return { block: { reason: previousEvidence.status.toLowerCase() === "clarification_required"
+              ? "该来源仍待澄清，不能 followup。本轮已完整给出指标、机构、日期或另查独立问题时请用 metric_ask new；仅补充缺项时用 clarify。不要因旧任务待补充而要求用户重说已明确的条件。"
+              : "上一轮修改未成功，请先确认本轮要沿用的机构和日期，不能自动退回更早成功查询。", terminate: false } };
+          }
+          const source = event.args.source;
+          if (!knownSuccessfulSource(messages, source)) {
+            return {block: {reason: "source 不是本会话已核验的成功任务及版本。请用 metric_read(kind=task) 核对正式回执，再选择对应来源；多个来源均合理时用 clarify_context，不得编造或自动替换来源。", terminate: false}};
+          }
+          // 合法来源由模型结合用户指代选择；宿主不能静默改成最近一笔。
+        }
+        return undefined;
+      };
+      const decision = await decide();
+      auditToolCall(request, event.toolCallId, event.toolName, decision?.block ? "blocked" : "admitted", decision?.args ?? event.args);
+      return decision;
     });
     harness.hooks.on("after_tool", (event, context) => {
       const timings = requireRequestContext(context).timings;
@@ -310,18 +346,24 @@ export class HarnessHost {
         timings.tool_ms.push(Math.round(performance.now() - started));
         delete timings.toolStartedAt?.[event.toolCallId];
       }
-      // 基础问数/澄清的完整回执已由后端确认，使用 pi 原生终止能力直接交付，
-      // 不再串行调用一个模型复述确定性事实。目录与 task 状态读取仍继续原生循环。
+      // 成功仅表示完成一步。澄清和不可继续的业务状态才停止原生循环。
+      if (presentedAnswer(event.details)) return { terminate: true };
       const evidence = businessEvidence(event.details);
-      if (evidence) return { terminate: true };
+      if (evidence && !evidence.retryable && !["succeeded", "catalog", "reference_mismatch"].includes(evidence.status.toLowerCase())) return { terminate: true };
       return undefined;
     });
     harness.hooks.on("after_response", async (event, context) => {
       const request = requireRequestContext(context);
       // 原生压缩与分支摘要不是业务回答，不能被数字过滤、工具强制或回执替换改写。
       if (request.modelCall?.step === "compaction" || request.modelCall?.step === "branch_summary") return undefined;
+      for (const block of event.message.content) {
+        if (block.type === "toolCall") auditToolCall(request, block.id,
+          this.tools.some(tool => tool.name === block.name) ? block.name : "unknown", "proposed", block.arguments);
+      }
       const timings = request.timings;
       if (timings?.modelStartedAt !== undefined) timings.model_ms.push(Math.round(performance.now() - timings.modelStartedAt));
+      // 传输失败交回 pi 原生重试/失败处理，不能伪造成工具调用或正常结束。
+      if (["error", "aborted"].includes(event.message.stopReason)) return undefined;
       // 只读取原生当前分支，不维护第二份会话记忆；重启后仍遵守相同交付规则。
       const entries = await lane.findEntries({ order: "oldestFirst" }, context);
       const messages = entries.filter(entry => entry.type === "message").map(entry => entry.message);
@@ -331,29 +373,42 @@ export class HarnessHost {
       const receipts = current.filter(message => message.role === "toolResult");
       const confirmationNeeded = receipts.some(message => message.content.some(block => block.type === "text" && block.text.includes("上一轮修改未成功")));
       if (confirmationNeeded) return { message: { ...event.message, content: [{ type: "text" as const, text: "上一轮修改没有成功。本次要查询哪个机构、哪个日期？请明确这两个条件后继续。" }], stopReason: "stop" as const } };
-      const write = await requireRequestContext(context).commands.getWriteCommand();
-      const evidence = receipts.map(message => businessEvidence(message.details)).filter(item => item &&
-        (!write?.taskId || item.task_id === write.taskId)).at(-1);
-      if (evidence) {
-        return { message: { ...event.message, content: [{ type: "text" as const, text: evidenceAnswer(evidence) }], stopReason: "stop" as const } };
-      }
-      // 确定性参数错误最多允许一次纠正；不让相同错误消耗无限模型调用。
-      if (receipts.filter(message => message.isError ||
+      // 同一工具重复相同失败才终止；不同错误表示纠错仍在推进，总调用预算仍生效。
+      if (receipts.length >= 2 && receipts.at(-1)?.toolName === receipts.at(-2)?.toolName
+        && JSON.stringify(receipts.at(-1)?.content) === JSON.stringify(receipts.at(-2)?.content)
+        && receipts.slice(-2).filter(message => message.isError ||
+        (message.details as {retryable?: boolean} | undefined)?.retryable ||
         (message.details as {status?: string} | undefined)?.status === "reference_mismatch").length >= 2) {
-        return { message: { ...event.message, content: [{ type: "text" as const, text: "本次工具参数未能通过校验，请完整描述查询条件后重试。" }], stopReason: "stop" as const } };
+        return { message: { ...event.message, content: [{ type: "text" as const, text: "本轮工具调用参数连续未通过校验，系统未能完成查询。可以重试本轮问题，无需重复已确认的条件。" }], stopReason: "stop" as const } };
       }
-      // 没有工具证据的纯文本不得交付金额；工具调用前正文同样不能抢先泄露事实。
+      // 后续工具调用必须保留，不能用中间回执替换它。正文等最终交付时统一引用。
       const hasCalls = event.message.content.some(block => block.type === "toolCall");
+      // 正常回合在预算边界交付未完成正文；before_tool 同时兜住同一批并行调用。
+      if (hasCalls && receipts.length >= MAX_TOOL_CALLS_PER_OPERATION) {
+        return {message: {...event.message, content: [{type: "text" as const, text: TOOL_LIMIT_ANSWER}], stopReason: "stop" as const}};
+      }
       if (hasCalls) return { message: { ...event.message, content: event.message.content.filter(block => block.type !== "text") } };
+      const evidence = receipts.map(message => businessEvidence(message.details)).filter(item => item !== undefined);
+      if (evidence.length === 1 || (evidence.length && !this.tools.some(tool => tool.name === "answer_present"))) {
+        return { message: { ...event.message, content: [{ type: "text" as const, text: combinedEvidenceAnswer(evidence) }], stopReason: "stop" as const } };
+      }
+      // 无证据候选不落盘为正文；用原生工具回合纠正一次，次数从本轮持久记录恢复。
       const text = event.message.content.filter(block => block.type === "text").map(block => block.text).join("");
-      if (/\d/.test(text) && this.tools.some(tool => tool.name === "metric_ask")) {
-        return { message: { ...event.message, content: [{ type: "text" as const, text: "本轮尚未取得查询结果，请确认要查询的指标、机构和日期。" }] } };
+      if (evidence.length > 1 || (!mayDeliverWithoutEvidence(text, request.originalMessage) && this.tools.some(tool => tool.name === "metric_ask"))) {
+        const repaired = receipts.some(message => message.toolName === EVIDENCE_REPAIR_TOOL);
+        if (!repaired && receipts.length < MAX_TOOL_CALLS_PER_OPERATION) {
+          return { message: { ...event.message, content: [{ type: "toolCall" as const,
+            id: `evidence-check-${request.operationId}`, name: EVIDENCE_REPAIR_TOOL, arguments: {},
+          }], stopReason: "toolUse" as const } };
+        }
+        return { message: { ...event.message, content: [{ type: "text" as const, text: EVIDENCE_BLOCKED_ANSWER }], stopReason: "stop" as const } };
       }
       return undefined;
     });
     const suffix = this.config.model.userMessageSuffix;
-    harness.hooks.on("transform_context", (event) => {
-      const messages = projectHistoricalResults(event.messages);
+    harness.hooks.on("transform_context", async (event, context) => {
+      const methods = projectBusinessSkillContext(event.messages, this.options.skills ?? []);
+      const messages = projectHistoricalResults(methods.messages);
       const last = messages[messages.length - 1] as
         | { role?: string; content?: unknown }
         | undefined;
@@ -362,7 +417,15 @@ export class HarnessHost {
       } else if (last?.role === "user" && typeof last.content === "string") {
         messages[messages.length - 1] = { ...last, content: last.content + suffix } as never;
       }
-      return { messages, systemPrompt: event.systemPrompt + queryReferenceContext(event.messages) + coverageContext(event.messages) };
+      // 原生压缩只缩减模型消息；条件和引用从当前分支原始记录投影，重开也不丢范围。
+      const entries = await lane.findEntries({order: "oldestFirst"}, context);
+      const history = entries.filter(entry => entry.type === "message").map(entry => entry.message);
+      const coverage = coverageContext(history);
+      const references = currentTurnEvidence(history);
+      const delivery = references.length ? "\n本轮可交付证据（引用仅在本轮有效）：\n" + references.map(item =>
+        `${item.ref}: ${item.evidence.kind} / ${item.evidence.status} / ${evidenceAnswer(item.evidence).slice(0, 180)}`).join("\n")
+        + "\n目标完成后用 answer_present 选择对应证据；目录与覆盖等排查结果不等于用户目标。" : "";
+      return { messages, systemPrompt: event.systemPrompt + methods.instructions + queryReferenceContext(history) + coverage + delivery };
     });
   }
 
@@ -393,6 +456,8 @@ export class HarnessHost {
       operationId,
       commands: bridge,
       history: createHistoryBridge(hosted),
+      answerEvidence: async () => currentTurnEvidence((await hosted.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT))
+        .filter(entry => entry.type === "message").map(entry => entry.message)),
       timings: { startedAt: performance.now(), model_ms: [], tool_ms: [] },
       ...(input.clarification_target ? { clarificationTarget: input.clarification_target } : {}),
       ...(input.selected_answers ? { selectedAnswers: input.selected_answers } : {}),
@@ -538,6 +603,8 @@ export class HarnessHost {
         operationId: operation.operationId,
         commands: this.createCommandBridge(hosted, requestRef.value),
         history: createHistoryBridge(hosted),
+        answerEvidence: async () => currentTurnEvidence((await hosted.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT))
+          .filter(entry => entry.type === "message").map(entry => entry.message)),
         timings: { startedAt: performance.now(), model_ms: [], tool_ms: [] },
       };
       try {

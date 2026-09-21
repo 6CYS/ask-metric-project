@@ -126,7 +126,24 @@ export type AnswerBlock =
   | { type: "list"; ordered: boolean; items: AnswerSegment[][] }
   | { type: "table"; header: AnswerSegment[][]; rows: AnswerSegment[][][]; aligns: ("left" | "center" | "right")[] };
 
+export interface CalculationFact {
+  fact_id: string; task_id: string; field: string; value: string; unit: string;
+  metric_code: string; metric_name: string; org_code: string; org_name: string; date: string;
+}
+export interface CalculationSpec {
+  expressions: Array<{name: string; label: string; expression: string; display?: "decimal" | "percent"; decimal_places?: number}>;
+  bindings: Record<string, {fact_id: string}>;
+  constants?: Record<string, {value: string; source_text: string}>;
+  scope_policy?: "same_org_date" | "cross_date" | "cross_org" | "explicit";
+}
+export interface CalculationResult {
+  status: string; calculation_id: string; task_id: string; scope_id: string;
+  results: Array<{name: string; label: string; expression: string; value: string; display_value: string; unit: string; variables: string[]}>;
+  inputs: Record<string, CalculationFact>;
+  public_answer: string;
+}
 export interface QueryExecutionResult {
+  facts?: CalculationFact[];
   task_id: string;
   status: "succeeded" | "failed" | "unsupported";
   query_shape?: string;
@@ -147,6 +164,8 @@ export interface QueryExecutionResult {
 
 /** 统一结果读取的分页视图（GET /query-tasks/{id}/result） */
 export interface TaskResultPage {
+  facts?: CalculationFact[];
+  calculation_scope_id?: string | null;
   task_id: string;
   result_id: string;
   status: string;
@@ -176,6 +195,8 @@ export interface QueryReference {
 
 /** 结构化基础查询（basic-queries）契约：不调用模型，按正式编码与明确日期取数 */
 export interface BasicQuerySpec {
+  conversation_id?: string;
+  calculation_context?: {scope_id: string; user_question: string};
   metric_codes: string[];
   org_codes: string[];
   time: { start: string; end: string };
@@ -214,6 +235,7 @@ export class BackendApiError extends Error {
 }
 
 interface CallOptions {
+  calculationContext?: {scope_id: string; user_question: string};
   /** 调用方取消信号（原生 Context.abortSignal），与 HTTP 超时合并 */
   signal?: AbortSignal | undefined;
   /** 稳定请求标识：后端幂等记录按它回读，重试必须复用同一值 */
@@ -307,6 +329,7 @@ export class BackendClient {
         body: JSON.stringify({
           conversation_id: conversationId,
           message,
+          ...(options?.calculationContext ? {channel_context: {calculation_context: options.calculationContext}} : {}),
           idempotency_key: idempotencyKey,
           ...(queryReference ? { query_reference: queryReference } : {}),
         }),
@@ -399,6 +422,14 @@ export class BackendClient {
 
   dataAvailability(spec: AvailabilityRequest, options?: CallOptions): Promise<AvailabilityResult> {
     return this.request("/api/v1/data-availability", {method: "POST", body: JSON.stringify(spec)}, options);
+  }
+
+  createAgentQueryContext(sessionId: string, options?: CallOptions): Promise<{conversation_id: string}> {
+    return this.request("/api/v1/agent-query-contexts", {method: "POST", body: JSON.stringify({session_id: sessionId})}, options);
+  }
+
+  calculate(spec: CalculationSpec & {conversation_id: string; scope_id: string}, key: string, options?: CallOptions): Promise<CalculationResult> {
+    return this.request("/api/v1/calculations", {method: "POST", body: JSON.stringify(spec)}, {...options, idempotencyKey: key});
   }
 
   basicQueries(spec: BasicQuerySpec, idempotencyKey: string, options?: CallOptions): Promise<BasicQueryResponse> {

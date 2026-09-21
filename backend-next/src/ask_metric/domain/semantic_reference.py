@@ -9,10 +9,18 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
-from ask_metric.domain.semantics import LogicalTimeRange, SlotFrame
+from ask_metric.domain.semantics import (
+    LogicalDSL,
+    LogicalTimeRange,
+    MetricCatalogItem,
+    OrganizationCatalogItem,
+    SlotFrame,
+)
 
 # 日期衍生 options：修改日期时必须清除，避免旧日期区间残留进新任务
 _DATE_OPTION_KEYS = (
+    "time_mode",
+    "invalid_time_expression",
     "target_dates",
     "time_windows",
     "current_date",
@@ -35,6 +43,41 @@ class MergedReference:
 
     frame: SlotFrame
     resolved_time: LogicalTimeRange | None
+
+
+def structured_source_slots(
+    logical_dsl: dict[str, Any] | None,
+    *,
+    metrics: list[MetricCatalogItem],
+    organizations: list[OrganizationCatalogItem],
+) -> dict[str, Any]:
+    """从结构化查询的正式执行条件恢复槽位；不从结果样例或聊天文字猜条件。"""
+    try:
+        dsl = LogicalDSL.model_validate(logical_dsl)
+        if not dsl.metrics or not dsl.orgs or not dsl.time.start or not dsl.time.end:
+            raise ReferenceSourceInvalid("来源结构化查询缺少完整的正式条件")
+        if any(op.get("type") == "top_n" for op in dsl.ops):
+            # 结构化排名中的机构表示父级范围，语义排名表示候选集合；不能混用。
+            raise ReferenceSourceInvalid("来源排名查询尚不能转换为语义追问条件")
+        metric_by_code = {item.code: item for item in metrics}
+        org_by_code = {item.code: item for item in organizations}
+        frame = SlotFrame(
+            task=dsl.task,
+            metrics=[{"code": code, "name": metric_by_code[code].name}
+                     for code in dsl.metrics],
+            orgs=[org_by_code[code].name for code in dsl.orgs],
+            time=f"{dsl.time.start}至{dsl.time.end}",
+            dimensions=list(dsl.dimensions),
+            filters=[{"field": item.dimension, "op": item.op, "value": item.value}
+                     for item in dsl.filters],
+            # 基础查询的 trend 表示区间全部记录，缺省粒度不能变成语义层的月度。
+            ops=[{"grain": "day", **op} if op.get("type") == "trend" else op
+                 for op in dsl.ops],
+            options=dict(dsl.options),
+        )
+    except (ValidationError, KeyError) as exc:
+        raise ReferenceSourceInvalid("来源结构化查询条件无效或目录项已不可用") from exc
+    return frame.model_dump(mode="json")
 
 
 def freeze_source_reference(
@@ -139,7 +182,7 @@ def _compose_reference(
     changes = dict(delta.changes)
     if not changes:
         raise ReferenceMergeUnsupported("未能确定本次追问要修改的条件，请说明要查询的目标")
-    allowed_options = {*_DATE_OPTION_KEYS, "time_mode", "invalid_time_expression",
+    allowed_options = {*_DATE_OPTION_KEYS,
                        "organization_scope", "organization_scope_text", "organization_scope_count",
                        "missing_metric_text", "metric_clarification_items", "missing_org_reason",
                        "missing_org_text", "missing_org_texts", "organization_clarification_items"}
@@ -180,7 +223,7 @@ def _compose_reference(
                   "organization_clarification_items"}
     merged.options = {k: v for k, v in source.options.items() if k not in diagnostic}
     if "orgs" in changes:
-        for key in ("organization_scope", "organization_scope_text"):
+        for key in ("organization_scope", "organization_scope_text", "organization_scope_count"):
             merged.options.pop(key, None)
     availability = any(op.type == "availability" for op in merged.ops)
     # 可用日期是输出；切换为覆盖查询时不能把上一期日期当作隐含筛选。
@@ -188,14 +231,14 @@ def _compose_reference(
         merged.time = None
         merged.changes["time"] = "clear"
     if "time" in merged.changes:
-        for key in (*_DATE_OPTION_KEYS, "time_mode", "invalid_time_expression"):
+        for key in _DATE_OPTION_KEYS:
             merged.options.pop(key, None)
     merged.options.update(delta.options)
     if "ops" in changes and not any(op.type == "period_compare" for op in merged.ops):
         for key in ("current_date", "base_date"):
             merged.options.pop(key, None)
     if "time" in merged.changes and merged.changes["time"] == "clear":
-        for key in (*_DATE_OPTION_KEYS, "time_mode", "invalid_time_expression"):
+        for key in _DATE_OPTION_KEYS:
             merged.options.pop(key, None)
     # 继承无日期的覆盖查询也是合法的；切回取值后会由必填规则要求时间。
     resolved = None

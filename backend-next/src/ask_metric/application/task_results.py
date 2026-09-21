@@ -35,6 +35,8 @@ class TaskResultPage(BaseModel):
     columns: list[str] = Field(default_factory=list)
     rows: list[dict[str, Any]] = Field(default_factory=list)
     comparisons: list[dict[str, Any]] = Field(default_factory=list)
+    facts: list[dict[str, Any]] = Field(default_factory=list)
+    calculation_scope_id: str | None = None
     row_count: int = 0
     truncated: bool = False
     offset: int = 0

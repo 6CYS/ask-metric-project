@@ -4,13 +4,14 @@
  */
 import { createContextKey, withContextValue, type Context } from "@earendil-works/pi-agent-core";
 import type { BackendClient, BackendUser } from "./backendClient.js";
+import type { EvidenceReference } from "./answerEvidence.js";
 
 /** 一次独立业务写意图的登记：同一 operation 最多一个；重复相同命令返回原任务 */
 export interface WriteCommandRecord {
   commandKey: string;
   action: "new" | "clarify" | "followup";
-  /** pending=已登记未完成；completed=业务效果已提交；conflict=澄清遇版本冲突待受控刷新 */
-  status: "pending" | "completed" | "conflict";
+  /** rejected 仅表示后端明确未写入的独立问题澄清拒绝，允许同轮纠正为 new。 */
+  status: "pending" | "completed" | "conflict" | "rejected";
   taskId?: string;
   resultId?: string;
   /** clarify 受控版本刷新：同一 operation 最多一次 */
@@ -70,6 +71,8 @@ export interface AskMetricRequestContext {
   commands: CommandBridge;
   /** 原生历史受控回读；仅供 session_history_read 工具使用 */
   history: HistoryBridge;
+  /** 当前原生回合的证据只读投影；用于 pi 选择最终交付内容。 */
+  answerEvidence?: () => Promise<EvidenceReference[]>;
   /** 原生模型步骤，仅用于诊断及隔离摘要请求，不保存业务状态。 */
   modelCall?: { model: string; step: "assistant" | "deferred" | "compaction" | "branch_summary"; attempt: number; startedAt: number; payloadBytes?: number };
   /** 仅本次驱动的诊断耗时，不承载业务状态或模型记忆。 */

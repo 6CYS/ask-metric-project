@@ -40,11 +40,7 @@ export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext
   return {
     name: "metric_read",
     label: "任务与结果读取",
-    description:
-      "只读：kind=task 查看任务当前状态/版本/澄清目标；kind=result 按 offset 分页读取已确认结果（默认 20 行，最多 100 行）。" +
-      "用户要求重看、再次显示、找回先前数据时必须使用 kind=result，按历史回执的机构、日期、指标选择对应结果，即使它不是最新一笔。" +
-      "成功的零行结果（暂无数据）也有 result_id，可以回读；根据正式查询条件匹配，不得因 rows 为空而重新创建任务或澄清指标。" +
-      "仅说“再看某机构”而未要求历史结果时，应使用 metric_ask(followup) 沿用最新日期，不能读该机构旧日期。不会重新查询。",
+    description: "用途：只读任务状态或重显/分页读取不可变结果，不重新查数。前提：task_id/result_id 来自正式回执，按机构、日期、指标选择；来源不明先回读历史。返回：任务版本、待补项或带执行条件的结果页。零行成功也可读取；改条件取数用 metric_ask followup。",
     parameters: metricReadParameters,
     execute: async (_toolCallId, params, _onUpdate, request, _invocation, context) => {
       try {
@@ -95,6 +91,9 @@ export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext
             columns: page.columns,
             rows: page.rows,
             query_evidence: page.evidence,
+            facts: (page.facts ?? []).slice(0, 100),
+            fact_count: page.facts?.length ?? 0,
+            facts_truncated: page.has_more || (page.facts?.length ?? 0) > 100,
             comparisons: page.comparisons,
             row_count: page.row_count,
             result_truncated: page.truncated,
@@ -169,8 +168,8 @@ export function createSessionHistoryReadTool(): AgentHarnessTool<AskMetricReques
     name: "session_history_read",
     label: "会话历史回读",
     description:
-      "只读本会话历史：摘要记不清时先 list 找到条目，再用 entry 精确回读原文。" +
-      "可以跨过压缩条目读取更早内容；读不到就说明找不到，不得臆造内容。",
+      "用途：找回本会话历史引用和覆盖回执，不触发取数。前提：先 list 获取正式 entry_id，再用 entry 回读，不能编造。返回：历史条目预览、完整工具正文分段及下一段位置。" +
+      "可跨压缩读取旧记录；正文截断时继续读取 next_offset，未读完整不能当作完整条件。",
     parameters: historyReadParameters,
     execute: async (_toolCallId, params, _onUpdate, request) => {
       if (params.kind === "list") {

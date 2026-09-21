@@ -1,0 +1,927 @@
+[
+  {
+    "id": "01",
+    "category": "覆盖完整年份范围后取值",
+    "turns": [
+      {
+        "question": "省联社从2020年开始到今天，哪些指标有数据？",
+        "kind": "coverage",
+        "orgs": [
+          "320000000"
+        ],
+        "dimension": "metrics",
+        "start": "2020-01-01",
+        "end": "2026-09-21"
+      },
+      {
+        "question": "那查一下贷款余额当日数，保留刚才完整日期范围的全部数据。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2020-01-01",
+        "end": "2026-09-21",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "tool": "metric_query_structured"
+      }
+    ]
+  },
+  {
+    "id": "02",
+    "category": "覆盖整月后取值",
+    "turns": [
+      {
+        "question": "省联社2026年3月份有哪些指标有数据？",
+        "kind": "coverage",
+        "orgs": [
+          "320000000"
+        ],
+        "dimension": "metrics",
+        "start": "2026-03-01",
+        "end": "2026-03-31"
+      },
+      {
+        "question": "选择贷款余额当日数，查询这个范围内所有记录。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-01",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "tool": "metric_query_structured",
+        "hasRows": true
+      }
+    ]
+  },
+  {
+    "id": "03",
+    "category": "覆盖分页保持范围",
+    "turns": [
+      {
+        "question": "省联社2026年3月1日至3月31日哪些指标有数据，每页5个。",
+        "kind": "coverage",
+        "orgs": [
+          "320000000"
+        ],
+        "dimension": "metrics",
+        "page": 1,
+        "start": "2026-03-01",
+        "end": "2026-03-31",
+        "page_size": 5
+      },
+      {
+        "question": "下一页。",
+        "kind": "coverage",
+        "orgs": [
+          "320000000"
+        ],
+        "dimension": "metrics",
+        "page": 2,
+        "start": "2026-03-01",
+        "end": "2026-03-31",
+        "page_size": 5
+      }
+    ]
+  },
+  {
+    "id": "04",
+    "category": "覆盖维度纠正",
+    "turns": [
+      {
+        "question": "省联社2026年3月份有哪些指标有数据？",
+        "kind": "coverage",
+        "orgs": [
+          "320000000"
+        ],
+        "dimension": "metrics",
+        "start": "2026-03-01",
+        "end": "2026-03-31"
+      },
+      {
+        "question": "我要看哪些日期有记录，不是指标列表。",
+        "kind": "coverage",
+        "orgs": [
+          "320000000"
+        ],
+        "dimension": "dates",
+        "start": "2026-03-01",
+        "end": "2026-03-31"
+      }
+    ]
+  },
+  {
+    "id": "05",
+    "category": "日期覆盖分页",
+    "turns": [
+      {
+        "question": "江阴2026年1月1日到7月31日哪些日期有记录，每页3个？",
+        "kind": "coverage",
+        "orgs": [
+          "C001"
+        ],
+        "dimension": "dates",
+        "page": 1,
+        "start": "2026-01-01",
+        "end": "2026-07-31",
+        "page_size": 3
+      },
+      {
+        "question": "下一页，保持其他条件。",
+        "kind": "coverage",
+        "orgs": [
+          "C001"
+        ],
+        "dimension": "dates",
+        "page": 2,
+        "start": "2026-01-01",
+        "end": "2026-07-31",
+        "page_size": 3
+      }
+    ]
+  },
+  {
+    "id": "06",
+    "category": "覆盖修改日期",
+    "turns": [
+      {
+        "question": "省联社2026年3月有哪些指标有记录？",
+        "kind": "coverage",
+        "orgs": [
+          "320000000"
+        ],
+        "dimension": "metrics",
+        "start": "2026-03-01",
+        "end": "2026-03-31"
+      },
+      {
+        "question": "改查2026年4月1日至4月30日有哪些指标有记录。",
+        "kind": "coverage",
+        "orgs": [
+          "320000000"
+        ],
+        "dimension": "metrics",
+        "start": "2026-04-01",
+        "end": "2026-04-30"
+      }
+    ]
+  },
+  {
+    "id": "07",
+    "category": "覆盖修改机构",
+    "turns": [
+      {
+        "question": "省联社2026年3月哪些指标有数据？",
+        "kind": "coverage",
+        "orgs": [
+          "320000000"
+        ],
+        "dimension": "metrics",
+        "start": "2026-03-01",
+        "end": "2026-03-31"
+      },
+      {
+        "question": "那江阴呢，其他范围相同。",
+        "kind": "coverage",
+        "orgs": [
+          "C001"
+        ],
+        "dimension": "metrics",
+        "start": "2026-03-01",
+        "end": "2026-03-31"
+      }
+    ]
+  },
+  {
+    "id": "08",
+    "category": "全局目录转机构覆盖",
+    "turns": [
+      {
+        "question": "系统的指标目录有哪些指标？",
+        "kind": "catalog",
+        "noQuery": true
+      },
+      {
+        "question": "省联社2026年3月有哪些指标实际有记录？",
+        "kind": "coverage",
+        "orgs": [
+          "320000000"
+        ],
+        "dimension": "metrics",
+        "start": "2026-03-01",
+        "end": "2026-03-31"
+      }
+    ]
+  },
+  {
+    "id": "09",
+    "category": "目录检索转独立取值",
+    "turns": [
+      {
+        "question": "帮我找名称为贷款余额当日数的正式指标。",
+        "kind": "search",
+        "tool": "metric_catalog_search",
+        "noQuery": true,
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ]
+      },
+      {
+        "question": "查询省联社2026年3月31日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "hasRows": true,
+        "action": "new"
+      }
+    ]
+  },
+  {
+    "id": "10",
+    "category": "缺日期新查询再澄清",
+    "turns": [
+      {
+        "question": "查询省联社的贷款余额当日数。",
+        "kind": "clarify",
+        "action": "new"
+      },
+      {
+        "question": "2026年3月31日。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "clarify",
+        "hasRows": true
+      }
+    ]
+  },
+  {
+    "id": "11",
+    "category": "缺机构新查询再澄清",
+    "turns": [
+      {
+        "question": "查询2026年3月31日贷款余额当日数。",
+        "kind": "clarify",
+        "action": "new"
+      },
+      {
+        "question": "省联社。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "clarify",
+        "hasRows": true
+      }
+    ]
+  },
+  {
+    "id": "12",
+    "category": "待澄清时独立新查询",
+    "turns": [
+      {
+        "question": "查询省联社的贷款余额当日数。",
+        "kind": "clarify",
+        "action": "new"
+      },
+      {
+        "question": "另外查询江阴2026年4月30日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "C001"
+        ],
+        "start": "2026-04-30",
+        "end": "2026-04-30",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "new"
+      }
+    ]
+  },
+  {
+    "id": "13",
+    "category": "澄清后继续改日期",
+    "turns": [
+      {
+        "question": "查询省联社的贷款余额当日数。",
+        "kind": "clarify",
+        "action": "new"
+      },
+      {
+        "question": "2026年3月31日。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "clarify"
+      },
+      {
+        "question": "改成2026年4月30日。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-04-30",
+        "end": "2026-04-30",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "followup"
+      }
+    ]
+  },
+  {
+    "id": "14",
+    "category": "修改日期继承机构",
+    "turns": [
+      {
+        "question": "查询省联社2026年3月31日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ]
+      },
+      {
+        "question": "那2026年4月30日呢？",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-04-30",
+        "end": "2026-04-30",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "followup"
+      }
+    ]
+  },
+  {
+    "id": "15",
+    "category": "修改机构继承日期",
+    "turns": [
+      {
+        "question": "查询省联社2026年3月31日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ]
+      },
+      {
+        "question": "那江阴呢？",
+        "kind": "query",
+        "orgs": [
+          "C001"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "followup"
+      }
+    ]
+  },
+  {
+    "id": "16",
+    "category": "修改指标继承范围",
+    "turns": [
+      {
+        "question": "查询省联社2026年3月31日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ]
+      },
+      {
+        "question": "改查贷款余额较年初，其他条件保持。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL_CMPBGNYR"
+        ],
+        "action": "followup"
+      }
+    ]
+  },
+  {
+    "id": "17",
+    "category": "同时修改机构日期",
+    "turns": [
+      {
+        "question": "查询省联社2026年3月31日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ]
+      },
+      {
+        "question": "换成江阴，日期改为2026年4月30日。",
+        "kind": "query",
+        "orgs": [
+          "C001"
+        ],
+        "start": "2026-04-30",
+        "end": "2026-04-30",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "followup"
+      }
+    ]
+  },
+  {
+    "id": "18",
+    "category": "全区间取值再换机构",
+    "turns": [
+      {
+        "question": "查询省联社2026年3月1日至3月31日贷款余额当日数的全部记录。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-01",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ]
+      },
+      {
+        "question": "同一个完整范围换成江阴。",
+        "kind": "query",
+        "orgs": [
+          "C001"
+        ],
+        "start": "2026-03-01",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "followup"
+      }
+    ]
+  },
+  {
+    "id": "19",
+    "category": "查询后重显结果",
+    "turns": [
+      {
+        "question": "查询省联社2026年3月31日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ]
+      },
+      {
+        "question": "把刚才的结果再显示一遍。",
+        "kind": "read",
+        "readIndex": 0,
+        "tool": "metric_read"
+      }
+    ]
+  },
+  {
+    "id": "20",
+    "category": "两笔查询明确回读第一笔",
+    "turns": [
+      {
+        "question": "查询省联社2026年3月31日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ]
+      },
+      {
+        "question": "查询江阴2026年4月30日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "C001"
+        ],
+        "start": "2026-04-30",
+        "end": "2026-04-30",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ]
+      },
+      {
+        "question": "重新显示第一笔省联社2026年3月31日贷款余额当日数的结果。",
+        "kind": "read",
+        "readIndex": 0,
+        "tool": "metric_read"
+      }
+    ]
+  },
+  {
+    "id": "21",
+    "category": "回读旧结果后继续修改",
+    "turns": [
+      {
+        "question": "查询省联社2026年3月31日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ]
+      },
+      {
+        "question": "另查江阴2026年4月30日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "C001"
+        ],
+        "start": "2026-04-30",
+        "end": "2026-04-30",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ]
+      },
+      {
+        "question": "先重新显示第一笔省联社3月31日贷款余额当日数结果。",
+        "kind": "read",
+        "readIndex": 0,
+        "tool": "metric_read"
+      },
+      {
+        "question": "沿用刚显示的省联社条件，日期改为2026年5月31日。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-05-31",
+        "end": "2026-05-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "followup"
+      }
+    ]
+  },
+  {
+    "id": "22",
+    "category": "未知指标后省略追问",
+    "turns": [
+      {
+        "question": "查询省联社2026年3月31日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ]
+      },
+      {
+        "question": "改查不存在的验收专用指标XYZ，其余不变。",
+        "kind": "confirm"
+      },
+      {
+        "question": "那4月30日呢？",
+        "kind": "confirm"
+      }
+    ]
+  },
+  {
+    "id": "23",
+    "category": "未知指标后完整新问题",
+    "turns": [
+      {
+        "question": "查询省联社2026年3月31日不存在的验收专用指标XYZ。",
+        "kind": "confirm"
+      },
+      {
+        "question": "查询省联社2026年3月31日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "new"
+      }
+    ]
+  },
+  {
+    "id": "24",
+    "category": "不支持目标转已支持查询",
+    "turns": [
+      {
+        "question": "请预测省联社明年的贷款余额。",
+        "kind": "unsupported",
+        "noQuery": true
+      },
+      {
+        "question": "查询省联社2026年3月31日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "new"
+      }
+    ]
+  },
+  {
+    "id": "25",
+    "category": "查询后请求归因",
+    "turns": [
+      {
+        "question": "查询省联社2026年3月31日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ]
+      },
+      {
+        "question": "帮我分析这笔贷款余额变动的客户流失原因。",
+        "kind": "unsupported",
+        "noQuery": true
+      }
+    ]
+  },
+  {
+    "id": "26",
+    "category": "零行成功回读",
+    "turns": [
+      {
+        "question": "查询省联社2025年3月31日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2025-03-31",
+        "end": "2025-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "empty": true
+      },
+      {
+        "question": "把这次无数据的查询结果再显示。",
+        "kind": "read",
+        "readIndex": 0,
+        "tool": "metric_read"
+      }
+    ]
+  },
+  {
+    "id": "27",
+    "category": "零覆盖修改日期",
+    "turns": [
+      {
+        "question": "省联社2025年3月1日至3月31日哪些指标有数据？",
+        "kind": "coverage",
+        "orgs": [
+          "320000000"
+        ],
+        "dimension": "metrics",
+        "start": "2025-03-01",
+        "end": "2025-03-31"
+      },
+      {
+        "question": "改成2026年3月，还是这些机构。",
+        "kind": "coverage",
+        "orgs": [
+          "320000000"
+        ],
+        "dimension": "metrics",
+        "start": "2026-03-01",
+        "end": "2026-03-31"
+      }
+    ]
+  },
+  {
+    "id": "28",
+    "category": "多指标再回读",
+    "turns": [
+      {
+        "question": "查询省联社2026年3月31日贷款余额当日数和贷款余额较年初。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL",
+          "STRC_WROFF_LOAN_BAL_CMPBGNYR"
+        ]
+      },
+      {
+        "question": "把刚才这两个指标的结果再显示一下。",
+        "kind": "read",
+        "readIndex": 0,
+        "tool": "metric_read"
+      }
+    ]
+  },
+  {
+    "id": "29",
+    "category": "相对年份追问",
+    "turns": [
+      {
+        "question": "查询省联社2026年3月31日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ]
+      },
+      {
+        "question": "同月同日，改成去年。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2025-03-31",
+        "end": "2025-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "followup",
+        "empty": true
+      }
+    ]
+  },
+  {
+    "id": "30",
+    "category": "缺指标后正式澄清",
+    "turns": [
+      {
+        "question": "查询省联社2026年3月31日的数据。",
+        "kind": "clarify",
+        "action": "new"
+      },
+      {
+        "question": "贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "clarify"
+      }
+    ]
+  },
+  {
+    "id": "31",
+    "category": "时点改完整月份",
+    "turns": [
+      {
+        "question": "查询省联社2026年3月31日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ]
+      },
+      {
+        "question": "改为2026年3月整月的每日明细，保留有记录的日期，不求和。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-01",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "followup"
+      }
+    ]
+  },
+  {
+    "id": "32",
+    "category": "连续改机构再日期",
+    "turns": [
+      {
+        "question": "查询省联社2026年3月31日贷款余额当日数。",
+        "kind": "query",
+        "orgs": [
+          "320000000"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ]
+      },
+      {
+        "question": "那江阴呢？",
+        "kind": "query",
+        "orgs": [
+          "C001"
+        ],
+        "start": "2026-03-31",
+        "end": "2026-03-31",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "followup"
+      },
+      {
+        "question": "日期再改成2026年4月30日。",
+        "kind": "query",
+        "orgs": [
+          "C001"
+        ],
+        "start": "2026-04-30",
+        "end": "2026-04-30",
+        "metrics": [
+          "STRC_WROFF_LOAN_BAL"
+        ],
+        "action": "followup"
+      }
+    ]
+  }
+]

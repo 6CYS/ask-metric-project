@@ -265,6 +265,7 @@ class _MySqlAdapter(_DialectAdapter):
             "mv.metric_code",
             "COALESCE(mt.metric_name, mv.metric_name) AS metric_name",
             "mt.unit",
+            "mv.org_code",
             "mv.org_name",
             "mv.metric_value",
             "mv.stat_date",
@@ -310,11 +311,12 @@ class _MySqlAdapter(_DialectAdapter):
         inner = exp.select(
             "metric_code",
             "metric_name",
+            "org_code",
             "org_name",
             "metric_value",
             "stat_date",
             "ROW_NUMBER() OVER ("
-            "PARTITION BY metric_code, org_name ORDER BY stat_date DESC"
+            "PARTITION BY metric_code, org_code ORDER BY stat_date DESC"
             ") AS row_number",
             dialect=self.read_dialect,
         ).from_("metric_values", dialect=self.read_dialect)
@@ -329,6 +331,7 @@ class _MySqlAdapter(_DialectAdapter):
                 "ranked.metric_code",
                 "COALESCE(mt.metric_name, ranked.metric_name) AS metric_name",
                 "mt.unit",
+                "ranked.org_code",
                 "ranked.org_name",
                 "ranked.metric_value",
                 "ranked.stat_date",
@@ -397,8 +400,8 @@ class _MySqlAdapter(_DialectAdapter):
             )
         )
         query = exp.select(
-            "metric_code", "metric_name", "unit", "org_name", "metric_value", "stat_date",
-            "`rank`",
+            "metric_code", "metric_name", "unit", "org_code", "org_name",
+            "metric_value", "stat_date", "`rank`",
             dialect=self.read_dialect,
         )
         if scenario.time is _TimeKind.EXACT:
@@ -437,12 +440,13 @@ class _MySqlAdapter(_DialectAdapter):
             exp.select(
                 "mv.metric_code",
                 "mv.metric_name",
+                "mv.org_code",
                 "mv.org_name",
                 "mv.metric_value",
                 "mv.stat_date",
                 "ROW_NUMBER() OVER ("
                 "PARTITION BY periods.period_start, periods.period_end, "
-                "mv.metric_code, mv.org_name ORDER BY mv.stat_date DESC"
+                "mv.metric_code, mv.org_code ORDER BY mv.stat_date DESC"
                 ") AS row_number",
                 dialect=self.read_dialect,
             )
@@ -457,7 +461,7 @@ class _MySqlAdapter(_DialectAdapter):
         )
         selected_values = (
             exp.select(
-                "metric_code", "metric_name", "org_name", "metric_value", "stat_date",
+                "metric_code", "metric_name", "org_code", "org_name", "metric_value", "stat_date",
                 dialect=self.read_dialect,
             )
             .distinct()
@@ -469,6 +473,7 @@ class _MySqlAdapter(_DialectAdapter):
                 "selected.metric_code",
                 "COALESCE(mt.metric_name, selected.metric_name) AS metric_name",
                 "mt.unit",
+                "selected.org_code",
                 "selected.org_name",
                 "selected.metric_value",
                 "selected.stat_date",

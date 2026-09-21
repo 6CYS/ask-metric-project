@@ -2,6 +2,7 @@
  * 服务入口：加载运行配置（敏感项支持 SM4 密文），初始化原生会话宿主与 HTTP 路由。
  * 会话/上下文/压缩/执行状态全部归 pi 原生能力，本服务只做鉴权、接线与投影。
  */
+import { loadBusinessSkills, createBusinessSkillReadTool } from "./businessSkills.js";
 import { serve } from "@hono/node-server";
 import { loadConfig } from "./config.js";
 import { createAskMetricModels } from "./models.js";
@@ -15,11 +16,13 @@ async function main(): Promise<void> {
   // 单数据根单写实例：多副本共写 JSONL 会破坏原生存储，直接拒绝启动
   const releaseLock = acquireWriterLock(config.dataDir);
   const store = new NativeSessionStore(config.dataDir);
+  const skills = await loadBusinessSkills();
   const host = new HarnessHost(
     config,
     (authorize) => createAskMetricModels(config, authorize),
     store,
-    createAskMetricTools(),
+    [...createAskMetricTools(), createBusinessSkillReadTool(skills)],
+    { skills },
   );
   const app = createApp(config, host, store);
 

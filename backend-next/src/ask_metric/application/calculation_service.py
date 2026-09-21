@@ -1,5 +1,6 @@
 """从受治理查询快照解析数据引用；在应用库事务内校验权限并保存计算证据。"""
 
+import json
 from copy import deepcopy
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -25,10 +26,22 @@ def build_calculation_facts(task_id: str, rows: list[dict], catalog: dict) -> li
     """仅为精确原始数值分配引用；不把浮点、空值和旧舍入数据包装为可信值。"""
     facts = []
     metrics = {item["code"]: item for item in catalog.get("metrics", [])}
+    organizations = catalog.get("organizations", [])
+    # MySQL 旧取值模板仅返回机构名；只能用本次正式目录中的唯一同名项补齐编码。
+    # 不用模型猜测，也不在同名机构间取第一项。
+    codes_by_name: dict[str, set[str]] = {}
+    for organization in organizations:
+        codes_by_name.setdefault(organization["name"], set()).add(organization["code"])
     for index, row in enumerate(rows):
         metric = metrics.get(row.get("metric_code"))
         if not metric or not metric.get("unit"):
             continue
+        org_code = row.get("org_code")
+        if not org_code:
+            candidates = codes_by_name.get(row.get("org_name"), set())
+            if len(candidates) != 1:
+                continue
+            org_code = next(iter(candidates))
         for field in ("metric_value", "current_value", "base_value"):
             if row.get(field) is None:
                 continue
@@ -47,7 +60,7 @@ def build_calculation_facts(task_id: str, rows: list[dict], catalog: dict) -> li
                     "metric_code": metric["code"],
                     "metric_name": metric["name"],
                     "org_name": row.get("org_name"),
-                    "org_code": row.get("org_code"),
+                    "org_code": org_code,
                     "date": json_safe(
                         row.get("stat_date")
                         or row.get("base_date" if field == "base_value" else "current_date")
@@ -83,7 +96,9 @@ class CalculationApplicationService:
             raise CalculationError("常数和数据变量名称不能重复。")
         if (set(payload.constants) | set(payload.bindings)) & {"sum", "avg", "min", "max", "abs"}:
             raise CalculationError("变量名称不能覆盖数学函数。")
-        fingerprint = sha256(payload.model_dump_json().encode()).hexdigest()
+        fingerprint = sha256(
+            json.dumps(payload.model_dump(), sort_keys=True, ensure_ascii=False).encode()
+        ).hexdigest()
         with self.uow_factory() as uow:
             # 与删除和同会话计算共用行锁；计算不访问模型或查询库，事务时长有界。
             conversation = uow.conversations.get_owned_for_update(
@@ -109,7 +124,10 @@ class CalculationApplicationService:
                     state = task.state_json or {}
                     context = state.get("channel_context", {}).get("calculation_context", {})
                     if context.get("scope_id") != payload.scope_id:
-                        raise CalculationError("只能计算当前提问或当前待澄清任务的数据。")
+                        raise CalculationError(
+                            "只能计算当前提问或当前待澄清任务的数据。请按本轮机构、指标、日期"
+                            "重新查询，再使用新回执的 fact_id 计算；历史回读不会变成本轮取数。"
+                        )
                     if task.status != "SUCCEEDED":
                         raise CalculationError("查询尚未成功，不能用于计算。")
                     if task.expires_at and task.expires_at.replace(tzinfo=UTC) <= datetime.now(UTC):
@@ -125,14 +143,14 @@ class CalculationApplicationService:
                     original_dsl = artifact.get("logical_dsl")
                     if not original_dsl:
                         raise CalculationError("查询结果缺少证据，请重新查询。")
-                    authorized, _, _ = self.execution_service._authorize_query(
+                    authorized, current_metrics, _ = self.execution_service._authorize_query(
                         uow=uow, actor=actor, logical_dsl=original_dsl, strict_codes=True
                     )
                     if set(authorized.orgs) != set(original_dsl.get("orgs") or []):
                         raise CalculationError("查询结果权限范围已变化，请重新查询。")
-                    tasks[task_id] = (task, result)
+                    tasks[task_id] = (task, result, {item.code: item for item in current_metrics})
                     questions.add(context.get("user_question", ""))
-                _, result = tasks[task_id]
+                _, result, metric_catalog = tasks[task_id]
                 fact = next(
                     (
                         item
@@ -143,6 +161,9 @@ class CalculationApplicationService:
                 )
                 if fact is None:
                     raise CalculationError("数据引用不存在或原始值精度不满足要求，请重新查询。")
+                current_metric = metric_catalog.get(fact.get("metric_code"))
+                if current_metric is None or current_metric.unit != fact.get("unit"):
+                    raise CalculationError("指标单位或启用状态已变化，请重新查询后计算。")
                 inputs[name] = deepcopy(fact)
                 values[name] = quantity(fact["value"], fact["unit"])
             if len(questions) != 1:
@@ -168,17 +189,44 @@ class CalculationApplicationService:
             results = []
             for expression in payload.expressions:
                 result = evaluate_expression(expression, values)
+                selected = [
+                    inputs[name] for name in result["variables"] if name in payload.bindings
+                ]
+                if any(not fact.get("org_code") or not fact.get("date") for fact in selected):
+                    raise CalculationError("数据缺少机构或日期证据，请重新查询。")
+                if (
+                    payload.scope_policy in {"same_org_date", "cross_date"}
+                    and len({f["org_code"] for f in selected}) > 1
+                ):
+                    raise CalculationError("参与计算的机构不同，请明确跨机构计算口径。")
+                if (
+                    payload.scope_policy in {"same_org_date", "cross_org"}
+                    and len({f["date"] for f in selected}) > 1
+                ):
+                    raise CalculationError("参与计算的日期不同，请明确跨日期计算口径。")
                 # 回复金额复用查询的展示规则；计算原值、原单位及来源保持不变。
                 result.update(money_reply_fields(decimal_value(result["value"]), result["unit"]))
                 if not set(result["variables"]) & set(payload.bindings):
                     raise CalculationError("每个表达式必须引用查询数据。")
                 results.append(result)
+            # 引用完整性是双向的：声明了却未被任何表达式使用的变量/常数一律拒绝，
+            # 不给"夹带无关参数做形式合规"留口子。
+            unused = (set(payload.bindings) | set(payload.constants)) - set().union(
+                *(set(item["variables"]) for item in results)
+            )
+            if unused:
+                raise CalculationError(f"声明的变量或常数未被任何表达式引用：{sorted(unused)}。")
             response = {
                 "calculation_id": str(uuid4()),
                 "status": "succeeded",
                 "scope_id": payload.scope_id,
                 "task_id": anchor.id,
                 "results": results,
+                "scope_policy": payload.scope_policy,
+                "public_answer": "\n".join(
+                    f"计算结果「{item['label']}」（{item['expression']}）："
+                    f"{item['display_value']}{item['unit']}。" for item in results
+                ),
                 "inputs": inputs,
                 "precision": 60,
                 "rounding": "ROUND_HALF_UP",

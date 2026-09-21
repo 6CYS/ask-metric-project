@@ -81,7 +81,7 @@ def _deterministic_metric_hits(
             hits[hit.code] = hit
 
     for item in items:
-        for term in [item.name, *item.aliases]:
+        for term in [item.code, item.name, *item.aliases]:
             score = _contains_score(keyword, normalize_semantic_text(term), _SCORE_CONTAINS)
             if score is None:
                 continue
@@ -168,7 +168,7 @@ def rank_organizations(
     hits: dict[str, CatalogSearchHit] = {}
     for item in items:
         best: float | None = None
-        for term in [item.name, *item.aliases]:
+        for term in [item.code, item.name, *item.aliases]:
             normalized_term = normalize_semantic_text(term)
             if not normalized_term:
                 continue

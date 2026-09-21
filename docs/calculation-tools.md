@@ -10,6 +10,8 @@ Agent 先用 `metric_query_structured` 或 `metric_ask` 查询，取得 `facts` 
 新提问不读取历史模型上下文或历史引用；当前未完成任务通过任务及澄清编号补充条件。
 归因执行仍不支持，计算工具不用于生成无证据的业务动因。
 
+本文的 Agent 接线与验收范围以 [原生业务 skill 与组合计算](business-skills-runtime.md) 为准。
+
 ## 工具参数
 
 ```json
@@ -34,6 +36,7 @@ Agent 先用 `metric_query_structured` 或 `metric_ask` 查询，取得 `facts` 
   公式写 `avg(a,b)*factor`。后端核对原句及数字边界；常数用途仍由模型和用户确认。
 - 百分比用 `display=percent`，例如 `(current-previous)/previous`，不要乘 100。
   `decimal_places` 为 0～8，默认 2。正式单位为 `%` 的输入先转换为比率参与计算。
+- `scope_policy` 缺省 `same_org_date`；跨日期或机构时分别声明 `cross_date`、`cross_org`，两者均不同时用 `explicit`，且先确认业务口径。
 - 加减及聚合必须同单位，乘除组合单位，无量纲结果才可展示百分比。缺少正式单位不发放引用；
   不猜不同单位的换算系数。除零、非法语法及越界数值返回明确错误。
 - 输入及结果通过十进制字符串传输；内部 60 位有效数字，展示采用 `ROUND_HALF_UP`。

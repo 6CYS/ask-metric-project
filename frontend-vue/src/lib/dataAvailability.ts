@@ -21,6 +21,7 @@ export interface AvailabilityGroup {
 export interface AvailabilityDetails {
   kind?: "data_availability"
   status: "succeeded"
+  public_answer?: string
   request: AvailabilityInput
   mode: "overview" | "combinations" | "common" | "metrics"
   items?: { metric_code: string; metric_name: string }[]
@@ -34,6 +35,7 @@ export interface AvailabilityDetails {
   notice: string
 }
 export function availabilityReply(data: AvailabilityDetails): string {
+  if (data.public_answer) return data.public_answer
   const common = data.request.match === "all" || data.mode === "common"
   const group = data.groups.find(item => item.scope === (common ? "common" : "any"))
   const names = data.groups.filter(item => item.scope === "pair")
@@ -45,9 +47,11 @@ export function availabilityReply(data: AvailabilityDetails): string {
   if (data.mode === "metrics") {
     if (!data.metric_count) return `${scope}${period}内未查到有数据记录的正式指标。`
     const items = data.items ?? []
-    return `${scope}${period}内，共有 ${data.metric_count} 个正式指标有数据记录。`
+    const filter = data.request.metric_codes?.length
+    return `${scope}${period}内，${filter ? `本次核验的 ${filter} 个指定指标中，` : ""}共有 ${data.metric_count} 个正式指标有数据记录。`
       + (items.length ? `\n${data.metric_count > items.length ? '本页展示部分指标' : '指标包括'}：${items.map(item => item.metric_name).join('、')}。` : "\n本页没有更多指标，请指定其他页码查询。")
       + (data.metric_count > items.length ? "可指定页码继续查看。" : "")
+      + (filter ? "本次仅覆盖指定指标，不代表整个指标类别。" : "")
       + "\n有记录不代表所选范围内每个机构、每天都有有效数值，具体数值需进一步查询。"
   }
   if (!group?.date_count) return `${scope}${period}内${common ? '没有所有所选机构和指标均有记录的共同业务日期' : '未查到有数据记录的业务日期'}。`

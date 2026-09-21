@@ -19,9 +19,15 @@ from ask_metric.domain.metric_matching import (
     normalize_semantic_text,
 )
 from ask_metric.domain.semantic_normalization import (
+    CALENDAR_PERIOD_PATTERN,
+    CALENDAR_RECURRENCE_PATTERN,
     SemanticValidationError,
+    explicit_calendar_boundary_dates,
     normalize_slot_frame,
     parse_time_expression,
+)
+from ask_metric.domain.semantic_normalization import (
+    normalize_calendar_text as _normalize_calendar_text,
 )
 from ask_metric.domain.semantic_reference import ReferenceMergeUnsupported, validate_change_map
 from ask_metric.domain.semantics import (
@@ -39,6 +45,12 @@ from ask_metric.infrastructure.model.catalog_vectors import (
 from ask_metric.infrastructure.semantic.configuration import SemanticConfig
 
 _CALENDAR_MONTH_TOKEN = r"(?:\d{1,2}|[一二三四五六七八九十]{1,3})"
+# 排名选择语法共用一处；指标目录完整名称在调用此语法前已受保护。
+_RANKING_SELECTION_PATTERN = (
+    r"(?:排名|排行|排序)?(?:前|后|倒数|最高|最低|最大|最小)(?:的)?"
+    r"(?:\d+|[一二两三四五六七八九十百千]+)(?:名|位|家|个)?"
+    r"(?:的)?(?:机构|农商行|农商银行|银行)?"
+)
 
 
 @dataclass(frozen=True)
@@ -181,54 +193,55 @@ class SemanticEngine:
                 "org_codes": resolved_org_codes,
                 "metrics": [{"code": item.code, "name": item.name} for item in resolution.matches],
             }
-        chat_started = perf_counter()
-        raw = self.model_service.analyze(
-            prompt="slot_extraction",
-            context={
-                "question": model_context["question"],
-                "current_date": model_context["current_date"],
-                "protected_question": protected_question,
-                "metric_candidates_json": _json(model_context["metric_candidates"]),
-                "organization_candidates_json": _json(
-                    model_context["organization_candidates"]
-                ),
-                "existing_slot_frame_json": _json(model_context["existing_slot_frame"]),
-                "slot_frame_schema_json": _json(slot_frame_json_schema()),
-            },
-        )
-        timings_ms["chat_model_ms"] = _elapsed_ms(chat_started)
-        debug["chat_model"] = {
-            "prompt": "slot_extraction",
-            "input": model_context,
-            "output": raw,
+        model_schema = slot_frame_json_schema()
+        prompt_context = {
+            "question": model_context["question"],
+            "current_date": model_context["current_date"],
+            "protected_question": protected_question,
+            "metric_candidates_json": _json(model_context["metric_candidates"]),
+            "organization_candidates_json": _json(model_context["organization_candidates"]),
+            "existing_slot_frame_json": _json(model_context["existing_slot_frame"]),
+            "slot_frame_schema_json": _json(model_schema),
         }
-        normalization_started = perf_counter()
-        try:
-            adaptation = adapt_model_slot_frame(raw)
-            debug["chat_model"]["adapted_output"] = adaptation.adapted
-            debug["chat_model"]["field_validation_errors"] = adaptation.field_errors
-            # 适配器可修复非关键展示字段，但操作/筛选/维度/参数不能“丢弃后继续”。
-            # 否则格式错误的复杂请求会被缩成普通取值，甚至丢失限定条件。
-            blocking_errors = [
-                error for error in adaptation.field_errors
-                if str(error["field"]).split("[", 1)[0]
-                in {"task", "ops", "filters", "dimensions", "options",
-                    "changes", "context_relation", "time", "orgs", "metrics"}
-            ]
-            if blocking_errors:
-                raise InvalidSlotFrameError(blocking_errors)
-            frame = SlotFrame.model_validate(adaptation.adapted)
-        except (TypeError, ValidationError) as exc:
-            errors = (
-                exc.errors(
-                    include_url=False,
-                    include_context=False,
-                    include_input=False,
+        validation_attempts = []
+        timings_ms["chat_model_ms"] = 0
+        for attempt in range(2):
+            chat_started = perf_counter()
+            raw = self.model_service.analyze(prompt="slot_extraction", context=prompt_context)
+            timings_ms["chat_model_ms"] += _elapsed_ms(chat_started)
+            debug["chat_model"] = {
+                "prompt": "slot_extraction", "input": model_context, "output": raw,
+                "validation_attempts": validation_attempts,
+            }
+            normalization_started = perf_counter()
+            try:
+                adaptation = adapt_model_slot_frame(raw)
+                debug["chat_model"]["adapted_output"] = adaptation.adapted
+                debug["chat_model"]["field_validation_errors"] = adaptation.field_errors
+                # 关键字段失败不能丢弃后执行；只允许模型在同一原文/来源上纠正一次结构。
+                errors = [
+                    error for error in adaptation.field_errors
+                    if str(error["field"]).split("[", 1)[0]
+                    in {"task", "ops", "filters", "dimensions", "options",
+                        "changes", "context_relation", "time", "orgs", "metrics"}
+                ]
+                if errors:
+                    raise InvalidSlotFrameError(errors)
+                frame = SlotFrame.model_validate(adaptation.adapted)
+                break
+            except (InvalidSlotFrameError, TypeError, ValidationError) as exc:
+                errors = (
+                    exc.errors if isinstance(exc, InvalidSlotFrameError)
+                    else exc.errors(include_url=False, include_context=False, include_input=False)
+                    if isinstance(exc, ValidationError)
+                    else [{"field": "$", "code": "invalid_type", "message": str(exc)}]
                 )
-                if isinstance(exc, ValidationError)
-                else [{"field": "$", "code": "invalid_type", "message": str(exc)}]
-            )
-            raise InvalidSlotFrameError(errors) from exc
+                validation_attempts.append({"attempt": attempt + 1, "errors": errors})
+                if attempt:
+                    raise InvalidSlotFrameError(errors) from exc
+                prompt_context["validation_feedback"] = {
+                    "previous_output": raw, "errors": errors,
+                }
         # 不再有前置意图分类；保留模型给出的任务/操作交由能力校验拒绝，
         # 不能把旧模型返回的分析目标强制改成普通指标取值。
         if reference_context and reference_context.get("mode") == "candidate":
@@ -289,6 +302,24 @@ class SemanticEngine:
                             if normalized_time.start else expression
                         )
                         frame.missing = [item for item in frame.missing if item != "time"]
+        if frame.time:
+            try:
+                boundary_dates = explicit_calendar_boundary_dates(
+                    protected_question, frame.time, today=current_date
+                )
+            except (SemanticValidationError, ValueError):
+                boundary_dates = None
+                frame.options["invalid_time_expression"] = frame.time
+                frame.options["missing_time_reason"] = "invalid_date"
+                if "time" not in frame.missing:
+                    frame.missing.append("time")
+            if boundary_dates and len(boundary_dates) > 1:
+                frame.options["target_dates"] = boundary_dates
+                frame.options.pop("time_windows", None)
+            elif boundary_dates:
+                frame.time = boundary_dates[0]
+                frame.options.pop("target_dates", None)
+                frame.options.pop("time_windows", None)
         if resolution.matches and _plain_catalog_value_question(protected_question):
             # 全句只剩已确认实体、日期和取值语法时，没有额外操作；防止模型凭空加 detail。
             frame.ops = []
@@ -387,6 +418,18 @@ class SemanticEngine:
             if reference_context.get("change_field") == "compose":
                 # 与来源完全相同且未声明修改的回填是空操作，规范化为继承；不同值不猜动作。
                 source_slots = SlotFrame.model_validate(reference_context["source_slots"])
+                # 未声明修改且回填的是来源同一组指标时，名称文本也属于继承，
+                # 不能只清除 codes 后留下 raw_metric_texts，制造不一致的修改清单。
+                if ("metrics" not in frame.changes and frame.metrics == source_slots.metrics
+                        and not frame.options.get("metric_clarification_items")
+                        and not resolution.matches):
+                    source_names = {item.name for item in source_slots.metrics}
+                    raw_names = frame.raw_metric_texts or (
+                        [frame.raw_metric_text] if frame.raw_metric_text else []
+                    )
+                    if raw_names and set(raw_names) <= source_names:
+                        frame.raw_metric_text = None
+                        frame.raw_metric_texts = []
                 for field in ("metrics", "orgs", "time", "ops", "filters", "dimensions"):
                     if (field not in frame.changes
                             and getattr(frame, field) == getattr(source_slots, field)):
@@ -1178,20 +1221,6 @@ def _protect_resolved_entities(
     return "".join(output)
 
 
-def _normalize_calendar_text(text: str) -> str:
-    """统一日期词内部的排版空白；不拼接数字片段，也不删除一般文本分隔。"""
-    number = r"0-9零〇一二两三四五六七八九十"
-    text = re.sub(rf"(?<=[{number}])\s+(?=[年月日])", "", text)
-    text = re.sub(rf"(?<=[年月])\s+(?=[{number}])", "", text)
-    text = re.sub(r"(?<=月)\s+(?=[份末底])", "", text)
-    # 提取和从原句剥离日期共用相同写法，避免“月份”残留为待识别指标。
-    return re.sub(
-        rf"({_CALENDAR_MONTH_TOKEN}月)份?(底)?",
-        lambda match: match.group(1) + ("末" if match.group(2) else ""),
-        text,
-    )
-
-
 def extract_time_expression(text: str) -> str | None:
     text = _normalize_calendar_text(text)
     fixed_holiday = re.search(
@@ -1256,7 +1285,7 @@ def extract_time_expression(text: str) -> str | None:
         rf"{_CALENDAR_MONTH_TOKEN}月份?",
         r"近\s*\d+\s*天",
         r"近\s*(?:\d+|[一二两三四五六七八九十]+)\s*个?月",
-        r"(?:(?:\d{4}年|今年|本年))?(?:第)?[一二三四1-4]季度",
+        CALENDAR_PERIOD_PATTERN,
         r"本季度|本季|上季度|上季|今年|本年|去年|上年|前年",
         r"本月|上个月|上月|今天|今日|昨天",
         r"当前最新|最新一期|最近一期|最新|最近",
@@ -1380,7 +1409,9 @@ def _extract_requested_metric_text(
     *,
     organization_terms: list[str] | None = None,
 ) -> str | None:
-    value = _normalize_calendar_text(text).strip()
+    # 先归一化句末标点，操作后缀的锚点才不会留下“前3名”等伪指标。
+    # 不删除句内标点，保留多指标分隔和正式名称的完整性。
+    value = _normalize_calendar_text(text).strip(" \t\r\n。．.，,、；;？?！!")
     calendar_prefix = r"(?:(?:今年|本年|去年|上年|前年|\d{4}年|\d+年前))?"
     value = re.sub(
         rf"{calendar_prefix}{_CALENDAR_MONTH_TOKEN}月\d{{1,2}}日",
@@ -1393,7 +1424,7 @@ def _extract_requested_metric_text(
         value,
     )
     value = re.sub(
-        rf"{calendar_prefix}(?:第)?[一二三四1-4]季度",
+        CALENDAR_PERIOD_PATTERN,
         " ",
         value,
     )
@@ -1427,7 +1458,7 @@ def _extract_requested_metric_text(
         count=1,
     ).strip()
     value = re.sub(
-        r"(?:排名)?前(?:\d+|[一二两三四五六七八九十]+)(?:名)?(?:的)?(?:机构|农商行)?$",
+        rf"{_RANKING_SELECTION_PATTERN}$",
         "",
         value,
     ).strip()
@@ -1500,7 +1531,7 @@ def _plain_catalog_value_question(protected: str) -> bool:
     # 完整消耗输入才成立；比较、排名、明细、筛选等残留词均不能被删除或降级。
     return bool(
         re.fullmatch(
-            r"(?:(?:请|帮我|麻烦|查询|查一下|查|的|和|与|以及|及|分别|是多少|有多少|多少|是什么)|[\s，,、。.?？：:；;])+",
+            r"(?:(?:请|帮我|麻烦|另外查询|另外查一下|另外查|另查|查询|查一下|查|的|和|与|以及|及|分别|是多少|有多少|多少|是什么)|[\s，,、。.?？：:；;])+",
             value,
         )
     )
@@ -1533,6 +1564,30 @@ def _is_operation_only_metric_text(text: str, matcher: MetricMatcher) -> bool:
     """Reject a model phrase that only names an operation, unless it is a catalog term."""
     if matcher.exact_candidates(text):
         return False
+    # 已识别实体之间可能只剩“的、和、分别”等查询语法；复用完整语法判断，
+    # 不按字符裁剪未知指标名称，避免多机构、多指标生成额外伪指标。
+    if _plain_catalog_value_question(text):
+        return True
+    # 明确“计算/求”引导的聚合指令是操作，不是第二个指标；保留任何未消耗的名称。
+    without_calculation = re.sub(
+        r"(?:再|并|然后|同时)?(?:计算|求|算出)(?:这些|上述|所有|各|\d+|[一二两三四五六七八九十]+)?"
+        r"(?:项|个)?(?:指标|余额|数值)?(?:的)?(?:合计|总计|总和|平均值?|最大值|最小值)",
+        " ", text,
+    )
+    if without_calculation != text and (
+        not without_calculation.strip() or _plain_catalog_value_question(without_calculation)
+    ):
+        return True
+    without_recurrence = re.sub(CALENDAR_RECURRENCE_PATTERN, " ", text)
+    if without_recurrence != text and (
+        not without_recurrence.strip() or _plain_catalog_value_question(without_recurrence)
+    ):
+        return True
+    if re.fullmatch(_RANKING_SELECTION_PATTERN, text.strip(" 的，,、；;。？?！!")):
+        return True
+    # 日期及实体已移除后的时间序列口径不是额外指标；整段匹配保留未知名称。
+    if re.fullmatch(r"[\s至到的~～]*(?:全部记录|每日明细)[\s。？?]*", text):
+        return True
     return normalize_semantic_text(text) in {
         "对比",
         "比较",

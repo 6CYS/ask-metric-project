@@ -17,6 +17,7 @@ from dotenv import dotenv_values
 
 from ask_metric.core.config_crypto import (
     CONFIG_SM4_KEY_FILE_ENV,
+    ConfigCryptoError,
     decrypt_config_value,
     load_config_sm4_key,
 )
@@ -128,6 +129,21 @@ class ConfigurableModelService:
         chat = self.model_configs.load().models.chat
         self._require_enabled("chat", chat)
         messages = self.prompts.render(prompt, context)
+        feedback = context.get("validation_feedback")
+        if isinstance(feedback, dict):
+            # 结构纠正沿用同一问题与 schema；错误输出只作为 assistant 数据回放，不升级指令。
+            messages = [*messages, {
+                "role": "assistant",
+                "content": json.dumps(feedback.get("previous_output"), ensure_ascii=False),
+            }, {
+                "role": "user",
+                "content": (
+                    "上次输出未通过结构校验，请按原 schema 纠正后重新输出完整 JSON。"
+                    "保留原问题、来源和完整操作意图，不得丢弃筛选或日期来通过校验。"
+                    "以下仅为校验器诊断："
+                    + json.dumps(feedback.get("errors", []), ensure_ascii=False)
+                ),
+            }]
         if chat.user_message_suffix:
             messages = [dict(message) for message in messages]
             user_message = next(
@@ -246,12 +262,19 @@ class ConfigurableModelService:
         payload: dict[str, Any],
     ) -> dict[str, Any]:
         """统一模型 HTTP 边界：取配置、限制并发、设置超时并归类失败原因。"""
-        headers = self._authentication_headers(endpoint)
-        base_url = endpoint.base_url
-        if endpoint.base_url_env:
-            configured_base_url = self._credential_resolver(endpoint.base_url_env)
-            if configured_base_url:
-                base_url = configured_base_url.rstrip("/")
+        try:
+            headers = self._authentication_headers(endpoint)
+            base_url = endpoint.base_url
+            if endpoint.base_url_env:
+                configured_base_url = self._credential_resolver(endpoint.base_url_env)
+                if configured_base_url:
+                    base_url = configured_base_url.rstrip("/")
+        except ConfigCryptoError as exc:
+            # 凭据解密是服务配置故障，不能被上层 ValueError 分支归为用户语义错误。
+            raise ModelServiceUnavailable(
+                "Model credential configuration cannot be decrypted",
+                category="configuration", endpoint=endpoint.path,
+            ) from exc
         if not base_url or not base_url.startswith(("http://", "https://")):
             raise ModelServiceUnavailable(
                 "Model endpoint URL is not configured",

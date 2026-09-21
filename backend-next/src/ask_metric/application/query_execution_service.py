@@ -454,6 +454,26 @@ class QueryExecutionApplicationService:
         dsl, metric_catalog, organization_catalog = self._authorize_query(
             uow=uow, actor=actor, logical_dsl=logical_dsl, strict_codes=strict_codes,
         )
+        if (not strict_codes and query_shape == "metric_ranking"
+                and dsl.options.get("organization_scope") == "synchronized_catalog"):
+            # 集合排名与结构化全省排名使用同一层级口径，只裁剪已授权候选、不扩权。
+            # 法人行的“总行汇总”仍是一个可排名实体，不能按名称中的“汇总”一刀切。
+            provider = self.org_hierarchy_provider
+            root = provider.root_code() if provider else None
+            if root is None:
+                raise UnsupportedQueryError(
+                    "Catalog ranking requires a governed root organization",
+                    public_message="机构排名范围尚未配置明确的省级根机构，暂时无法确定同层级排名范围。",
+                )
+            peers = set(provider.children_of(root)) - {root}
+            authorized_codes = _resolve_source_org_codes(dsl.orgs, organization_catalog)
+            dsl.orgs = [code for code in authorized_codes if code in peers]
+            if not dsl.orgs:
+                raise UnsupportedQueryError(
+                    "No authorized peer organizations for catalog ranking",
+                    public_message="当前授权范围内没有可参与该层级排名的机构。",
+                )
+            dsl.options["organization_scope_count"] = len(dsl.orgs)
         display_org_names = _resolve_org_names(dsl.orgs, organization_catalog)
         display_metric_names = _resolve_metric_names(dsl.metrics, metric_catalog)
         # SQL 机构条件统一传机构编码（mysql/inceptor 一致）；名称仅用于展示
@@ -962,6 +982,11 @@ def _execution_message(
         orgs = "、".join(organization_names) or "所选机构"
     if plan.parameters.get("stat_date"):
         period = str(plan.parameters["stat_date"])
+    elif plan.parameters.get("stat_dates"):
+        dates = [str(value) for value in plan.parameters["stat_dates"]]
+        period = "、".join(dates[:12]) + (
+            f"等{len(dates)}个指定日期" if len(dates) > 12 else ""
+        )
     elif plan.parameters.get("period_starts") and plan.parameters.get("period_ends"):
         period = "所选多个时间范围"
     elif plan.parameters.get("start_date") and plan.parameters.get("end_date"):
@@ -1078,6 +1103,13 @@ def _result_coverage_notice(
         if period_starts
         else _parse_result_date(plan.parameters.get("start_date"))
     )
+    if plan.shape.value == "metric_trend" and requested_start is not None:
+        # 趋势按事实记录展示；即使最后一天有数，也不能暗示区间内每天均有记录。
+        return (
+            f"本次查询范围为{_format_result_date(requested_start)}"
+            f"至{_format_result_date(requested_end)}，以下仅展示实际有记录的日期。"
+            "未展示的日期不代表指标值为零；各机构、指标的数据覆盖可能不同。"
+        )
     selects_latest_in_range = (
         plan.template.value in {"metric_value_in_range", "metric_value_at_periods"}
         and requested_start is not None

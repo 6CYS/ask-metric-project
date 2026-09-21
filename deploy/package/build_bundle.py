@@ -118,6 +118,7 @@ def _build_agent_service(target: Path, build_root: Path, *, skip_build: bool) ->
     target.mkdir(parents=True)
     shutil.copy2(agent / "package.json", target / "package.json")
     _copy_tree(agent / "dist", target / "dist")
+    _copy_tree(agent / "skills", target / "skills")
     _copy_tree(agent / "node_modules", target / "node_modules")
 
 

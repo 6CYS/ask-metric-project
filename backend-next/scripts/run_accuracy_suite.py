@@ -236,14 +236,12 @@ def main() -> None:
                     "fields": [item.get("field") for item in advanced.clarification_fields],
                     "prompt": advanced.clarification_prompt,
                 }
+            # SQL 机构条件统一传机构编码：metric_values.org_code 与目录同源，
+            # mysql/inceptor 一致；显示名仅用于展示（与 query_execution_service 对齐）。
             plan = planner.build(
                 advanced.logical_dsl,
                 advanced.query_shape or "",
-                org_names=(
-                    display_org_names
-                    if settings.query_database_dialect == "mysql"
-                    else source_org_codes
-                ),
+                org_names=source_org_codes,
                 display_org_names=display_org_names,
             )
             sql = templates.load(dialect=plan.dialect, template=plan.template)

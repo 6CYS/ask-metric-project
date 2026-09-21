@@ -41,11 +41,13 @@ from ask_metric.application.task_results import (
 )
 from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.calculation import CalculationScope
+from ask_metric.domain.metric_matching import conflicting_metric_references
 from ask_metric.domain.query_execution import QueryExecutionResult
-from ask_metric.domain.semantic_engine import explicit_catalog_references
+from ask_metric.domain.semantic_engine import explicit_catalog_references, is_direct_catalog_query
 from ask_metric.domain.semantic_reference import (
     ReferenceSourceInvalid,
     freeze_source_reference,
+    structured_source_slots,
 )
 from ask_metric.domain.task import (
     QueryTaskStage,
@@ -188,6 +190,25 @@ class QueryTaskApplicationService:
                     fingerprint,
                     original_question=command.request.text,
                 )
+
+            scope = command.request.channel_context.get("calculation_context")
+            if command.basic_query is not None and scope:
+                conflicts = conflicting_metric_references(
+                    CalculationScope.model_validate(scope).user_question,
+                    command.basic_query.metric_codes,
+                    uow.metric_catalog.list_enabled(),
+                )
+                if conflicts:
+                    names = "；".join(
+                        f"所选「{selected.name}」与原文完整指标「{matched.name}」冲突"
+                        for selected, matched in conflicts
+                    )
+                    # 在创建任务和执行 SQL 前拒绝，交由 pi 重新核对；不能静默改查另一指标。
+                    raise ApplicationError(
+                        "QUERY_METRIC_REFERENCE_CONFLICT",
+                        f"{names}。请保留原文完整名称重新核对目录，不能用短别名替代。",
+                        status_code=422,
+                    )
 
             task_id = str(uuid4())
             now = datetime.now(UTC)
@@ -475,6 +496,23 @@ class QueryTaskApplicationService:
                         "received_clarification_id": command.clarification_id,
                     },
                 )
+
+            # 自由文本完整新查询不能作为缺项答案改写旧任务。复用正式目录和
+            # 完整查询语法校验；显式结构化选择仍按用户指定的卡片推进。
+            if (clarification.get("type") == "semantic_slots"
+                    and isinstance(command.answers, str)
+                    and self.semantic_config_repository is not None):
+                config = self.semantic_config_repository.load()
+                if is_direct_catalog_query(
+                    command.answers, metrics=uow.metric_catalog.list_enabled(),
+                    organizations=uow.organization_catalog.list_enabled(),
+                    organization_aliases=config.organization_aliases, require_complete=True,
+                ):
+                    raise TaskConflictError(
+                        "CLARIFICATION_INDEPENDENT_QUERY",
+                        "本轮已独立给齐指标、机构和日期，请提交新查询；旧澄清任务未修改。",
+                        details={"task_id": task.id, "next_action": "new", "write_applied": False},
+                    )
 
             message_id = str(uuid4())
             state.clarification_answers.append(
@@ -817,6 +855,7 @@ class QueryTaskApplicationService:
                     )
             page_rows = result.rows[offset : offset + limit]
             next_offset = offset + len(page_rows)
+            page_indices = {str(index) for index in range(offset, next_offset)}
             return TaskResultPage(
                 task_id=task.id,
                 result_id=artifact["result_id"],
@@ -825,6 +864,12 @@ class QueryTaskApplicationService:
                 columns=result.columns,
                 rows=page_rows,
                 comparisons=result.comparisons,
+                facts=[fact for fact in result.facts
+                       if len(fact.get("fact_id", "").split(":")) == 4
+                       and fact["fact_id"].split(":")[2] in page_indices],
+                calculation_scope_id=(
+                    state.channel_context.get("calculation_context", {}).get("scope_id")
+                ),
                 row_count=result.row_count,
                 truncated=result.truncated,
                 offset=offset,
@@ -930,14 +975,26 @@ class QueryTaskApplicationService:
                 details={"source_task_id": ref.task_id, "status": source.status},
             )
         source_state = _load_state(source)
+        source_slots = source_state.slots or source_state.slot_frame
+        source_dsl = source_state.logical_dsl
         try:
+            if not source_slots and source_state.debug.get("basic_query"):
+                # 结构化入口不经过提槽。兼容已有成功记录，只从正式快照恢复，
+                # 不改写历史任务；归属、版本、目录和权限仍按同一追问合同校验。
+                artifact = getattr(source_state, "result_artifact", None) or {}
+                source_dsl = artifact.get("logical_dsl") or source_dsl
+                source_slots = structured_source_slots(
+                    source_dsl,
+                    metrics=uow.metric_catalog.list_enabled(),
+                    organizations=uow.organization_catalog.list_enabled(),
+                )
             frozen = freeze_source_reference(
                 source_task_id=source.id,
                 source_version=source.version,
                 change_field=ref.change_field,
                 mode=ref.mode,
-                source_slots=source_state.slots or source_state.slot_frame,
-                source_logical_dsl=source_state.logical_dsl,
+                source_slots=source_slots,
+                source_logical_dsl=source_dsl,
             )
         except ReferenceSourceInvalid as exc:
             raise TaskConflictError(
@@ -947,17 +1004,17 @@ class QueryTaskApplicationService:
             ) from exc
         # 目录与数据权限复核：来源条件在当前授权下仍须有效
         known_metrics = {item.code for item in uow.metric_catalog.list_enabled()}
-        dsl_metrics = (source_state.logical_dsl or {}).get("metrics") or []
+        dsl_metrics = (source_dsl or {}).get("metrics") or []
         if any(code not in known_metrics for code in dsl_metrics):
             raise TaskConflictError(
                 "REFERENCE_UNAVAILABLE",
                 "The referenced metric is no longer in the enabled catalog",
                 details={"source_task_id": ref.task_id},
             )
-        if self.permission_service is not None and source_state.logical_dsl:
+        if self.permission_service is not None and source_dsl:
             try:
                 self.permission_service.authorize_logical_dsl(
-                    actor=command.actor, logical_dsl=source_state.logical_dsl
+                    actor=command.actor, logical_dsl=source_dsl
                 )
             except PermissionDeniedError as exc:
                 raise ApplicationError(
