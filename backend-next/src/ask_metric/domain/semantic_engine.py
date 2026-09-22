@@ -18,6 +18,7 @@ from ask_metric.domain.metric_matching import (
     deduplicate_metrics,
     normalize_semantic_text,
 )
+from ask_metric.domain.query_execution import QueryPlanError, explicit_selection_range
 from ask_metric.domain.semantic_normalization import (
     SemanticValidationError,
     normalize_slot_frame,
@@ -129,6 +130,9 @@ class SemanticEngine:
             organizations=organizations,
             organization_aliases=config.organization_aliases,
         )
+        # 编码本身也可能包含 RNKN/CMPRLATMO 等业务含义。模型只见本次请求的
+        # 临时编号；正式编号映射只留在后端，不通过候选目录再次泄漏实体文字。
+        protected_question, entity_codes = _opaque_model_entities(protected_question)
         timings_ms["catalog_match_ms"] = _elapsed_ms(catalog_started)
         model_context = {
             # Catalog-confirmed entity text must not be sent through a second,
@@ -138,27 +142,11 @@ class SemanticEngine:
             "current_date": current_date.isoformat(),
             "protected_question": protected_question,
             "metric_candidates": [],
-            "organization_candidates": [
-                {
-                    "code": item.code,
-                    "name": item.name,
-                    "aliases": list(
-                        dict.fromkeys(
-                            [
-                                *item.aliases,
-                                *config.organization_aliases.get(item.name, []),
-                            ]
-                        )
-                    ),
-                }
-                for item in organizations
-            ],
+            "organization_candidates": [],
             "existing_slot_frame": None,  # 兼容旧模板占位符，不注入其他任务的槽位。
         }
         chat_started = perf_counter()
-        raw = self.model_service.analyze(
-            prompt="slot_extraction",
-            context={
+        extraction_context = {
                 "question": model_context["question"],
                 "current_date": model_context["current_date"],
                 "protected_question": protected_question,
@@ -168,8 +156,29 @@ class SemanticEngine:
                 ),
                 "existing_slot_frame_json": _json(model_context["existing_slot_frame"]),
                 "slot_frame_schema_json": _json(slot_frame_json_schema()),
-            },
-        )
+            }
+        raw = self.model_service.analyze(prompt="slot_extraction", context=extraction_context)
+        # 对出处/实体引用错误及复合操作最多复核一次，不凭词表改写操作。
+        # 第二次仍失败则由下方校验澄清；修复响应同样接受完整权限及能力校验。
+        if isinstance(raw, dict) and isinstance(raw.get("ops"), list) and raw["ops"]:
+            options = raw.get("options")
+            evidence = options.get("operation_evidence") if isinstance(options, dict) else None
+            metric_text = _json([raw.get("raw_metric_text"), raw.get("raw_metric_texts")])
+            invalid_metric_reference = "<METRIC" in metric_text or "<ORG" in metric_text
+            compound_operations = len(raw["ops"]) > 1
+            if (not _valid_operation_evidence(evidence, len(raw["ops"]), protected_question)
+                    or invalid_metric_reference or compound_operations):
+                extraction_context["existing_slot_frame_json"] = _json({
+                    "validation_feedback": "请复核本次完整解析，分别核对每项操作是否独立需要。"
+                    "每个操作引用标签外最短连续原文，不能含标签、改写、拼接或省略号；"
+                    "比较差额由period_compare负责，不再求和；用户明确另行求平均或合计仍须保留。"
+                    "raw_metric_text/raw_metric_texts不能含实体标签或整段操作句，已保护指标不再提取。"
+                    "如原文没有操作语义，应返回ops=[]。这不是历史对话。",
+                })
+                raw = self.model_service.analyze(
+                    prompt="slot_extraction", context=extraction_context,
+                )
+                debug["slot_contract_retry_count"] = 1
         timings_ms["chat_model_ms"] = _elapsed_ms(chat_started)
         debug["chat_model"] = {
             "prompt": "slot_extraction",
@@ -205,10 +214,27 @@ class SemanticEngine:
         # Intent routing is completed before slot extraction. Only metric queries
         # may enter this engine, so slot-model output cannot override that decision.
         frame.task = TaskType.METRIC_QUERY
+        frame.orgs = [entity_codes.get(value, value) for value in frame.orgs]
+        # time只是显式日期集合的包络。选择哪些日期/月份仍由模型决定，后端
+        # 统一冗余字段，避免集合已经完整却因time=null产生无意义的日期澄清。
+        try:
+            selection = explicit_selection_range(frame.options)
+        except QueryPlanError:
+            frame.time = None
+            if "time" not in frame.missing:
+                frame.missing.append("time")
+        else:
+            if selection:
+                frame.time = f"{selection[0]}至{selection[1]}"
+                frame.missing = [field for field in frame.missing if field != "time"]
         fallback_metric_texts = _extract_requested_metric_texts(
             question,
             organization_terms=organization_terms,
         )
+        # 已保护的实体不再次作为待匹配短语解析；否则“指标A和指标B”可能被
+        # 回退逻辑拼成一个不存在的指标。未覆盖短语仍由模型提取并正常消歧。
+        if resolution.matches or resolution.ambiguous_spans:
+            fallback_metric_texts = []
         # Natural-language boundary: the model owns extraction of unresolved
         # metric phrases. The fallback parser is only used when the model omits
         # both fields; otherwise organization-list punctuation can split an
@@ -318,12 +344,29 @@ class SemanticEngine:
                 metrics=metrics,
                 matcher=matcher,
                 organization_terms=organization_terms,
-                deterministic_matches=resolution.matches,
+                deterministic_matches=[] if frame.raw_metric_text else resolution.matches,
                 ambiguous_candidates=resolution.ambiguous_candidates,
                 config=config,
                 timings_ms=timings_ms,
                 debug=debug,
             )
+        if frame.raw_metric_texts and not decision.selected and resolution.matches:
+            # 部分实体已确认不代表其余请求可以丢弃。未识别短语保留为澄清项。
+            pending_metric_items.extend(
+                {"id": f"metrics.{index}", "raw_text": phrase,
+                 "options": [{"code": item.code, "name": item.name, "kind": "metric"}
+                             for item in decision.candidates]}
+                for index, phrase in enumerate(frame.raw_metric_texts)
+                if not any(item["raw_text"] == phrase for item in pending_metric_items)
+            )
+        confirmed = {item.code: item for item in metrics}
+        decision = _MetricDecision(
+            deduplicate_metrics([
+                *(confirmed[match.code] for match in resolution.matches),
+                *decision.selected,
+            ]),
+            decision.candidates, decision.scored_candidates, decision.mode,
+        )
         if (
             not decision.selected
             and decision.mode == "fuzzy_clarification"
@@ -400,6 +443,7 @@ class SemanticEngine:
             organizations=organizations,
             organization_aliases=config.organization_aliases,
         )
+        _validate_operation_evidence(frame, protected_question)
         # The model owns natural-language date interpretation.  The backend only
         # validates the normalized value; it must not recover or rewrite a missing
         # model value with another set of date-expression rules.
@@ -717,20 +761,20 @@ class SemanticEngine:
             frame.options.get("organization_scope")
         )
         if requests_all_organizations:
-            # 模型选择集合语义，代码核对其原文依据。裸范围标记不能扩大查询；
-            # 同时要求补充机构的矛盾响应也必须澄清，不能在展开目录后消掉 missing。
+            # 模型选择集合语义，代码核对其原文依据。裸范围标记不能扩大查询。
+            # 范围已有原文依据且未同时点名机构时，missing中的orgs是冗余矛盾；
+            # 范围由模型选择，后端只完成目录展开，不能自行推断集合。
             scope_text = frame.options.get("organization_scope_text")
             protected = _protect_resolved_entities(
                 question, metric_matches=matches, organizations=organizations,
                 organization_aliases=organization_aliases,
             )
-            invalid_missing = set(frame.missing) - {"metrics", "time", "dimensions", "ops"}
             grounded_scope = (
                 isinstance(scope_text, str) and bool(scope_text.strip())
                 and scope_text == scope_text.strip() and scope_text in protected
                 and "<" not in scope_text and ">" not in scope_text
             )
-            if not grounded_scope or invalid_missing or model_organizations:
+            if not grounded_scope or model_organizations:
                 frame.orgs = []
                 for key in ("organization_scope", "organization_scope_text",
                             "organization_scope_count"):
@@ -921,6 +965,47 @@ def _protect_resolved_entities(
         cursor = end
     output.append(question[cursor:])
     return "".join(output)
+
+
+def _opaque_model_entities(question: str) -> tuple[str, dict[str, str]]:
+    """为一次模型请求分配无业务语义的编号，允许后端恢复机构引用。"""
+    codes: dict[str, str] = {}
+    reverse: dict[tuple[str, str], str] = {}
+
+    def replace(match: re.Match[str]) -> str:
+        kind, code = match.groups()
+        key = (kind, code)
+        if key not in reverse:
+            prefix = "M" if kind == "METRIC" else "O"
+            alias = f"{prefix}{1 + sum(k[0] == kind for k in reverse)}"
+            reverse[key] = alias
+            codes[alias] = code
+        return f'<{kind} code="{reverse[key]}"/>'
+
+    return re.sub(r'<(METRIC|ORG) code="([^"]+)"/>', replace, question), codes
+
+
+def _validate_operation_evidence(frame: SlotFrame, protected_question: str) -> None:
+    """校验操作的原文出处，不用关键词猜操作，也不删除错误操作继续取值。"""
+    if not frame.ops:
+        return
+    if not _valid_operation_evidence(
+        frame.options.get("operation_evidence"), len(frame.ops), protected_question,
+    ) and "ops" not in frame.missing:
+        frame.missing.append("ops")
+
+
+def _valid_operation_evidence(evidence: Any, count: int, protected_question: str) -> bool:
+    residual = re.sub(r'<(?:METRIC|ORG)\b[^>]*>', '\n', protected_question)
+    valid = isinstance(evidence, list) and len(evidence) == count
+    if valid:
+        valid = all(
+            isinstance(quote, str) and bool(quote.strip())
+            and quote == quote.strip() and quote in residual
+            and "<" not in quote and ">" not in quote
+            for quote in evidence
+        )
+    return valid
 
 
 def extract_time_expression(text: str) -> str | None:

@@ -57,14 +57,49 @@ def adapt_model_slot_frame(raw: Any) -> SlotFrameAdaptation:
 
 def slot_frame_json_schema() -> dict[str, Any]:
     schema = SlotFrame.model_json_schema()
+    # 标题和默认值是框架展示信息，不是用户请求。省略它们既缩短模型输入，
+    # 也避免默认sum/month/asc暗示模型主动添加操作；类型、枚举和约束均保留。
+    def compact(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: compact(item) for key, item in value.items()
+                    if key not in {"title", "default"}}
+        if isinstance(value, list):
+            return [compact(item) for item in value]
+        return value
+
+    schema = compact(schema)
     # 仅收紧外部模型协议；历史 SlotFrame 的默认值与读取兼容保持不变。
-    schema["required"] = [*schema.get("required", []), "ops"]
+    schema["required"] = list(schema["properties"])
+    schema["properties"]["time"]["description"] = (
+        "必须输出：单日YYYY-MM-DD，连续范围YYYY-MM-DD至YYYY-MM-DD，最新latest；"
+        "只有未提供或无效日期才为null。不能只在options中输出日期。"
+    )
     schema["properties"]["ops"]["description"] = (
         "必须显式输出操作数组；只有纯指标取值时才返回空数组。"
         "逐项保留实体占位符之外的请求，不能因为当前系统不支持就省略操作、维度或筛选。"
         "请求原始记录用detail，按其他维度展开用drill_down；名称占位符内文字不是操作。"
         "后端根据结构判断是否支持，不要擅自把这些请求改成指标取值。"
+        "非空操作须在options.operation_evidence中按同序引用实体标签外的操作原文。"
     )
+    schema["properties"]["options"]["properties"] = {
+        "operation_evidence": {"type": "array", "items": {
+            "type": "string", "minLength": 1, "pattern": "^[^<>]+$"},
+            "description": ("按ops同序引用标签外最短的连续操作短语，"
+                            "如从高到低、变化趋势、对比；不得包含标签")},
+        "organization_scope": {"const": "synchronized_catalog"},
+        "organization_scope_text": {"type": "string"},
+        "target_dates": {"type": "array", "minItems": 2,
+                         "description": "仅多个独立日期使用；单日只写time，不输出本字段",
+                         "items": {"type": "string", "format": "date"}},
+        "time_windows": {"type": "array", "minItems": 2,
+                         "description": "仅多个独立时间窗口使用；连续范围只写time",
+                         "items": {
+            "type": "object", "required": ["start", "end"],
+            "properties": {"start": {"type": "string"}, "end": {"type": "string"}},
+        }},
+        "current_date": {"type": "string"},
+        "base_date": {"type": "string"},
+    }
     return schema
 
 

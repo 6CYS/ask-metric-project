@@ -317,6 +317,21 @@ def _target_dates(value: Any) -> list[date]:
     return sorted(parsed)
 
 
+def explicit_selection_range(options: dict[str, Any]) -> tuple[date, date] | None:
+    """从模型已明确给出的日期集合生成包络范围，不解释自然语言或新增日期。"""
+    dates = _target_dates(options.get("target_dates"))
+    windows = _time_windows(options.get("time_windows"))
+    if dates and windows:
+        raise QueryPlanError("target_dates and time_windows cannot be combined")
+    if dates:
+        if len(dates) < 2:
+            raise QueryPlanError("target_dates must contain two distinct dates")
+        return min(dates), max(dates)
+    if windows:
+        return min(start for start, _ in windows), max(end for _, end in windows)
+    return None
+
+
 def _time_windows(value: Any) -> list[tuple[date, date]]:
     if value is None:
         return []
