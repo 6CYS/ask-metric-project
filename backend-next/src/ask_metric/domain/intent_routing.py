@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 
 class RoutedIntent(StrEnum):
@@ -19,8 +19,10 @@ class RoutedIntent(StrEnum):
 
 
 class IntentClassification(BaseModel):
+    # 旧持久提示词可能继续返回自报置信度等字段；忽略它们，只校验实际路由意图。
+    model_config = ConfigDict(extra="ignore")
+
     intent: RoutedIntent
-    confidence: float = Field(ge=0, le=1)
 
 
 class InvalidIntentClassification(ValueError):
