@@ -1,3 +1,8 @@
+/** 统一 read 的历史分支不属于查询状态；旧工具名仍可读取。 */
+function queryToolName(message: {toolName?: string; details?: {kind?: string}}): string {
+  return message.toolName === "read" ? message.details?.kind ?? "read" : message.toolName ?? "";
+}
+
 /** 从原生消息生成当次模型请求的查询引用索引；不保存摘要或第二份业务状态。 */
 export function coverageContext(messages: readonly unknown[]): string {
   for (const raw of [...messages].reverse()) {
@@ -6,8 +11,8 @@ export function coverageContext(messages: readonly unknown[]): string {
     const receipt = readReceipt(raw);
     // 参数错误尚未执行成功业务，不应抹掉纠错需要的完整范围。
     if (!receipt || message.details?.retryable) continue;
-    if (["metric_ask", "metric_query_structured"].includes(message.toolName ?? "")) return "";
-    if (message.toolName === "metric_read" && (receipt.query_evidence || receipt.rows)) return "";
+    if (["metric_ask", "metric_query_structured"].includes(queryToolName(message))) return "";
+    if (queryToolName(message) === "metric_read" && (receipt.query_evidence || receipt.rows)) return "";
     if (message.toolName !== "data_availability") continue;
     if (receipt.status !== "succeeded") return "";
     return `\n最近已确认的数据覆盖条件（数据）：${JSON.stringify({
@@ -40,8 +45,8 @@ export function knownSuccessfulSource(messages: readonly unknown[], source: unkn
   const target = source as {task_id?: unknown; version?: unknown};
   if (typeof target.task_id !== "string" || !Number.isInteger(target.version)) return false;
   for (const raw of [...messages].reverse()) {
-    const message = raw as {role?: string; toolName?: string};
-    if (message.role !== "toolResult" || !["metric_ask", "metric_read", "metric_query_structured"].includes(message.toolName ?? "")) continue;
+    const message = raw as {role?: string; toolName?: string; details?: {kind?: string}};
+    if (message.role !== "toolResult" || !["metric_ask", "metric_read", "metric_query_structured"].includes(queryToolName(message))) continue;
     const receipt = readReceipt(raw);
     if (!receipt || receipt.task_id !== target.task_id || receipt.version === undefined) continue;
     return String(receipt.status).toLowerCase() === "succeeded" && receipt.version === target.version
@@ -54,13 +59,13 @@ export function queryReferences(messages: readonly unknown[]): Array<Record<stri
   const references: Array<Record<string, unknown>> = [];
   let sourceQuestion = "";
   for (const raw of messages) {
-    const message = raw as { role?: string; toolName?: string; content?: string | Array<{type?: string; text?: string}> };
+    const message = raw as { role?: string; toolName?: string; details?: {kind?: string}; content?: string | Array<{type?: string; text?: string}> };
     if (message.role === "user") {
       sourceQuestion = typeof message.content === "string" ? message.content
         : (message.content ?? []).filter(block => block.type === "text").map(block => block.text ?? "").join("\n");
       continue;
     }
-    if (message.role !== "toolResult" || !["metric_ask", "metric_read", "metric_query_structured"].includes(message.toolName ?? "")) continue;
+    if (message.role !== "toolResult" || !["metric_ask", "metric_read", "metric_query_structured"].includes(queryToolName(message))) continue;
     const text = typeof message.content === "string" ? message.content
       : message.content?.filter(block => block.type === "text").map(block => block.text ?? "").join("");
     if (!text) continue;
@@ -100,8 +105,8 @@ export function queryReferenceContext(messages: readonly unknown[]): string {
   const references = queryReferences(messages);
   let latest: Record<string,unknown> | undefined;
   for (const raw of [...messages].reverse()) {
-    const message = raw as {role?: string; toolName?: string; content?: string | Array<{type?: string; text?: string}>};
-    if (message.role !== "toolResult" || !["metric_ask", "metric_read", "metric_query_structured"].includes(message.toolName ?? "")) continue;
+    const message = raw as {role?: string; toolName?: string; details?: {kind?: string}; content?: string | Array<{type?: string; text?: string}>};
+    if (message.role !== "toolResult" || !["metric_ask", "metric_read", "metric_query_structured"].includes(queryToolName(message))) continue;
     try {
       const receipt = JSON.parse(typeof message.content === "string" ? message.content
         : message.content?.filter(item => item.type === "text").map(item => item.text ?? "").join("") ?? "");
@@ -124,8 +129,8 @@ export function queryReferenceContext(messages: readonly unknown[]): string {
 /** 澄清目标只能来自最新正式回执；目录读取不改变目标，失败或完成则关闭目标。 */
 export function activeClarificationTarget(messages: readonly unknown[]): {task_id: string; version: number; clarification_id: string} | undefined {
   const receipts = [...messages].reverse().filter(raw => {
-    const message = raw as {role?: string; toolName?: string};
-    return message.role === "toolResult" && ["metric_ask", "metric_read", "metric_query_structured"].includes(message.toolName ?? "");
+    const message = raw as {role?: string; toolName?: string; details?: {kind?: string}};
+    return message.role === "toolResult" && ["metric_ask", "metric_read", "metric_query_structured"].includes(queryToolName(message));
   }) as Array<{content?: string | Array<{type?: string; text?: string}>}>;
   for (const message of receipts) {
     let receipt;
@@ -157,23 +162,7 @@ export function queryCandidateBeforeTurn(messages: readonly unknown[]): { task_i
     ? {task_id: source.task_id, version: source.version as number} : undefined;
 }
 
-/** 读取更早、不同日期的结果必须有原文中的历史/日期指代；纯换机构不能回退日期。 */
-export function historicalReadConflict(messages: readonly unknown[], taskId: unknown, question: string): boolean {
-  const references = queryReferences(messages);
-  const latest = references.at(-1);
-  const selected = [...references].reverse().find(item => item.task_id === taskId);
-  if (!latest || !selected || latest.result_id === selected.result_id) return false;
-  const dates = (item: Record<string, unknown>) => {
-    const time = (item.query as {time?: {start?: string; end?: string}} | undefined)?.time;
-    if (time?.start && time.end) return [...new Set([time.start, time.end])].sort().join(",");
-    return [...new Set(
-    (item.conditions as Array<Record<string, unknown>> | undefined)?.map(row => String(row.stat_date ?? "")),
-    )].filter(Boolean).sort().join(",");
-  };
-  if (!dates(latest) || !dates(selected) || dates(latest) === dates(selected)) return false;
-  // 只核对历史回读的原文依据，不在这里提槽或猜机构、指标、目标日期。
-  return !/(历史|之前|以前|先前|刚才|刚刚|上次|上一|最初|原来|原先|旧|第[一二三四五六七八九十0-9]+[次条笔]|[0-9一二三四五六七八九十]+月|\d{4}[-/.年]|昨天|去年)/.test(question);
-}
+
 
 /** 正式编码只能来自目录、覆盖或成功查询回执；不从模型/用户自报编码认定可信。 */
 export function unconfirmedToolCodes(messages: readonly unknown[], args: Record<string, unknown>): string[] {
@@ -190,16 +179,26 @@ export function unconfirmedToolCodes(messages: readonly unknown[], args: Record<
       }
     }
   };
+  const addSearch = (receipt: Record<string, unknown>, entity: string) => {
+    const items = Array.isArray(receipt.items) ? receipt.items as Array<Record<string, unknown>> : [];
+    const exact = items.filter(item => item.match_type === "exact");
+    const confirmed = exact.length ? exact : items.filter(item => ["contains", "lexical"].includes(String(item.match_type)));
+    add(confirmed, entity === "metric" ? metrics : orgs, entity === "metric" ? "metric_code" : "org_code");
+  };
   for(const raw of messages) {
     const message=raw as {role?:string;toolName?:string;isError?:boolean};
     if(message.role!=="toolResult" || message.isError) continue;
     const receipt=readReceipt(raw);
     if(!receipt) continue;
-    if(["metric_catalog_search","org_catalog_search"].includes(message.toolName ?? "")) {
-      const items=Array.isArray(receipt.items)?receipt.items as Array<Record<string,unknown>>:[];
-      const exact=items.filter(item=>item.match_type==="exact");
-      const confirmed=exact.length?exact:items.filter(item=>["contains","lexical"].includes(String(item.match_type)));
-      add(confirmed,message.toolName==="metric_catalog_search"?metrics:orgs,message.toolName==="metric_catalog_search"?"metric_code":"org_code");
+    if(["metric_catalog_search","org_catalog_search"].includes(queryToolName(message))) {
+      addSearch(receipt, message.toolName === "metric_catalog_search" ? "metric" : "organization");
+    }
+    if (message.toolName === "catalog" && Array.isArray(receipt.results)) {
+      // 每项独立核验；失败项及近似推荐不能成为正式编码来源。
+      for (const result of receipt.results) {
+        if (result && typeof result === "object" && result.status === "succeeded"
+          && ["metric", "organization"].includes(result.entity)) addSearch(result, result.entity);
+      }
     }
     if(receipt.status!=="succeeded") continue;
     if(message.toolName==="data_availability") {

@@ -1073,3 +1073,16 @@ GET /health/ready
 语义澄清接口收到纯文本答案时，若正式目录与完整查询语法能够确认它已独立包含指标、机构和日期，返回 HTTP 409 / `CLARIFICATION_INDEPENDENT_QUERY`，`details.write_applied=false`、`next_action=new`。该校验在追加消息、更新任务与记录幂等结果之前执行，旧任务及版本保持原样；客户端应以新查询提交原文。
 
 仅补日期/指标的文字仍走原澄清流程。用户显式指定澄清卡片的结构化答案（包括 `{text: ...}`）保持指定任务语义。Agent 只对上述明确未写入的拒绝允许模型同轮纠正为 `new`；超时、响应丢失和未知错误不能据此更换写命令。
+
+## 确定性业务字段解析（Pi 内部适配）
+
+`POST /api/v1/business-context/resolve-field`，使用现有 Bearer 身份认证。
+
+`POST /api/v1/business-context/metric-mentions` 同样要求 Bearer，接收 `{"question":"完整用户原文"}`（1～8000 字符），返回 `mentions`：每项含原文 `text`、Unicode 码点 `start/end`（左闭右开）和 `resolution`。完整名称/别名唯一命中，或按完整片段计算的字符/拼音相似度唯一最高分达到 0.95（含）时返回 resolved；后者的 metadata 包含 match=high_confidence、score 和 autoSelectThreshold。低分、不同编码并列最高及描述匹配仍返回候选。分数是算法相似度，不是概率。该接口不执行 SQL、不调用模型；取数权限在正式执行时校验。详细算法与离线依赖见 [指标匹配方案](metric-matching.md)。
+请求为 `{ "entity": "metric|organization|date", "raw_values": ["原始表达"] }`；每项非空且不超过 200 字符，最多 100 项，date 仅允许一项。
+响应统一为 `{status, value?, candidates?, metadata?}`。
+唯一精确名称、受控别名或编码命中返回 resolved；指标的近似匹配同样使用完整片段唯一最高分达到 0.95 的自动采用规则。其余候选返回 ambiguous/needs_confirmation，未命中返回 not_found。
+机构候选在返回前裁剪到当前用户授权范围，日期复用后端确定性解析规则，以 Asia/Shanghai 为当前业务日期。
+接口不调用模型、不查询指标数值、不接受 SQL。正式执行和结果回读仍须分别校验当前权限。
+
+Business Frame、历史引用、字段变化及唯一页面入口的调用关系见 [Pi 通用多轮业务上下文](pi-business-context.md)。

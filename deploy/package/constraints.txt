@@ -44,6 +44,11 @@ h11==0.16.0
 httptools==0.8.0
 httpcore==1.0.9
 httpx==0.28.1
+hanlp-trie==0.0.5
+hanlp-common==0.0.23
+phrasetree==0.0.9
+pypinyin==0.55.0
+rapidfuzz==3.13.0
 idna==3.19
 Mako==1.4.1
 MarkupSafe==3.0.3

@@ -38,7 +38,7 @@ export interface AgentSessionItem {
 /** 历史消息条目：用户提问、助手回答（含调用过的工具名）、工具结果明细。 */
 export type AgentSessionMessage =
   | { role: "user"; text: string; timestamp: number | null }
-  | { role: "assistant"; text: string; error?: string; tools?: string[]; tool_calls?: { id?: string; tool: string }[]; timestamp: number | null }
+  | { role: "assistant"; business_protocol?: "frame_v1"; text: string; error?: string; tools?: string[]; tool_calls?: { id?: string; tool: string }[]; timestamp: number | null }
   | { role: "tool"; tool: string; details: unknown; is_error: boolean; tool_call_id?: string; elapsed_ms?: number; timestamp: number | null }
   | { role: string; text?: string; timestamp: number | null }
 

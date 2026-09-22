@@ -1,0 +1,136 @@
+{
+  "date": "2026-09-22",
+  "scope": "系统提示词、工具说明、焦点视图与历史上下文的契约一致性",
+  "checks": {
+    "agent_tests": 223,
+    "typecheck": "passed",
+    "build": "passed",
+    "git_diff_check": "passed"
+  },
+  "environment": "configured_model_synthetic_backend_real_metric_and_date_resolvers",
+  "base_prompt_run": {
+    "passed": true,
+    "turns": [
+      {
+        "turn": 1,
+        "passed": true,
+        "errors": [],
+        "tools": [
+          "resolve_business_turn",
+          "execute_business_frame"
+        ],
+        "query_count": 1,
+        "reads": 0,
+        "model_calls": 3,
+        "elapsed_ms": 7481
+      },
+      {
+        "turn": 2,
+        "passed": true,
+        "errors": [],
+        "tools": [
+          "resolve_business_turn",
+          "execute_business_frame"
+        ],
+        "query_count": 1,
+        "reads": 0,
+        "model_calls": 3,
+        "elapsed_ms": 11111
+      },
+      {
+        "turn": 3,
+        "passed": true,
+        "errors": [],
+        "tools": [
+          "resolve_business_turn",
+          "execute_business_frame"
+        ],
+        "query_count": 1,
+        "reads": 0,
+        "model_calls": 3,
+        "elapsed_ms": 16117
+      },
+      {
+        "turn": 4,
+        "passed": true,
+        "errors": [],
+        "tools": [
+          "resolve_business_turn",
+          "read_business_result"
+        ],
+        "query_count": 0,
+        "reads": 1,
+        "model_calls": 3,
+        "elapsed_ms": 23444
+      }
+    ]
+  },
+  "limits": [
+    "合成目录与取数桩，不连接业务数据库。",
+    "模型仍可能生成错误参数，执行与字段保护保留，不以提示词代替校验。",
+    "原始会话记录不改写，仅清理发送副本中的历史动作指令。"
+  ],
+  "business_skills_run": {
+    "passed": true,
+    "business_skills": [
+      "analysis-boundary",
+      "data-coverage",
+      "metric-query",
+      "result-calculation"
+    ],
+    "turns": [
+      {
+        "turn": 1,
+        "passed": true,
+        "errors": [],
+        "tools": [
+          "resolve_business_turn",
+          "execute_business_frame"
+        ],
+        "query_count": 1,
+        "reads": 0,
+        "model_calls": 3,
+        "elapsed_ms": 15593
+      },
+      {
+        "turn": 2,
+        "passed": true,
+        "errors": [],
+        "tools": [
+          "resolve_business_turn",
+          "execute_business_frame"
+        ],
+        "query_count": 1,
+        "reads": 0,
+        "model_calls": 3,
+        "elapsed_ms": 19408
+      },
+      {
+        "turn": 3,
+        "passed": true,
+        "errors": [],
+        "tools": [
+          "resolve_business_turn",
+          "execute_business_frame"
+        ],
+        "query_count": 1,
+        "reads": 0,
+        "model_calls": 3,
+        "elapsed_ms": 10708
+      },
+      {
+        "turn": 4,
+        "passed": true,
+        "errors": [],
+        "tools": [
+          "resolve_business_turn",
+          "read_business_result"
+        ],
+        "query_count": 0,
+        "reads": 1,
+        "model_calls": 3,
+        "elapsed_ms": 9541
+      }
+    ]
+  }
+}

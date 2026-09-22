@@ -72,6 +72,7 @@ type DisplayMessage = {
   metricAskClarification?: BackendNextClarification
   answerStreaming?: boolean
   answerDelivered?: boolean
+  nativeAnswer?: boolean
   availabilityError?: string
   availability?: AvailabilityDetails[]
   catalogOverviews?: CatalogOverviewDetails[]
@@ -105,8 +106,14 @@ const toolLabels: Record<string, string> = {
   answer_present: "交付回答",
   data_availability: "查看数据覆盖",
   metric_ask: "指标问数",
+  resolve_business_turn: "解析查询条件",
+  business_context_read: "读取查询历史",
+  execute_business_frame: "执行指标查询",
+  read_business_result: "读取历史结果",
   metric_query_structured: "指标结构化查询",
   metric_calculate: "可靠计算工具",
+  catalog: "目录查询",
+  read: "读取任务、结果与历史",
   metric_catalog_search: "指标目录检索",
   metric_catalog_overview: "可查询指标总览",
   metric_read: "结果回读",
@@ -365,7 +372,7 @@ function clarificationResponse(clarification: BackendNextClarification, prompt: 
 
 /** done/error 收尾：按本轮收集到的工具明细生成最终结构化响应。 */
 function finalizeAssistantMessage(chatMessage: DisplayMessage): DisplayMessage {
-  if (chatMessage.answerDelivered) {
+  if (chatMessage.answerDelivered || chatMessage.nativeAnswer) {
     const details = chatMessage.metricAskDetails
     return details?.status === "succeeded"
       ? { ...chatMessage, response: responseFromMetricAsk(details, chatMessage.content) }
@@ -446,6 +453,7 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
       if (last?.role === "assistant") {
         // 跨轮次合并助手片段：两侧都有内容时补段落分隔，避免首尾粘连
         if (text.trim()) last.content = text
+        if ("business_protocol" in item && item.business_protocol === "frame_v1") last.nativeAnswer = true
         last.toolCalls = [...(last.toolCalls ?? []), ...calls]
         if (failure) {
           last.status = "error"
@@ -456,6 +464,7 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
         messages.push({
           id: createId(),
           role: "assistant",
+          nativeAnswer: "business_protocol" in item && item.business_protocol === "frame_v1",
           content: text,
           toolCalls: calls,
           status: failure ? "error" : "done",
@@ -542,7 +551,7 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
       void metricAskDetails
       return details.status === "succeeded"
         ? { ...rest, response: responseFromMetricAsk(details, item.content) }
-        : { ...rest, content: item.answerDelivered ? item.content : governedReply(details) ?? item.content }
+        : { ...rest, content: (item.answerDelivered || item.nativeAnswer) ? item.content : governedReply(details) ?? item.content }
     }),
   }
 }
@@ -801,7 +810,7 @@ async function runQuestion(conversationId: string, question: string, kind: strin
     messages: [
       ...conversation.messages,
       { id: createId(), role: "user", content: question, kind, createdAt: new Date().toISOString() },
-      { id: assistantId, role: "assistant", content: "", createdAt: new Date().toISOString(), status: "pending", toolCalls: [] },
+      { id: assistantId, role: "assistant", content: "", nativeAnswer: true, createdAt: new Date().toISOString(), status: "pending", toolCalls: [] },
     ],
     createdAt: conversation.createdAt ?? new Date().toISOString(),
     lastActiveAt: new Date().toISOString(),
@@ -947,7 +956,7 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
         ...(target ? { clarificationTarget: target } : {}),
       }
     }
-    return finalizeAssistantMessage({ ...item, content: details.public_answer ?? item.content, toolCalls, taskIds, metricAskDetails: details })
+    return finalizeAssistantMessage({ ...item, content: item.nativeAnswer ? item.content : details.public_answer ?? item.content, toolCalls, taskIds, metricAskDetails: details })
   })
   if (event.type === "tool_end") void hydrateResultTables(conversationId)
   void scrollToBottom()
@@ -1159,9 +1168,13 @@ async function scrollToBottom() {
                   </template>
                 </div>
                 <AgentMessageDiagnostics :question="questionForMessage(chatMessage)" :task-ids="chatMessage.taskIds ?? []" :pending="chatMessage.status === 'pending'" :has-answer="Boolean(chatMessage.answerStreaming)" :started-at="chatMessage.createdAt" :elapsed-ms="chatMessage.elapsedMs" :tools="chatMessage.toolCalls ?? []" />
-                <p v-if="chatMessage.status === 'pending' && chatMessage.content && (!chatMessage.availability?.length || chatMessage.metricAskDetails)" class="whitespace-pre-wrap break-words leading-7">{{ replyText(chatMessage.metricAskClarificationPrompt ?? chatMessage.metricAskClarification?.prompt ?? governedReply(chatMessage.metricAskDetails) ?? chatMessage.content) }}<span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></p>
+                <p v-if="chatMessage.status === 'pending' && chatMessage.content && (!chatMessage.availability?.length || chatMessage.metricAskDetails)" class="whitespace-pre-wrap break-words leading-7">{{ replyText(chatMessage.nativeAnswer ? chatMessage.content : chatMessage.metricAskClarificationPrompt ?? chatMessage.metricAskClarification?.prompt ?? governedReply(chatMessage.metricAskDetails) ?? chatMessage.content) }}<span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></p>
                 <ChatResultContent v-else-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :show-data-details="!chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
                 <p v-else-if="chatMessage.status !== 'pending'" class="whitespace-pre-wrap break-words leading-6">{{ replyText(chatMessage.content) }}</p>
+                <div v-if="chatMessage.status === 'pending' && chatMessage.response?.result" class="mt-2">
+                  <p class="mb-2 text-xs text-muted-foreground">已取得步骤结果，正在继续处理本轮问题…</p>
+                  <ChatResultContent :response="{ ...chatMessage.response, answer: '', answer_blocks: undefined }" :question="questionForMessage(chatMessage)" />
+                </div>
                 <CalculationResult v-for="(calculation, index) in chatMessage.calculations" :key="calculation.calculation_id ?? index" :calculation="calculation" />
 
                 <p v-if="chatMessage.availability?.length && chatMessage.availabilityError" class="text-sm text-muted-foreground">{{ chatMessage.availabilityError }}</p>

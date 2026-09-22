@@ -17,8 +17,14 @@ const props = defineProps<{
 }>()
 const expanded = ref(false)
 const toolLabels: Record<string, string> = {
+  resolve_business_turn: "解析查询条件",
+  business_context_read: "读取查询历史",
+  execute_business_frame: "执行指标查询",
+  read_business_result: "读取历史结果",
   data_availability: "查看数据可用范围",
   catalog_overview: "查看目录概览",
+  catalog: "目录查询",
+  read: "读取任务、结果与历史",
   metric_catalog_search: "检索指标目录",
   org_catalog_search: "检索机构目录",
   metric_ask: "解析问题并查询指标",
@@ -31,8 +37,14 @@ const currentStage = computed(() => {
   const running = props.tools.find(call => call.status === "running")
   if (!running) return props.hasAnswer ? "正在生成回答" : "正在处理"
   const stages: Record<string, string> = {
+    resolve_business_turn: "正在解析查询条件",
+    business_context_read: "正在读取查询历史",
+    execute_business_frame: "正在执行指标查询",
+    read_business_result: "正在读取历史结果",
     data_availability: "正在检查数据覆盖",
     catalog_overview: "正在查看目录概览",
+    catalog: "正在查询目录",
+    read: "正在读取记录",
     metric_catalog_search: "正在检索指标",
     org_catalog_search: "正在检索机构",
     metric_ask: "正在解析并查询",

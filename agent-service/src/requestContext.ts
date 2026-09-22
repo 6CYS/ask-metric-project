@@ -1,6 +1,6 @@
 /**
  * 请求上下文：通过原生 Context 传递当次请求的身份、后端客户端与标识。
- * 只承载本轮可信输入，不保存历史消息、槽位或摘要——模型上下文由原生 Session 管理。
+ * 承载本轮可信输入以及原生业务 Frame/结果存储桥接；模型消息和压缩仍由 Pi 管理。
  */
 import { createContextKey, withContextValue, type Context } from "@earendil-works/pi-agent-core";
 import type { BackendClient, BackendUser } from "./backendClient.js";
@@ -57,6 +57,8 @@ export interface AskMetricRequestContext {
   backend: BackendClient;
   /** 本轮原始用户输入原文 */
   originalMessage: string;
+  /** 当前请求的目录算法结果；不写入跨用户缓存或替代原生会话状态。 */
+  metricMentions?: Promise<import("./business-context/metricMentions.js").MetricMentions>;
   /** 完整 PromptInput 的确定性指纹（宿主计算） */
   promptFingerprint: string;
   sessionId: string;
@@ -68,8 +70,12 @@ export interface AskMetricRequestContext {
   selectedAnswers?: Record<string, unknown>;
   /** 从本轮用户消息之前的原生业务回执投影；目录工具不能改变来源。 */
   queryCandidate?: { task_id: string; version: number } | undefined;
+  frames?: import("./business-context/types.js").FrameStore;
+  businessResults?: Pick<import("./business-context/store.js").NativeBusinessResultStore, "get" | "save">;
+  /** 仅服务端执行适配器绑定，绝不从模型参数读取。 */
+  businessExecutionFrame?: string;
   commands: CommandBridge;
-  /** 原生历史受控回读；仅供 session_history_read 工具使用 */
+  /** 原生历史受控回读；供 read 历史分支及旧工具恢复使用 */
   history: HistoryBridge;
   /** 当前原生回合的证据只读投影；用于 pi 选择最终交付内容。 */
   answerEvidence?: () => Promise<EvidenceReference[]>;

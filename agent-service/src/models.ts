@@ -67,11 +67,11 @@ export function wrapStreamsWithAuthorization(
   const guarded: ProviderStreams = {
     stream: (model, context, options) => {
       if (!authorize()) return denied(model as Model<"openai-completions">);
-      return normalizeProviderAbort(inner.stream(model, context, timed(options)), model as Model<"openai-completions">, options?.signal);
+      return normalizeProviderResponse(inner.stream(model, context, timed(options)), model as Model<"openai-completions">, options?.signal);
     },
     streamSimple: (model, context, options) => {
       if (!authorize()) return denied(model as Model<"openai-completions">);
-      return normalizeProviderAbort(inner.streamSimple(model, context, timed(options)), model as Model<"openai-completions">, options?.signal);
+      return normalizeProviderResponse(inner.streamSimple(model, context, timed(options)), model as Model<"openai-completions">, options?.signal);
     },
   };
   if (inner.fetchDeferred) {
@@ -87,19 +87,29 @@ export function wrapStreamsWithAuthorization(
   return guarded;
 }
 
-/** 本地模型超时不等于用户取消；pi 仅在持久化取消状态下接纳 aborted。 */
-function normalizeProviderAbort(
+/** 传输协议失败不能作为业务回答；本地超时也不等于用户主动取消。 */
+function normalizeProviderResponse(
   source: ReturnType<ProviderStreams["streamSimple"]>, model: Model<"openai-completions">, callerSignal?: AbortSignal,
 ): ReturnType<ProviderStreams["streamSimple"]> {
   const output = createAssistantMessageEventStream();
-  const normalize = (message: AssistantMessage): AssistantMessage => message.stopReason === "aborted" && !callerSignal?.aborted
-    ? {...message, stopReason: "error", errorMessage: "MODEL_REQUEST_TIMEOUT: 模型请求中断或超时，请稍后重试。"}
-    : message;
+  const normalize = (message: AssistantMessage): AssistantMessage => {
+    if (message.stopReason === "aborted" && !callerSignal?.aborted) return {...message, stopReason: "error",
+      errorMessage: "MODEL_REQUEST_TIMEOUT: 模型请求中断或超时，请稍后重试。"};
+    // 网关偶发把工具协议标签作为正文返回；禁止展示或把文本伪调用解析成可执行工具。
+    const text = message.content.filter(block => block.type === "text").map(block => block.text).join("").trim();
+    if (/<(?:[｜|]DSML[｜|]|tool_call(?:s)?[>\s])/u.test(text)) return {...message, content: [], stopReason: "error",
+      errorMessage: "MODEL_TOOL_PROTOCOL_ERROR: 模型返回了无效工具调用格式，本轮未正常完成。已确认的查询条件仍保留。"};
+    return message;
+  };
   void (async () => {
     for await (const event of source) {
       if (event.type === "error") {
         const error = normalize(event.error);
         output.push({...event, error, reason: error.stopReason === "aborted" ? "aborted" : "error"});
+      } else if (event.type === "done") {
+        const message = normalize(event.message);
+        if (message.stopReason === "error") output.push({type: "error", reason: "error", error: message});
+        else output.push(event);
       } else output.push(event);
     }
     output.end(normalize(await source.result()));

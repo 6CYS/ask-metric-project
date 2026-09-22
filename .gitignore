@@ -105,3 +105,9 @@ outputs/
 *.test.js
 *.test.jsx
 backend-next/tests/
+
+# 通用多轮改造的可复现回归随实现交付。
+!agent-service/src/harnessHost.test.ts
+!agent-service/src/routes.test.ts
+!agent-service/src/queryContext.test.ts
+!agent-service/src/tools/catalog.test.ts

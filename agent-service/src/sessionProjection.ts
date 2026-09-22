@@ -11,7 +11,7 @@ import type { MetricAskDetails } from "./tools/metricAsk.js";
 /** 历史消息条目（与前端 AgentSessionMessage 对齐） */
 export type ProjectedMessage =
   | { role: "user"; text: string; timestamp: number | null; entry_id: string }
-  | { role: "assistant"; text: string; tools: string[]; tool_calls?: { id: string; tool: string }[]; timestamp: number | null; entry_id: string }
+  | { role: "assistant"; text: string; error?: string; tools: string[]; business_protocol?: "frame_v1"; tool_calls?: { id: string; tool: string }[]; timestamp: number | null; entry_id: string }
   | {
       role: "tool";
       tool: string;
@@ -65,6 +65,8 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
   const messages: ProjectedMessage[] = [];
   let evidence: BusinessEvidence[] = [];
   let question = "";
+  let contextClarification = false;
+  let frameTurn = false;
   for (const entry of entries) {
     if (entry.type !== "message") continue;
     const message = entry.message as {
@@ -76,20 +78,25 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
       details?: unknown;
       isError?: boolean;
       errorMessage?: string;
+      businessProtocol?: string;
     };
     const timestamp = message.timestamp ?? entry.timestamp ?? null;
     if (message.role === "user") {
       evidence = [];
+      contextClarification = false;
+      frameTurn = message.businessProtocol === "frame_v1";
       question = visibleText(message.content);
       messages.push({ role: "user", text: visibleText(message.content), timestamp, entry_id: entry.id });
     } else if (message.role === "assistant") {
       messages.push({
         role: "assistant",
-        text: toolCallNames(message.content).length ? "" : visibleText(message.content) === EVIDENCE_BLOCKED_ANSWER
+        text: toolCallNames(message.content).length ? "" : frameTurn ? visibleText(message.content) : visibleText(message.content) === EVIDENCE_BLOCKED_ANSWER
           ? EVIDENCE_BLOCKED_ANSWER : visibleText(message.content) === TOOL_LIMIT_ANSWER
           ? [combinedEvidenceAnswer(evidence), TOOL_LIMIT_ANSWER].filter(Boolean).join("\n\n") : evidence.length
           ? combinedEvidenceAnswer(evidence) + (message.errorMessage ? "\n\n本轮处理未完成，以上仅为已取得的结果。" : "")
-          : safeUnverifiedText(visibleText(message.content), question),
+          : contextClarification ? visibleText(message.content) : safeUnverifiedText(visibleText(message.content), question),
+        ...(message.errorMessage ? {error: "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"} : {}),
+        ...(frameTurn ? {business_protocol: "frame_v1" as const} : {}),
         tools: toolCallNames(message.content),
         tool_calls: Array.isArray(message.content) ? (message.content as MessageContentBlock[])
           .filter(block => block.type === "toolCall" && block.id && block.name)
@@ -98,7 +105,10 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
         entry_id: entry.id,
       });
     } else if (message.role === "toolResult") {
+      // 新协议保存 Pi 正文；旧历史继续按其原交付契约回放。
+      if (["resolve_business_turn", "business_context_read", "execute_business_frame", "read_business_result"].includes(message.toolName ?? "")) frameTurn = true;
       // 校验/拦截只记入执行过程，不伪造成业务证据覆盖宿主最终说明。
+      if (message.toolName === "resolve_business_turn") contextClarification = (message.details as {status?: string})?.status === "NEEDS_CLARIFICATION";
       const current = businessEvidence(message.details);
       if (current) evidence.push(current);
       messages.push({
@@ -122,7 +132,7 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
           item.details = {...item.details as object, answer_selected: delivered.evidence_refs.includes(`e${index}`)};
         }
         messages.push({role: "assistant", text: delivered.public_answer, tools: [], timestamp, entry_id: `${entry.id}:answer`});
-      } else if (current && !current.retryable && !["succeeded", "catalog", "reference_mismatch"].includes(current.status.toLowerCase())) {
+      } else if (!frameTurn && current && !current.retryable && !["succeeded", "catalog", "reference_mismatch"].includes(current.status.toLowerCase())) {
         messages.push({role: "assistant", text: evidenceAnswer(current), tools: [], timestamp, entry_id: `${entry.id}:answer`});
       }
       // 原生 before_tool 的终止拦截不会再产生 assistant；只交付宿主固定的预算理由，
@@ -186,7 +196,7 @@ export function latestResultRef(messages: ProjectedMessage[]): { task_id: string
     const message = messages[index];
     if (message?.role !== "tool") continue;
     const details = message.details as MetricAskDetails | null | undefined;
-    if ((details?.kind === "metric_ask" || (details as { kind?: string })?.kind === "metric_read") && details?.task_id && details.status === "succeeded") {
+    if (["metric_ask", "metric_query_structured", "metric_read"].includes(details?.kind ?? "") && details?.task_id && details.status === "succeeded") {
       return { task_id: details.task_id, ...(details.result_id ? { result_id: details.result_id } : {}) };
     }
   }

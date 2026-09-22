@@ -1,0 +1,297 @@
+{
+  "date": "2026-09-21",
+  "environment": "configured_real_model_synthetic_business_data",
+  "real_database_verified": false,
+  "browser_verified": "login_page_only",
+  "checks": {
+    "agent_tests": 197,
+    "backend_tests": 285,
+    "frontend_tests": 17,
+    "typecheck_and_build": true
+  },
+  "final_reports": {
+    "multiturn": {
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "clarification_followup": false,
+          "tools": [
+            "resolve_business_turn",
+            "execute_business_frame"
+          ],
+          "query_count": 1,
+          "reads": 0,
+          "model_calls": 3,
+          "elapsed_ms": 10811,
+          "focus_status": "success",
+          "errors": []
+        },
+        {
+          "turn": 2,
+          "passed": true,
+          "clarification_followup": false,
+          "tools": [
+            "resolve_business_turn",
+            "execute_business_frame"
+          ],
+          "query_count": 1,
+          "reads": 0,
+          "model_calls": 3,
+          "elapsed_ms": 15650,
+          "focus_status": "success",
+          "errors": []
+        },
+        {
+          "turn": 3,
+          "passed": true,
+          "clarification_followup": true,
+          "tools": [
+            "resolve_business_turn",
+            "execute_business_frame"
+          ],
+          "query_count": 1,
+          "reads": 0,
+          "model_calls": 3,
+          "elapsed_ms": 35271,
+          "focus_status": "success",
+          "errors": []
+        },
+        {
+          "turn": 4,
+          "passed": true,
+          "clarification_followup": false,
+          "tools": [
+            "resolve_business_turn",
+            "read_business_result"
+          ],
+          "query_count": 0,
+          "reads": 1,
+          "model_calls": 3,
+          "elapsed_ms": 18940,
+          "focus_status": "success",
+          "errors": []
+        },
+        {
+          "turn": 5,
+          "passed": true,
+          "clarification_followup": false,
+          "tools": [
+            "resolve_business_turn",
+            "execute_business_frame"
+          ],
+          "query_count": 1,
+          "reads": 0,
+          "model_calls": 3,
+          "elapsed_ms": 26315,
+          "focus_status": "success",
+          "errors": []
+        },
+        {
+          "turn": 6,
+          "passed": true,
+          "clarification_followup": false,
+          "tools": [
+            "resolve_business_turn"
+          ],
+          "query_count": 0,
+          "reads": 0,
+          "model_calls": 2,
+          "elapsed_ms": 19053,
+          "focus_status": "clarifying",
+          "errors": []
+        },
+        {
+          "turn": 7,
+          "passed": true,
+          "clarification_followup": false,
+          "tools": [
+            "resolve_business_turn",
+            "execute_business_frame"
+          ],
+          "query_count": 1,
+          "reads": 0,
+          "model_calls": 3,
+          "elapsed_ms": 27680,
+          "focus_status": "success",
+          "errors": []
+        }
+      ],
+      "source_report": "/private/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/pi-multiturn-VdwKQx/report.json"
+    },
+    "confirmation": {
+      "passed": true,
+      "environment": "configured_model_synthetic_backend",
+      "reports": [
+        {
+          "reply": "是",
+          "passed": true,
+          "queried_before_confirmation": 0,
+          "query_count": 1,
+          "confirmation_tools": [
+            "resolve_business_turn",
+            "execute_business_frame"
+          ],
+          "confirmation_model_calls": 3,
+          "elapsed_ms": 51051
+        },
+        {
+          "reply": "就这个",
+          "passed": true,
+          "queried_before_confirmation": 0,
+          "query_count": 1,
+          "confirmation_tools": [
+            "resolve_business_turn",
+            "execute_business_frame"
+          ],
+          "confirmation_model_calls": 3,
+          "elapsed_ms": 23305
+        }
+      ],
+      "source_report": "/private/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/pi-confirmation-c2SLbO/report.json"
+    },
+    "calculation": {
+      "passed": true,
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "environment": "configured_model_synthetic_backend",
+      "tools": [
+        "resolve_business_turn",
+        "resolve_business_turn",
+        "execute_business_frame",
+        "resolve_business_turn",
+        "execute_business_frame"
+      ],
+      "calls": [
+        "query",
+        "calculate"
+      ],
+      "tool_validation_failures": 0,
+      "unresolved_failures": 0,
+      "elapsed_ms": 78525,
+      "source_report": "/private/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/skill-model-z71fZ8/report.json"
+    },
+    "semantic_equivalence": {
+      "passed": true,
+      "variants": 9,
+      "initial_passed": 8,
+      "rechecked_variant": 9,
+      "source_reports": [
+        "/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/pi-context-semantics-tEmpEc/report.json",
+        "/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/pi-context-semantics-KEXgz4/report.json"
+      ],
+      "test_correction": "第九种改写同值 set selection=exact 与 retain 在业务状态上等价；修正测试断言后单独复验通过。未为此修改生产逻辑。"
+    }
+  },
+  "earlier_failed_attempts": [
+    {
+      "source_report": "/private/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/pi-multiturn-beym6T/report.json",
+      "passed": false,
+      "failed_turns": [
+        {
+          "turn": 4,
+          "errors": [
+            "frame status\n+ actual - expected\n\n+ 'clarifying'\n- 'success'\n"
+          ]
+        },
+        {
+          "turn": 6,
+          "errors": [
+            "frame status\n+ actual - expected\n\n+ 'success'\n- 'clarifying'\n"
+          ]
+        },
+        {
+          "turn": 7,
+          "errors": [
+            "query count\n\n0 !== 1\n"
+          ]
+        }
+      ]
+    },
+    {
+      "source_report": "/private/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/pi-multiturn-1CqoM5/report.json",
+      "passed": false,
+      "failed_turns": [
+        {
+          "turn": 3,
+          "errors": [
+            "repeated resolution"
+          ]
+        }
+      ]
+    },
+    {
+      "source_report": "/private/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/pi-multiturn-wSKuy7/report.json",
+      "passed": false,
+      "failed_turns": [
+        {
+          "turn": 3,
+          "errors": [
+            "query count\n\n0 !== 1\n"
+          ]
+        },
+        {
+          "turn": 4,
+          "errors": [
+            "frame status\n+ actual - expected\n\n+ 'clarifying'\n- 'success'\n"
+          ]
+        },
+        {
+          "turn": 5,
+          "errors": [
+            "query count\n\n0 !== 1\n"
+          ]
+        },
+        {
+          "turn": 7,
+          "errors": [
+            "query count\n\n0 !== 1\n"
+          ]
+        }
+      ]
+    },
+    {
+      "source_report": "/private/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/pi-multiturn-pihrBP/report.json",
+      "passed": false,
+      "failed_turns": [
+        {
+          "turn": 4,
+          "errors": [
+            "Expected values to be strictly deep-equal:\n+ actual - expected\n\n  {\n    codes: [\n+     'O2'\n-     'O1'\n    ],\n    names: [\n+     '合成机构乙'\n-     '合成机构甲'\n    ]\n  }\n"
+          ]
+        },
+        {
+          "turn": 6,
+          "errors": [
+            "false == true"
+          ]
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "单次验收不能证明所有自然语言改写稳定",
+    "模型响应耗时波动，七轮合成验收约11至35秒/轮",
+    "未验证真实业务数据及登录后的浏览器交互"
+  ],
+  "services": {
+    "backend": {
+      "port": 8011,
+      "pid": 86418,
+      "health": 200,
+      "ready": 200
+    },
+    "agent": {
+      "port": 8020,
+      "pid": 86960,
+      "health": 200
+    },
+    "frontend": {
+      "host": "127.0.0.1",
+      "port": 5173,
+      "pid": 86420,
+      "status": 200,
+      "agent_proxy": 200
+    }
+  }
+}

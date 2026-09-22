@@ -186,6 +186,16 @@ def _build_backend_wheelhouse(
         shutil.copy2(project_wheels[0], target / project_wheels[0].name)
         return
     py_tag = python_version.replace(".", "")
+    # HanLP 轻量 Trie 的几个上游只发布 sdist；在构建机预制纯 Python wheel，
+    # 目标内网机只离线安装，不能依赖现场编译或自动下载。
+    _run([
+        sys.executable, "-m", "pip", "wheel", "--no-deps",
+        "--wheel-dir", str(target), "--constraint", str(PACKAGE_DIR / "constraints.txt"),
+        "hanlp-trie", "hanlp-common", "phrasetree",
+    ], cwd=PROJECT_ROOT)
+    for wheel in target.glob("*.whl"):
+        if not wheel.name.endswith("-none-any.whl"):
+            raise RuntimeError(f"Prebuilt dictionary wheel must be platform-independent: {wheel.name}")
     _run(
         [
             sys.executable,
@@ -199,6 +209,8 @@ def _build_backend_wheelhouse(
             "--dest",
             str(target),
             "--only-binary=:all:",
+            "--find-links",
+            str(target),
             "--platform",
             PLATFORMS[platform],
             "--implementation",

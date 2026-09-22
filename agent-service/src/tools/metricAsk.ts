@@ -80,7 +80,7 @@ export function createMetricAskTool(): AgentHarnessTool<AskMetricRequestContext,
     description:
       "用途：基础取值、修改条件及澄清。动作按本轮是否依赖来源选择：依赖成功查询改机构、指标、日期范围或粒度用 followup；依赖待补任务仅回答缺项用 clarify；无需来源的独立查询用 new，允许条件不全。完整重述指标、机构、日期且无沿用指代，是 new，不因旧任务待澄清改成 clarify。日期从单日改整月但未重述机构/指标，是 followup，不因需要重新取数改成 new。" +
       "前提：new 只传 action；followup 的 source 取成功回执 task_id/version；clarify 的 target 取当前待补回执 task_id/version/clarification_id。用户原文、身份和会话由宿主绑定。来源或修改存在歧义用 clarify_context。" +
-      "不适用：覆盖发现、覆盖后选指标、历史重显、自定义计算、归因预测。覆盖后取值用 metric_query_structured，历史重显用 metric_read result；自定义运算需要基础事实与 metric_calculate。返回：正式任务/版本/结果引用及执行条件，或待补字段和 clarification_id；条件不足不代填。",
+      "不适用：覆盖发现、覆盖后选指标、历史重显、自定义计算、归因预测。覆盖后取值用 metric_query_structured，历史重显用 read(kind=result)；自定义运算需要基础事实与 metric_calculate。返回：正式任务/版本/结果引用及执行条件，或待补字段和 clarification_id；条件不足不代填。",
     parameters: metricAskParameters,
     // 兼容层：部分模型会把嵌套对象序列化成 JSON 字符串，schema 校验前还原
     prepareArguments: (args: unknown) => {
@@ -330,7 +330,7 @@ function resultReceipt(taskId: string, version: number | undefined, executed: Qu
       ...(resultId ? { result_id: resultId } : {}),
       query_shape: executed.query_shape,
       columns: executed.columns,
-      // 仅样例行供模型核对口径；完整明细经 metric_read 分页读取
+      // 仅样例行供模型核对口径；完整明细经 read 分页读取
       sample_rows: sampleRows,
       query_evidence: executed.evidence,
       facts: (executed.facts ?? []).slice(0, 100),

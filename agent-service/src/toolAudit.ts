@@ -9,14 +9,14 @@ export function summarizeToolArguments(args: unknown): Record<string, unknown> {
     arguments_sha256: createHash("sha256").update(JSON.stringify(args) ?? "null").digest("hex"),
   };
   const enums: Record<string, string[]> = {
-    action: ["new", "clarify", "followup", "clarify_context"], kind: ["task", "result", "list", "entry"],
+    action: ["new", "clarify", "followup", "clarify_context", "search", "overview"], kind: ["task", "result", "list", "entry"],
     dimension: ["metrics", "dates"], selection: ["exact", "latest_in_range", "all_in_range", "ranking"],
     name: ["metric-query", "data-coverage", "result-calculation", "analysis-boundary"],
   };
   for (const [key, allowed] of Object.entries(enums)) {
     if (typeof value[key] === "string" && allowed.includes(value[key])) summary[key] = value[key];
   }
-  for (const key of ["org_codes", "metric_codes", "expressions"]) {
+  for (const key of ["org_codes", "metric_codes", "expressions", "queries"]) {
     if (Array.isArray(value[key])) summary[`${key}_count`] = value[key].length;
   }
   for (const key of ["source", "target"]) {

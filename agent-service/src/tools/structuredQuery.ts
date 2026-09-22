@@ -1,6 +1,6 @@
 /**
- * metric_query_structured 工具：结构化基础查询快速通道（pi 已确认正式实体与查询范围）。
- * agent 自行完成实体锁定与日期换算后，以正式编码和明确日期调用后端 basic-queries（不调用后端语义模型）。
+ * 结构化查询适配器：新会话仅由已校验 Business Frame 调用，旧工具定义用于历史兼容。
+ * Resolver 完成实体和日期解析后，以正式字段调用后端 basic-queries（不调用后端语义模型）。
  * 编码不是授权凭据，后端仍按当前用户权限与启用目录校验；幂等键由参数指纹派生，不用随机键。
  */
 import { Type, StringEnum, type Static } from "@earendil-works/pi-ai";
@@ -21,12 +21,12 @@ const structuredQueryParameters = Type.Object({
   metric_codes: Type.Array(Type.String({ minLength: 1 }), {
     minItems: 1,
     maxItems: 100,
-    description: "正式指标编码数组，必须来自 metric_catalog_search 或会话中已确认的编码，不得编造",
+    description: "正式指标编码数组，必须来自 catalog 的指标检索结果或会话中已确认的编码，不得编造",
   }),
   org_codes: Type.Array(Type.String({ minLength: 1 }), {
     maxItems: 1000,
     description:
-      "正式机构编码数组，必须来自 org_catalog_search、会话中已确认的编码或已展开的全目录集合，不得编造；" +
+      "正式机构编码数组，必须来自 catalog 的机构检索结果、会话中已确认的编码或已展开的全目录集合，不得编造；" +
       "selection=ranking 时至多一个范围机构，空数组表示全省汇总的直接下级",
   }),
   start: Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "起始日期 YYYY-MM-DD（含）" }),
@@ -155,6 +155,7 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
           },
         };
       } catch (error) {
+        if (request.businessExecutionFrame && (!(error instanceof BackendApiError) || error.status >= 500)) throw error;
         const handled = backendErrorResult(error, { kind: "metric_query_structured" as const, status: "error" });
         if (handled) return handled;
         throw error;

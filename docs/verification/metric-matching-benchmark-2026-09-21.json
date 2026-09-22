@@ -1,0 +1,239 @@
+{
+  "environment": "synthetic_catalog_no_model_no_database",
+  "python": "3.13.3",
+  "machine": "arm64",
+  "catalog_size": 10000,
+  "index_build_ms": 526.544,
+  "results": [
+    {
+      "engine": "old_whole_question_sequence_matcher",
+      "hit_at_5": 2,
+      "cases": 8,
+      "p50_ms": 92.028,
+      "p95_ms": 175.598,
+      "details": [
+        {
+          "kind": "完整名称",
+          "question": "查询省联社2026年3月31日贷款余额当日数。",
+          "expected": "D",
+          "top5": [],
+          "hit": false
+        },
+        {
+          "kind": "完整别名",
+          "question": "查询合成机构2026年6月末存款日均",
+          "expected": "S",
+          "top5": [],
+          "hit": false
+        },
+        {
+          "kind": "错别字",
+          "question": "查询省联社2026年3月31日贷款讯额当日数",
+          "expected": "D",
+          "top5": [],
+          "hit": false
+        },
+        {
+          "kind": "同音字",
+          "question": "查询贷款余额当日树",
+          "expected": "D",
+          "top5": [
+            "D",
+            "T"
+          ],
+          "hit": true
+        },
+        {
+          "kind": "同音字",
+          "question": "查询合成机构去年存款余鹅月日均",
+          "expected": "S",
+          "top5": [],
+          "hit": false
+        },
+        {
+          "kind": "错别字",
+          "question": "合成客护风险比率",
+          "expected": "R",
+          "top5": [
+            "R"
+          ],
+          "hit": true
+        },
+        {
+          "kind": "描述",
+          "question": "本月每天的存款平均值是多少",
+          "expected": "S",
+          "top5": [],
+          "hit": false
+        },
+        {
+          "kind": "描述",
+          "question": "存在风险的客户占全部客户多少比例",
+          "expected": "R",
+          "top5": [],
+          "hit": false
+        }
+      ]
+    },
+    {
+      "engine": "hanlp_trie_exact_only",
+      "hit_at_5": 2,
+      "cases": 8,
+      "p50_ms": 0.008,
+      "p95_ms": 0.014,
+      "details": [
+        {
+          "kind": "完整名称",
+          "question": "查询省联社2026年3月31日贷款余额当日数。",
+          "expected": "D",
+          "top5": [
+            "D"
+          ],
+          "hit": true
+        },
+        {
+          "kind": "完整别名",
+          "question": "查询合成机构2026年6月末存款日均",
+          "expected": "S",
+          "top5": [
+            "S"
+          ],
+          "hit": true
+        },
+        {
+          "kind": "错别字",
+          "question": "查询省联社2026年3月31日贷款讯额当日数",
+          "expected": "D",
+          "top5": [],
+          "hit": false
+        },
+        {
+          "kind": "同音字",
+          "question": "查询贷款余额当日树",
+          "expected": "D",
+          "top5": [
+            "T"
+          ],
+          "hit": false
+        },
+        {
+          "kind": "同音字",
+          "question": "查询合成机构去年存款余鹅月日均",
+          "expected": "S",
+          "top5": [],
+          "hit": false
+        },
+        {
+          "kind": "错别字",
+          "question": "合成客护风险比率",
+          "expected": "R",
+          "top5": [],
+          "hit": false
+        },
+        {
+          "kind": "描述",
+          "question": "本月每天的存款平均值是多少",
+          "expected": "S",
+          "top5": [],
+          "hit": false
+        },
+        {
+          "kind": "描述",
+          "question": "存在风险的客户占全部客户多少比例",
+          "expected": "R",
+          "top5": [],
+          "hit": false
+        }
+      ]
+    },
+    {
+      "engine": "hanlp_trie_pinyin_rapidfuzz_description",
+      "hit_at_5": 8,
+      "cases": 8,
+      "p50_ms": 0.732,
+      "p95_ms": 3.11,
+      "details": [
+        {
+          "kind": "完整名称",
+          "question": "查询省联社2026年3月31日贷款余额当日数。",
+          "expected": "D",
+          "top5": [
+            "D"
+          ],
+          "hit": true
+        },
+        {
+          "kind": "完整别名",
+          "question": "查询合成机构2026年6月末存款日均",
+          "expected": "S",
+          "top5": [
+            "S"
+          ],
+          "hit": true
+        },
+        {
+          "kind": "错别字",
+          "question": "查询省联社2026年3月31日贷款讯额当日数",
+          "expected": "D",
+          "top5": [
+            "D",
+            "T"
+          ],
+          "hit": true
+        },
+        {
+          "kind": "同音字",
+          "question": "查询贷款余额当日树",
+          "expected": "D",
+          "top5": [
+            "D",
+            "T",
+            "S"
+          ],
+          "hit": true
+        },
+        {
+          "kind": "同音字",
+          "question": "查询合成机构去年存款余鹅月日均",
+          "expected": "S",
+          "top5": [
+            "S"
+          ],
+          "hit": true
+        },
+        {
+          "kind": "错别字",
+          "question": "合成客护风险比率",
+          "expected": "R",
+          "top5": [
+            "R"
+          ],
+          "hit": true
+        },
+        {
+          "kind": "描述",
+          "question": "本月每天的存款平均值是多少",
+          "expected": "S",
+          "top5": [
+            "S"
+          ],
+          "hit": true
+        },
+        {
+          "kind": "描述",
+          "question": "存在风险的客户占全部客户多少比例",
+          "expected": "R",
+          "top5": [
+            "R"
+          ],
+          "hit": true
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "合成小样本不代表真实目录准确率",
+    "未测试完整 HanLP 神经模型",
+    "延迟不包含数据库读取、HTTP 和问答模型耗时"
+  ]
+}

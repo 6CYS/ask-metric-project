@@ -64,7 +64,7 @@ export const MAX_ROWS_FOR_MODEL = 3;
 /** 非 succeeded 时按 error_code 映射的固定原因文案，与后端治理语义保持一致 */
 const FAILURE_REASON_BY_CODE: Record<string, string> = {
   ORG_SCOPE_FORBIDDEN: "无权查询该机构，请确认机构范围。",
-  QUERY_UNSUPPORTED: "查询条件不受支持或机构编码不在目录中，机构编码必须先经 org_catalog_search 确认。",
+  QUERY_UNSUPPORTED: "查询条件不受支持或机构编码不在目录中，机构编码必须先经 catalog 检索机构确认。",
 };
 
 /**

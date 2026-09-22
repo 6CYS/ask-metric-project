@@ -189,7 +189,11 @@ def to_logical_dsl(
 
 
 def parse_time_expression(
-    expression: str | None, *, today: date, default: str = "latest"
+    expression: str | None,
+    *,
+    today: date,
+    default: str = "latest",
+    reference_year: int | None = None,
 ) -> LogicalTimeRange:
     if not expression:
         return LogicalTimeRange(preset="latest" if default == "latest" else None)
@@ -270,7 +274,10 @@ def parse_time_expression(
         return LogicalTimeRange(start=date(end.year, start_month, 1), end=end)
     calendar_period = re.fullmatch(CALENDAR_PERIOD_PATTERN, value)
     if calendar_period:
-        year = int(calendar_period.group("year") or today.year)
+        default_year = (
+            today.year if calendar_period.group("relative") else reference_year or today.year
+        )
+        year = int(calendar_period.group("year") or default_year)
         year -= {"去年": 1, "上年": 1, "前年": 2}.get(calendar_period.group("relative"), 0)
         token = calendar_period.group("period")
         if token.endswith("半年"):
@@ -333,14 +340,16 @@ def parse_time_expression(
     yearless_month_match = re.fullmatch(rf"({_CALENDAR_MONTH_TOKEN})月(末)?", value)
     if yearless_month_match:
         month = _parse_calendar_month(yearless_month_match.group(1))
-        return _month_range(today.year, month, month_end=bool(yearless_month_match.group(2)))
+        return _month_range(
+            reference_year or today.year, month, month_end=bool(yearless_month_match.group(2))
+        )
     date_match = re.fullmatch(r"(\d{4})[-年](\d{1,2})[-月](\d{1,2})日?", value)
     if date_match:
         target = date(*map(int, date_match.groups()))
         return LogicalTimeRange(start=target, end=target)
     yearless_date_match = re.fullmatch(r"(\d{1,2})月(\d{1,2})日", value)
     if yearless_date_match:
-        target = date(today.year, *map(int, yearless_date_match.groups()))
+        target = date(reference_year or today.year, *map(int, yearless_date_match.groups()))
         return LogicalTimeRange(start=target, end=target)
     recent_match = re.fullmatch(r"近\s*(\d+)\s*天", value)
     if recent_match:

@@ -37,6 +37,7 @@ export function createMetricCalculateTool(): AgentHarnessTool<AskMetricRequestCo
         const result = await request.backend.calculate(payload, key, {signal: context.abortSignal});
         return {content: [{type: "text", text: JSON.stringify(result)}], details: {kind: "metric_calculate", ...result}};
       } catch (error) {
+        if (request.businessExecutionFrame && (!(error instanceof BackendApiError) || error.status >= 500)) throw error;
         // 错误语义统一走共享分类：401/403 固定文案，422 可纠正并透传后端原因，其余如实表达未知状态。
         const apiError = error instanceof BackendApiError ? error : undefined;
         const mapped = backendErrorResult(error, {

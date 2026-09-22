@@ -42,6 +42,19 @@ def rows(path):
         result.extend(value if isinstance(value,list) else [value])
     return result
 
+def logical_calls(calls):
+    for call in calls:
+        name, arguments = call['name'], call['arguments']
+        if name == 'catalog' and arguments.get('action') == 'search':
+            for query in arguments.get('queries', []):
+                yield {**call, 'name': 'metric_catalog_search' if query.get('entity') == 'metric' else 'org_catalog_search', 'arguments': query}
+        elif name == 'catalog' and arguments.get('action') == 'overview':
+            yield {**call, 'name': 'metric_catalog_overview', 'arguments': {}}
+        elif name == 'read':
+            yield {**call, 'name': 'metric_read' if arguments.get('kind') in {'task', 'result'} else 'session_history_read'}
+        else:
+            yield call
+
 with app.connect() as ac, query.connect() as qc:
     ac.execute(text('SET TRANSACTION READ ONLY'))
     qc.execute(text('SET TRANSACTION READ ONLY'))
@@ -94,12 +107,12 @@ with app.connect() as ac, query.connect() as qc:
             turn['expected']=expected
             if expected.get('page_size') and turn.get('request',{}).get('page_size')!=expected['page_size']:
                 turn['errors'].append('覆盖每页数量错误');turn['passed']=False
-            primary=[call for call in native['calls'] if call['name'] not in {'business_skill_read','org_catalog_search','metric_catalog_search','session_history_read','answer_evidence_check'}
+            primary=[call for call in logical_calls(native['calls']) if call['name'] not in {'business_skill_read','org_catalog_search','metric_catalog_search','session_history_read','answer_evidence_check'}
                 and not (call['name']=='metric_read' and call['arguments'].get('kind')=='task')]
             tool=expected.get('tool') or {'coverage':'data_availability','query':'metric_ask','read':'metric_read','clarify':'metric_ask','catalog':'metric_catalog_overview'}.get(expected['kind'])
             first=primary[0] if primary else None
             if expected['kind']=='search':
-                first=next((c for c in native['calls'] if c['name'] not in {'business_skill_read','org_catalog_search','session_history_read','answer_evidence_check'}),None)
+                first=next((c for c in logical_calls(native['calls']) if c['name'] not in {'business_skill_read','org_catalog_search','session_history_read','answer_evidence_check'}),None)
             correct=None if tool is None else bool(first and first['name']==tool)
             if correct and expected.get('action'):correct=first['arguments'].get('action')==expected['action']
             if expected['kind']=='unsupported' and '未明确说明能力边界' in turn['errors']:
@@ -148,10 +161,12 @@ with app.connect() as ac, query.connect() as qc:
             if expected['kind']=='search' and expected.get('metrics'):
                 confirmed=set()
                 for result in native['results'].values():
-                    if result.get('toolName')!='metric_catalog_search' or result.get('isError'):continue
+                    if result.get('toolName') not in {'metric_catalog_search', 'catalog'} or result.get('isError'):continue
                     try:payload=json.loads(''.join(b.get('text','') for b in result.get('content',[]) if b.get('type')=='text'))
                     except ValueError:continue
-                    confirmed.update(item['metric_code'] for item in payload.get('items',[]) if item.get('match_type')=='exact')
+                    searches = [payload] if result.get('toolName') == 'metric_catalog_search' else [r for r in payload.get('results', []) if r.get('entity') == 'metric' and r.get('status') == 'succeeded']
+                    for search in searches:
+                        confirmed.update(item['metric_code'] for item in search.get('items',[]) if item.get('match_type')=='exact')
                 turn['catalog_exact_correct']=set(expected['metrics']).issubset(confirmed)
                 if not turn['catalog_exact_correct']:turn['errors'].append('未精确确认用户完整指标名称');turn['passed']=False
             if expected['kind']=='coverage' and turn.get('request'):

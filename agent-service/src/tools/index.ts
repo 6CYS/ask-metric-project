@@ -15,6 +15,9 @@ import { createStructuredQueryTool } from "./structuredQuery.js";
 import { createDataAvailabilityTool } from "./dataAvailability.js";
 import { createBusinessCapabilityTool } from "./businessCapability.js";
 import { withFocusedArgumentErrors } from "./shared.js";
+import { createCatalogTool } from "./catalog.js";
+import { createReadTool } from "./readTools.js";
+import { createResolveBusinessTurnTool, createExecuteBusinessFrameTool, createReadBusinessResultTool, createBusinessContextReadTool } from "./businessContext.js";
 import { createAnswerPresentTool } from "./answerPresent.js";
 
 export { createMetricAskTool, type MetricAskDetails } from "./metricAsk.js";
@@ -27,17 +30,14 @@ export type { CatalogSearchDetails, StructuredQueryDetails } from "./shared.js";
 /** pi 选择业务工具；结构化查询仍接受后端目录、权限与能力校验。 */
 export function createAskMetricTools(): AgentHarnessTool<AskMetricRequestContext>[] {
   const tools = [
-    createAnswerPresentTool(),
     deliverable(createBusinessCapabilityTool()),
-    deliverable(createMetricAskTool()),
-    deliverable(createMetricCalculateTool()),
-    deliverable(createDataAvailabilityTool()),
-    deliverable(createStructuredQueryTool()),
-    createMetricReadTool(),
-    createSessionHistoryReadTool(),
-    createMetricCatalogSearchTool(),
-    deliverable(createMetricCatalogOverviewTool()),
-    createOrgCatalogSearchTool(),
+    createResolveBusinessTurnTool(),
+    createBusinessContextReadTool(),
+    deliverable(createExecuteBusinessFrameTool()),
+    deliverable(createReadBusinessResultTool()),
+
+    createReadTool(),
+    deliverable(createCatalogTool()),
   ] as AgentHarnessTool<AskMetricRequestContext>[];
   return tools.map(withFocusedArgumentErrors);
 }
@@ -50,4 +50,13 @@ function deliverable<T extends AgentHarnessTool<AskMetricRequestContext>>(tool: 
     return {...result, details: details && typeof details.public_answer === "string"
       ? {...details, delivery: "business_evidence_v1"} : details};
   }} as T;
+}
+
+/** 仅供旧持久化操作恢复；不向新模型请求暴露旧工具定义。 */
+export function legacyToolsFor(tools: AgentHarnessTool<AskMetricRequestContext>[]): AgentHarnessTool<AskMetricRequestContext>[] {
+  return [
+    ...(tools.some(tool => tool.name === "resolve_business_turn") ? [createAnswerPresentTool(), createMetricAskTool(), createStructuredQueryTool(), createDataAvailabilityTool(), createMetricCalculateTool()] : []),
+    ...(tools.some(tool => tool.name === "catalog") ? [createMetricCatalogSearchTool(), createOrgCatalogSearchTool(), deliverable(createMetricCatalogOverviewTool())] : []),
+    ...(tools.some(tool => tool.name === "read") ? [createMetricReadTool(), createSessionHistoryReadTool()] : []),
+  ].filter(legacy => !tools.some(tool => tool.name === legacy.name)).map(withFocusedArgumentErrors);
 }

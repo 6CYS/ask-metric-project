@@ -11,21 +11,55 @@ export function projectHistoricalResults(messages: readonly AgentMessage[]): Age
   while (currentTurn >= 0 && messages[currentTurn]?.role !== "user") currentTurn -= 1;
   let hasHistoricalResult = false;
   let question = "";
+  let frameTurn = false;
   return messages.map((message, index) => {
     if (message.role === "user") {
       hasHistoricalResult = false;
+      frameTurn = (message as {businessProtocol?: string}).businessProtocol === "frame_v1";
       question = typeof message.content === "string" ? message.content
         : message.content.filter(block => block.type === "text").map(block => block.text).join("\n");
     }
-    if (index < currentTurn && message.role === "assistant"
+    if (message.role === "toolResult" && ["resolve_business_turn", "business_context_read", "execute_business_frame", "read_business_result"].includes(message.toolName)) frameTurn = true;
+    if (message.role === "toolResult" && message.toolName === "resolve_business_turn") {
+      let receipt: unknown;
+      try { receipt = JSON.parse(message.content.filter(block => block.type === "text").map(block => block.text).join("")); } catch { return message; }
+      if (record(receipt) && record(receipt.fields)) {
+        const fields = Object.fromEntries(Object.entries(receipt.fields).filter(([, field]) => record(field) && field.resolutionStatus !== "missing")
+          .map(([name, field]) => [name, record(field) ? {rawValue: field.rawValue, resolvedValue: field.resolvedValue,
+            resolutionStatus: field.resolutionStatus, candidates: field.candidates} : field]));
+        // 历史解析动作已过期，只保留状态/条件/引用；本轮回执的下一动作保持完整。
+        const {next_action, arguments: nextArguments, message: instruction, ...historical} = receipt;
+        const projected = index < currentTurn ? {...historical, historical: true} : receipt;
+        return {...message, content: [{type: "text", text: JSON.stringify({...projected, fields})}], details: undefined};
+      }
+    }
+    if (index < currentTurn && message.role === "toolResult" && message.toolName === "business_context_read") {
+      // 目录与完整 Frame 读取不在每个后续回合重复展开；权威状态由焦点/引用重新读取。
+      return {...message, content: [{type: "text", text: "已读取业务状态；当前焦点见会话状态，其他历史按 frameId 或序号重新读取。"}], details: undefined};
+    }
+    if (!frameTurn && index < currentTurn && message.role === "assistant"
       && !message.content.some(block => block.type === "toolCall")
       && (hasHistoricalResult || !mayDeliverWithoutEvidence(message.content.filter(block => block.type === "text")
         .map(block => block.text).join("\n"), question))) {
       // 中断/取消时也可能持久化未经核验的数值片段；发送上下文不能再次传播这些片段。
       return { ...message, content: [{ type: "text" as const, text: "该轮已完成，条件和引用见工具回执。新查询或计算须重新取数；明确回看查询历史时才回读快照，不能凭记忆重述旧值。" }] };
     }
+    if (index < currentTurn && message.role === "toolResult" && !message.isError
+      && ["execute_business_frame", "read_business_result"].includes(message.toolName)) {
+      let receipt: unknown;
+      try { receipt = JSON.parse(message.content.filter(block => block.type === "text").map(block => block.text).join("")); } catch { receipt = undefined; }
+      if (record(receipt) && receipt.status === "succeeded") {
+        hasHistoricalResult = true;
+        const details = record(message.details) ? message.details : {};
+        const compact = Object.fromEntries(["status", "task_id", "result_id", "frame_id", "result_ref", "row_count", "truncated", "has_more", "next_offset"]
+          .filter(key => receipt[key] !== undefined || details[key] !== undefined).map(key => [key, receipt[key] ?? details[key]]));
+        return {...message, content: [{type: "text", text: JSON.stringify({...compact, historical_rows_omitted: true})}],
+          details: compact};
+      }
+    }
     if (index >= currentTurn || message.role !== "toolResult" || message.isError
-      || !["metric_ask", "metric_read", "metric_query_structured", "metric_calculate"].includes(message.toolName)
+      || !["metric_ask", "metric_read", "read", "metric_query_structured", "metric_calculate", "execute_business_frame", "read_business_result"].includes(message.toolName)
+      || (message.toolName === "read" && (message.details as {kind?: string} | undefined)?.kind !== "metric_read")
       || message.content.length !== 1 || message.content[0]?.type !== "text") return message;
     let receipt: unknown;
     try { receipt = JSON.parse(message.content[0].text); } catch { return message; }

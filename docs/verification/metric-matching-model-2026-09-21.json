@@ -1,0 +1,271 @@
+{
+  "complete_names": {
+    "passed": true,
+    "environment": "configured_model_synthetic_backend",
+    "reports": [
+      {
+        "metric": "贷款余额当日数",
+        "passed": true,
+        "query_count": 1,
+        "selection": "exact",
+        "full_metric": [
+          "贷款余额当日数"
+        ],
+        "tools": [
+          "resolve_business_turn",
+          "execute_business_frame"
+        ],
+        "elapsed_ms": 16687
+      },
+      {
+        "metric": "存款余额月日均",
+        "passed": true,
+        "query_count": 1,
+        "selection": "exact",
+        "full_metric": [
+          "存款余额月日均"
+        ],
+        "tools": [
+          "resolve_business_turn",
+          "execute_business_frame"
+        ],
+        "elapsed_ms": 23000
+      },
+      {
+        "metric": "合成业务发生额本期累计",
+        "passed": true,
+        "query_count": 1,
+        "selection": "exact",
+        "full_metric": [
+          "合成业务发生额本期累计"
+        ],
+        "tools": [
+          "resolve_business_turn",
+          "execute_business_frame"
+        ],
+        "elapsed_ms": 26999
+      },
+      {
+        "metric": "合成不良率期末值",
+        "passed": true,
+        "query_count": 1,
+        "selection": "exact",
+        "full_metric": [
+          "合成不良率期末值"
+        ],
+        "tools": [
+          "resolve_business_turn",
+          "execute_business_frame"
+        ],
+        "elapsed_ms": 12872
+      }
+    ]
+  },
+  "typo_confirmation": {
+    "passed": true,
+    "environment": "configured_model_real_algorithm_synthetic_backend",
+    "reports": [
+      {
+        "input": "贷款余额当日树",
+        "passed": true,
+        "queries_before_confirmation": 0,
+        "query_count": 1,
+        "initial_status": "clarifying",
+        "final_status": "success",
+        "elapsed_ms": 23796
+      },
+      {
+        "input": "存款余鹅月日均",
+        "passed": true,
+        "queries_before_confirmation": 0,
+        "query_count": 1,
+        "initial_status": "clarifying",
+        "final_status": "success",
+        "elapsed_ms": 25236
+      }
+    ]
+  },
+  "earlier_index_reference_failure": {
+    "passed": false,
+    "environment": "configured_model_synthetic_backend",
+    "reports": [
+      {
+        "metric": "贷款余额当日数",
+        "passed": true,
+        "query_count": 1,
+        "selection": "exact",
+        "full_metric": [
+          "贷款余额当日数"
+        ],
+        "tools": [
+          "resolve_business_turn",
+          "execute_business_frame"
+        ],
+        "elapsed_ms": 26070
+      },
+      {
+        "metric": "存款余额月日均",
+        "passed": true,
+        "query_count": 1,
+        "selection": "exact",
+        "full_metric": [
+          "存款余额月日均"
+        ],
+        "tools": [
+          "resolve_business_turn",
+          "execute_business_frame"
+        ],
+        "elapsed_ms": 15860
+      },
+      {
+        "metric": "合成业务发生额本期累计",
+        "passed": false,
+        "query_count": 0,
+        "tools": [
+          "resolve_business_turn",
+          "resolve_business_turn"
+        ],
+        "elapsed_ms": 10825
+      },
+      {
+        "metric": "合成不良率期末值",
+        "passed": true,
+        "query_count": 1,
+        "selection": "exact",
+        "full_metric": [
+          "合成不良率期末值"
+        ],
+        "tools": [
+          "resolve_business_turn",
+          "execute_business_frame"
+        ],
+        "elapsed_ms": 8365
+      }
+    ]
+  },
+  "verification": {
+    "agent_tests": 210,
+    "backend_tests": 301,
+    "typecheck": true,
+    "build": true,
+    "offline_pure_wheel_install": true,
+    "linux_rapidfuzz_wheels": [
+      "cp312-manylinux2014_x86_64",
+      "cp312-manylinux2014_aarch64"
+    ],
+    "unverified": [
+      "真实业务数据",
+      "登录后的页面交互",
+      "麒麟目标机运行",
+      "完整生产离线包重建"
+    ]
+  },
+  "multiturn_regression": {
+    "passed": false,
+    "environment": "configured_model_synthetic_backend_real_date_resolver",
+    "reports": [
+      {
+        "turn": 1,
+        "passed": true,
+        "errors": [],
+        "tools": [
+          "resolve_business_turn",
+          "execute_business_frame"
+        ],
+        "query_count": 1,
+        "model_calls": 3,
+        "elapsed_ms": 11298,
+        "focus_status": "success"
+      },
+      {
+        "turn": 2,
+        "passed": true,
+        "errors": [],
+        "tools": [
+          "resolve_business_turn",
+          "execute_business_frame"
+        ],
+        "query_count": 1,
+        "model_calls": 3,
+        "elapsed_ms": 18251,
+        "focus_status": "success"
+      },
+      {
+        "turn": 3,
+        "passed": false,
+        "errors": [
+          "false == true"
+        ],
+        "tools": [
+          "resolve_business_turn",
+          "execute_business_frame"
+        ],
+        "query_count": 1,
+        "model_calls": 4,
+        "elapsed_ms": 62753,
+        "focus_status": "success"
+      },
+      {
+        "turn": 4,
+        "passed": false,
+        "errors": [
+          "frame status\n+ actual - expected\n\n+ 'clarifying'\n- 'success'\n"
+        ],
+        "tools": [
+          "resolve_business_turn"
+        ],
+        "query_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 31021,
+        "focus_status": "clarifying"
+      },
+      {
+        "turn": 5,
+        "passed": false,
+        "errors": [
+          "query count\n\n0 !== 1\n"
+        ],
+        "tools": [
+          "business_context_read"
+        ],
+        "query_count": 0,
+        "model_calls": 3,
+        "elapsed_ms": 69401,
+        "focus_status": "clarifying"
+      },
+      {
+        "turn": 6,
+        "passed": false,
+        "errors": [
+          "false == true"
+        ],
+        "tools": [],
+        "query_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 60211,
+        "focus_status": "clarifying"
+      },
+      {
+        "turn": 7,
+        "passed": false,
+        "errors": [
+          "query count\n\n0 !== 1\n"
+        ],
+        "tools": [],
+        "query_count": 0,
+        "model_calls": 1,
+        "elapsed_ms": 20905,
+        "focus_status": "clarifying"
+      }
+    ],
+    "note": "出现模型超时、无效工具格式及历史复用夹带 clear；后者已改成保留焦点的 ARGUMENT_ERROR 并补单测。本次不宣称七轮全部通过。"
+  },
+  "services": {
+    "backend_pid": 95588,
+    "agent_pid": 95591,
+    "backend_health": 200,
+    "backend_ready": 200,
+    "agent_health": 200,
+    "frontend_proxy": 200
+  }
+}

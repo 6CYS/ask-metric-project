@@ -1,0 +1,77 @@
+{
+  "date": "2026-09-22",
+  "scope": "业务解析到执行的衔接、跨轮续接与指标字段保护",
+  "environment": "configured_model_synthetic_backend_real_metric_and_date_resolvers",
+  "passed": true,
+  "model": "deepseek-ai/DeepSeek-V4-Flash",
+  "checks": {
+    "agent_tests": 219,
+    "typecheck": "passed",
+    "build": "passed",
+    "git_diff_check": "passed"
+  },
+  "turns": [
+    {
+      "turn": 1,
+      "passed": true,
+      "errors": [],
+      "tools": [
+        "resolve_business_turn",
+        "execute_business_frame"
+      ],
+      "query_count": 1,
+      "reads": 0,
+      "model_calls": 3,
+      "elapsed_ms": 13053,
+      "focus_status": "success"
+    },
+    {
+      "turn": 2,
+      "passed": true,
+      "errors": [],
+      "tools": [
+        "resolve_business_turn",
+        "execute_business_frame"
+      ],
+      "query_count": 1,
+      "reads": 0,
+      "model_calls": 3,
+      "elapsed_ms": 16185,
+      "focus_status": "success"
+    },
+    {
+      "turn": 3,
+      "passed": true,
+      "errors": [],
+      "tools": [
+        "resolve_business_turn",
+        "resolve_business_turn",
+        "execute_business_frame"
+      ],
+      "query_count": 1,
+      "reads": 0,
+      "model_calls": 4,
+      "elapsed_ms": 25910,
+      "focus_status": "success"
+    },
+    {
+      "turn": 4,
+      "passed": true,
+      "errors": [],
+      "tools": [
+        "read_business_result"
+      ],
+      "query_count": 0,
+      "reads": 1,
+      "model_calls": 2,
+      "elapsed_ms": 4717,
+      "focus_status": "success"
+    }
+  ],
+  "notes": [
+    "第3轮重开原生会话；模型错误提交继承日期，被原文校验拒绝后当轮纠正，取数一次。",
+    "前三轮各执行一次，第4轮回读一次且零查询；无用户额外确认。",
+    "自动测试额外覆盖模型在 READY 后重复确认、错误 frameId、跨轮引用错误恢复、空指标不覆盖、候选保留、resolve_more、执行失败、模型中止。",
+    "不连接业务数据库；未验证浏览器交互；真实模型各轮约4.7至25.9秒，不代表整体延迟已解决。"
+  ]
+}

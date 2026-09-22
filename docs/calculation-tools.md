@@ -1,9 +1,11 @@
+> 当前公开工具与业务 Frame 契约见 [Pi 通用多轮业务上下文](pi-business-context.md)。下文计算后端参数保持兼容，模型通过 Frame 提交这些字段。
+
 # 通用表达式计算工具
 
 ## 调用流程
 
-Agent 先用 `metric_query_structured` 或 `metric_ask` 查询，取得 `facts` 中的数据引用，
-再调用 `metric_calculate`。模型选择数据和公式，FastAPI 从持久快照读取原值，用
+Agent 先通过 `resolve_business_turn` 创建 `metric_query` Frame，再用 `execute_business_frame` 查询并取得 `facts` 数据引用，
+再解析 `metric_calculate` Frame 并执行。模型选择数据和公式，FastAPI 从持久快照读取原值，用
 `simpleeval 1.0.8 + Decimal` 运算，返回结果、公式和输入证据。页面直接展示工具结果，
 模型只组织文字。公式的业务含义仍须核对，分母不明确时应澄清。
 

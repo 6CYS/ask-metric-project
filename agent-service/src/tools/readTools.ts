@@ -1,8 +1,8 @@
 /**
- * 只读工具：metric_read（任务状态/结果分页）与 session_history_read（原生历史回读）。
+ * read 统一读取入口：复用任务/结果分页与原生历史回读实现，旧工具保留用于操作恢复。
  * 两者不触发 SQL 或重算，不建立第二份记忆；权限与归属由后端/宿主边界校验。
  */
-import { Type } from "@earendil-works/pi-ai";
+import { Type, type Static } from "@earendil-works/pi-ai";
 import type { AgentHarnessTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import { resultAnswer, resultAnswerBlocks } from "../answerEvidence.js";
 import { BackendApiError, type AnswerBlock } from "../backendClient.js";
@@ -40,7 +40,7 @@ export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext
   return {
     name: "metric_read",
     label: "任务与结果读取",
-    description: "用途：只读任务状态或重显/分页读取不可变结果，不重新查数。前提：task_id/result_id 来自正式回执，按机构、日期、指标选择；来源不明先回读历史。返回：任务版本、待补项或带执行条件的结果页。零行成功也可读取；改条件取数用 metric_ask followup。",
+    description: "用途：只读任务状态或重显/分页读取不可变结果，不重新查数。前提：task_id/result_id 来自正式回执，按机构、日期、指标选择；来源不明先回读历史。返回：任务版本、待补项或带执行条件的结果页。零行成功也可读取；改条件取数用 resolve_business_turn。",
     parameters: metricReadParameters,
     execute: async (_toolCallId, params, _onUpdate, request, _invocation, context) => {
       try {
@@ -71,13 +71,13 @@ export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext
           params.offset ?? 0,
           params.limit ?? 20,
           { signal: context.abortSignal },
-          request.originalMessage,
+          request.originalMessage || undefined,
         );
         if (page.result_id !== params.result_id) {
           return json<MetricReadDetails>(
             {
               status: "error",
-              error: { code: "RESULT_MISMATCH", message: "result_id 与任务结果不一致，请用 metric_read task 模式重新确认。" },
+              error: { code: "RESULT_MISMATCH", message: "result_id 与任务结果不一致，请用 read(kind=task) 重新确认。" },
             },
             { kind: "metric_read", task_id: params.task_id, status: "error" },
           );
@@ -211,4 +211,26 @@ export function createSessionHistoryReadTool(): AgentHarnessTool<AskMetricReques
 
 function json<TDetails>(payload: Record<string, unknown>, details: TDetails): AgentToolResult<TDetails> {
   return { content: [{ type: "text", text: JSON.stringify(payload) }], details };
+}
+
+// 合并既有分支并收紧额外字段；显式保留原联合类型，避免数组映射丢失静态推导。
+const readParameters = Type.Unsafe<Static<typeof metricReadParameters> | Static<typeof historyReadParameters>>({anyOf: [
+  ...metricReadParameters.anyOf,
+  ...historyReadParameters.anyOf,
+].map(branch => ({...branch, additionalProperties: false}))});
+
+/** 统一读取入口，保留回执 kind 区分正式结果与原生历史，历史正文不能充当事实证据。 */
+export function createReadTool(): AgentHarnessTool<AskMetricRequestContext, typeof readParameters, MetricReadDetails | HistoryReadDetails> {
+  const metric = createMetricReadTool();
+  const history = createSessionHistoryReadTool();
+  return {
+    name: "read", label: "读取任务、结果与历史", parameters: readParameters,
+    description: "只读已有记录，不重新取数。kind=task 读取正式任务状态/版本/待补项；result 按 task_id/result_id 分页读取经鉴权的结果；list 列出本会话历史；entry 按 list 返回的 entry_id 分段回读。引用必须来自正式回执，截断继续翻页。历史正文只用于找回引用和条件，数值须经 result 回读。改条件取数用 resolve_business_turn。",
+    execute: (id, params, update, request, invocation, context) => {
+      if (params.kind === "task" || params.kind === "result") {
+        return metric.execute(id, params, update, request, invocation, context);
+      }
+      return history.execute(id, params, update, request, invocation, context);
+    },
+  };
 }

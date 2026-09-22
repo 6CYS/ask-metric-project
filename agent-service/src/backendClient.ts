@@ -303,6 +303,18 @@ export class BackendClient {
     return this.request<BackendUser>("/api/v1/auth/me", {}, options);
   }
 
+  resolveBusinessField(entity: string, rawValues: string[], options?: CallOptions, referenceYear?: number): Promise<import("./business-context/types.js").FieldResolution> {
+    return this.request("/api/v1/business-context/resolve-field", {
+      method: "POST", body: JSON.stringify({entity, raw_values: rawValues, ...(referenceYear !== undefined ? {reference_year: referenceYear} : {})}),
+    }, options);
+  }
+
+  matchMetricQuestion(question: string, options?: CallOptions): Promise<import("./business-context/metricMentions.js").MetricMentions> {
+    return this.request("/api/v1/business-context/metric-mentions", {
+      method: "POST", body: JSON.stringify({question}),
+    }, options);
+  }
+
   /** 指标目录检索：后端混合召回（exact/contains/lexical + embedding 语义推荐），total 为切片前命中数 */
   searchMetrics(keyword: string, limit: number, options?: CallOptions): Promise<MetricSearchResponse> {
     const query = new URLSearchParams({ keyword, limit: String(limit) });

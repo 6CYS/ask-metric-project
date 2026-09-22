@@ -55,6 +55,7 @@ export function createDataAvailabilityTool(): AgentHarnessTool<AskMetricRequestC
         return {content: [{type: "text", text: JSON.stringify(result)}],
           details: {kind: "data_availability", ...result, public_answer: availabilityAnswer(result)}};
       } catch (error) {
+        if (request.businessExecutionFrame && (!(error instanceof BackendApiError) || error.status >= 500)) throw error;
         if (!(error instanceof BackendApiError)) throw error;
         if (error.status === 422) return errorResult(
           "目录或日期校验失败。请重新检索正式编码并逐字使用目录返回值，保持用户指定机构与时间范围；不得编造编码、删除条件或扩大范围。",
