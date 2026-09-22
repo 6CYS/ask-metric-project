@@ -153,7 +153,7 @@ class QueryExecutionApplicationService:
             plan,
             rows,
             current_system_date=self.today_provider(),
-        )
+        ) if not truncated else None
         missing_metric_notice = _missing_metric_notice(plan, visible_rows, truncated=truncated)
         truncation_notice = (
             f"查询结果超过{self.planner.max_limit}行，本次仅展示前{self.planner.max_limit}行。"
@@ -173,7 +173,8 @@ class QueryExecutionApplicationService:
             message = _prepend_coverage_notice(message, truncation_notice)
             timings_ms["answer_rendering_ms"] = _elapsed_ms(answer_started)
         if missing_metric_notice:
-            message = f"{message}\n\n{missing_metric_notice}"
+            # 全空时直接用覆盖说明，避免先笼统说一次无数据再重复列举。
+            message = f"{message}\n\n{missing_metric_notice}" if rows else missing_metric_notice
         result = QueryExecutionResult(
             run_id=run_id,
             task_id=command.task_id,
@@ -854,12 +855,87 @@ def _missing_metric_notice(
     *,
     truncated: bool,
 ) -> str | None:
-    """Disclose wholly absent metrics only when the returned selection is complete."""
-    if truncated or not rows or plan.shape.value not in {"metric_value", "metric_trend"}:
+    """核对可证明完整的结果范围；排名未入选和截断不能当成缺数据。"""
+    if truncated or plan.shape.value not in {
+        "metric_value", "metric_trend", "metric_period_compare", "metric_ranking",
+    }:
         return None
     requested = list(dict.fromkeys(plan.parameters.get("metric_codes", [])))
-    if len(requested) < 2 or any(not row.get("metric_code") for row in rows):
+    if not requested or any(not row.get("metric_code") for row in rows):
         return None
+    org_ids = plan.parameters.get("org_codes") or plan.parameters.get("org_names") or []
+    metric_names = dict(zip(requested, plan.display_metric_names, strict=False))
+    if plan.shape.value == "metric_ranking":
+        limit = plan.parameters.get("limit")
+        if not isinstance(limit, int) or limit <= 0 or not org_ids:
+            return None
+        # 排名模板按指标取前N行。未满N行（或N覆盖全部机构）证明该指标结果
+        # 没有被排名裁掉，才能把缺席机构说明为无数据；满N行时不猜未入选原因。
+        requested = [metric for metric in requested if limit >= len(set(org_ids)) or sum(
+            row["metric_code"] == metric for row in rows
+        ) < limit]
+        if not requested:
+            return None
+    if org_ids and len(org_ids) == len(plan.display_org_names):
+        org_names = dict(zip(org_ids, plan.display_org_names, strict=True))
+        org_field = "org_code" if plan.parameters.get("org_codes") else "org_name"
+        if all(row.get(org_field) for row in rows):
+            # 仅按明确请求的日期/窗口核对，不为连续区间擅自假定每天都有数据。
+            parameters = plan.parameters
+            selections = []
+            if plan.shape.value == "metric_period_compare":
+                selections = [(str(parameters[key]), str(parameters[key]))
+                              for key in ("base_date", "current_date")]
+            elif parameters.get("stat_dates"):
+                selections = [(str(value), str(value)) for value in parameters["stat_dates"]]
+            elif parameters.get("period_starts"):
+                selections = [(str(start), str(end)) for start, end in zip(
+                    parameters["period_starts"], parameters["period_ends"], strict=True,
+                )]
+            elif parameters.get("stat_date"):
+                value = str(parameters["stat_date"])
+                selections = [(value, value)]
+            else:
+                start = parameters.get("start_date")
+                end = parameters.get("end_date")
+                selections = [(str(start) if start else None, str(end) if end else None)]
+            descriptions = []
+            for start, end in selections:
+                covered = {
+                    (row["metric_code"], row[org_field]) for row in rows
+                    if (start is None or str(row.get("stat_date", ""))[:10] >= start)
+                    and (end is None or str(row.get("stat_date", ""))[:10] <= end)
+                    and row.get("metric_value") is not None
+                }
+                period = (start if start == end else f"{start}至{end}") if start else (
+                    f"截至{end}" if end else "本次查询时间范围内"
+                )
+                # 多机构共享缺失指标时按指标归并，全范围缺失不逐家重复名称。
+                if len(org_ids) > 5:
+                    for metric in requested:
+                        missing_orgs = [org for org in org_ids if (metric, org) not in covered]
+                        if not missing_orgs:
+                            continue
+                        missing_names = '、'.join(org_names[o] for o in missing_orgs)
+                        returned_org_count = len(org_ids) - len(missing_orgs)
+                        scope = (
+                            f"本次范围全部{len(missing_orgs)}家机构"
+                            if len(missing_orgs) == len(org_ids)
+                            else f"其余{len(missing_orgs)}家机构"
+                            if returned_org_count <= 5 and len(missing_orgs) > 5
+                            else f"{len(missing_orgs)}家机构（{missing_names}）"
+                        )
+                        label = metric_names.get(metric, metric)
+                        descriptions.append(f"{scope}在{period}未查询到{label}数据")
+                    continue
+                for org in org_ids:
+                    missing = [metric_names.get(metric, metric) for metric in requested
+                               if (metric, org) not in covered]
+                    if missing:
+                        descriptions.append(f"{period}，{org_names[org]}的{'、'.join(missing)}")
+            if descriptions:
+                prefix = "" if len(org_ids) > 5 else "未查到以下数据："
+                return prefix + "；".join(descriptions) + "。"
     returned = {row["metric_code"] for row in rows}
     missing = [code for code in requested if code not in returned]
     if not missing or not returned.intersection(requested):
@@ -879,6 +955,8 @@ def _result_coverage_notice(
 ) -> str | None:
     if not rows:
         return None
+    if plan.shape.value == "metric_trend":
+        return _trend_coverage_notice(plan, rows)
     if plan.dsl.get("time", {}).get("preset") == "latest":
         actual_dates = sorted(
             {
@@ -976,6 +1054,52 @@ def _result_coverage_notice(
         f"{requested_range}当前仅查询到截至{_format_result_date(latest_actual)}的数据，"
         f"尚未覆盖到查询结束日期。{result_description}"
     )
+
+
+def _trend_coverage_notice(
+    plan: QueryExecutionPlan, rows: list[dict[str, Any]],
+) -> str | None:
+    """说明实际记录覆盖，不把无记录日期推断为零或要求每日必须报送。"""
+    start = _parse_result_date(plan.parameters.get("start_date"))
+    end = _parse_result_date(plan.parameters.get("end_date"))
+    if start is None or end is None:
+        return None
+    org_field = "org_code" if "org_codes" in plan.parameters else "org_name"
+    dates_by_pair: dict[tuple[str, str], set[date]] = {}
+    for row in rows:
+        day = _parse_result_date(row.get("stat_date"))
+        if day is not None and start <= day <= end and row.get("metric_value") is not None:
+            pair = (str(row.get(org_field)), str(row.get("metric_code")))
+            dates_by_pair.setdefault(pair, set()).add(day)
+    groups: dict[tuple[date, ...], list[tuple[str, str]]] = {}
+    for pair, dates in dates_by_pair.items():
+        if len(dates) < (end - start).days + 1:
+            groups.setdefault(tuple(sorted(dates)), []).append(pair)
+    metric_names = dict(zip(plan.parameters.get("metric_codes", []),
+                            plan.display_metric_names, strict=False))
+    org_names = dict(zip(plan.parameters.get("org_codes") or plan.parameters.get("org_names", []),
+                         plan.display_org_names, strict=False))
+    notices = []
+    for dates, pairs in groups.items():
+        # 连续无记录日期归并为区间，而不是逐日列举。
+        gaps = []
+        cursor = start
+        for day in dates:
+            if cursor < day:
+                last = day - timedelta(days=1)
+                gaps.append(str(cursor) if cursor == last else f"{cursor}至{last}")
+            cursor = day + timedelta(days=1)
+        if cursor <= end:
+            gaps.append(str(cursor) if cursor == end else f"{cursor}至{end}")
+        subjects = [f"{org_names.get(org, org)}的{metric_names.get(metric, metric)}"
+                    for org, metric in pairs]
+        subject = '、'.join(subjects) if len(subjects) <= 3 else f"其中{len(subjects)}组机构与指标"
+        notices.append(
+            f"{subject}在{start}至{end}仅查到{len(dates)}个统计日的数据，"
+            f"其余日期（{'、'.join(gaps)}）未查询到记录。"
+            + ("仅一个统计日，无法据此判断变化趋势。" if len(dates) == 1 else "")
+        )
+    return '\n'.join(notices) or None
 
 
 def _prepend_coverage_notice(message: str, coverage_notice: str | None) -> str:

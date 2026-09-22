@@ -60,6 +60,13 @@ const displayAnswer = computed(() => {
   return typeof count !== "number" ? props.response.answer : count ? `查询完成，找到 ${count} 条记录。` : "查询完成，暂无匹配数据。"
 })
 const renderedAnswer = ref("")
+const isAnswerExpanded = ref(false)
+const ANSWER_PREVIEW_LENGTH = 500
+const answerIsLong = computed(() => displayAnswer.value.length > ANSWER_PREVIEW_LENGTH)
+const visibleAnswer = computed(() => isAnswerExpanded.value
+  ? renderedAnswer.value
+  : renderedAnswer.value.slice(0, ANSWER_PREVIEW_LENGTH) + (renderedAnswer.value.length > ANSWER_PREVIEW_LENGTH ? "…" : ""))
+watch(displayAnswer, () => { isAnswerExpanded.value = false })
 const answerStreamComplete = ref(true)
 let answerFrame = 0
 
@@ -98,7 +105,7 @@ watch(displayAnswer, renderAnswer, { immediate: true })
 onBeforeUnmount(stopAnswerStream)
 
 const answerParagraphs = computed(() => {
-  const answer = renderedAnswer.value.trim()
+  const answer = visibleAnswer.value.trim()
   if (!answer) return []
   const paragraphs = answer.split(/\n+/).map((item) => item.trim()).filter(Boolean)
   if (paragraphs.length > 1) return paragraphs
@@ -177,7 +184,10 @@ async function copyAnswer() {
 <template>
   <div class="flex min-w-0 flex-col gap-3">
     <div v-if="showAnswer" class="group/answer relative space-y-1.5 break-words pr-9 leading-7" aria-live="polite">
-      <p v-for="(paragraph, index) in answerParagraphs" :key="index">{{ paragraph }}</p>
+      <div class="max-h-96 space-y-1.5 overflow-y-auto">
+        <p v-for="(paragraph, index) in answerParagraphs" :key="index">{{ paragraph }}</p>
+      </div>
+      <button v-if="answerIsLong && answerStreamComplete" type="button" class="text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" :aria-expanded="isAnswerExpanded" @click="isAnswerExpanded = !isAnswerExpanded">{{ isAnswerExpanded ? "收起回答" : "展开完整回答" }}</button>
       <span v-if="!answerStreamComplete" class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" />
       <button v-if="answerStreamComplete && answerParagraphs.length" type="button" class="absolute -top-1 right-0 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :title="isAnswerCopied ? '已复制' : '复制回答'" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button>
     </div>
