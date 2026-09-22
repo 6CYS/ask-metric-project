@@ -16,7 +16,7 @@ npm run dev
 开发服务器会将 `/api` 请求代理到 `http://localhost:8010`。如需调整后端地址，可以设置：
 
 ```dotenv
-VITE_BACKEND_NEXT_BASE_URL=http://localhost:8010
+VITE_BACKEND_NEXT_BASE_URL=http://127.0.0.1:8010
 ```
 
 问数链路严格按 `questions → analyze → execute` 调用。澄清提交携带原 `task_id`、`task_version` 和 `clarification_id`，不会拼接原始问题；会话 ID 保存在浏览器本地，刷新时通过 `backend-next` 会话快照恢复任务和结果。
@@ -78,3 +78,5 @@ VITE_BACKEND_NEXT_BASE_URL= npm run build
 日志列表默认每页 10 条，由服务端分页；进入页面只读取第一页，翻页或刷新时读取对应页。顶部成功数和重试数仅统计当前页。列表只展示问题原文和运行摘要，长问题、机构匹配和错误说明以两行摘要展示，鼠标悬停可查看完整文本，点击旁边的展开按钮可在弹窗中阅读和复制全部内容，问题和错误说明使用已加载文本；机构信息在悬停或展开时调用 `/api/v1/catalog/query-runs/{task_id}/organizations`，从查询计划及历史结果证据读取完整内容，不返回调试轨迹。缺少完整历史证据时明确提示无法恢复截断部分。点击“详细流程”才加载该任务的调试信息；翻页或刷新失败时保留上次成功数据。
 
 接口 `GET /api/v1/catalog/query-runs?page=1&page_size=10` 返回 `items`、`total`、`page`、`page_size`，每页最多 100 条；超出末页时返回最后一页。列表不包含 `state_json`、`trace`、`timings_ms` 或查询计划，详情继续使用 `GET /api/v1/catalog/query-runs/{task_id}`，列表、总数和详情均仅允许查看当前登录账号自己的记录，系统管理员也不例外；同机构其他账号和无归属的历史记录不可见。
+
+开发模式下，上述变量只配置 Vite 的 `/api` 代理目标；浏览器中的聊天、目录及认证请求均走同源 `/api`，避免开发端口差异造成跨域失败。

@@ -251,7 +251,10 @@ export function logoutUser() {
   })
 }
 
-const backendNextBase = (import.meta.env.VITE_BACKEND_NEXT_BASE_URL ?? "").replace(/\/$/, "")
+// 开发环境通过 Vite 的同源 /api 代理访问后端；代理目标不能成为浏览器跨域地址。
+const backendNextBase = import.meta.env.DEV
+  ? ""
+  : (import.meta.env.VITE_BACKEND_NEXT_BASE_URL ?? "").replace(/\/$/, "")
 
 function apiUrl(base: string, path: string) {
   return `${base}${path}`
