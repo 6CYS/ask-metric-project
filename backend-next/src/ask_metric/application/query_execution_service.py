@@ -37,6 +37,7 @@ from ask_metric.domain.task import (
 from ask_metric.domain.task_state_machine import InvalidTaskTransition, QueryTaskStateMachine
 from ask_metric.infrastructure.db.models import ChatMessage, QueryRun, QueryTask
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
+from ask_metric.infrastructure.query.sql_debug import render_debug_sql
 from ask_metric.infrastructure.query.sql_safety import validate_readonly_sql
 from ask_metric.infrastructure.query.templates import QueryTemplateRepository
 
@@ -85,6 +86,12 @@ class QueryExecutionApplicationService:
         if isinstance(prepared, QueryExecutionResult):
             return prepared
         run_id, plan, sql, execution_version, timings_ms = prepared
+        query_debug = {"template": plan.template.value}
+        try:
+            query_debug["rendered_sql"] = render_debug_sql(sql, plan.parameters, plan.dialect)
+        except Exception:
+            # 诊断格式化失败不能中断真实查询，也不把未转义字符串冒充可执行SQL。
+            query_debug["render_error"] = "SQL展示格式化失败"
         # 元数据事务已提交 RUNNING 状态并释放连接，再访问独立的业务查询数据库。
         sql_started = perf_counter()
         try:
@@ -132,9 +139,7 @@ class QueryExecutionApplicationService:
                         stage=QueryTaskStage.EXECUTION.value,
                         node="sql_execution",
                     ),
-                    "query": {
-                        "template": plan.template.value,
-                    },
+                    "query": query_debug,
                 },
             )
             self._finish_failure(
@@ -192,9 +197,7 @@ class QueryExecutionApplicationService:
             task_status=QueryTaskStatus.SUCCEEDED.value,
             timings_ms=timings_ms,
             debug={
-                "query": {
-                    "template": plan.template.value,
-                },
+                "query": query_debug,
                 "result": {
                     "row_count": len(visible_rows),
                     "fetched_row_count": len(fetched_rows),
