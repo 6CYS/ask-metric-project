@@ -10,10 +10,14 @@ import BaseBadge from "@/components/ui/BaseBadge.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import BaseModal from "@/components/ui/BaseModal.vue"
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue"
+import { useAuth } from "@/composables/useAuth"
 import { useManagementResource } from "@/composables/useManagementResource"
 import { createMetric, deleteMetric, listMetrics, updateMetric } from "@/lib/api"
 import type { MetricItem, MetricPayload } from "@/types/api"
 
+const auth = useAuth()
+// 页面入口和提交共用角色判断；实际写入权限仍由后端校验。
+const canManageCatalog = computed(() => auth.user.value?.role_code === "SYSTEM_ADMIN")
 const PAGE_SIZE = 15
 const resource = useManagementResource<MetricItem>(listMetrics)
 const showDisabled = ref(false)
@@ -38,12 +42,19 @@ const synonymCount = computed(() => resource.items.value.filter((item) => item.e
 const hasSearch = computed(() => Boolean(searchKeyword.value.trim()))
 const listDescription = computed(() => resource.isLoading.value ? "加载中" : resource.isBlockingError.value ? "加载失败" : hasSearch.value ? `匹配 ${visibleItems.value.length} 个指标 / 共 ${resource.items.value.length} 个` : showDisabled.value ? `显示全部 ${resource.items.value.length} 个指标（含已停用）` : `${visibleItems.value.length} 个启用的指标 / 共 ${resource.items.value.length} 个`)
 const emptyTitle = computed(() => hasSearch.value ? "未找到匹配指标" : showDisabled.value ? "暂无任何指标" : "暂无启用的指标")
-const emptyDescription = computed(() => hasSearch.value ? "请调整关键词，或打开「显示已停用」后再试。" : showDisabled.value ? "新增第一条指标后，问数链路即可开始匹配业务术语。" : "打开「显示已停用」开关可查看已停用项，或直接新增一个指标。")
+const emptyDescription = computed(() => !canManageCatalog.value && !hasSearch.value ? "暂无可展示的数据，可调整显示条件或联系管理员维护目录。" : hasSearch.value ? "请调整关键词，或打开「显示已停用」后再试。" : showDisabled.value ? "新增第一条指标后，问数链路即可开始匹配业务术语。" : "打开「显示已停用」开关可查看已停用项，或直接新增一个指标。")
 const stats = computed(() => [
   { label: "指标总数", value: resource.isLoading.value ? "--" : String(resource.items.value.length), detail: "可被问数链路匹配的指标定义。" },
   { label: "已启用", value: resource.isLoading.value ? "--" : String(enabledCount.value), detail: "当前参与语义匹配的指标数量。" },
   { label: "同义词", value: resource.isLoading.value ? "--" : String(synonymCount.value), detail: "覆盖自然语言表达的别名规模。" },
 ])
+
+watch(canManageCatalog, (allowed) => {
+  if (allowed) return
+  isDialogOpen.value = false
+  editingMetric.value = null
+  deletingMetric.value = null
+})
 
 watch([visibleItems, showDisabled, searchKeyword], () => { page.value = Math.min(page.value, totalPages.value) })
 
@@ -52,6 +63,7 @@ function resetForm() {
 }
 
 function openCreateDialog() {
+  if (!canManageCatalog.value) return
   resetForm()
   editingMetric.value = null
   resource.clearMutationError()
@@ -59,6 +71,7 @@ function openCreateDialog() {
 }
 
 function openEditDialog(metric: MetricItem) {
+  if (!canManageCatalog.value) return
   Object.assign(form, { metricCode: metric.metric_code, metricName: metric.metric_name, unit: metric.unit ?? "", metricExplanation: metric.metric_explanation, description: metric.description, synonyms: metric.synonyms.join("，") })
   editingMetric.value = metric
   resource.clearMutationError()
@@ -79,6 +92,7 @@ function buildPayload(enabled: boolean): MetricPayload {
 }
 
 async function submitForm() {
+  if (!canManageCatalog.value) return
   if (!form.metricCode.trim() || !form.metricName.trim()) return
   const current = editingMetric.value
   const ok = await resource.mutate(() => current ? updateMetric(current.metric_code, buildPayload(current.enabled)) : createMetric(buildPayload(true)))
@@ -86,6 +100,7 @@ async function submitForm() {
 }
 
 async function toggleEnabled(metric: MetricItem) {
+  if (!canManageCatalog.value) return
   togglingMetricCode.value = metric.metric_code
   const payload: MetricPayload = { metric_code: metric.metric_code, metric_name: metric.metric_name, unit: metric.unit ?? undefined, metric_explanation: metric.metric_explanation, description: metric.description, synonyms: metric.synonyms, enabled: !metric.enabled }
   await resource.mutate(() => updateMetric(metric.metric_code, payload))
@@ -93,6 +108,7 @@ async function toggleEnabled(metric: MetricItem) {
 }
 
 async function confirmDelete() {
+  if (!canManageCatalog.value) return
   if (!deletingMetric.value) return
   const ok = await resource.mutate(() => deleteMetric(deletingMetric.value!.metric_code))
   if (ok) deletingMetric.value = null
@@ -103,8 +119,8 @@ onMounted(() => resource.load())
 
 <template>
   <AppShell>
-    <PageHeader eyebrow="Semantic Catalog" title="指标术语" description="集中维护业务指标、单位、口径说明和同义词，保证问数理解与 SQL 生成使用同一套语义资产。" :stats="stats">
-      <template #actions><BaseButton @click="openCreateDialog"><Plus />新增指标</BaseButton><BaseButton variant="outline" :disabled="resource.isRefreshing.value" @click="resource.load(true)"><RefreshCw :class="resource.isRefreshing.value && 'animate-spin'" />刷新</BaseButton></template>
+    <PageHeader eyebrow="Semantic Catalog" title="指标术语" :description="canManageCatalog ? '集中维护业务指标、单位、口径说明和同义词，保证问数理解与 SQL 生成使用同一套语义资产。' : '查看业务指标、单位、口径说明和同义词；目录由管理员维护。'" :stats="stats">
+      <template #actions><BaseButton v-if="canManageCatalog" @click="openCreateDialog"><Plus />新增指标</BaseButton><BaseButton variant="outline" :disabled="resource.isRefreshing.value" @click="resource.load(true)"><RefreshCw :class="resource.isRefreshing.value && 'animate-spin'" />刷新</BaseButton></template>
     </PageHeader>
 
     <ManagementListPanel
@@ -117,19 +133,19 @@ onMounted(() => resource.load())
       <div class="overflow-hidden rounded-lg border">
         <div class="overflow-x-auto">
           <table class="w-full min-w-[1440px] table-fixed text-sm">
-            <thead><tr class="border-b bg-muted/45"><th class="w-56 table-head">指标编号</th><th class="w-44 table-head">指标名称</th><th class="w-20 table-head">单位</th><th class="w-72 table-head">指标说明</th><th class="w-80 table-head">指标口径</th><th class="w-72 table-head">同义词</th><th class="w-24 table-head">状态</th><th class="w-32 table-head text-right">操作</th></tr></thead>
+            <thead><tr class="border-b bg-muted/45"><th class="w-56 table-head">指标编号</th><th class="w-44 table-head">指标名称</th><th class="w-20 table-head">单位</th><th class="w-72 table-head">指标说明</th><th class="w-80 table-head">指标口径</th><th class="w-72 table-head">同义词</th><th class="w-24 table-head">状态</th><th v-if="canManageCatalog" class="w-32 table-head text-right">操作</th></tr></thead>
             <tbody><tr v-for="metric in pageItems" :key="metric.metric_code" class="border-b last:border-0 hover:bg-muted/35">
               <td class="table-cell font-medium"><span class="line-clamp-2" :title="metric.metric_code">{{ metric.metric_code }}</span></td><td class="table-cell"><span class="line-clamp-2" :title="metric.metric_name">{{ metric.metric_name }}</span></td><td class="table-cell">{{ metric.unit || '-' }}</td>
               <td class="table-cell text-muted-foreground"><span class="line-clamp-2" :title="metric.metric_explanation">{{ metric.metric_explanation || '-' }}</span></td><td class="table-cell text-muted-foreground"><span class="line-clamp-2" :title="metric.description">{{ metric.description || '-' }}</span></td><td class="table-cell"><span class="line-clamp-2" :title="metric.synonyms.join('、')">{{ metric.synonyms.join('、') || '-' }}</span></td>
               <td class="table-cell"><BaseBadge :variant="metric.enabled ? 'default' : 'secondary'"><CheckCircle2 class="mr-1 size-3" />{{ metric.enabled ? '启用' : '停用' }}</BaseBadge></td>
-              <td class="table-cell"><div class="flex justify-end gap-1"><BaseButton variant="ghost" size="icon" :disabled="resource.isMutating.value" aria-label="编辑指标" @click="openEditDialog(metric)"><Pencil /></BaseButton><BaseButton variant="ghost" size="icon" :disabled="resource.isMutating.value" :aria-label="metric.enabled ? '停用指标' : '启用指标'" @click="toggleEnabled(metric)"><LoaderCircle v-if="togglingMetricCode === metric.metric_code" class="animate-spin" /><PowerOff v-else-if="metric.enabled" /><Power v-else /></BaseButton><BaseButton variant="ghost" size="icon" :disabled="resource.isMutating.value" aria-label="删除指标" @click="deletingMetric = metric"><Trash2 /></BaseButton></div></td>
+              <td v-if="canManageCatalog" class="table-cell"><div class="flex justify-end gap-1"><BaseButton variant="ghost" size="icon" :disabled="resource.isMutating.value" aria-label="编辑指标" @click="openEditDialog(metric)"><Pencil /></BaseButton><BaseButton variant="ghost" size="icon" :disabled="resource.isMutating.value" :aria-label="metric.enabled ? '停用指标' : '启用指标'" @click="toggleEnabled(metric)"><LoaderCircle v-if="togglingMetricCode === metric.metric_code" class="animate-spin" /><PowerOff v-else-if="metric.enabled" /><Power v-else /></BaseButton><BaseButton variant="ghost" size="icon" :disabled="resource.isMutating.value" aria-label="删除指标" @click="deletingMetric = metric"><Trash2 /></BaseButton></div></td>
             </tr></tbody>
           </table>
         </div><ListPagination :page="page" :page-size="PAGE_SIZE" :total-items="visibleItems.length" :total-pages="totalPages" @change="page = $event" />
       </div>
     </ManagementListPanel>
 
-    <BaseModal v-model:open="isDialogOpen" :busy="resource.isMutating.value" size="lg" :title="editingMetric ? '编辑指标' : '新增指标'" :description="editingMetric ? '修改指标后，问数链路会立即使用最新的语义资产。同义词用中文逗号或英文逗号分隔。' : '新增第一条指标后，问数链路即可开始匹配业务术语。同义词用中文逗号或英文逗号分隔。'">
+    <BaseModal v-if="canManageCatalog" v-model:open="isDialogOpen" :busy="resource.isMutating.value" size="lg" :title="editingMetric ? '编辑指标' : '新增指标'" :description="editingMetric ? '修改指标后，问数链路会立即使用最新的语义资产。同义词用中文逗号或英文逗号分隔。' : '新增第一条指标后，问数链路即可开始匹配业务术语。同义词用中文逗号或英文逗号分隔。'">
       <form id="metric-form" class="grid gap-4" @submit.prevent="submitForm">
         <label class="form-field">指标编号<input v-model="form.metricCode" class="form-control" placeholder="gmv" :disabled="Boolean(editingMetric) || resource.isMutating.value" /><span v-if="editingMetric" class="field-help">指标编号作为主键不可修改。</span></label>
         <label class="form-field">指标名称<input v-model="form.metricName" class="form-control" placeholder="成交额" :disabled="resource.isMutating.value" /></label>
@@ -142,6 +158,6 @@ onMounted(() => resource.load())
       <template #footer><BaseButton variant="outline" :disabled="resource.isMutating.value" @click="isDialogOpen = false">取消</BaseButton><BaseButton type="submit" form="metric-form" :disabled="!form.metricCode.trim() || !form.metricName.trim() || resource.isMutating.value"><LoaderCircle v-if="resource.isMutating.value" class="animate-spin" /><Pencil v-else-if="editingMetric" /><Plus v-else />{{ resource.isMutating.value ? '保存中...' : editingMetric ? '保存修改' : '保存指标' }}</BaseButton></template>
     </BaseModal>
 
-    <ConfirmDialog :open="Boolean(deletingMetric)" title="删除指标" :busy="resource.isMutating.value" @update:open="!$event && (deletingMetric = null)" @confirm="confirmDelete">即将软删除指标 <strong class="font-medium text-foreground">「{{ deletingMetric?.metric_name }}」</strong>。删除后该指标会从问数链路的候选列表中移除，关联的事实数据会保留。</ConfirmDialog>
+    <ConfirmDialog v-if="canManageCatalog" :open="Boolean(deletingMetric)" title="删除指标" :busy="resource.isMutating.value" @update:open="!$event && (deletingMetric = null)" @confirm="confirmDelete">即将软删除指标 <strong class="font-medium text-foreground">「{{ deletingMetric?.metric_name }}」</strong>。删除后该指标会从问数链路的候选列表中移除，关联的事实数据会保留。</ConfirmDialog>
   </AppShell>
 </template>

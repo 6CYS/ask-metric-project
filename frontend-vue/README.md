@@ -80,3 +80,7 @@ VITE_BACKEND_NEXT_BASE_URL= npm run build
 接口 `GET /api/v1/catalog/query-runs?page=1&page_size=10` 返回 `items`、`total`、`page`、`page_size`，每页最多 100 条；超出末页时返回最后一页。列表不包含 `state_json`、`trace`、`timings_ms` 或查询计划，详情继续使用 `GET /api/v1/catalog/query-runs/{task_id}`，列表、总数和详情均仅允许查看当前登录账号自己的记录，系统管理员也不例外；同机构其他账号和无归属的历史记录不可见。
 
 开发模式下，上述变量只配置 Vite 的 `/api` 代理目标；浏览器中的聊天、目录及认证请求均走同源 `/api`，避免开发端口差异造成跨域失败。
+
+### 指标与机构目录权限
+
+普通用户可查看、搜索、分页和刷新指标术语、机构别名目录；新增、编辑、启停和删除仅对系统管理员显示。后端写入接口独立校验 `SYSTEM_ADMIN` 角色，普通用户直接调用会返回 403。
