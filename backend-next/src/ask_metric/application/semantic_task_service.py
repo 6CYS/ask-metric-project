@@ -129,7 +129,6 @@ class SemanticTaskApplicationService:
                 retryable=True,
                 analyze_started=analyze_started,
                 intent_model_ms=intent_model_ms,
-                intent_raw=intent_raw,
             )
         except (InvalidModelResponse, InvalidIntentClassification) as exc:
             intent_model_ms = _elapsed_ms(intent_started)
@@ -143,7 +142,6 @@ class SemanticTaskApplicationService:
                 retryable=True,
                 analyze_started=analyze_started,
                 intent_model_ms=intent_model_ms,
-                intent_raw=intent_raw,
             )
         intent_model_ms = _elapsed_ms(intent_started)
 
@@ -152,7 +150,6 @@ class SemanticTaskApplicationService:
                 command,
                 original_question,
                 intent=intent,
-                intent_raw=intent_raw,
                 intent_model_ms=intent_model_ms,
                 analyze_started=analyze_started,
             )
@@ -182,7 +179,6 @@ class SemanticTaskApplicationService:
                 retryable=True,
                 analyze_started=analyze_started,
                 intent=intent,
-                intent_raw=intent_raw,
                 intent_model_ms=intent_model_ms,
             )
         except InvalidSlotFrameError as exc:
@@ -196,7 +192,6 @@ class SemanticTaskApplicationService:
                 retryable=True,
                 analyze_started=analyze_started,
                 intent=intent,
-                intent_raw=intent_raw,
                 intent_model_ms=intent_model_ms,
             )
         except InvalidModelResponse as exc:
@@ -210,7 +205,6 @@ class SemanticTaskApplicationService:
                 retryable=True,
                 analyze_started=analyze_started,
                 intent=intent,
-                intent_raw=intent_raw,
                 intent_model_ms=intent_model_ms,
             )
         except ValueError as exc:
@@ -224,7 +218,6 @@ class SemanticTaskApplicationService:
                 retryable=False,
                 analyze_started=analyze_started,
                 intent=intent,
-                intent_raw=intent_raw,
                 intent_model_ms=intent_model_ms,
             )
 
@@ -243,7 +236,6 @@ class SemanticTaskApplicationService:
             _record_intent_routing(
                 state,
                 intent=intent,
-                raw_output=intent_raw,
                 duration_ms=intent_model_ms,
             )
             state.debug.update({
@@ -350,7 +342,6 @@ class SemanticTaskApplicationService:
         retryable: bool,
         analyze_started: float,
         intent: IntentClassification | None = None,
-        intent_raw: dict[str, Any] | None = None,
         intent_model_ms: int | None = None,
     ) -> TaskCommandResult:
         error_reference = uuid4().hex
@@ -388,7 +379,6 @@ class SemanticTaskApplicationService:
                 _record_intent_routing(
                     state,
                     intent=intent,
-                    raw_output=intent_raw,
                     duration_ms=intent_model_ms,
                 )
             elif intent_model_ms is not None:
@@ -470,7 +460,6 @@ class SemanticTaskApplicationService:
         original_question: str,
         *,
         intent: IntentClassification,
-        intent_raw: dict[str, Any] | None,
         intent_model_ms: int,
         analyze_started: float,
     ) -> TaskCommandResult:
@@ -488,7 +477,6 @@ class SemanticTaskApplicationService:
             _record_intent_routing(
                 state,
                 intent=intent,
-                raw_output=intent_raw,
                 duration_ms=intent_model_ms,
             )
             state.timings_ms["analyze_total_ms"] = _elapsed_ms(analyze_started)
@@ -742,7 +730,6 @@ def _record_intent_routing(
     state: QueryTaskState,
     *,
     intent: IntentClassification,
-    raw_output: dict[str, Any] | None,
     duration_ms: int,
 ) -> None:
     state.timings_ms["intent_model_ms"] = duration_ms
@@ -751,9 +738,8 @@ def _record_intent_routing(
         "source": "llm",
         "enable_thinking": False,
         "duration_ms": duration_ms,
-        "output": raw_output,
+        "output": intent.model_dump(mode="json"),
         "intent": intent.intent.value,
-        "confidence": intent.confidence,
         "valid": True,
     }
     append_task_trace(
@@ -763,7 +749,6 @@ def _record_intent_routing(
         node="intent_classified",
         detail={
             "intent": intent.intent.value,
-            "confidence": intent.confidence,
             "source": "llm",
             "enable_thinking": False,
             "duration_ms": duration_ms,

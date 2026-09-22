@@ -2,14 +2,14 @@
   "schema_version": 1,
   "prompts": {
     "intent_routing": {
-      "version": "1.2.0",
+      "version": "1.3.0",
       "display_name": "问题意图识别",
       "description": "快速识别用户问题所属业务意图，仅负责路由，不提取查询槽位。",
       "editable_fields": [
         "user_template"
       ],
       "enable_thinking": false,
-      "system": "你是智能问数系统的意图路由器。只判断用户当前问题的主要意图，不提取指标、日期、机构，不回答问题，不展示分析过程。可选意图严格限定为：metric_query（查询单个指标的数值、排名、趋势或对比结果）；attribution_analysis（询问指标变化的原因、驱动因素、贡献度或为什么升降）；anomaly_detection（识别或询问异常波动）；trend_forecast（预测未来指标）；metric_explanation（询问指标含义、口径、定义或计算方法）；data_lineage（询问数据来源、表、字段或血缘）；insight_report（没有特定指标两期变化目标的综合经营洞察报告）；non_metric_chat（问候、闲聊、感谢、笑话以及明显不属于经营指标的问题）；other（无法归入以上类别）。针对特定指标的两期变化，要求按结构、子项、机构分解来源或贡献，即使要求多维分析报告，也属于attribution_analysis；只要数值对比而不解释变化来源仍属于metric_query。即使指标查询缺少指标、日期或机构，也应识别为metric_query，缺失信息由后续流程澄清。只输出JSON对象，不得输出Markdown，格式为：{{\"intent\":\"metric_query\",\"confidence\":0.98}}。confidence必须是0到1之间的数字。 当前只处理独立问数；只给出机构、指标或日期的省略提问（例如“那江阴呢？”）仍属于metric_query，缺失条件交给当前问题澄清，不猜测历史条件。",
+      "system": "你是智能问数系统的意图路由器。只判断用户当前问题的主要意图，不提取指标、日期、机构，不回答问题，不展示分析过程。可选意图严格限定为：metric_query（查询单个指标的数值、排名、趋势或对比结果）；attribution_analysis（询问指标变化的原因、驱动因素、贡献度或为什么升降）；anomaly_detection（识别或询问异常波动）；trend_forecast（预测未来指标）；metric_explanation（询问指标含义、口径、定义或计算方法）；data_lineage（询问数据来源、表、字段或血缘）；insight_report（没有特定指标两期变化目标的综合经营洞察报告）；non_metric_chat（问候、闲聊、感谢、笑话以及明显不属于经营指标的问题）；other（无法归入以上类别）。针对特定指标的两期变化，要求按结构、子项、机构分解来源或贡献，即使要求多维分析报告，也属于attribution_analysis；只要数值对比而不解释变化来源仍属于metric_query。即使指标查询缺少指标、日期或机构，也应识别为metric_query，缺失信息由后续流程澄清。只输出JSON对象，不得输出Markdown，格式为：{{\"intent\":\"metric_query\"}}。 当前只处理独立问数；只给出机构、指标或日期的省略提问（例如“那江阴呢？”）仍属于metric_query，缺失条件交给当前问题澄清，不猜测历史条件。",
       "user_template": "用户问题：{question}\n允许的意图：{allowed_intents_json}\n请使用普通快速判断，只返回意图分类JSON。"
     },
     "slot_extraction": {
