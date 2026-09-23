@@ -121,16 +121,11 @@ class QueryPlanner:
             shape = SupportedQueryShape(query_shape)
         except ValueError as exc:
             raise UnsupportedQueryError(f"Query shape {query_shape} is not supported") from exc
-        if shape == SupportedQueryShape.METRIC_PERIOD_COMPARE:
-            comparisons = [op for op in dsl.ops if op.get("type") == "period_compare"]
-            if len(comparisons) != 1 or comparisons[0].get("method") != "custom":
-                raise UnsupportedQueryError(
-                    "Dynamic period comparison is disabled; "
-                    "use an official precomputed comparison metric"
-                )
-            dates = _period_parameters(dsl)
-            if dates["base_date"] >= dates["current_date"]:
-                raise QueryPlanError("Comparison base date must precede current date")
+        # 一期只开放已有指标取值、排名与趋势；比较结构仍供历史结果读取。
+        if shape == SupportedQueryShape.METRIC_PERIOD_COMPARE or any(
+            op.get("type") in {"period_compare", "entity_compare"} for op in dsl.ops
+        ):
+            raise UnsupportedQueryError("一期暂不支持现场比较计算，请查询已有的完整指标")
         _validate_time_range(dsl)
         metric_codes = _validate_codes(dsl.metrics, "metric_codes")
         normalized_orgs = _validate_codes(
