@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import httpx
 
@@ -94,6 +94,8 @@ class AuthenticationService:
         return password
 
     def login(self, username: str, password: str) -> tuple[str, int, AuthenticatedUser]:
+        if self.settings.sso_enabled:
+            raise ApplicationError("AUTH_SSO_REQUIRED", "请从数字农商平台进入问数", status_code=403)
         with self.uow_factory() as uow:
             user_with_org = uow.users.get_by_username_with_org(username)
             user, org_name = user_with_org if user_with_org else (None, username)
@@ -185,6 +187,10 @@ class AuthenticationService:
             raise failure from exc
 
         profile = _parse_sso_profile(payload, source_system=self.settings.sso_source_system)
+        # 映射仅来自部署配置；未知编码仍交由正式目录校验并拒绝。
+        profile = replace(profile, org_code=self.settings.sso_org_code_mapping.get(
+            profile.org_code, profile.org_code,
+        ))
         actor = IntegrationIdentityService(self.uow_factory).resolve(profile)
         if not actor.user_id:
             raise SsoUpstreamError("统一认证服务未返回有效用户")

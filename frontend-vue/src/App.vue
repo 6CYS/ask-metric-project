@@ -4,7 +4,7 @@ import { RouterView } from "vue-router"
 
 <template>
   <RouterView v-slot="{ Component, route }">
-    <KeepAlive exclude="LoginView">
+    <KeepAlive exclude="LoginView,SsoEntryView">
       <component :is="Component" :key="route.name" />
     </KeepAlive>
   </RouterView>

@@ -80,6 +80,16 @@ def _response(user: AuthenticatedUser) -> UserResponse:
     return UserResponse(**{key: getattr(user, key) for key in UserResponse.model_fields})
 
 
+@router.get("/config")
+def auth_config(
+    response: Response,
+    service: Annotated[AuthenticationService, Depends(get_authentication_service)],
+) -> dict:
+    no_store(response)
+    return {"sso_enabled": service.settings.sso_enabled,
+            "portal_url": service.settings.sso_portal_url}
+
+
 @router.get("/sm2-public-key", response_model=Sm2PublicKeyResponse)
 def sm2_public_key(
     service: Annotated[AuthenticationService, Depends(get_authentication_service)],

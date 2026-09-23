@@ -510,3 +510,7 @@ export function getCachedMetricCatalog() {
 export function getCachedOrganizationCatalog() {
   return getAccessToken() ? organizationCatalogCache.read(listOrgs) : listOrgs()
 }
+
+export function getAuthConfig() {
+  return request<{ sso_enabled: boolean; portal_url: string }>("/api/v1/auth/config", { cache: "no-store" }, false)
+}

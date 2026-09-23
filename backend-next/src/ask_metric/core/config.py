@@ -137,6 +137,8 @@ class Settings(BaseSettings):
     trusted_proxy_token: str = Field(default_factory=str, repr=False)
     # Digital Rural Commercial Bank unified SSO (disabled by default).
     sso_enabled: bool = False
+    sso_portal_url: str = ""
+    sso_org_code_mapping: dict[str, str] = Field(default_factory=dict)
     sso_user_info_url: str = ""
     sso_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
     sso_source_system: str = "jsrcb"
@@ -242,6 +244,18 @@ class Settings(BaseSettings):
         if len(normalized) != 1 or not normalized.isdigit():
             raise ValueError("APP_UNIT must contain exactly 1 digit")
         return normalized
+
+    @field_validator("sso_portal_url")
+    @classmethod
+    def validate_sso_portal_url(cls, value: str) -> str:
+        from urllib.parse import urlsplit
+
+        value = value.strip()
+        if value:
+            url = urlsplit(value)
+            if url.scheme not in {"http", "https"} or not url.netloc or url.username:
+                raise ValueError("sso_portal_url must be an HTTP(S) platform address")
+        return value
 
     @field_validator("cors_origins", mode="before")
     @classmethod
