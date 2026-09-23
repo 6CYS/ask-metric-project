@@ -21,6 +21,7 @@ from ask_metric.domain.metric_matching import (
 from ask_metric.domain.query_execution import QueryPlanError, explicit_selection_range
 from ask_metric.domain.semantic_normalization import (
     SemanticValidationError,
+    invalid_explicit_date,
     normalize_slot_frame,
     parse_time_expression,
 )
@@ -474,18 +475,22 @@ class SemanticEngine:
                     "model_time": model_time,
                     "selected_time": model_time,
                 }
-        # The model may discard an invalid date instead of returning it in `time`.
-        # Preserve the user-visible reason so clarification targets the date first.
-        time_expression = extract_time_expression(question)
-        if frame.time is None and time_expression:
-            try:
-                parse_time_expression(time_expression, today=current_date)
-            except (SemanticValidationError, ValueError):
-                frame.time = None
-                frame.options["missing_time_reason"] = "invalid_date"
-                frame.options["invalid_time_expression"] = time_expression
-                if "time" not in frame.missing:
-                    frame.missing.append("time")
+        # 原文明确日期必须独立校验：模型即使把80日改成合法的8日也不能放行。
+        invalid_expression = invalid_explicit_date(protected_question, today=current_date)
+        if invalid_expression:
+            frame.time = None
+            # 清理模型派生的时间选取项，防止澄清后旧日期再次进入规划。
+            for key in ("target_dates", "time_windows", "current_date", "base_date", "time_mode"):
+                frame.options.pop(key, None)
+            frame.options["missing_time_reason"] = "invalid_date"
+            frame.options["invalid_time_expression"] = invalid_expression
+            if "time" not in frame.missing:
+                frame.missing.append("time")
+            debug["time_resolution"] = {
+                "mode": "invalid_explicit_date_rejected",
+                "model_time": model_time,
+                "selected_time": None,
+            }
         frame = normalize_slot_frame(frame, metrics=metrics, organizations=organizations)
         timings_ms["semantic_normalization_ms"] = _elapsed_ms(normalization_started)
         timings_ms["semantic_total_ms"] = _elapsed_ms(total_started)
