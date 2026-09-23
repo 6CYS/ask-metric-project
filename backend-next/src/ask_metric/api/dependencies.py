@@ -131,7 +131,9 @@ def get_query_task_service(request: Request) -> QueryTaskApplicationService:
             resolve_config_path(PROJECT_DIR, settings.semantic_config_path)
         ),
         candidate_permission_service=ScopedOrganizationPermissionService(
-            organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
+            organization_scope_provider=SqlAlchemyOrganizationScopeProvider(
+                province_query_org_codes=settings.province_query_org_codes,
+            ),
             allow_unscoped_development=settings.app_env.lower() in {"development", "test"},
         ),
     )
@@ -215,7 +217,9 @@ def get_query_execution_service(request: Request) -> QueryExecutionApplicationSe
             ),
         ),
         permission_service=ScopedOrganizationPermissionService(
-            organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
+            organization_scope_provider=SqlAlchemyOrganizationScopeProvider(
+                province_query_org_codes=settings.province_query_org_codes,
+            ),
             allow_unscoped_development=settings.app_env.lower() in {"development", "test"},
         ),
         model_service=get_model_service(request),
