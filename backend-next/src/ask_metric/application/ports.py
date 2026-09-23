@@ -90,8 +90,6 @@ class ScopedOrganizationPermissionService:
             return logical_dsl
         if actor.trust_level != "authenticated" or not actor.org_id:
             raise PermissionDeniedError("缺少可信的机构权限范围")
-        if actor.role_code == "SYSTEM_ADMIN":
-            return logical_dsl
         allowed = (
             self.organization_scope_provider.allowed_org_codes(actor.org_id)
             if self.organization_scope_provider is not None
