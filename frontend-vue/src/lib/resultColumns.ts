@@ -81,8 +81,17 @@ export function isResultValueColumn(column: string) {
 }
 
 /** 表格按原单位显示；直接处理十进制字符串，避免大金额转 Number 丢分。 */
-export function formatResultTableValue(value: unknown, column: string, row: Record<string, unknown>) {
+export function formatResultTableValue(value: unknown, column: string, row: Record<string, unknown>): string | null {
   const normalized = normalizeResultColumn(column)
+  // 历史比较结果的变化率是比例；按十进制字符串换算百分数，避免长小数溢出。
+  if (normalized === "change_rate") {
+    if (typeof value !== "string" && typeof value !== "number") return null
+    const rate = /^([+-]?)(\d+)(?:\.(\d*))?$/.exec(String(value).trim())
+    if (!rate) return null
+    const fraction = (rate[3] ?? "").padEnd(2, "0")
+    const percent = `${rate[1]}${rate[2]}${fraction.slice(0, 2)}.${fraction.slice(2) || "0"}`
+    return `${formatResultTableValue(percent, "difference", { unit: "%" })}%`
+  }
   if (!isResultValueColumn(normalized) && normalized !== "rank") return null
   if (typeof value !== "string" && typeof value !== "number") return null
   const match = /^([+-]?)(\d+)(?:\.(\d*))?$/.exec(String(value).trim())
@@ -114,7 +123,7 @@ export function getResultColumnClass(column: string) {
 }
 
 export function shouldTruncateResultColumn(column: string) {
-  return ["metric_name", "org_name", "left_org", "right_org", "higher_org", "status"]
+  return [...visibleResultColumnOrder, "left_org", "right_org", "higher_org"]
     .includes(normalizeResultColumn(column))
 }
 
