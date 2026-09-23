@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import calendar
 import re
+import unicodedata
 from datetime import date, timedelta
 from typing import Any
 
@@ -349,3 +350,48 @@ def _normalize_operation(operation: dict[str, Any], config: SemanticConfig) -> d
             operation["dimension"], operation["dimension"]
         )
     return operation
+
+
+def invalid_explicit_date(text: str, *, today: date) -> str | None:
+    """只验证实体外明确的日历数字，不纠错、不推导查询范围或替换模型日期。"""
+    value = unicodedata.normalize("NFKC", re.sub(r"<(?:METRIC|ORG)\b[^>]*>", " ", text))
+    number = r"[0-9零〇一二两三四五六七八九十百]+"
+    # 不限制数字长度，避免80/800被截取成8；先读完整数字再交给日历校验。
+    pattern = re.compile(
+        rf"(?<![0-9零〇一二两三四五六七八九十百])(?:"
+        rf"(?P<iy>[0-9]{{4}})[./-](?P<im>[0-9]+)[./-](?P<id>[0-9]+)(?![0-9])"
+        rf"|(?:(?P<year>[0-9]{{4}})年|(?P<relative>今年|本年|去年|上年|前年))?"
+        rf"(?P<month>{number})月(?:份)?(?:(?P<day>{number})(?:日|号)|(?P<end>末|底))?"
+        rf")"
+    )
+    year = today.year
+    for match in pattern.finditer(value):
+        parts = match.groupdict()
+        if parts["iy"]:
+            year = int(parts["iy"])
+            month_text, day_text = parts["im"], parts["id"]
+        else:
+            if parts["year"]:
+                year = int(parts["year"])
+            elif parts["relative"]:
+                offset = {"今年": 0, "本年": 0, "去年": -1, "上年": -1, "前年": -2}
+                year = today.year + offset[parts["relative"]]
+            month_text, day_text = parts["month"], parts["day"]
+        try:
+            # 标准中文数值转换沿用现有实现，额外先约束其接受的数字语法。
+            tokens = [month_text] + ([day_text] if day_text else [])
+            numbers = []
+            for token in tokens:
+                if token in {"零", "〇"}:
+                    numbers.append(0)
+                elif token.isdigit() or re.fullmatch(
+                    r"[一二两三四五六七八九]?十[一二三四五六七八九]?|[一二两三四五六七八九]",
+                    token,
+                ):
+                    numbers.append(_parse_month_count(token))
+                else:
+                    return match.group(0)
+            date(year, numbers[0], numbers[1] if day_text else 1)
+        except (ValueError, OverflowError):
+            return match.group(0)
+    return None
