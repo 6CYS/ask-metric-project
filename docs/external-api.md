@@ -165,7 +165,9 @@ Content-Type: application/json
 并继续使用本系统的机构权限和 JWT 会话控制。`SSO_ENABLED` 默认为 `false`，启用前必须配置可访问的
 完整 URL；机构必须已经登记在本系统机构目录中。
 
-成功响应与普通登录接口相同，返回本系统 JWT；前端收到后会清理地址栏中的原始 token。
+成功响应与普通登录接口相同，返回本系统 JWT；前端在校验开始前清理地址栏中的原始 token。SSO 模式不接受本地账号密码登录。
+
+浏览器通过 `X-Ask-Metric-Session: 1` 申请 HttpOnly 会话 Cookie，刷新时调用 `POST /api/v1/auth/session` 恢复原会话，不续期；过期/退出后显示从数字农商重新进入的提示。`GET /api/v1/auth/config` 仅返回 SSO 模式与可选平台入口地址。机构映射和省联社查询范围的环境配置见后端 README“机构查询权限与数字农商登录”。
 
 ### 3.2 登录
 

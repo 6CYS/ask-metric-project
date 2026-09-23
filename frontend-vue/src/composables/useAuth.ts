@@ -63,6 +63,8 @@ async function login(username: string, password: string) {
 }
 
 async function loginWithSso(token: string) {
+  clearAuth()
+  initialized.value = true
   const revision = ++authRevision
   const result = await ssoLoginUser(token)
   if (revision !== authRevision) return result.user
