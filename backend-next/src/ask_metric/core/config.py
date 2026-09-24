@@ -136,6 +136,14 @@ class Settings(BaseSettings):
     model_admin_token: str = Field(default_factory=str, repr=False)
     trusted_proxy_token: str = Field(default_factory=str, repr=False)
     # Digital Rural Commercial Bank unified SSO (disabled by default).
+    # 未配置时兼容原行为：SSO 部署默认关闭密码入口，UAT 可显式开启。
+    password_login_enabled: bool | None = None
+
+    @property
+    def allows_password_login(self) -> bool:
+        return (not self.sso_enabled if self.password_login_enabled is None
+                else self.password_login_enabled)
+
     sso_enabled: bool = False
     sso_portal_url: str = ""
     sso_org_code_mapping: dict[str, str] = Field(default_factory=dict)
