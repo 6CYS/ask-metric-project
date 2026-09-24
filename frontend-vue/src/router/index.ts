@@ -11,7 +11,7 @@ import SsoEntryView from "@/views/SsoEntryView.vue"
 import { getAuthConfig } from "@/lib/api"
 import TestCenterView from "@/views/TestCenterView.vue"
 import { useAuth } from "@/composables/useAuth"
-import { setAuthFailureReason } from "@/lib/authSession"
+import { getLoginMethod, setAuthFailureReason } from "@/lib/authSession"
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -62,7 +62,10 @@ router.beforeEach(async (to) => {
   if (!auth.isAuthenticated.value && (requiresAuth || to.name === "login")) {
     try {
       const config = await getAuthConfig()
-      if (config.sso_enabled) return { name: "sso-entry" }
+      // 显式访问 /login 可切换测试账号；自动跳转尊重原会话来源。
+      const passwordAllowed = config.password_login_enabled ?? !config.sso_enabled
+      if (!passwordAllowed || (to.name !== "login" && config.sso_enabled
+        && getLoginMethod() !== "password")) return { name: "sso-entry" }
     } catch {
       setAuthFailureReason("暂时无法连接问数服务，请稍后重试。")
       return { name: "sso-entry" }

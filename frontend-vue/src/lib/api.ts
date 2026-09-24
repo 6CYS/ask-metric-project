@@ -512,5 +512,5 @@ export function getCachedOrganizationCatalog() {
 }
 
 export function getAuthConfig() {
-  return request<{ sso_enabled: boolean; portal_url: string }>("/api/v1/auth/config", { cache: "no-store" }, false)
+  return request<{ sso_enabled: boolean; password_login_enabled: boolean; portal_url: string }>("/api/v1/auth/config", { cache: "no-store" }, false)
 }

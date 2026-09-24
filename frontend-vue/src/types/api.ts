@@ -360,6 +360,7 @@ export type AuthUser = {
 export type LoginResponse = {
   access_token: string
   token_type: "bearer"
+  auth_method: "password" | "sso"
   expires_in: number
   user: AuthUser
 }

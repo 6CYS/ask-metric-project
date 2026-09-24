@@ -36,3 +36,17 @@ export function consumeAuthFailureReason() {
   authFailureReason = ""
   return reason
 }
+
+// 仅保存非敏感的入口偏好；不参与鉴权，不保存令牌或用户信息。
+export function setLoginMethod(method: "password" | "sso") {
+  loginMethod = method
+  try { sessionStorage.setItem("ask-metric:login-method", method) } catch { /* 存储禁用时使用内存。 */ }
+}
+let loginMethod: "password" | "sso" | null = null
+export function getLoginMethod(): "password" | "sso" | null {
+  if (loginMethod) return loginMethod
+  try {
+    const value = sessionStorage.getItem("ask-metric:login-method")
+    return value === "password" || value === "sso" ? value : null
+  } catch { return null }
+}
