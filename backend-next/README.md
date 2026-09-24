@@ -186,6 +186,10 @@ python -m uvicorn ask_metric.main:app --app-dir src --host 127.0.0.1 --reload --
 `app.log`、`summary.log` 和 `alert.log`。默认单文件上限50MB、保留3天，跨日或达到上限后归档
 到日期目录。HTTP请求自动生成交易 START/END 摘要，并透传全局流水、服务调用流水及
 trace/segment/span链路标识；模型和SSO外调生成新的40位 `R` 流水并输出 SUBSTART/SUBEND。
+模型调用的 `SUBEND.Other.model_call` 记录模型角色、配置模型名、实际发送的模型名（如有）、
+调用用途、HTTP 状态、排队/请求/总耗时（毫秒）及错误类别；不记录地址、密钥、请求或响应正文。
+`result=http_success` 仅表示 HTTP 成功且外层响应为 JSON 对象，不代表后续意图或槽位校验通过。
+这些信息随应用写入 `summary.log`，独立部署检查脚本不会自动写入应用日志。
 全局流水和SpanID采用六段40位格式，分别以 `G`、`R` 开头；生成所需的 `APP_NODE_CODE`、
 `APP_IDC`、`APP_UNIT` 对应主机注入的 `App_Node_Code`、`App_IDC`、`App_Unit`。生产启动
 Uvicorn 时使用 `--no-access-log`，避免默认访问日志与规范格式混排。系统管理员可以调用
