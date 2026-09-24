@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import os
+import re
 from collections import defaultdict, deque
 from collections.abc import Callable
 from pathlib import Path
@@ -159,7 +160,7 @@ class ConfigurableModelService:
         if chat.chat_template_kwargs:
             payload["chat_template_kwargs"] = chat.chat_template_kwargs
         payload.update(chat.extra_body)
-        response = self._post(chat, payload)
+        response = self._post(chat, payload, role="chat", purpose=prompt)
         try:
             content = response["choices"][0]["message"]["content"]
             if chat.response_format == "json_object":
@@ -186,7 +187,7 @@ class ConfigurableModelService:
         if embedding.user:
             payload["user"] = embedding.user
         payload.update(embedding.extra_body)
-        response = self._post(embedding, payload)
+        response = self._post(embedding, payload, role="embedding")
         try:
             # lambda 取每条结果的 index 作为排序键：按输入次序还原向量，不能假定
             # 模型响应数组天然有序，否则目录名称可能对应到别的指标向量。
@@ -223,7 +224,7 @@ class ConfigurableModelService:
         if reranker.send_return_documents:
             payload["return_documents"] = reranker.return_documents
         payload.update(reranker.extra_body)
-        response = self._post(reranker, payload)
+        response = self._post(reranker, payload, role="reranker")
         return _normalize_rerank_response(response, documents, endpoint=reranker.path)
 
     def _require_enabled(self, role: ModelRole, endpoint: ModelEndpointConfig) -> None:
@@ -238,6 +239,9 @@ class ConfigurableModelService:
         self,
         endpoint: ModelEndpointConfig,
         payload: dict[str, Any],
+        *,
+        role: ModelRole,
+        purpose: str | None = None,
     ) -> dict[str, Any]:
         """统一模型 HTTP 边界：取配置、限制并发、设置超时并归类失败原因。"""
         headers = self._authentication_headers(endpoint)
@@ -261,35 +265,61 @@ class ConfigurableModelService:
                 category="concurrency",
                 endpoint=endpoint.path,
             )
+        # 每次调用独立持有摘要，只记录白名单元数据，不复制请求体、地址或鉴权信息。
+        model_call: dict[str, object] = {
+            "role": role,
+            "configured_model": _log_identifier(endpoint.model),
+            "model_sent": "model" in payload,
+            "purpose": _log_identifier(purpose) if purpose else role,
+            "queue_ms": _duration_ms(started),
+            "http_status": None,
+        }
+        if "model" in payload:
+            model_call["request_model"] = _log_identifier(payload["model"])
         try:
-            with outbound_subtransaction(endpoint.path, invoke_sys="MODEL_PROVIDER") as transaction:
-                request_headers = {**headers, **transaction.headers()}
-                client = self._client or httpx.Client()
+            with outbound_subtransaction(
+                endpoint.path, invoke_sys="MODEL_PROVIDER", other={"model_call": model_call},
+            ) as transaction:
+                request_started = perf_counter()
                 try:
-                    response = client.post(
-                        url,
-                        json=payload,
-                        headers=request_headers,
-                        timeout=endpoint.timeout_seconds,
-                    )
-                    transaction.set_response(response.status_code)
+                    request_headers = {**headers, **transaction.headers()}
+                    client = self._client or httpx.Client()
+                    try:
+                        response = client.post(
+                            url,
+                            json=payload,
+                            headers=request_headers,
+                            timeout=endpoint.timeout_seconds,
+                        )
+                        transaction.set_response(response.status_code)
+                        model_call["http_status"] = response.status_code
+                    finally:
+                        # 共享客户端由应用关闭流程统一释放。
+                        if self._client is None:
+                            client.close()
+                    response.raise_for_status()
+                    try:
+                        value = response.json()
+                    except json.JSONDecodeError as exc:
+                        raise InvalidModelResponse(
+                            "Model provider returned invalid JSON",
+                            endpoint=endpoint.path,
+                        ) from exc
+                    if not isinstance(value, dict):
+                        raise InvalidModelResponse(
+                            "Model provider returned a non-object response",
+                            endpoint=endpoint.path,
+                        )
+                    # 这里只确认 HTTP 和外层 JSON，业务意图/槽位校验仍由上层负责。
+                    model_call["result"] = "http_success"
+                except Exception as exc:
+                    model_call["result"] = "failed"
+                    model_call["error"] = _model_call_error(exc)
+                    raise
                 finally:
-                    # 只关闭本次临时创建的客户端；共享客户端由应用关闭流程统一释放。
-                    if self._client is None:
-                        client.close()
-                response.raise_for_status()
-                try:
-                    value = response.json()
-                except json.JSONDecodeError as exc:
-                    raise InvalidModelResponse(
-                        "Model provider returned invalid JSON",
-                        endpoint=endpoint.path,
-                    ) from exc
-                if not isinstance(value, dict):
-                    raise InvalidModelResponse(
-                        "Model provider returned a non-object response",
-                        endpoint=endpoint.path,
-                    )
+                    # 必须在 SUBEND 输出前更新，超时或响应异常也保留调用耗时。
+                    model_call["request_ms"] = _duration_ms(request_started)
+                    model_call["total_ms"] = _duration_ms(started)
         except httpx.TimeoutException as exc:
             duration_ms = _duration_ms(started)
             _log_model_request(
@@ -402,6 +432,25 @@ def _normalize_rerank_response(
         else:
             return normalized
     raise InvalidModelResponse("Reranker returned an invalid response", endpoint=endpoint)
+
+
+def _log_identifier(value: object) -> str:
+    """仅接受有限长度的名称标识，避免任意配置内容进入摘要。"""
+    if isinstance(value, str) and re.fullmatch(r"[\w./-]{1,128}", value):
+        return value
+    return "custom"
+
+
+def _model_call_error(exc: Exception) -> str:
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(exc, httpx.HTTPStatusError):
+        return "http_status"
+    if isinstance(exc, httpx.RequestError):
+        return "connection"
+    if isinstance(exc, InvalidModelResponse):
+        return "response_json"
+    return "unavailable"
 
 
 def _log_model_request(
