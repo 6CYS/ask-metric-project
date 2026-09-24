@@ -1,5 +1,5 @@
 from time import time
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field
@@ -72,6 +72,7 @@ class UserResponse(BaseModel):
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    auth_method: Literal["password", "sso"] = "password"
     expires_in: int
     user: UserResponse
 
@@ -87,6 +88,7 @@ def auth_config(
 ) -> dict:
     no_store(response)
     return {"sso_enabled": service.settings.sso_enabled,
+            "password_login_enabled": service.settings.allows_password_login,
             "portal_url": service.settings.sso_portal_url}
 
 
@@ -121,7 +123,8 @@ def sso_login(
 ) -> LoginResponse:
     token, expires_in, user = service.login_sso(payload.token.strip())
     set_session_cookie(request, response, token, expires_in)
-    return LoginResponse(access_token=token, expires_in=expires_in, user=_response(user))
+    return LoginResponse(access_token=token, expires_in=expires_in, user=_response(user),
+                         auth_method="sso")
 
 
 @router.post(
@@ -146,7 +149,9 @@ def restore_session(
     if user is None:
         raise AuthenticationError("AUTH_TOKEN_INVALID", "登录凭证无效，请重新登录")
     no_store(response)
-    return LoginResponse(access_token=token, expires_in=expires_in, user=_response(user))
+    return LoginResponse(access_token=token, expires_in=expires_in, user=_response(user),
+                         auth_method=claims.get("auth_method") or (
+                             "sso" if service.settings.sso_enabled else "password"))
 
 
 @router.get("/me", response_model=UserResponse)

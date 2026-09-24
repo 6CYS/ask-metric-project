@@ -94,8 +94,10 @@ class AuthenticationService:
         return password
 
     def login(self, username: str, password: str) -> tuple[str, int, AuthenticatedUser]:
-        if self.settings.sso_enabled:
-            raise ApplicationError("AUTH_SSO_REQUIRED", "请从数字农商平台进入问数", status_code=403)
+        if not self.settings.allows_password_login:
+            raise ApplicationError(
+                "AUTH_PASSWORD_LOGIN_DISABLED", "密码登录未启用，请使用平台入口", status_code=403,
+            )
         with self.uow_factory() as uow:
             user_with_org = uow.users.get_by_username_with_org(username)
             user, org_name = user_with_org if user_with_org else (None, username)
@@ -124,6 +126,7 @@ class AuthenticationService:
                 "org_code": user.org_code,
                 "role_code": user.role_code,
                 "session_version": user.session_version,
+                "auth_method": "password",
             },
         )
         return token, expires_in, authenticated
@@ -217,6 +220,7 @@ class AuthenticationService:
                 "org_code": user.org_code,
                 "role_code": user.role_code,
                 "session_version": user.session_version,
+                "auth_method": "sso",
             },
         )
         return token, expires_in, authenticated

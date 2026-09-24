@@ -165,9 +165,9 @@ Content-Type: application/json
 并继续使用本系统的机构权限和 JWT 会话控制。`SSO_ENABLED` 默认为 `false`，启用前必须配置可访问的
 完整 URL；机构必须已经登记在本系统机构目录中。
 
-成功响应与普通登录接口相同，返回本系统 JWT；前端在校验开始前清理地址栏中的原始 token。SSO 模式不接受本地账号密码登录。
+成功响应与普通登录接口相同，返回本系统 JWT；前端在校验开始前清理地址栏中的原始 token。`PASSWORD_LOGIN_ENABLED` 独立控制本地密码登录，未配置时默认与 `SSO_ENABLED` 相反。UAT 双入口须显式设为 `true`，正式纯 SSO 环境设为 `false`。登录及会话恢复响应增加 `auth_method`（`password` / `sso`），来源写入签名令牌；恢复不续期。`GET /api/v1/auth/config` 返回实际生效的 `password_login_enabled`，关闭时密码登录返回 `AUTH_PASSWORD_LOGIN_DISABLED`。
 
-浏览器通过 `X-Ask-Metric-Session: 1` 申请 HttpOnly 会话 Cookie，刷新时调用 `POST /api/v1/auth/session` 恢复原会话，不续期；过期/退出后显示从数字农商重新进入的提示。`GET /api/v1/auth/config` 仅返回 SSO 模式与可选平台入口地址。机构映射和省联社查询范围的环境配置见后端 README“机构查询权限与数字农商登录”。
+浏览器通过 `X-Ask-Metric-Session: 1` 申请 HttpOnly 会话 Cookie，刷新时调用 `POST /api/v1/auth/session` 恢复原会话，不续期；过期/退出后按登录来源返回数字农商提示页或密码登录页。`GET /api/v1/auth/config` 返回 SSO 开关、实际生效的密码登录开关与可选平台入口地址。机构映射和省联社查询范围的环境配置见后端 README“机构查询权限与数字农商登录”。
 
 ### 3.2 登录
 
