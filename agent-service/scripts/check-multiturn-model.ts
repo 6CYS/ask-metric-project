@@ -22,19 +22,30 @@ const handoff = process.argv.includes("--handoff");
 const metricCatalog = handoff
   ? [{code: "M1", name: "个人经营性贷款余额全省均值"}, {code: "M2", name: "个人经营性贷款余额较年初"}]
   : [{code: "M1", name: "合成指标甲"}, {code: "M2", name: "合成指标乙"}];
-const cases: Array<{text: string; org?: string; metric?: string; start?: string; end?: string; query: number; status?: string; reopen?: boolean}> = handoff ? [
+/** clarifyFields：该轮允许进入澄清的字段；clarifyRequired=false 时模型直接确定取值也合法（跳过 followup）；
+ * followup：澄清后的补充回合（每元素一次 runPrompt）。 */
+type Case = {text: string; org?: string; metric?: string; metrics?: string[]; start?: string; end?: string;
+  query: number; status?: string; reopen?: boolean; clarifyFields?: string[]; clarifyRequired?: boolean;
+  followup?: Array<{message: string}>};
+const cases: Case[] = handoff ? [
   {text: "合成机构甲2024年4月末个人经营性贷款余额全省均值是多少？", org: "O1", start: "2024-04-30", end: "2024-04-30", query: 1},
   {text: "3月末的呢？", org: "O1", start: "2024-03-31", end: "2024-03-31", query: 1},
-  {text: "个人经营性贷款余额较年初是多少呢？", org: "O1", metric: "M2", start: "2024-03-31", end: "2024-03-31", query: 1, reopen: true},
+  {text: "个人经营性贷款余额较年初是多少呢？", org: "O1", metric: "M2", start: "2024-03-31", end: "2024-03-31", query: 1, reopen: true,
+    clarifyFields: ["selection"], clarifyRequired: false, followup: [{message: "展示整个月的全部已有记录。"}]},
   {text: "把刚才的查询结果再展示一次，不要重新查。", org: "O1", metric: "M2", start: "2024-03-31", end: "2024-03-31", query: 0},
 ] : [
   {text: "查询合成机构甲2024年3月31日的合成指标甲。", org: "O1", start: "2024-03-31", end: "2024-03-31", query: 1},
   {text: "合成机构乙呢？", org: "O2", start: "2024-03-31", end: "2024-03-31", query: 1},
-  {text: "4 月份的呢？", org: "O2", start: "2024-04-01", end: "2024-04-30", query: 1},
+  {text: "4 月份的呢？", org: "O2", start: "2024-04-01", end: "2024-04-30", query: 1,
+    clarifyFields: ["selection"], clarifyRequired: false, followup: [{message: "展示整个月的全部已有记录。"}]},
   {text: "把最开始那笔查询的已有结果再展示一次，不要重新查。", org: "O1", start: "2024-03-31", end: "2024-03-31", query: 0},
   {text: "回到最开始那笔，把日期改为5月末，查一下。", org: "O1", start: "2024-05-31", end: "2024-05-31", query: 1, reopen: true},
   {text: "另外新查合成机构甲的合成指标乙。", query: 0, status: "clarifying"},
   {text: "日期是2023年2月末。", org: "O1", metric: "M2", start: "2023-02-28", end: "2023-02-28", query: 1},
+  // 多指标部分澄清：合成指标丙是目录外名称，算法只给候选；用户确认后一次执行双指标，已确定项不能丢。
+  {text: "查询合成机构甲2024年3月31日的合成指标甲和合成指标丙。", org: "O1", metrics: ["M1", "M2"],
+    start: "2024-03-31", end: "2024-03-31", query: 1,
+    clarifyFields: ["metrics"], followup: [{message: "合成指标丙就是合成指标乙。"}]},
 ];
 if (!process.argv.includes("--live")) {
   console.log(JSON.stringify({status: "fixtures_valid", turns: cases.length, model_called: false}));
@@ -90,13 +101,26 @@ if (!process.argv.includes("--live")) {
       let clarificationFollowup = false;
       const interimState = await frames.state();
       const interim = interimState.focusFrameId ? await frames.get(interimState.focusFrameId) : undefined;
-      // 整月与时点存在业务歧义时，方案允许只澄清口径；明确补充后再核验正式查询。
-      if (index === 2 && interim?.status === "clarifying" && interim.issues.every(issue => issue.field === "selection")) {
-        assert.deepEqual(interim.fields.time?.resolvedValue, {start: test.start, end: test.end});
-        assert.deepEqual((interim.fields.organizations?.resolvedValue as {codes: string[]})?.codes, [test.org]);
+      // 澄清剧本：先断言中间态（仅澄清声明字段、其他条件已确定、不取数），再发补充回合核验正式查询。
+      // clarifyRequired=false 时（如整月口径存在业务歧义）模型直接确定取值方式也合法，跳过补充回合。
+      const clarifyRelevant = Boolean(test.clarifyFields?.length);
+      const enteredClarification = clarifyRelevant && interim?.status === "clarifying"
+        && interim.issues.every(issue => test.clarifyFields!.includes(issue.field));
+      if (clarifyRelevant && test.clarifyRequired !== false && !enteredClarification) {
+        assert.equal(interim?.status, "clarifying", "interim must be clarifying");
+        assert(interim!.issues.every(issue => test.clarifyFields!.includes(issue.field)),
+          `interim issues must stay within ${test.clarifyFields!.join(",")}`);
+      }
+      if (enteredClarification) {
+        if (test.org) {
+          assert.deepEqual(interim!.fields.time?.resolvedValue, {start: test.start, end: test.end});
+          assert.deepEqual((interim!.fields.organizations?.resolvedValue as {codes: string[]})?.codes, [test.org]);
+        }
         assert.equal(queries.length, before, "clarification must not query");
         clarificationFollowup = true;
-        await host.runPrompt(session, {protocol_version: 3, request_id: `${requestId}-clarify`, message: "展示整个月的全部已有记录。"}, {actor, backend});
+        for (const [followupIndex, step] of (test.followup ?? []).entries()) {
+          await host.runPrompt(session, {protocol_version: 3, request_id: `${requestId}-clarify-${followupIndex + 1}`, message: step.message}, {actor, backend});
+        }
       }
       const state = await frames.state(); const focus = state.focusFrameId ? await frames.get(state.focusFrameId) : undefined;
       const entries = await session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
@@ -112,7 +136,7 @@ if (!process.argv.includes("--live")) {
         if (test.org) {
           assert.deepEqual(focus?.fields.organizations?.resolvedValue, {codes: [test.org], names: [test.org === "O1" ? "合成机构甲" : "合成机构乙"]});
           assert.deepEqual(focus?.fields.time?.resolvedValue, {start: test.start, end: test.end});
-          assert.deepEqual((focus?.fields.metrics?.resolvedValue as {codes: string[]})?.codes, [test.metric ?? "M1"]);
+          assert.deepEqual((focus?.fields.metrics?.resolvedValue as {codes: string[]})?.codes, test.metrics ?? [test.metric ?? "M1"]);
           assert(answer?.text.includes("731.25"), "native answer must use actual synthetic value");
         }
         if (index === 3) assert.equal(reads - beforeReads, 1, "result reuse read count");

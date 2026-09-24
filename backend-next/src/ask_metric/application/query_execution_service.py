@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from ask_metric.application.calculation_service import build_calculation_facts
 from ask_metric.application.commands import ExecuteQueryCommand
+from ask_metric.application.organization_query_scope import resolve_query_scope
 from ask_metric.application.ports import (
     DataSourceAdapter,
     ModelService,
@@ -19,6 +20,7 @@ from ask_metric.application.ports import (
     QueryResultEnricher,
 )
 from ask_metric.application.query_scope import require_current_query_scope
+from ask_metric.application.requests import ActorContext
 from ask_metric.application.result_answering import render_fact_answer
 from ask_metric.application.result_processing import process_query_result
 from ask_metric.application.result_repository import artifact_from_query, attach_artifact
@@ -42,7 +44,6 @@ from ask_metric.infrastructure.db.models import ChatMessage, QueryRun, QueryTask
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
 from ask_metric.infrastructure.query.sql_builder import SqlBuilder
 from ask_metric.infrastructure.query.sql_safety import validate_readonly_sql
-from ask_metric.infrastructure.query.templates import QueryTemplateRepository
 
 UnitOfWorkFactory = Callable[[], SqlAlchemyUnitOfWork]
 logger = logging.getLogger(__name__)
@@ -64,7 +65,6 @@ class QueryExecutionApplicationService:
         self,
         *,
         planner: QueryPlanner,
-        templates: QueryTemplateRepository,
         data_source: DataSourceAdapter,
         permission_service: PermissionService,
         model_service: ModelService | None = None,
@@ -72,22 +72,21 @@ class QueryExecutionApplicationService:
         today_provider: Callable[[], date] = _china_business_date,
         result_enricher: QueryResultEnricher | None = None,
         sql_builder: SqlBuilder | None = None,
-        query_sql_engine: str = "builder",
         org_hierarchy_provider: OrgHierarchyProvider | None = None,
         organization_scope_provider: OrganizationScopeProvider | None = None,
+        actor_validator: Callable[[ActorContext], None] | None = None,
     ) -> None:
         self.planner = planner
-        self.templates = templates
         self.data_source = data_source
         self.permission_service = permission_service
         self.model_service = model_service
         self.uow_factory = uow_factory or SqlAlchemyUnitOfWork
         self.today_provider = today_provider
         self.result_enricher = result_enricher
-        self.sql_builder = sql_builder
-        self.query_sql_engine = query_sql_engine
+        self.sql_builder = sql_builder or SqlBuilder(planner.dialect)
         self.org_hierarchy_provider = org_hierarchy_provider
         self.organization_scope_provider = organization_scope_provider
+        self.actor_validator = actor_validator
 
     def execute(self, command: ExecuteQueryCommand) -> QueryExecutionResult:
         """先登记执行，再只读查询，最后持久化结果；跨数据库不假定是同一事务。"""
@@ -106,6 +105,34 @@ class QueryExecutionApplicationService:
             )
             timings_ms["sql_execution_ms"] = _elapsed_ms(sql_started)
             fetched_rows = list(execution.rows)
+            if any(row.get("rank_data_conflict") for row in fetched_rows):
+                raise ApplicationError("DATA_CONFLICT",
+                                       "目标日期存在重复指标事实，无法确定排名，请核对数据版本。",
+                                       status_code=409)
+            ranking_evidence = []
+            if plan.shape.value == "metric_ranking":
+                for metric in plan.dsl.get("metrics", []):
+                    matching = [row for row in fetched_rows if row.get("metric_code") == metric]
+                    count = next((int(row["rank_population"]) for row in matching
+                                  if row.get("rank_population") is not None), None)
+                    if not matching:
+                        count = 0
+                    ranking_evidence.append({
+                        "metric_code": metric,
+                        "date": (str(matching[0].get("stat_date")) if matching else
+                                 str(plan.parameters["stat_date"])
+                                 if plan.parameters.get("stat_date") is not None else None),
+                        "authorized_candidates": len(plan.parameters.get("org_codes", [])),
+                        "with_data": count,
+                        "without_data": (len(plan.parameters.get("org_codes", [])) - count
+                                         if count is not None else None),
+                        "returned": len(matching),
+                        "tie_policy": "row_number_then_org_code",
+                    })
+            # 内部完整性列用于校验与证据，不成为用户指标或可计算事实。
+            fetched_rows = [{key: value for key, value in row.items()
+                             if key not in {"rank_population", "rank_data_conflict"}}
+                            for row in fetched_rows]
             truncated = (
                 plan.shape.value != "metric_ranking" and len(fetched_rows) > self.planner.max_limit
             )
@@ -115,6 +142,16 @@ class QueryExecutionApplicationService:
             formatting_started = perf_counter()
             rows, comparisons = process_query_result(plan, visible_rows)
             timings_ms["result_formatting_ms"] = _elapsed_ms(formatting_started)
+        except ApplicationError as exc:
+            result = QueryExecutionResult(
+                run_id=run_id, task_id=command.task_id, status="failed",
+                query_shape=plan.shape.value, error_code=exc.code, error_message=exc.message,
+                task_version=execution_version + 1, task_status=QueryTaskStatus.FAILED.value,
+                timings_ms=timings_ms,
+            )
+            self._finish_failure(command=command, result=result,
+                                 expected_version=execution_version, failed_node="data_validation")
+            return result
         except UnsupportedQueryError as exc:
             # 执行阶段才发现的“不支持”：与规划期不支持同构，
             # 状态 unsupported、public_message 面向用户，不记错误日志。
@@ -241,6 +278,7 @@ class QueryExecutionApplicationService:
                 "template": plan.template.value,
                 "coverage_notice": coverage_notice,
                 "missing_metric_notice": missing_metric_notice,
+                **({"ranking": ranking_evidence} if ranking_evidence else {}),
                 "response_kind": (
                     "availability" if plan.shape.value == "metric_availability" else "values"
                 ),
@@ -282,6 +320,33 @@ class QueryExecutionApplicationService:
         )
         result.timings_ms["execution_total_ms"] = _elapsed_ms(execution_total_started)
         result.timings_ms["total_ms"] = _total_timing(result.timings_ms)
+        # 查询跨库执行期间授权/目录可能变化；发布结果前复核，不能泄露刚失权的行。
+        if plan.dsl.get("options", {}).get("query_contract_version") == 2:
+            try:
+                if self.actor_validator is not None:
+                    self.actor_validator(command.actor)
+                with self.uow_factory() as uow:
+                    current, _, _ = self._authorize_query(
+                        uow=uow, actor=command.actor, logical_dsl=plan.dsl,
+                        strict_codes=True,
+                    )
+                    if set(current.orgs) != set(plan.dsl.get("orgs", [])):
+                        raise ApplicationError("SCOPE_CHANGED", "机构范围已变化，请重新查询。",
+                                               status_code=409)
+            except (ApplicationError, PermissionDeniedError, UnsupportedQueryError) as exc:
+                result = QueryExecutionResult(
+                    run_id=run_id, task_id=command.task_id, status="failed",
+                    query_shape=plan.shape.value,
+                    error_code=getattr(exc, "code", "SCOPE_CHANGED"),
+                    error_message=(exc.message if isinstance(exc, ApplicationError)
+                                   else "机构权限或目录已变化，本次结果未发布，请重新查询。"),
+                    task_version=execution_version + 1,
+                    task_status=QueryTaskStatus.FAILED.value, timings_ms=result.timings_ms,
+                )
+                self._finish_failure(command=command, result=result,
+                                     expected_version=execution_version,
+                                     failed_node="result_authorization")
+                return result
         self._finish_success(
             command=command,
             result=result,
@@ -322,12 +387,31 @@ class QueryExecutionApplicationService:
                 # 工具重放也必须按当前权限/目录复核，不能把旧结果当成永久授权。
                 try:
                     original_dsl = artifact.get("logical_dsl") or state.logical_dsl
+                    if not original_dsl or not original_dsl.get("orgs"):
+                        raise ApplicationError(
+                            "RESULT_SCOPE_UNAVAILABLE",
+                            "历史结果缺少可信机构范围，无法安全重放，请重新查询。",
+                            status_code=409,
+                        )
                     authorized, _, _ = self._authorize_query(
                         uow=uow, actor=command.actor, logical_dsl=original_dsl,
                         strict_codes=True,
                     )
                     if set(authorized.orgs) != set((original_dsl or {}).get("orgs") or []):
                         raise PermissionDeniedError("结果机构权限范围已变化")
+                    # 旧排名 DSL 可能保存上级机构；实际结果机构也要复核，不能只验上级。
+                    saved = artifact.get("result") or {}
+                    actual_orgs = {
+                        row.get("org_code") for row in saved.get("rows", [])
+                        if row.get("org_code")
+                    }
+                    if actual_orgs:
+                        actual_authorized = self.permission_service.authorize_logical_dsl(
+                            actor=command.actor,
+                            logical_dsl={**original_dsl, "orgs": sorted(actual_orgs)},
+                        )
+                        if set(actual_authorized.get("orgs", [])) != actual_orgs:
+                            raise PermissionDeniedError("结果机构权限范围已变化")
                 except PermissionDeniedError as exc:
                     raise ApplicationError(
                         "ORG_SCOPE_FORBIDDEN", "无权访问该查询结果。", status_code=403,
@@ -352,6 +436,8 @@ class QueryExecutionApplicationService:
             except Exception as exc:
                 state.timings_ms["query_planning_ms"] = _elapsed_ms(planning_started)
                 return self._record_planning_failure(uow, task, state, command, exc)
+            # 持久化实际授权对象；历史结果不能把空集合或上级机构当成参与查询的对象。
+            state.logical_dsl = dsl.model_dump(mode="json")
             run = QueryRun(
                 task_id=task.id,
                 conversation_id=task.conversation_id,
@@ -425,12 +511,26 @@ class QueryExecutionApplicationService:
     ) -> tuple[LogicalDSL, list[Any], list[Any]]:
         # 执行前按当前权限和正式目录再校验一次；历史保存的 DSL 不能直接当作授权。
         dsl = LogicalDSL.model_validate(logical_dsl)
+        organization_catalog = uow.organization_catalog.list_enabled()
+        scope = dsl.options.get("query_scope")
+        if scope is not None:
+            resolved = resolve_query_scope(
+                scope=scope, actor=actor, organizations=organization_catalog,
+                permissions=self.permission_service, hierarchy=self.org_hierarchy_provider,
+            )
+            if resolved["scope_fingerprint"] != dsl.options.get("scope_fingerprint"):
+                raise ApplicationError("SCOPE_CHANGED", "机构范围已变化，请重新解析查询条件。",
+                                       status_code=409)
+            # 非空 orgs 来自已保存计划；变化时不能借重新展开覆盖旧查询的事实范围。
+            if dsl.orgs and set(dsl.orgs) != set(resolved["codes"]):
+                raise ApplicationError("SCOPE_CHANGED", "机构范围已变化，请重新解析查询条件。",
+                                       status_code=409)
+            dsl.orgs = resolved["codes"]
         authorized = self.permission_service.authorize_logical_dsl(
             actor=actor,
             logical_dsl=dsl.model_dump(mode="json"),
         )
         dsl = LogicalDSL.model_validate(authorized)
-        organization_catalog = uow.organization_catalog.list_enabled()
         metric_catalog = uow.metric_catalog.list_enabled()
         known_metrics = {item.code for item in metric_catalog}
         if any(code not in known_metrics for code in dsl.metrics):
@@ -478,13 +578,6 @@ class QueryExecutionApplicationService:
         display_metric_names = _resolve_metric_names(dsl.metrics, metric_catalog)
         # SQL 机构条件统一传机构编码（mysql/inceptor 一致）；名称仅用于展示
         org_names = _resolve_source_org_codes(dsl.orgs, organization_catalog)
-        if strict_codes and any(operation.get("type") == "top_n" for operation in dsl.ops):
-            # 仅结构化通道（strict_codes）的排名反查：dsl.orgs 是范围机构（至多一个，
-            # 缺省=层级根节点），候选集合扩展为其直接下级；语义通道的排名自带候选机构，
-            # 不走这里。扩展不放权，非管理员与本人权限范围取交集。
-            org_names = self._ranking_org_scope(
-                actor=actor, dsl=dsl, organization_catalog=organization_catalog,
-            )
         plan = self.planner.build(
             dsl,
             query_shape,
@@ -499,64 +592,12 @@ class QueryExecutionApplicationService:
             ],
             "organizations": [
                 {"code": item.code, "name": item.name}
-                for item in organization_catalog if item.name in display_org_names
+                for item in organization_catalog if item.code in dsl.orgs
             ],
         }
-        # SQL 来源按 query_sql_engine 切换：builder 由 SqlBuilder 确定性组装，
-        # templates 回退到登记的模板文件；两条路径都过同一道只读校验。
-        if self.query_sql_engine == "builder" and self.sql_builder is not None:
-            sql = self.sql_builder.build(plan)
-        else:
-            sql = self.templates.load(dialect=plan.dialect, template=plan.template)
+        sql = self.sql_builder.build(plan)
         validate_readonly_sql(sql)
         return dsl, plan, sql
-
-    def _ranking_org_scope(
-        self,
-        *,
-        actor,
-        dsl: LogicalDSL,
-        organization_catalog: list[Any],
-    ) -> list[str]:
-        """排名候选集合：范围机构的直接下级；范围缺省=层级根节点（全省汇总）。
-
-        下级集合对非管理员再与本人权限范围取交集，扩展不放权。
-        排名只需要下级行，不包含范围机构自身。
-        """
-        if self.org_hierarchy_provider is None:
-            raise UnsupportedQueryError("Org hierarchy provider is not configured")
-        if len(dsl.orgs) > 1:
-            raise UnsupportedQueryError(
-                "Ranking requires at most one scope org",
-                public_message="排名查询至多指定一个范围机构，请明确在哪个机构范围内排名。",
-            )
-        if dsl.orgs:
-            scope_code = _resolve_source_org_codes(dsl.orgs, organization_catalog)[0]
-        else:
-            # 空机构集合只有管理员能走到（普通用户已被权限层填成本人机构）
-            scope_code = self.org_hierarchy_provider.root_code()
-            if scope_code is None:
-                raise UnsupportedQueryError(
-                    "Ranking scope org is missing",
-                    public_message="排名查询需要指定一个范围机构，请明确在哪个机构范围内排名。",
-                )
-        children = self.org_hierarchy_provider.children_of(scope_code)
-        if actor is not None and getattr(actor, "role_code", None) != "SYSTEM_ADMIN":
-            if self.organization_scope_provider is None:
-                # 无权限范围提供者时不能静默跳过交集：下级扩展不放权，直接拒绝。
-                raise PermissionDeniedError(
-                    "Ranking requires an organization scope provider"
-                )
-            allowed = self.organization_scope_provider.allowed_org_codes(
-                getattr(actor, "org_id", "") or ""
-            )
-            children = [code for code in children if code in allowed]
-        if not children:
-            raise UnsupportedQueryError(
-                "Ranking scope org has no child orgs",
-                public_message="该机构暂无下级机构数据，不能按机构排名；可指定上级机构后重试。",
-            )
-        return children
 
     def _record_planning_failure(
         self,
@@ -568,19 +609,20 @@ class QueryExecutionApplicationService:
     ) -> QueryExecutionResult:
         forbidden = isinstance(exc, PermissionDeniedError)
         unsupported = isinstance(exc, UnsupportedQueryError)
+        expected_error = isinstance(exc, ApplicationError)
         status = "unsupported" if unsupported else "failed"
         code = (
             "ORG_SCOPE_FORBIDDEN"
             if forbidden
             else "QUERY_UNSUPPORTED"
             if unsupported
-            else "QUERY_PLANNING_FAILED"
+            else exc.code if expected_error else "QUERY_PLANNING_FAILED"
         )
         error_debug = _error_debug(
             code=code,
             stage=QueryTaskStage.PLANNING.value,
             node="query_planning",
-            retryable=not forbidden and not unsupported,
+            retryable=not forbidden and not unsupported and not expected_error,
         )
         public_message = (
             "无权查询所选机构。"
@@ -588,10 +630,10 @@ class QueryExecutionApplicationService:
             else (
                 (getattr(exc, "public_message", None) or "当前问题暂不支持执行。")
                 if unsupported
-                else "查询计划生成失败，请稍后重试。"
+                else exc.message if expected_error else "查询计划生成失败，请稍后重试。"
             )
         )
-        if not forbidden and not unsupported:
+        if not forbidden and not unsupported and not expected_error:
             logger.error(
                 "query_planning_failed task_id=%s exception_type=%s",
                 task.id,

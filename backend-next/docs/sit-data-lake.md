@@ -50,7 +50,7 @@ connection/template check, not a source-code edit.
 | organization `spr_org_no` | hierarchy parent | Converted to `parent_org_code` when the parent is in the synchronized scope |
 | organization `org_chn_nm` | `org_terms.org_name` | Display name |
 | organization `org_abbr` | `org_terms.aliases` | Merged and deduplicated; old aliases retained |
-| organization `org_hier_code` | `org_terms.org_hier_code` | Stored only; no inferred permission inheritance |
+| organization `org_hier_code` | `org_terms.hierarchy_level` | 正式机构层级；默认同步也保存省级根与法人行父子关系，集合解析和授权使用正式层级 |
 
 Runtime templates deliberately do not select fact `indcr_nm`: it is used only by the
 catalog job. Runtime result names always come from the synchronized GoldenDB catalog.
@@ -147,22 +147,19 @@ fact-table organization number. After lower-level querying and permissions are
 approved, set the scope to `all`; child rows use `org_no` as their application code and
 retain the synchronized parent relationship.
 
-## Governed templates
+## Governed SQL builder
 
-Both `mysql` and `inceptor` register all 18 template IDs:
-
-- value: `metric_value_latest`, `metric_value_as_of`, `metric_value_in_range`,
-  `metric_value_at_dates`, `metric_value_at_periods`, `metric_value_exact`;
-- entity comparison: `metric_value_compare_latest`, `metric_value_compare_as_of`;
-- trend and period comparison: `metric_trend`, `metric_period_compare`;
-- ranking: latest/exact/in-range/as-of, each ascending and descending.
+All value, comparison, trend, ranking and data-availability queries use the shared
+SQLGlot builder. Time modes and ordering are registered scenarios; MySQL/Inceptor
+adapters own field mappings and dialect differences. There are no runtime SQL files,
+template registry, or template fallback engine.
 
 MySQL retains the local/external `metric_values` contract. Inceptor returns stable
-code/value/date fields and the application adds names and units afterward. Raw SQL
-files under `resources/sql/inceptor/` intentionally contain placeholders such as
-`{{fact_table}}` and `{{fact_value_field}}`; seeing the SIT names in a rendered SQL
-preview means the current environment is using the documented SIT defaults. Line-side
-execution selects this dialect only when `QUERY_DATABASE_DIALECT=inceptor`.
+code/value/date fields and the application adds names and units afterward. Fact-table
+and field identifiers come only from validated `SIT_*` settings; business values remain
+bound parameters. Line-side execution selects this dialect only when
+`QUERY_DATABASE_DIALECT=inceptor`. Coverage queries retain record-existence semantics;
+they do not silently inherit value cleaning or latest-batch ranking rules.
 
 ## Rules requiring bank confirmation
 
@@ -181,3 +178,12 @@ execution selects this dialect only when `QUERY_DATABASE_DIALECT=inceptor`.
 - whether the governed maximum of 12 arbitrary time windows matches business demand.
   The Inceptor template uses only fixed bound parameters and does not require MySQL
   `JSON_TABLE` or dynamically assembled SQL.
+
+## 查询集合所需的机构层级
+
+默认同步保留原有省级/法人行选择范围，并保存 hierarchy_level 与 parent_org_code；SIT_ORG_INCLUDE_BRANCH_LEVEL 只控制是否纳入支行。
+关闭支行时，依据正式层级字段确认唯一省级根与法人行，建立直属关系；开启支行时要求配置并校验真实上级字段。缺根、多根、循环或孤儿整批拒绝，dry-run同样校验，不按名称猜测。
+
+已有目录需在获授权的环境先执行现有机构同步 dry-run，核对启用目录、正式层级和账号可见范围后再同步。无需新增表或迁移历史。未同步层级的集合查询会明确返回 CONFIGURATION_ERROR，具体机构取值仍可使用。
+
+保存父子关系后权限按既有规则计算本人及后代，省级账号应核对原全机构配置；普通法人账号不因此取得其他法人行权限。升级不会自动连接或同步业务数据库。

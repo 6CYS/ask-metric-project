@@ -11,18 +11,14 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from ask_metric.application.actor_provider import ActorProvider, ContextActorProvider
 from ask_metric.application.auth_service import AuthenticationService
-from ask_metric.application.channel_service import ChannelClarificationService
-from ask_metric.application.continuation_tokens import ContinuationTokenCodec
 from ask_metric.application.ports import ScopedOrganizationPermissionService
 from ask_metric.application.query_execution_service import QueryExecutionApplicationService
 from ask_metric.application.requests import ActorContext
 from ask_metric.application.result_enrichment import CatalogResultEnricher
-from ask_metric.application.semantic_task_service import SemanticTaskApplicationService
 from ask_metric.application.task_service import QueryTaskApplicationService
 from ask_metric.core.config import PROJECT_DIR, Settings
 from ask_metric.core.security import AuthenticationError, decode_access_token
 from ask_metric.domain.query_execution import QueryPlanner
-from ask_metric.domain.semantic_engine import SemanticEngine
 from ask_metric.infrastructure.db.org_hierarchy import SqlAlchemyOrgHierarchyProvider
 from ask_metric.infrastructure.db.organization_scope import SqlAlchemyOrganizationScopeProvider
 from ask_metric.infrastructure.db.session import get_app_session_factory, get_query_engine
@@ -38,8 +34,7 @@ from ask_metric.infrastructure.model.provider import (
     credential_resolver_from_env_file,
 )
 from ask_metric.infrastructure.query.factory import create_data_source_adapter
-from ask_metric.infrastructure.query.sql_builder import SqlBuilder
-from ask_metric.infrastructure.query.templates import QueryTemplateRepository
+from ask_metric.infrastructure.query.sql_builder import sql_builder_from_settings
 from ask_metric.infrastructure.semantic.configuration import SemanticConfigRepository
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -125,10 +120,6 @@ def get_query_task_service(request: Request) -> QueryTaskApplicationService:
     settings: Settings = request.app.state.settings
     return QueryTaskApplicationService(
         max_conversations_per_user=settings.max_conversations_per_user,
-        continuation_token_codec=ContinuationTokenCodec(
-            settings.continuation_token_secret,
-            ttl_seconds=settings.continuation_token_ttl_seconds,
-        ),
         semantic_config_repository=SemanticConfigRepository(
             resolve_config_path(PROJECT_DIR, settings.semantic_config_path)
         ),
@@ -138,16 +129,6 @@ def get_query_task_service(request: Request) -> QueryTaskApplicationService:
             all_organization_org_codes=set(settings.all_organization_org_codes),
             allow_unscoped_development=settings.app_env.lower() in {"development", "test"},
         ),
-    )
-
-
-def get_channel_clarification_service(request: Request) -> ChannelClarificationService:
-    settings: Settings = request.app.state.settings
-    return ChannelClarificationService(
-        ContinuationTokenCodec(
-            settings.continuation_token_secret,
-            ttl_seconds=settings.continuation_token_ttl_seconds,
-        )
     )
 
 
@@ -170,51 +151,25 @@ def get_model_service(request: Request) -> ConfigurableModelService:
     )
 
 
-def get_semantic_task_service(request: Request) -> SemanticTaskApplicationService:
-    settings: Settings = request.app.state.settings
-    token_codec = ContinuationTokenCodec(
-        settings.continuation_token_secret,
-        ttl_seconds=settings.continuation_token_ttl_seconds,
-    )
-    model_service = get_model_service(request)
-    return SemanticTaskApplicationService(
-        semantic_engine=SemanticEngine(
-            model_service, catalog_vector_cache=request.app.state.catalog_vector_cache,
-        ),
-        config_repository=SemanticConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.semantic_config_path)
-        ),
-        continuation_token_codec=token_codec,
-    )
-
-
 def get_query_execution_service(request: Request) -> QueryExecutionApplicationService:
     settings: Settings = request.app.state.settings
-    # 模板仓库与确定性 SqlBuilder 共用同一份白名单标识符配置。
-    template_variables = {
-        "fact_table": settings.sit_fact_table,
-        "fact_metric_code_field": settings.sit_fact_metric_code_field,
-        "fact_org_code_field": settings.sit_fact_org_code_field,
-        "fact_data_date_field": settings.sit_fact_data_date_field,
-        "fact_value_field": settings.sit_fact_value_field,
-        "fact_increment_field": settings.sit_fact_increment_field,
-        "batch_order": "f." + settings.sit_batch_order.replace(", ", ", f."),
-    }
+    def validate_current_actor(actor: ActorContext) -> None:
+        # 长查询发布前再次核对账号、角色和登录版本，不能只复用请求开始时的身份。
+        if actor.authentication_method == "local_jwt":
+            authorization = request.headers.get("authorization", "")
+            scheme, _, token = authorization.partition(" ")
+            if scheme.lower() != "bearer" or not token:
+                raise AuthenticationError("AUTH_TOKEN_INVALID", "请重新登录后查询")
+            current = authenticate_access_token(request, token)
+            if current != actor:
+                raise AuthenticationError("AUTH_TOKEN_INVALID", "账号权限已变化，请重新登录")
     return QueryExecutionApplicationService(
         planner=QueryPlanner(
             dialect=settings.query_database_dialect,
             max_limit=settings.query_result_limit,
         ),
-        templates=QueryTemplateRepository(
-            resolve_config_path(PROJECT_DIR, settings.query_template_config_path),
-            resolve_config_path(PROJECT_DIR, settings.sql_resource_dir),
-            template_variables=template_variables,
-        ),
-        sql_builder=SqlBuilder(
-            settings.query_database_dialect,
-            template_variables,
-        ),
-        query_sql_engine=settings.query_sql_engine,
+        sql_builder=sql_builder_from_settings(settings),
+        actor_validator=validate_current_actor,
         data_source=create_data_source_adapter(
             settings.query_database_dialect,
             get_query_engine(),
@@ -231,7 +186,10 @@ def get_query_execution_service(request: Request) -> QueryExecutionApplicationSe
             allow_unscoped_development=settings.app_env.lower() in {"development", "test"},
         ),
         # 机构层级只读应用库元数据；排名下级扩展仍受机构权限交集约束。
-        org_hierarchy_provider=SqlAlchemyOrgHierarchyProvider(),
+        org_hierarchy_provider=SqlAlchemyOrgHierarchyProvider(
+            root_level=settings.sit_org_head_office_hier_code,
+            cohort_level=settings.sit_org_legal_entity_hier_code,
+        ),
         organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
         model_service=get_model_service(request),
         result_enricher=(

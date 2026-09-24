@@ -6,7 +6,6 @@ import {
   Database,
   MessageSquareText,
   SlidersHorizontal,
-  TestTubeDiagonal,
 } from "@lucide/vue"
 
 /**
@@ -32,5 +31,4 @@ export const navigationItems: NavigationItem[] = [
   { routeName: "datasets", href: "/datasets", label: "数据集", description: "事实表与来源", icon: Database },
   { routeName: "query-runs", href: "/query-runs", label: "问数日志", description: "运行轨迹", icon: Activity },
   { routeName: "llm", href: "/llm", label: "智能配置", description: "模型、提示词与 SQL", icon: SlidersHorizontal, adminOnly: true },
-  { routeName: "test-center", href: "/test-center", label: "自动化测试", description: "准确率与质量报告", icon: TestTubeDiagonal, adminOnly: true },
 ]

@@ -11,7 +11,7 @@ import type { AgentServiceConfig } from "./config.js";
 import { HarnessHost, type HostedSession, type PromptInput } from "./harnessHost.js";
 import { getLegacySession, listLegacySessions, projectLegacyMessages } from "./legacySessions.js";
 import type { NativeSessionStore } from "./nativeSessions.js";
-import { projectEntries, projectSnapshot, projectWatchEvent, projectBusinessTasks } from "./sessionProjection.js";
+import { projectEntries, projectSnapshot, projectWatchEvent, projectBusinessTasks, type ProjectedMessage } from "./sessionProjection.js";
 
 type Variables = { user: BackendUser; token: string; startedAt: number; authMs: number };
 
@@ -23,6 +23,11 @@ export function createApp(
   store: NativeSessionStore,
 ): Hono<{ Variables: Variables }> {
   const app = new Hono<{ Variables: Variables }>();
+
+  app.onError((error, c) => {
+    if (error instanceof HistoryAuthorizationError) return c.json({code: error.code, detail: error.message}, error.status);
+    return c.json({detail: "会话服务暂时不可用"}, 500);
+  });
 
   app.get("/health", (c) => c.json({ status: "ok" }));
 
@@ -70,6 +75,7 @@ export function createApp(
         created_at: metadata.createdAt,
         last_active_at: metadata.modifiedAt,
         running: await host.isRunning(metadata.id),
+        ...(await host.readOnlyReason(metadata.id) ? {legacy: true, read_only_reason: await host.readOnlyReason(metadata.id)} : {}),
       });
     }
     // 旧 JSON 会话以只读形式并入列表，标记 legacy 供前端区分
@@ -94,19 +100,23 @@ export function createApp(
       // 旧会话只读回退：不续跑、不可提问
       const legacy = getLegacySession(config.dataDir, user.id, c.req.param("id"));
       if (!legacy) return c.json({ detail: "会话不存在" }, 404);
+      const messages = legacyMessagesWithVerifiableAnswers(projectLegacyMessages(legacy));
+      await authorizeHistory(messages, new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs));
       return c.json({
         session_id: legacy.id,
         title: legacy.title,
         created_at: legacy.createdAt,
         running: false,
         legacy: true,
-        messages: projectLegacyMessages(legacy),
+        messages,
       });
     }
     const entries = await hosted.lane.findEntries({ order: "oldestFirst" }, BACKGROUND_CONTEXT);
+    const messages = projectEntries(entries);
+    await authorizeHistory(messages, new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs));
     const info = await hosted.lane.inspectExecution(BACKGROUND_CONTEXT);
     // 重启后存在未完成 operation 时，借本次已认证请求重新授权恢复
-    if (hosted.open.length > 0) {
+    if (!hosted.readOnlyReason && hosted.open.length > 0) {
       const backend = new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs);
       void host.resumeOpenOperations(hosted, { actor: user, backend }).catch((error: unknown) => {
         console.error(`会话 ${hosted.sessionId} 恢复未完成操作失败:`, error instanceof Error ? error.message : error);
@@ -117,9 +127,10 @@ export function createApp(
       session_id: hosted.sessionId,
       title: title ?? "问数会话",
       created_at: hosted.createdAt,
-      running: Boolean(info.current),
-      operation_id: info.current?.id ?? null,
-      messages: projectEntries(entries),
+      running: !hosted.readOnlyReason && Boolean(info.current),
+      operation_id: hosted.readOnlyReason ? null : info.current?.id ?? null,
+      ...(hosted.readOnlyReason ? {legacy: true, read_only_reason: hosted.readOnlyReason} : {}),
+      messages,
     });
   });
 
@@ -155,12 +166,20 @@ export function createApp(
     const hosted = await host.openSession(user, c.req.param("id"));
     if (!hosted) return c.json({ detail: "会话不存在" }, 404);
     const sessionId = hosted.sessionId;
+    const backend = new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs);
+    const authorize = createHistoryAuthorizer(backend);
+    await authorize(projectEntries(await hosted.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT)));
     return streamSSE(c, async (stream) => {
-      const send = async (type: string, data: Record<string, unknown>) =>
-        stream.writeSSE({
-          event: type,
-          data: JSON.stringify({ protocol_version: 3, session_id: sessionId, ...data }),
-        });
+      const send = authorizedSender(authorize, async (type, data) => stream.writeSSE({
+        event: type,
+        data: JSON.stringify({protocol_version: 3, session_id: sessionId, ...data}),
+      }));
+      if (hosted.readOnlyReason) {
+        const messages = projectEntries(await hosted.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT));
+        await send("snapshot", {messages, running: false, operation_id: null, legacy: true, read_only_reason: hosted.readOnlyReason});
+        await send("run_terminal", {run_status: "idle", answer_status: "idle", business_tasks: projectBusinessTasks(messages)});
+        return;
+      }
       const watch = await host.watch(hosted);
       const active = watch.snapshot.operation;
       try {
@@ -216,9 +235,12 @@ export function createApp(
     }
     const token = c.get("token");
     const backend = new BackendClient(config.backendBaseUrl, token, config.backendTimeoutMs);
+    const authorize = createHistoryAuthorizer(backend);
+    // 先复核持久化结果，再让历史进入模型或 accepted 快照；新问题不能绕过旧结果撤权。
+    await authorize(projectEntries(await hosted.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT)));
     const admitted = await host.admitPrompt(hosted, input, { actor: user, backend });
     if (!admitted.ok) {
-      const status = admitted.code === "SESSION_BUSY" ? 409 : 400;
+      const status = ["SESSION_BUSY", "LEGACY_QUERY_REQUIRES_NEW_TURN"].includes(admitted.code) ? 409 : 400;
       return c.json({ detail: admitted.message, code: admitted.code }, status);
     }
     const sessionId = hosted.sessionId;
@@ -230,7 +252,7 @@ export function createApp(
     }
 
     return streamSSE(c, async (stream) => {
-      const send = async (type: string, data: Record<string, unknown>) =>
+      const send = authorizedSender(authorize, async (type, data) =>
         stream.writeSSE({
           event: type,
           data: JSON.stringify({
@@ -240,7 +262,7 @@ export function createApp(
             request_id: input.request_id,
             ...data,
           }),
-        });
+        }));
 
       // 观察与驱动分离：浏览器断线只取消观察，不中止执行
       const watch = await host.watch(hosted);
@@ -250,6 +272,11 @@ export function createApp(
         const projected = projectWatchEvent(event);
         if (projected) void send(projected.type, projected as unknown as Record<string, unknown>).catch(() => {});
       });
+      // 模型重试与工具执行期间没有原生事件可投影；心跳既避免代理按空闲断连，
+      // 也让前端能把“仍在执行”和“卡死”区分开。
+      const heartbeat = setInterval(() => {
+        void send("progress", { elapsed_ms: Math.round(performance.now() - c.get("startedAt")) }).catch(() => {});
+      }, 15_000);
       try {
         const driven = await host.drivePrompt(hosted, admitted);
         const record = driven.ok && driven.outcome.kind === "settled" ? driven.outcome.outcome : undefined;
@@ -260,10 +287,13 @@ export function createApp(
           answer_status: record?.status === "completed" ? "ok" : "failed",
           // 失败原因透传（如模型网关 402 配额不足），由前端转成通俗提示
           error_code: record?.error?.code ?? null,
+          // 错误码无法覆盖所有模型侧失败；带上服务端已脱敏的原因摘要，避免前端只看到“失败了”
+          error_message: driven.ok ? null : driven.message,
           business_tasks: projectBusinessTasks(messages),
           timings_ms: { auth_ms: c.get("authMs"), total_ms: Math.round(performance.now() - c.get("startedAt")), model_ms: admitted.request.timings?.model_ms, tool_ms: admitted.request.timings?.tool_ms },
         }).catch(() => {});
       } finally {
+        clearInterval(heartbeat);
         watch.unsubscribe();
       }
     });
@@ -306,4 +336,141 @@ function parsePromptInput(body: Record<string, unknown>): PromptInput | null {
     input.selected_answers = body.selected_answers as Record<string, unknown>;
   }
   return input;
+}
+
+
+class HistoryAuthorizationError extends Error {
+  constructor(readonly code: string, readonly status: 403 | 409 | 503) {
+    super(status === 403 ? "历史结果涉及当前无权查看的机构，暂不能读取此会话。"
+      : status === 409 ? "历史结果缺少可复核的范围或结果引用，暂不能安全读取，请新建会话查询。"
+      : "历史结果权限暂时无法核验，请稍后重试。");
+  }
+}
+
+/** 旧 JSON 缺少执行引用的正文无法证明权限；仅调整展示，不改写历史文件。 */
+function legacyMessagesWithVerifiableAnswers(messages: ProjectedMessage[]): ProjectedMessage[] {
+  let verifiedSource = false;
+  return messages.map(message => {
+    if (message.role === "user") verifiedSource = false;
+    if (message.role === "tool") {
+      const details = object(message.details);
+      if (["succeeded", "SUCCEEDED"].includes(String(details?.status))
+        && ["metric_query_structured", "metric_ask", "metric_read", "metric_calculate", "data_availability"].includes(String(details?.kind))) verifiedSource = true;
+    }
+    return message.role === "assistant" && message.text && !verifiedSource
+      ? {...message, text: "此旧记录缺少可复核的结果引用，无法确认当前查看权限。原记录已保留，请重新查询。"}
+      : message;
+  });
+}
+const object = (value: unknown): Record<string, unknown> | undefined =>
+  value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+
+/** 单轮提问内共享的复核结果：已验证的任务与机构范围不重复请求 backend。 */
+export interface HistoryAuthorizationCache {
+  tasks: Set<string>;
+  scopes: Set<string>;
+}
+
+/** 缓存的正文不是授权票据；只复核持久化结果引用/范围，绝不重新执行指标 SQL。 */
+export async function authorizeHistory(messages: ProjectedMessage[], backend: BackendClient,
+  cache?: HistoryAuthorizationCache): Promise<void> {
+  const tasks = new Set<string>();
+  const organizationScopes: string[][] = [];
+  const unknown = () => {throw new HistoryAuthorizationError("HISTORY_SCOPE_UNAVAILABLE", 409);};
+  const addTask = (value: unknown) => {
+    if (typeof value !== "string" || !value) unknown();
+    tasks.add(value as string);
+  };
+  for (const message of messages) {
+    if (message.role !== "tool") continue;
+    const outer = object(message.details);
+    if (!outer) continue;
+    const details = object(outer.result) ?? outer;
+    if (!["succeeded", "SUCCEEDED"].includes(String(details.status))) continue;
+    const kind = String(details.kind ?? outer.kind);
+    if (["metric_query_structured", "metric_ask", "metric_read"].includes(kind)) {
+      addTask(details.task_id ?? outer.task_id);
+    } else if (kind === "metric_calculate") {
+      const inputs = object(details.inputs);
+      if (!inputs || !Object.keys(inputs).length) unknown();
+      let facts = 0;
+      for (const input of Object.values(inputs!)) {
+        const source = object(input);
+        if (source?.kind === "user_constant") continue;
+        addTask(source?.task_id);
+        facts += 1;
+      }
+      if (!facts) unknown();
+    } else if (kind === "data_availability") {
+      const codes = object(details.request)?.org_codes;
+      if (!Array.isArray(codes) || !codes.length || !codes.every(code => typeof code === "string" && code)) unknown();
+      organizationScopes.push(codes as string[]);
+    } else if (Array.isArray(details.rows) || Array.isArray(details.facts)) {
+      // 不把未知旧工具的成功结果当作无需权限的文本。
+      unknown();
+    }
+  }
+  try {
+    const pendingTasks = [...tasks].filter(taskId => !cache?.tasks.has(taskId));
+    await Promise.all(pendingTasks.map(async taskId => {
+      const task = await backend.getTask(taskId);
+      if (task.task_id !== taskId || task.status !== "SUCCEEDED") unknown();
+    }));
+    for (const taskId of pendingTasks) cache?.tasks.add(taskId);
+    const scopeKey = (codes: string[]) => JSON.stringify([...codes].sort());
+    const pendingScopes = organizationScopes.filter(codes => !cache?.scopes.has(scopeKey(codes)));
+    await Promise.all(pendingScopes.map(async codes => {
+      const resolved = await backend.resolveBusinessField("organization", codes);
+      const current = object(resolved.value)?.codes;
+      if (resolved.status !== "resolved" || !Array.isArray(current)
+        || new Set(current).size !== new Set(codes).size || codes.some(code => !current.includes(code))) {
+        throw new HistoryAuthorizationError("HISTORY_PERMISSION_DENIED", 403);
+      }
+    }));
+    for (const codes of pendingScopes) cache?.scopes.add(scopeKey(codes));
+  } catch (error) {
+    if (error instanceof HistoryAuthorizationError) throw error;
+    if (error instanceof BackendApiError && [401, 403].includes(error.status)) {
+      throw new HistoryAuthorizationError("HISTORY_PERMISSION_DENIED", 403);
+    }
+    if (error instanceof BackendApiError && [404, 409, 422].includes(error.status)) {
+      throw new HistoryAuthorizationError("HISTORY_SCOPE_UNAVAILABLE", 409);
+    }
+    throw new HistoryAuthorizationError("HISTORY_AUTHORIZATION_UNAVAILABLE", 503);
+  }
+}
+
+/**
+ * 创建一轮提问复用的复核函数：同一轮内（入口复核 + SSE 各事件）已验证的任务/机构范围
+ * 不重复请求 backend；下一轮提问使用新实例重新全量复核，撤权在轮间即时生效。
+ */
+export function createHistoryAuthorizer(backend: BackendClient): (messages: ProjectedMessage[]) => Promise<void> {
+  const cache: HistoryAuthorizationCache = { tasks: new Set(), scopes: new Set() };
+  return messages => authorizeHistory(messages, backend, cache);
+}
+
+/** 授权与事件发送串行，某条证据失权后不再发送后续正文或快照。 */
+function authorizedSender(authorize: (messages: ProjectedMessage[]) => Promise<void>,
+  write: (type: string, data: Record<string, unknown>) => Promise<unknown>) {
+  let pending: Promise<unknown> = Promise.resolve();
+  return (type: string, data: Record<string, unknown>): Promise<unknown> => {
+    pending = pending.then(async () => {
+      const snapshot = object(data.snapshot);
+      const messages = data.messages ?? snapshot?.messages;
+      try {
+        if (Array.isArray(messages)) await authorize(messages as ProjectedMessage[]);
+        if (type === "tool_end") await authorize([{
+          role: "tool", tool: String(data.tool ?? ""), tool_call_id: String(data.tool_call_id ?? ""),
+          details: data.details, is_error: Boolean(data.isError), timestamp: null, entry_id: "live",
+        }]);
+      } catch (error) {
+        const failure = error instanceof HistoryAuthorizationError ? error
+          : new HistoryAuthorizationError("HISTORY_AUTHORIZATION_UNAVAILABLE", 503);
+        await write("error", {code: failure.code, message: failure.message});
+        throw failure;
+      }
+      await write(type, data);
+    });
+    return pending;
+  };
 }

@@ -9,7 +9,7 @@
 import { NativeFrameStore, NativeBusinessResultStore } from "./business-context/store.js";
 import { modelCapabilitySchemas, modelFrame } from "./business-context/modelView.js";
 import { metricMentions } from "./business-context/metricMentions.js";
-import { pendingBusinessAction } from "./business-context/continuation.js";
+import { pendingBusinessAction, deterministicBusinessAction } from "./business-context/continuation.js";
 import { createHash } from "node:crypto";
 import { legacyToolsFor } from "./tools/index.js";
 import { auditToolCall, withToolExecutionAudit } from "./toolAudit.js";
@@ -22,6 +22,7 @@ import {
   LaneBusy,
   value,
   type AgentHarnessTool,
+  type AgentHarnessToolInvocation,
   type AgentLane,
   type Context,
   type DriveOutcome,
@@ -34,7 +35,7 @@ import {
 } from "@earendil-works/pi-agent-core";
 import type { AgentServiceConfig } from "./config.js";
 import type { ModelBundle } from "./models.js";
-import type { RetryPolicy } from "@earendil-works/pi-ai";
+import type { ImageContent, JsonValue, RetryPolicy, TextContent } from "@earendil-works/pi-ai";
 import type { BackendClient, BackendUser } from "./backendClient.js";
 import { NativeSessionStore } from "./nativeSessions.js";
 import {
@@ -84,11 +85,6 @@ export function commandKey(parts: Record<string, unknown>): string {
   return createHash("sha256").update(canonicalJson(parts)).digest("hex");
 }
 
-/** 阶段键：同一命令的各业务阶段（submit/analyze/execute/clarify/cancel）独立幂等 */
-export function phaseKey(key: string, phase: string): string {
-  return createHash("sha256").update(canonicalJson({ command_key: key, phase })).digest("hex");
-}
-
 function canonicalJson(input: unknown): string {
   if (Array.isArray(input)) return `[${input.map(canonicalJson).join(",")}]`;
   if (input && typeof input === "object") {
@@ -109,6 +105,7 @@ export interface HostedSession {
   /** 重开时原生报告的未完成操作；恢复时重新授权后再处理 */
   open: OpenOperation[];
   createdAt: number;
+  readOnlyReason?: "LEGACY_QUERY_REQUIRES_NEW_TURN";
 }
 
 /** 浏览器一次确认发送的完整输入（协议 V3）；标识与授权由宿主绑定，模型不可见 */
@@ -122,11 +119,11 @@ export interface PromptInput {
 
 export type AdmitOutcome =
   | { ok: true; operationId: string; context: Context; request: AskMetricRequestContext }
-  | { ok: false; code: "SESSION_BUSY" | "INVALID_MESSAGE" | "REQUEST_CONFLICT" | "SESSION_CLOSED"; message: string };
+  | { ok: false; code: "SESSION_BUSY" | "INVALID_MESSAGE" | "REQUEST_CONFLICT" | "SESSION_CLOSED" | "LEGACY_QUERY_REQUIRES_NEW_TURN"; message: string };
 
 export type DriveOutcomeResult =
   | { ok: true; operationId: string; outcome: DriveOutcome }
-  | { ok: false; code: "SESSION_BUSY" | "INVALID_MESSAGE" | "REQUEST_CONFLICT" | "SESSION_CLOSED"; message: string };
+  | { ok: false; code: "SESSION_BUSY" | "INVALID_MESSAGE" | "REQUEST_CONFLICT" | "SESSION_CLOSED" | "LEGACY_QUERY_REQUIRES_NEW_TURN"; message: string };
 
 export class HarnessHost {
   /** 同会话打开 Promise 去重：并发请求共享同一次打开，不重复打开同一 Session */
@@ -202,7 +199,8 @@ export class HarnessHost {
             reserveTokens: this.config.compaction.reserveTokens,
             keepRecentTokens: this.config.compaction.keepRecentTokens,
           },
-          ...(this.options.retry ? { retry: this.options.retry } : {}),
+          // 显式收紧重试：不传则回落到 SDK 默认（3 次重试 + 指数退避），失败要拖满两分钟才暴露。
+          retry: this.options.retry ?? this.config.modelRetry,
         },
         BACKGROUND_CONTEXT,
       );
@@ -210,7 +208,10 @@ export class HarnessHost {
       // 原生会话持久化工具白名单；升级后同步注册集，旧会话也能选择新增覆盖工具。
       // 仅在空闲时更新，不改变正在恢复的操作的工具配置。
       const execution = await lane.inspectExecution(BACKGROUND_CONTEXT);
-      if (!execution.current) await lane.setActiveTools(this.tools.map(tool => tool.name), BACKGROUND_CONTEXT);
+      const activeTools = await lane.getActiveTools(BACKGROUND_CONTEXT);
+      const retired = this.tools.some(tool => tool.name === "resolve_business_turn")
+        && activeTools.some(name => ["metric_ask", "metric_query_structured", "data_availability", "metric_calculate", "answer_present"].includes(name));
+      if (!execution.current && !retired) await lane.setActiveTools(this.tools.map(tool => tool.name), BACKGROUND_CONTEXT);
       this.registerHooks(harness, lane);
       return {
         sessionId,
@@ -220,11 +221,43 @@ export class HarnessHost {
         lane,
         open,
         createdAt: session.metadata.createdAt,
+        ...(retired ? {readOnlyReason: "LEGACY_QUERY_REQUIRES_NEW_TURN" as const} : {}),
       };
     })();
     this.live.set(sessionId, opening);
     opening.catch(() => this.live.delete(sessionId));
     return opening;
+  }
+
+  /**
+   * 把已校验的执行意图接在解析回执上落地：工具与参数都由 Frame 决定，模型和网关都不能改写。
+   * 返回的 patch 由原生 finalizeToolCall 写成持久化回执，因此证据、投影与审计看到的仍是业务回执原文。
+   * 任何意外都向上抛给调用方降级：保留原 READY 回执，按原协议由下一次模型响应接续执行。
+   */
+  private async landValidatedAction(
+    event: {toolName: string; toolCallId: string; details?: unknown; isError: boolean},
+    request: AskMetricRequestContext,
+    context: Context,
+  ): Promise<{content: Array<TextContent | ImageContent>; details: JsonValue} | undefined> {
+    if (event.toolName !== "resolve_business_turn" || event.isError) return;
+    const details = event.details as {kind?: string; status?: string; frame_id?: string} | undefined;
+    if (details?.kind !== "business_context" || !details.frame_id || !request.frames) return;
+    const state = await request.frames.state();
+    if (state.focusFrameId !== details.frame_id) return;
+    const frame = await request.frames.get(details.frame_id);
+    const action = deterministicBusinessAction(frame, details.status, request);
+    if (!action) return;
+    const tool = this.tools.find(item => item.name === action.name);
+    if (!tool) return;
+    auditToolCall(request, event.toolCallId, action.name, "admitted", action.arguments);
+    const result = await tool.execute(event.toolCallId, action.arguments as never, () => {}, request, invocationOf(event.toolCallId, request), context);
+    auditToolCall(request, event.toolCallId, action.name, "executed", action.arguments);
+    // 业务回执原文保持在首块（调用方按 content[0] 解析 JSON），只补一句下一步说明，
+    // 替代原 READY 回执的 next_action 提示。
+    const finished = action.name === "execute_business_frame" ? "条件已全部确定，查询已执行" : "历史结果已回读";
+    return {content: [...result.content, {type: "text" as const,
+      text: `${finished}（frameId: ${details.frame_id}）。请直接依据本回执组织回答，不要再向用户确认，也不要重复取数。`}],
+      details: result.details as JsonValue};
   }
 
   /** /no_think 等提供方兼容只作用于发送副本，不改用户原文与原生历史 */
@@ -286,6 +319,18 @@ export class HarnessHost {
         && payload.tools.some(raw => (raw as {function?: {name?: string}}).function?.name === action.name)) {
         return {payload: {...payload, tool_choice: {type: "function", function: {name: action.name}}}};
       }
+      // 已命中正式指标的本轮先取得业务工具回执，避免模型只输出长篇计划直至请求超时。
+      // 不指定具体能力：查询、目录解释和历史指代仍由 Pi 在可用工具中选择。
+      let turnStart = messages.length - 1;
+      while (turnStart >= 0 && messages[turnStart]?.role !== "user") turnStart -= 1;
+      const turn = messages.slice(turnStart + 1);
+      const hasBusinessReceipt = turn.some(message => message.role === "toolResult"
+        && message.toolName !== "business_skill_read");
+      if (!hasBusinessReceipt && Array.isArray(payload.tools) && payload.tools.length
+        && typeof request.backend.matchMetricQuestion === "function") {
+        const matched = await metricMentions(request);
+        if (!matched.status && matched.mentions.length) return {payload: {...payload, tool_choice: "required"}};
+      }
       return {payload};
     });
     harness.hooks.on("before_tool", async (event, context) => {
@@ -312,14 +357,26 @@ export class HarnessHost {
       auditToolCall(request, event.toolCallId, event.toolName, decision?.block ? "blocked" : "admitted", event.args);
       return decision;
     });
-    harness.hooks.on("after_tool", (event, context) => {
-      const timings = requireRequestContext(context).timings;
+    harness.hooks.on("after_tool", async (event, context) => {
+      const request = requireRequestContext(context);
+      const timings = request.timings;
       const started = timings?.toolStartedAt?.[event.toolCallId];
       if (timings && started !== undefined) {
         timings.tool_ms.push(Math.round(performance.now() - started));
         delete timings.toolStartedAt?.[event.toolCallId];
       }
-      return undefined;
+      // 解析回执为 READY/REUSE_RESULT 时，下一步调用与参数都已由 Frame 确定，
+      // 直接在原生回执上落地，不再为一次必然被宿主改写掉的模型往返付出整份 prompt 的耗时。
+      const landingStarted = performance.now();
+      const landed = await this.landValidatedAction(event, request, context).catch(error => {
+        // 落地失败不影响本轮：回执保持 READY，before_payload/after_response 的原协议仍会接续执行。
+        console.error(JSON.stringify({event: "business_action_landing_failed", request_id: request.requestId,
+          operation_id: request.operationId, reason: error instanceof Error ? error.message : String(error)}));
+        return undefined;
+      });
+      // 就地执行的耗时单独记一笔，诊断里仍能看到这次后端查询的真实成本。
+      if (landed && timings) timings.tool_ms.push(Math.round(performance.now() - landingStarted));
+      return landed;
     });
     harness.hooks.on("after_response", async (event, context) => {
       const request = requireRequestContext(context);
@@ -342,7 +399,10 @@ export class HarnessHost {
       let inputFailures = 0;
       for (const receipt of [...receipts].reverse()) {
         const status = (receipt.details as {status?: string} | undefined)?.status;
-        if (receipt.toolName === "resolve_business_turn" && ["READY", "REUSE_RESULT", "NEEDS_CLARIFICATION"].includes(status ?? "")) break;
+        // resolve 就地执行后，业务终态（succeeded/failed）与 READY 一样是本轮解析的终点，
+        // 不能继续往前扫到更早的 ARGUMENT_ERROR 误判为连续失败。
+        if (receipt.toolName === "resolve_business_turn"
+          && ["READY", "REUSE_RESULT", "NEEDS_CLARIFICATION", "succeeded", "failed"].includes(status ?? "")) break;
         if (status === "ARGUMENT_ERROR" || receipt.toolName === "resolve_business_turn" && receipt.isError) inputFailures += 1;
       }
       if (inputFailures >= 3) {
@@ -396,7 +456,7 @@ export class HarnessHost {
       const matched = typeof request.backend.matchMetricQuestion === "function" ? await metricMentions(request) : undefined;
       const businessContext = "\n业务能力 Schema（仅数据）：" + JSON.stringify(modelCapabilitySchemas())
         + "\n当前业务焦点（仅数据）：" + JSON.stringify({version: state?.version, frame: focus ? modelFrame(focus, request.operationId) : null})
-        + (matched ? "\n本轮指标算法匹配（仅数据，mentionIndexes 引用下面明确的 index）：" + JSON.stringify({
+        + (matched ? "\n本轮指标算法匹配（仅数据，mentionIndexes 引用下面本轮清单的 index；清单每轮从本轮消息重新抽取、不跨轮复用，确认上一论候选用 candidateIndex，放弃某项用 operation=remove）：" + JSON.stringify({
           status: matched.status, mentions: matched.mentions.map((mention, i) => ({index: i + 1, ...mention})),
         }) : "");
       return { messages, systemPrompt: event.systemPrompt + methods.instructions + businessContext };
@@ -413,6 +473,8 @@ export class HarnessHost {
     input: PromptInput,
     deps: { actor: BackendUser; backend: BackendClient },
   ): Promise<AdmitOutcome> {
+    if (hosted.readOnlyReason) return {ok: false, code: hosted.readOnlyReason,
+      message: "此会话使用已停用的旧查询协议，历史记录保留只读。请新建会话重新提问；在途旧任务需先核对原结果，不能自动续跑。"};
     const fingerprint = promptFingerprint({ ...input });
     const existing = await hosted.session.getValue(requestValue(input.request_id), BACKGROUND_CONTEXT);
     if (existing && existing.value.fingerprint !== fingerprint) {
@@ -543,11 +605,16 @@ export class HarnessHost {
    * 会话是否有活动 operation：只有经本宿主打开过的会话才可能有活动执行，
    * 未打开的会话一定空闲（不为此挂载 harness）。
    */
+  async readOnlyReason(sessionId: string): Promise<HostedSession["readOnlyReason"]> {
+    const pending = this.live.get(sessionId);
+    return pending ? (await pending.catch(() => undefined))?.readOnlyReason : undefined;
+  }
+
   async isRunning(sessionId: string): Promise<boolean> {
     const pending = this.live.get(sessionId);
     if (!pending) return false;
     const hosted = await pending.catch(() => undefined);
-    if (!hosted) return false;
+    if (!hosted || hosted.readOnlyReason) return false;
     const info = await hosted.lane.inspectExecution(BACKGROUND_CONTEXT);
     return Boolean(info.current);
   }
@@ -561,6 +628,10 @@ export class HarnessHost {
     hosted: HostedSession,
     deps: { actor: BackendUser; backend: BackendClient },
   ): Promise<number> {
+    if (hosted.readOnlyReason) {
+      hosted.open.splice(0); // 只清内存恢复队列，不改写持久化审计与在途记录。
+      throw new Error(hosted.readOnlyReason);
+    }
     let resumed = 0;
     // 同步取走本次待恢复列表，多个 GET 不会重复推进；失败项保留供下次认证重试。
     const pending = hosted.open.splice(0);
@@ -647,6 +718,12 @@ export class HarnessHost {
     const ids = [...this.live.keys()];
     await Promise.all(ids.map((id) => this.closeSession(id)));
   }
+}
+
+/** 同一逻辑工具调用的稳定身份：就地落地复用外层 toolCallId，不产生第二次调用记录 */
+function invocationOf(toolCallId: string, request: AskMetricRequestContext): AgentHarnessToolInvocation {
+  return {invocationId: toolCallId, operationId: request.operationId, turnId: request.operationId,
+    getMemo: async () => undefined, setMemo: async () => {}};
 }
 
 /** 历史条目的可见文本：只含用户/助手正文与工具公开回执，过滤隐藏思考与自定义条目 */

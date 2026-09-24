@@ -4,7 +4,7 @@
 pi 是唯一的 Agent 运行与对话控制核心：会话、模型上下文、压缩、执行状态与恢复全部使用原生能力
 （`JsonlSessionRepo` + `main` lane）；本服务承载鉴权、可信输入绑定、原生接线、Schema 驱动的业务 Frame 及页面投影。
 Agent 的业务取数只调用 FastAPI 后端受治理接口并透传用户 Bearer，目录校验、权限裁剪、
-SQL 模板执行与受控计算全部保留在后端；本服务不生成或执行 SQL；Frame 仅保留字段、结果引用和摘要，结果快照按需读取。
+SQL builder 生成和执行与受控计算全部保留在后端；本服务不生成或执行 SQL；Frame 仅保留字段、结果引用和摘要，结果快照按需读取。
 
 ## 本地运行
 
@@ -59,6 +59,8 @@ operation；是否存在 `current` 不能用来判断当前进程是否已有执
 Pi 输出能力、历史引用、字段变化和执行意图；通用 Schema/Resolver 确定业务事实并验证 READY，
 执行工具仅接受本轮 frameId。自然语言澄清由 Pi 根据 issues 组织，新用户回合补充后产生新 Frame。
 基础取值、覆盖、排名和计算均经过这条链路，原页面入口不变。
+取值与排名通过独立 operation 表达，selection 只表达时间选择。机构集合由后端
+`business-context/resolve-scope` 按正式层级和账号权限解析，执行前复核指纹；不使用空机构数组表示全行。
 
 Frame 使用 Pi 原生事务 values 持久化，支持历史分支、独立焦点、CAS、请求幂等和服务重启。
 取值快照复用后端 result_id；覆盖/计算快照与 Frame 分开保存。历史发送副本移除大型业务结果，

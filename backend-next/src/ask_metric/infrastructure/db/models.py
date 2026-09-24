@@ -93,6 +93,16 @@ class MetricTerm(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     metric_code: Mapped[str] = mapped_column(String(128), nullable=False)
     metric_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # 迁移前的目录仍可读取完整正式名称；源结构列只在已迁移库中显式加载。
+    source_metric_code: Mapped[str | None] = mapped_column(
+        String(128), deferred=True, deferred_group="metric_source"
+    )
+    base_name: Mapped[str | None] = mapped_column(
+        String(255), deferred=True, deferred_group="metric_source"
+    )
+    value_basis: Mapped[str | None] = mapped_column(
+        String(255), deferred=True, deferred_group="metric_source"
+    )
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     unit: Mapped[str | None] = mapped_column(String(64))
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
@@ -131,7 +141,7 @@ class OrgTerm(Base, TimestampMixin):
         JSON_DOCUMENT, nullable=False, default=list
     )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
-    # 迁移 0004：支行层级扩展启用后由目录同步写入；未启用时全 NULL，层级/权限逻辑回退 v1 规则。
+    # 迁移 0004：目录同步保存正式层级；支行开关只控制是否纳入支行节点。
     parent_org_code: Mapped[str | None] = mapped_column(String(128))
     hierarchy_level: Mapped[str | None] = mapped_column(String(8))
 
@@ -206,6 +216,7 @@ class DatasetField(Base, TimestampMixin):
 
 
 class ChatConversation(Base, TimestampMixin):
+    # 旧链路会话管理路由已删除；新链路仍用会话表关联 agent 会话与历史任务，模型保留。
     __tablename__ = "chat_conversations"
 
     id: Mapped[str] = mapped_column(String(128), primary_key=True)

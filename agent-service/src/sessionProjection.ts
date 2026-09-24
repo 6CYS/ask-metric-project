@@ -6,7 +6,7 @@
 import type { Entry, LaneSnapshot } from "@earendil-works/pi-agent-core";
 import { businessEvidence, combinedEvidenceAnswer, evidenceAnswer, presentedAnswer, type BusinessEvidence } from "./answerEvidence.js";
 import { EVIDENCE_BLOCKED_ANSWER, TOOL_LIMIT_ANSWER, mayDeliverWithoutEvidence } from "./replyGuard.js";
-import type { MetricAskDetails } from "./tools/metricAsk.js";
+import type { MetricAskDetails } from "./tools/shared.js";
 
 /** 历史消息条目（与前端 AgentSessionMessage 对齐） */
 export type ProjectedMessage =
@@ -90,7 +90,9 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
     } else if (message.role === "assistant") {
       messages.push({
         role: "assistant",
-        text: toolCallNames(message.content).length ? "" : frameTurn ? visibleText(message.content) : visibleText(message.content) === EVIDENCE_BLOCKED_ANSWER
+        text: toolCallNames(message.content).length ? "" : frameTurn && message.errorMessage
+          ? "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+          : frameTurn ? visibleText(message.content) : visibleText(message.content) === EVIDENCE_BLOCKED_ANSWER
           ? EVIDENCE_BLOCKED_ANSWER : visibleText(message.content) === TOOL_LIMIT_ANSWER
           ? [combinedEvidenceAnswer(evidence), TOOL_LIMIT_ANSWER].filter(Boolean).join("\n\n") : evidence.length
           ? combinedEvidenceAnswer(evidence) + (message.errorMessage ? "\n\n本轮处理未完成，以上仅为已取得的结果。" : "")

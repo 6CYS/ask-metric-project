@@ -12,6 +12,7 @@ import { NativeSessionStore } from "../src/nativeSessions.js";
 import { createAskMetricTools } from "../src/tools/index.js";
 import { loadBusinessSkills, createBusinessSkillReadTool } from "../src/businessSkills.js";
 import { projectEntries } from "../src/sessionProjection.js";
+import type { OrganizationScopeInput } from "../src/business-context/types.js";
 import { BackendApiError, type BackendClient, type BackendUser, type BasicQuerySpec } from "../src/backendClient.js";
 
 const dir = await mkdtemp(join(tmpdir(), "skill-regressions-"));
@@ -24,13 +25,10 @@ const actor: BackendUser = {id: "synthetic", username: "synthetic", display_name
   org_code: "A", org_name: "演示甲农商行", role_code: "SYSTEM_ADMIN"};
 const organizations = [{code: "A", name: "演示甲农商行"}, {code: "B", name: "演示乙农商行"}];
 const metrics = [{code: "M", name: "演示存款余额", unit: "元"}];
-type Conditions = {orgs: string[]; start: string; end: string; ranking?: boolean; missingDate?: boolean};
+type Conditions = {orgs: string[]; start: string; end: string; ranking?: boolean};
 type Trace = {name: string; args: unknown};
 const trace: Trace[] = [];
 const tasks = new Map<string, ReturnType<typeof result>>();
-const waiting = new Set<string>();
-const clarification = {id: "date-needed", prompt: "已确认演示甲农商行的演示存款余额，请补充查询日期。", missing: ["time"], fields: []};
-let expected: Conditions = {orgs: ["A"], start: "2026-03-31", end: "2026-03-31"};
 function result(id: string, conditions: Conditions) {
   const rows = conditions.orgs.map((code, index) => ({org_code: code,
     org_name: organizations.find(org => org.code === code)!.name,
@@ -45,28 +43,38 @@ function result(id: string, conditions: Conditions) {
   };
 }
 const backend = {
-  submitQuestion: async (question: string, _conversation: unknown, _key: string, reference: unknown) => {
-    trace.push({name: "submit", args: {question, reference}});
-    const id = `synthetic-${tasks.size + 1}`;
-    tasks.set(id, result(id, expected));
-    if (expected.missingDate) {
-      waiting.add(id);
-      return {task_id: id, conversation_id: "synthetic", version: 1, status: "WAITING_USER", clarification};
+  matchMetricQuestion: async (question: string) => ({mentions: metrics.flatMap(metric => {
+    const start = question.indexOf(metric.name);
+    return start < 0 ? [] : [{text: metric.name, start, end: start + metric.name.length,
+      resolution: {status: "resolved", value: {codes: [metric.code], names: [metric.name]}}}];
+  })}),
+  resolveBusinessField: async (entity: string, raw: string[]) => {
+    trace.push({name: "resolve-field", args: {entity, raw}});
+    if (entity === "date") {
+      const text = raw[0]!.replace(/\s/g, "");
+      const month = text.match(/(\d{1,2})月/);
+      if (!month) return {status: "invalid"};
+      const m = Number(month[1]);
+      const year = Number(text.match(/(\d{4})年/)?.[1] ?? 2026);
+      if (m < 1 || m > 12) return {status: "invalid"};
+      const last = new Date(Date.UTC(year, m, 0)).getUTCDate();
+      const prefix = `${year}-${String(m).padStart(2, "0")}`;
+      return {status: "resolved", value: {start: `${prefix}-${text.includes("月末") ? last : "01"}`, end: `${prefix}-${last}`}};
     }
-    return {task_id: id, conversation_id: "synthetic", version: 1, status: "RUNNING", current_stage: "LOGICAL_DSL"};
+    const catalog = entity === "organization" ? organizations : metrics;
+    const items = raw.map(name => catalog.find(item => item.code === name || item.name === name));
+    if (items.some(item => !item)) return {status: "not_found"};
+    return {status: "resolved", value: {codes: items.map(item => item!.code), names: items.map(item => item!.name)}};
   },
-  executeTask: async (id: string) => {trace.push({name: "execute", args: id}); return tasks.get(id)!;},
+  resolveOrganizationScope: async (input: OrganizationScopeInput) => {
+    trace.push({name: "resolve-scope", args: input});
+    if (input.kind !== "authorized_cohort" || input.cohort !== "rural_commercial_banks") throw new BackendApiError(422, "合成目录不支持该范围", "CONFIGURATION_ERROR");
+    return {status: "resolved", value: {codes: organizations.map(org => org.code), names: organizations.map(org => org.name),
+      scope: {kind: input.kind, cohort: input.cohort}, scope_fingerprint: "a".repeat(64)}};
+  },
   getTask: async (id: string) => {
     assert(tasks.has(id), "不得编造任务引用");
-    if (waiting.has(id)) return {task_id: id, version: 1, status: "WAITING_USER", clarification};
     return {task_id: id, version: 3, status: "SUCCEEDED", result: {result_id: `r:${id}`}};
-  },
-  submitClarification: async (id: string, answers: unknown) => {
-    assert(waiting.has(id));
-    trace.push({name: "clarify", args: {id, answers}});
-    waiting.delete(id);
-    tasks.set(id, result(id, expected));
-    return {task_id: id, conversation_id: "synthetic", version: 2, status: "RUNNING"};
   },
   getTaskResult: async (id: string) => {
     trace.push({name: "read", args: id});
@@ -76,16 +84,20 @@ const backend = {
   createAgentQueryContext: async () => ({conversation_id: "synthetic"}),
   basicQueries: async (spec: BasicQuerySpec) => {
     if (spec.metric_codes.some(code => !metrics.some(metric => metric.code === code))
-      || spec.org_codes.some(code => !organizations.some(org => org.code === code))) {
+      || spec.org_codes?.some(code => !organizations.some(org => org.code === code))) {
       trace.push({name: "structured-rejected", args: spec});
       throw new BackendApiError(422, "编码未在合成目录中启用，请查询目录并使用正式编码。", "QUERY_INVALID");
     }
     trace.push({name: "structured", args: spec});
     const id = `synthetic-${tasks.size + 1}`;
-    // 与正式接口一致：空排名范围表示省级根的直接下级，不能把合法参数当成桩异常。
-    const orgs = spec.selection === "ranking" && spec.org_codes.length === 0
-      ? organizations.map(org => org.code) : spec.org_codes;
-    const value = result(id, {orgs, start: spec.time.start!, end: spec.time.end!, ranking: spec.selection === "ranking"});
+    if (spec.organization_scope) {
+      assert.equal(spec.organization_scope.kind, "authorized_cohort");
+      assert.equal(spec.scope_fingerprint, "a".repeat(64));
+      assert.equal(spec.org_codes, undefined);
+    }
+    const orgs = spec.organization_scope ? organizations.map(org => org.code) : spec.org_codes!;
+    assert(orgs?.length, "不能猜测空机构范围");
+    const value = result(id, {orgs, start: spec.time.start, end: spec.time.end, ranking: spec.operation?.kind === "ranking"});
     tasks.set(id, value);
     return {query: spec, result: value};
   },
@@ -113,7 +125,7 @@ let requestIndex = 0;
 async function createSession() {
   const session = await host.createSession(actor);
   // 只给联网验收节流，不改变应用运行策略。
-  session.harness.hooks.on("before_request", async () => { await setTimeout(3_000); });
+  session.harness.hooks.on("before_request", async () => { await setTimeout(3_000); return undefined; });
   return session;
 }
 async function turn(session: Awaited<ReturnType<typeof host.createSession>>, label: string, question: string,
@@ -127,13 +139,14 @@ async function turn(session: Awaited<ReturnType<typeof host.createSession>>, lab
   const entries = (await session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT)).slice(entryCount);
   const messages = projectEntries(entries);
   const tools = messages.filter(message => message.role === "tool").map(message => message.tool);
-  const calls = trace.slice(before);
+  const calls = trace.slice(before).filter(call => !["resolve-field", "resolve-scope"].includes(call.name));
   let error: string | undefined;
   try {
     assert(!entries.some(entry => entry.type === "message" && entry.message.role === "assistant"
       && ["error", "aborted"].includes(entry.message.stopReason)), "模型请求失败或被中断");
     const answer = messages.filter(message => message.role === "assistant").at(-1);
     assert(answer?.role === "assistant" && answer.text.length > 0, "必须交付非空答案");
+    assert(!tools.includes("metric_ask"), "新入口禁止旧语义执行链");
     verify(calls, tools, answer.text);
     assert(!/部分步骤执行失败|自动核验仍未完成/.test(answer.text), "不得把中间失败或拦截算通过");
     for (const call of calls.filter(call => call.name === "structured")) {
@@ -141,39 +154,34 @@ async function turn(session: Awaited<ReturnType<typeof host.createSession>>, lab
       assert.deepEqual(spec.metric_codes, ["M"], "必须使用目录提供的正式指标编码");
     }
   } catch (failure) { error = failure instanceof Error ? failure.message : String(failure); }
-  const report = {label, tools, calls, passed: !error, error, elapsed_ms: Math.round(performance.now() - start)};
+  const report = {label, tools, calls: trace.slice(before), passed: !error, error, elapsed_ms: Math.round(performance.now() - start)};
   reports.push(report);
   console.log(JSON.stringify({probe: "regression", ...report}));
 }
 try {
   for (let repeat = 0; repeat < 3; repeat++) {
-    expected = {orgs: ["A", "B"], start: "2026-04-30", end: "2026-04-30", ranking: true};
     await turn(await createSession(), `collective-ranking-${repeat + 1}`,
       "查询2026年4月末各家农商行演示存款余额前3名。", (calls, tools) => {
-        assert(calls.some(call => call.name === "submit" || call.name === "structured"
-          && (call.args as BasicQuerySpec).selection === "ranking"
-          && (call.args as BasicQuerySpec).org_codes.length === 0
-          && (call.args as BasicQuerySpec).time.start === "2026-04-30"
-          && (call.args as BasicQuerySpec).time.end === "2026-04-30"
-          && (call.args as BasicQuerySpec).top_n === 3));
+        assert(tools.includes("resolve_business_turn") && tools.includes("execute_business_frame"));
+        assert(calls.some(call => {
+          const spec = call.args as BasicQuerySpec;
+          return call.name === "structured" && spec.selection === "exact" && spec.operation?.kind === "ranking"
+            && spec.operation.order === "desc" && spec.operation.top_n === 3
+            && spec.organization_scope?.kind === "authorized_cohort" && spec.org_codes === undefined
+            && spec.time.start === "2026-04-30" && spec.time.end === "2026-04-30";
+        }));
         assert(!calls.some(call => call.name === "org-search"));
       });
   }
   const session = await createSession();
-  expected = {orgs: ["A"], start: "2026-03-31", end: "2026-03-31"};
   await turn(session, "initial-value", "演示甲农商行2026年3月末演示存款余额是多少？", calls => {
-    assert(calls.some(call => ["submit", "structured"].includes(call.name)));
+    assert(calls.some(call => call.name === "structured"));
   });
-  const initialTask = [...tasks.keys()].at(-1)!;
-  expected = {...expected, orgs: ["B"]};
   await turn(session, "change-org", "演示乙农商行呢？", calls => {
-    assert(calls.some(call => call.name === "submit" && (call.args as {reference?: {task_id?: string}}).reference?.task_id === initialTask
-      || call.name === "structured" && (call.args as BasicQuerySpec).org_codes.join() === "B"
+    assert(calls.some(call => call.name === "structured" && (call.args as BasicQuerySpec).org_codes?.join() === "B"
         && (call.args as BasicQuerySpec).time.start === "2026-03-31"
         && (call.args as BasicQuerySpec).time.end === "2026-03-31"));
   });
-  const latestOrgTask = [...tasks.keys()].at(-1)!;
-  expected = {...expected, start: "2026-03-01"};
   let monthClarification = false;
   await turn(session, "month-grain", "3 月份呢？", (calls, _tools, answer) => {
     if (!calls.length) {
@@ -183,18 +191,15 @@ try {
       monthClarification = true;
       return;
     }
-    assert(calls.some(call => call.name === "submit" && (call.args as {reference?: {task_id?: string}}).reference?.task_id === latestOrgTask
-      || call.name === "structured" && (call.args as BasicQuerySpec).time.start === "2026-03-01"
+    assert(calls.some(call => call.name === "structured" && (call.args as BasicQuerySpec).time.start === "2026-03-01"
         && (call.args as BasicQuerySpec).time.end === "2026-03-31"
-        && (call.args as BasicQuerySpec).org_codes.join() === "B"
+        && (call.args as BasicQuerySpec).org_codes?.join() === "B"
         && (call.args as BasicQuerySpec).selection === "all_in_range"));
   });
   if (monthClarification) await turn(session, "month-grain-confirmed", "按刚才那家机构，查询2026年3月整月每日明细，不求和，也不是只看月末。", calls => {
-    assert(calls.some(call => call.name === "submit"
-      && (call.args as {reference?: {task_id?: string}}).reference?.task_id === latestOrgTask
-      || call.name === "structured" && (call.args as BasicQuerySpec).time.start === "2026-03-01"
+    assert(calls.some(call => call.name === "structured" && (call.args as BasicQuerySpec).time.start === "2026-03-01"
         && (call.args as BasicQuerySpec).time.end === "2026-03-31"
-        && (call.args as BasicQuerySpec).org_codes.join() === "B"
+        && (call.args as BasicQuerySpec).org_codes?.join() === "B"
         && (call.args as BasicQuerySpec).selection === "all_in_range"));
   });
   const latestMonthTask = [...tasks.keys()].at(-1)!;
@@ -217,16 +222,13 @@ try {
     assert.deepEqual(spec?.org_codes, ["A"]);
   });
   const clarificationSession = await createSession();
-  expected = {orgs: ["A"], start: "2026-03-01", end: "2026-03-31", missingDate: true};
-  await turn(clarificationSession, "missing-date", "查演示甲农商行演示存款余额。", calls => {
-    assert(calls.some(call => call.name === "submit"));
-    assert(!calls.some(call => call.name === "execute"));
+  await turn(clarificationSession, "missing-date", "查演示甲农商行演示存款余额。", (calls, tools) => {
+    assert(tools.includes("resolve_business_turn"));
+    assert(!calls.some(call => call.name === "structured"));
   });
-  expected = {...expected, missingDate: false};
-  await turn(clarificationSession, "clarify-date", "2026年3月份", calls => {
-    assert(calls.some(call => call.name === "clarify"));
-    assert(calls.some(call => call.name === "execute"));
-    assert(!calls.some(call => call.name === "submit"));
+  await turn(clarificationSession, "clarify-date", "2026年3月份每天的明细", (calls, tools) => {
+    assert(tools.includes("resolve_business_turn") && tools.includes("execute_business_frame"));
+    assert(calls.some(call => call.name === "structured"));
   });
   await turn(await createSession(), "unsupported-cause", "解释演示甲农商行存款余额下降的业务原因，判断是哪类客户流失导致的。", (calls, _tools, answer) => {
     assert(!calls.some(call => ["submit", "structured", "coverage"].includes(call.name)));

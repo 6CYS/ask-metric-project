@@ -8,8 +8,10 @@ import sys
 from pathlib import Path
 from time import perf_counter
 
-from ask_metric.application.metric_candidates import metric_candidate_index
-from ask_metric.domain.semantic_engine import _lexical_metric_candidates
+from ask_metric.application.metric_candidates import (
+    _lexical_metric_candidates,
+    metric_candidate_index,
+)
 from ask_metric.domain.semantics import MetricCatalogItem
 
 CASES = [
@@ -21,6 +23,13 @@ CASES = [
     ("错别字", "合成客护风险比率", "R"),
     ("描述", "本月每天的存款平均值是多少", "S"),
     ("描述", "存在风险的客户占全部客户多少比例", "R"),
+    # 前缀省略：整段是名称严格前缀，期望目标编码出现在候选（多候选不自动确定）。
+    ("前缀省略故障复现", "紫金农商行 2 月末100万以下贷款余额、保证金存款利息支出金额", "G1"),
+    ("前缀省略唯一命中", "特种单位协定存款余额", "U1"),
+    ("前缀省略别名", "特种协定存款余额", "U1"),
+    # 高风险短前缀：只允许进入待确认候选，不能自动确定；目标编码应在候选内。
+    ("短前缀不自动确定", "各项存款", "X1"),
+    ("短前缀不自动确定", "各项存款余额", "X2"),
 ]
 
 
@@ -40,6 +49,15 @@ def run(size=10000):
             aliases=["合成风险率"],
             description="存在风险的客户占全部客户的比例",
         ),
+        # 前缀省略用例目录：保证金家族多候选、唯一前缀、别名前缀与短前缀反例。
+        MetricCatalogItem(code="G1", name="保证金存款利息支出金额当日数"),
+        MetricCatalogItem(code="G2", name="保证金存款利息支出金额较同期"),
+        MetricCatalogItem(code="G3", name="保证金存款利息支出金额较上月增幅"),
+        MetricCatalogItem(code="U1", name="特种单位协定存款余额当日数",
+                          aliases=["特种协定存款余额当日数"]),
+        MetricCatalogItem(code="X1", name="各项存款余额当日数"),
+        MetricCatalogItem(code="X2", name="各项存款余额较同期"),
+        MetricCatalogItem(code="X3", name="各项存款日均余额当日数"),
     ]
     rng = random.Random(20260921)
     # 干扰项刻意共享金融字符，避免随机数字编码导致过于容易的匹配基准。

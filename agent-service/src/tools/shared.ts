@@ -5,7 +5,7 @@
 import { Type, validateToolArguments } from "@earendil-works/pi-ai";
 import type { Static, TSchema } from "@earendil-works/pi-ai";
 import type { AgentHarnessTool, AgentToolResult } from "@earendil-works/pi-agent-core";
-import { BackendApiError } from "../backendClient.js";
+import { BackendApiError, type AnswerBlock } from "../backendClient.js";
 import type { AskMetricRequestContext } from "../requestContext.js";
 
 /** 联合参数已选定动作时只反馈该分支错误；仍用原生校验器，不放宽 schema。 */
@@ -161,4 +161,24 @@ export function isCalendarDate(value: string): boolean {
     && parsed.getUTCMonth() === month - 1
     && parsed.getUTCDate() === day
   );
+}
+
+/** 旧查询回执的只读投影类型，不注册或恢复旧执行器。 */
+export interface MetricAskDetails {
+  kind: "metric_ask";
+  task_id?: string | undefined;
+  version?: number | undefined;
+  result_id?: string | undefined;
+  source_task_id?: string;
+  status: string;
+  columns?: string[] | undefined;
+  row_count?: number | undefined;
+  truncated?: boolean | undefined;
+  clarification?: unknown;
+  public_answer?: string;
+  public_answer_blocks?: AnswerBlock[];
+  error_code?: string;
+  retryable?: boolean;
+  recovery_kind?: string;
+  next_action?: string;
 }

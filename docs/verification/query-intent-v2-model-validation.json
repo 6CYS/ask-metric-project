@@ -1,0 +1,1731 @@
+{
+  "date": "2026-09-22",
+  "status": "用户要求自行测试，停止追加模型验收；未声明全量通过",
+  "runs": [
+    {
+      "label": "修复后定向复测（最后缺项校验修复前）",
+      "completed": true,
+      "model_name": "deepseek-ai/DeepSeek-V4-Flash",
+      "sql_executed": false,
+      "synthetic_business_data": true,
+      "turns_recorded": 21,
+      "passed_turns": 18,
+      "reports": [
+        {
+          "case": "explicit_rank_no_children",
+          "iteration": 1,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": "合成甲农商行本级"
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            },
+            {
+              "name": "execute_business_frame",
+              "arguments": {
+                "frameId": "19ca3af3-503e-4161-8792-c94b944fbee2"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "READY",
+                  "frameId": "19ca3af3-503e-4161-8792-c94b944fbee2"
+                }
+              ]
+            },
+            {
+              "name": "execute_business_frame",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "succeeded",
+                  "error_code": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "province_explicit",
+          "iteration": 1,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": "合成省联社本级"
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            },
+            {
+              "name": "execute_business_frame",
+              "arguments": {
+                "frameId": "a64d3d5d-2c52-4e26-ad12-5a16706c1143"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "READY",
+                  "frameId": "a64d3d5d-2c52-4e26-ad12-5a16706c1143"
+                }
+              ]
+            },
+            {
+              "name": "execute_business_frame",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "succeeded",
+                  "error_code": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "original",
+          "iteration": 1,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "authorized_cohort",
+                      "cohort": "rural_commercial_banks",
+                      "sourceText": "各家农商行"
+                    }
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            },
+            {
+              "name": "execute_business_frame",
+              "arguments": {
+                "frameId": "1ab0d491-5968-488f-a35c-4e56d57facab"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "READY",
+                  "frameId": "1ab0d491-5968-488f-a35c-4e56d57facab"
+                }
+              ]
+            },
+            {
+              "name": "execute_business_frame",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "succeeded",
+                  "error_code": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "unknown_org",
+          "iteration": 1,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": "合成不存在农商行"
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "NEEDS_CLARIFICATION",
+                  "frameId": "7ca66327-971d-4aae-83b6-311fcfe62164"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "missing_date",
+          "iteration": 1,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "authorized_cohort",
+                      "cohort": "rural_commercial_banks",
+                      "sourceText": "各家农商行"
+                    }
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "resolve_more"
+              }
+            },
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "authorized_cohort",
+                      "cohort": "rural_commercial_banks",
+                      "sourceText": "各家农商行"
+                    }
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  }
+                ],
+                "executionMode": "resolve_more"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "ARGUMENT_ERROR",
+                  "error_code": "FIELD_COMBINATION_INVALID"
+                }
+              ]
+            },
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "NEEDS_CLARIFICATION",
+                  "frameId": "924364fe-383d-48bc-aac2-6bc39dc3abd0"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "year_end",
+          "iteration": 1,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "authorized_cohort",
+                      "cohort": "rural_commercial_banks",
+                      "sourceText": "各家农商行"
+                    }
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2025年末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            },
+            {
+              "name": "execute_business_frame",
+              "arguments": {
+                "frameId": "53f6a169-e65a-48fc-8279-7f8b343ede81"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "READY",
+                  "frameId": "53f6a169-e65a-48fc-8279-7f8b343ede81"
+                }
+              ]
+            },
+            {
+              "name": "execute_business_frame",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "succeeded",
+                  "error_code": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "unknown_rank_org",
+          "iteration": 1,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "authorized_cohort",
+                      "cohort": "rural_commercial_banks",
+                      "sourceText": "农商行"
+                    }
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            },
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": "合成不存在农商行"
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "ARGUMENT_ERROR",
+                  "error_code": "SCOPE_SOURCE_INVALID"
+                }
+              ]
+            },
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "NEEDS_CLARIFICATION",
+                  "frameId": "d2efaaa5-2acb-4a3c-a8da-7ca8b762222a"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "original",
+          "iteration": 2,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "authorized_cohort",
+                      "cohort": "rural_commercial_banks",
+                      "sourceText": "各家农商行"
+                    }
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            },
+            {
+              "name": "execute_business_frame",
+              "arguments": {
+                "frameId": "c08217ed-baed-40b7-a069-bbd372a80d86"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "READY",
+                  "frameId": "c08217ed-baed-40b7-a069-bbd372a80d86"
+                }
+              ]
+            },
+            {
+              "name": "execute_business_frame",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "succeeded",
+                  "error_code": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "year_end",
+          "iteration": 2,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "authorized_cohort",
+                      "cohort": "rural_commercial_banks",
+                      "sourceText": "各家农商行"
+                    }
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2025年末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            },
+            {
+              "name": "execute_business_frame",
+              "arguments": {
+                "frameId": "a574e294-285a-44c9-82e3-817ce37734bd"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "READY",
+                  "frameId": "a574e294-285a-44c9-82e3-817ce37734bd"
+                }
+              ]
+            },
+            {
+              "name": "execute_business_frame",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "succeeded",
+                  "error_code": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "unknown_org",
+          "iteration": 2,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": "合成不存在农商行"
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "NEEDS_CLARIFICATION",
+                  "frameId": "f180f015-8d8b-4e58-b5ac-9d6b67e2fc0a"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "explicit_rank_no_children",
+          "iteration": 2,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": "合成甲农商行本级，不包含下属机构"
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            },
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": "合成甲农商行本级"
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            },
+            {
+              "name": "execute_business_frame",
+              "arguments": {
+                "frameId": "d40e1651-e000-473e-91dc-c9e98e9e79ee"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "ARGUMENT_ERROR",
+                  "error_code": "FIELD_INPUT_NOT_CURRENT"
+                }
+              ]
+            },
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "READY",
+                  "frameId": "d40e1651-e000-473e-91dc-c9e98e9e79ee"
+                }
+              ]
+            },
+            {
+              "name": "execute_business_frame",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "succeeded",
+                  "error_code": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "province_explicit",
+          "iteration": 2,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": "合成省联社本级"
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            },
+            {
+              "name": "execute_business_frame",
+              "arguments": {
+                "frameId": "d98f4150-cd37-405f-907e-a304ca814d41"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "READY",
+                  "frameId": "d98f4150-cd37-405f-907e-a304ca814d41"
+                }
+              ]
+            },
+            {
+              "name": "execute_business_frame",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "succeeded",
+                  "error_code": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "missing_date",
+          "iteration": 2,
+          "turn": 1,
+          "passed": false,
+          "errors": [
+            "focus frame status\n+ actual - expected\n\n+ undefined\n- 'clarifying'\n"
+          ],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "authorized_cohort",
+                      "cohort": "rural_commercial_banks",
+                      "sourceText": "各家农商行"
+                    }
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "resolve_more"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "ARGUMENT_ERROR",
+                  "error_code": "FIELD_COMBINATION_INVALID"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "original",
+          "iteration": 3,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "authorized_cohort",
+                      "cohort": "rural_commercial_banks",
+                      "sourceText": "各家农商行"
+                    }
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            },
+            {
+              "name": "execute_business_frame",
+              "arguments": {
+                "frameId": "3d1dc91f-a03f-4776-adbe-b67ecac75f26"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "READY",
+                  "frameId": "3d1dc91f-a03f-4776-adbe-b67ecac75f26"
+                }
+              ]
+            },
+            {
+              "name": "execute_business_frame",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "succeeded",
+                  "error_code": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "year_end",
+          "iteration": 3,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "authorized_cohort",
+                      "cohort": "rural_commercial_banks",
+                      "sourceText": "各家农商行"
+                    }
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2025年末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            },
+            {
+              "name": "execute_business_frame",
+              "arguments": {
+                "frameId": "fc4a49b1-61e1-4282-a569-142e3ddeaf69"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "READY",
+                  "frameId": "fc4a49b1-61e1-4282-a569-142e3ddeaf69"
+                }
+              ]
+            },
+            {
+              "name": "execute_business_frame",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "succeeded",
+                  "error_code": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "explicit_rank_no_children",
+          "iteration": 3,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": "合成甲农商行本级"
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            },
+            {
+              "name": "execute_business_frame",
+              "arguments": {
+                "frameId": "9f472dd1-89a4-4db6-8fbd-9b5668856ef3"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "READY",
+                  "frameId": "9f472dd1-89a4-4db6-8fbd-9b5668856ef3"
+                }
+              ]
+            },
+            {
+              "name": "execute_business_frame",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "succeeded",
+                  "error_code": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "province_explicit",
+          "iteration": 3,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": "合成省联社"
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            },
+            {
+              "name": "execute_business_frame",
+              "arguments": {
+                "frameId": "b8c96d90-5b28-4741-a669-aa1e1991b5f3"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "READY",
+                  "frameId": "b8c96d90-5b28-4741-a669-aa1e1991b5f3"
+                }
+              ]
+            },
+            {
+              "name": "execute_business_frame",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "succeeded",
+                  "error_code": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "unknown_rank_org",
+          "iteration": 2,
+          "turn": 1,
+          "passed": false,
+          "errors": [
+            "focus frame status\n+ actual - expected\n\n+ undefined\n- 'clarifying'\n"
+          ],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "authorized_cohort",
+                      "cohort": "rural_commercial_banks",
+                      "sourceText": "农商行"
+                    }
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            },
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "authorized_cohort",
+                      "cohort": "rural_commercial_banks",
+                      "sourceText": "农商行"
+                    }
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "ARGUMENT_ERROR",
+                  "error_code": "SCOPE_SOURCE_INVALID"
+                }
+              ]
+            },
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "ARGUMENT_ERROR",
+                  "error_code": "SCOPE_SOURCE_INVALID"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "missing_date",
+          "iteration": 3,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "authorized_cohort",
+                      "cohort": "rural_commercial_banks",
+                      "sourceText": "各家农商行"
+                    }
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "resolve_more"
+              }
+            },
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "authorized_cohort",
+                      "cohort": "rural_commercial_banks",
+                      "sourceText": "各家农商行"
+                    }
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  },
+                  {
+                    "fieldHint": "operation",
+                    "operation": "set",
+                    "rawValue": {
+                      "kind": "ranking",
+                      "order": "desc",
+                      "top_n": 3
+                    }
+                  }
+                ],
+                "executionMode": "resolve_more"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "ARGUMENT_ERROR",
+                  "error_code": "FIELD_COMBINATION_INVALID"
+                }
+              ]
+            },
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "NEEDS_CLARIFICATION",
+                  "frameId": "3f4ef8e4-ee8b-412a-9d62-eb5d340cfbbf"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "unknown_org",
+          "iteration": 3,
+          "turn": 1,
+          "passed": true,
+          "errors": [],
+          "native_tool_calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": "合成不存在农商行"
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            },
+            {
+              "name": "resolve_business_turn",
+              "arguments": {
+                "capabilityHint": "metric_query",
+                "fieldChanges": [
+                  {
+                    "fieldHint": "metrics",
+                    "operation": "set",
+                    "rawValue": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  {
+                    "fieldHint": "organizations",
+                    "operation": "set",
+                    "rawValue": "合成不存在农商行"
+                  },
+                  {
+                    "fieldHint": "time",
+                    "operation": "set",
+                    "rawValue": "2026年4月末"
+                  },
+                  {
+                    "fieldHint": "selection",
+                    "operation": "set",
+                    "rawValue": "exact"
+                  }
+                ],
+                "executionMode": "execute"
+              }
+            }
+          ],
+          "native_tool_results": [
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "ARGUMENT_ERROR",
+                  "error_code": "FIELD_COMBINATION_INVALID"
+                }
+              ]
+            },
+            {
+              "name": "resolve_business_turn",
+              "isError": false,
+              "statuses": [
+                {
+                  "status": "NEEDS_CLARIFICATION",
+                  "frameId": "abe1befa-677a-4894-9f4c-446ee6acd2be"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "case": "unknown_rank_org",
+          "iteration": 3,
+          "turn": 1,
+          "passed": false,
+          "errors": [
+            "focus frame status\n+ actual - expected\n\n+ undefined\n- 'clarifying'\n"
+          ],
+          "native_tool_calls": [],
+          "native_tool_results": []
+        }
+      ]
+    }
+  ]
+}

@@ -54,6 +54,9 @@ class QueryTaskStage(StrEnum):
 class QueryTaskState(BaseModel):
     model_config = ConfigDict(extra="allow")
 
+    # slots/slot_frame/missing_slots/candidates/clarification/clarification_answers/
+    # resolved_question 等是旧语义链路遗留字段，仅为读取历史任务 JSON 兼容保留，
+    # 新链路不再写入（basic_query 路径只写 logical_dsl/debug）。
     schema_version: int = 2
     graph_version: str | None = None
     metric_matches: list[dict[str, Any]] = Field(default_factory=list)

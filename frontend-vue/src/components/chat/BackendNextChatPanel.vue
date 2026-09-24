@@ -63,6 +63,8 @@ type DisplayMessage = {
   toolCalls?: ToolCallDisplay[]
   taskIds?: string[]
   elapsedMs?: number
+  /** run_terminal 携带的 agent-service 侧耗时：鉴权、各次模型调用与工具处理（重连流无此数据） */
+  runTimings?: { auth_ms?: number; total_ms?: number; model_ms?: number[]; tool_ms?: number[] }
   clarification?: BackendNextClarification
   createdAt?: string
   kind?: string
@@ -828,6 +830,14 @@ async function runQuestion(conversationId: string, question: string, kind: strin
       await reconnectConversation(conversationId, assistantId, controller)
     } else failMessage(conversationId, assistantId, error)
   } finally {
+    // 兜底：流正常结束但没有 run_terminal（服务端 drive 挂起/响应被截断）时，
+    // 消息会永久停在 pending。此处按中断收尾，保证用户总能得到明确结果并可重试。
+    const stuck = conversations.value
+      .find((item) => item.id === conversationId)
+      ?.messages.find((item) => item.id === assistantId)
+    if (stuck?.status === "pending") {
+      failMessage(conversationId, assistantId, new AgentApiError("智能助手长时间没有响应，本次提问未完成。", 0))
+    }
     updateAssistantMessage(conversationId, assistantId, (item) => ({ ...item, elapsedMs: performance.now() - startedAt }))
     abortControllers.delete(conversationId)
     markConversationSending(conversationId, false)
@@ -874,18 +884,34 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
     }
     return
   }
+  if (event.type === "progress") {
+    // 心跳只表示服务端仍在执行，不改状态；用于刷新已等待时长。
+    if (typeof event.elapsed_ms === "number") {
+      updateAssistantMessage(conversationId, assistantId, (item) => ({ ...item, elapsedMs: event.elapsed_ms }))
+    }
+    return
+  }
   if (event.type === "run_terminal") {
     const failed = !["ok", "idle"].includes(event.answer_status)
     updateAssistantMessage(conversationId, assistantId, (item) => {
       const finalized = finalizeAssistantMessage({ ...item, status: failed ? "error" : "done" })
-      if (failed && !finalized.content.trim()) {
-        // 模型侧失败（如网关配额不足）给可读原因，不留空白失败
-        finalized.content = event.error_code === "assistant_error"
-          ? "模型服务暂时不可用，请稍后重试；若持续失败请联系管理员检查模型网关。"
-          : "本次提问处理失败，请稍后重试。"
+      const existing = finalized.content.trim()
+      // 投影层在模型失败时已写入通用说明；只有它能给出不同的具体原因时才追加，
+      // 与服务端摘要相同就不再重复，避免同一句话在气泡里出现两遍。
+      if (failed) {
+        // error_message 是服务端原因摘要（非错误码），按 message 参数传入。
+        const friendly = friendlyQueryError(event.error_message ?? null, event.error_code ?? null)
+        if (friendly && friendly !== existing) {
+          finalized.content = existing ? `${existing}\n${friendly}` : friendly
+        } else if (!existing) {
+          finalized.content = event.error_code === "assistant_error"
+            ? "模型服务暂时不可用，请稍后重试；若持续失败请联系管理员检查模型网关。"
+            : "本次提问处理失败，请稍后重试。"
+        }
       }
       return {
         ...finalized,
+        runTimings: event.timings_ms ?? item.runTimings,
         toolCalls: item.toolCalls?.map((call) => call.status === "running" ? { ...call, status: "done" } : call),
       }
     })
@@ -1167,7 +1193,7 @@ async function scrollToBottom() {
                     <span class="text-xs" :class="executionStatus(chatMessage).titleClass">{{ executionStatus(chatMessage).title }}</span>
                   </template>
                 </div>
-                <AgentMessageDiagnostics :question="questionForMessage(chatMessage)" :task-ids="chatMessage.taskIds ?? []" :pending="chatMessage.status === 'pending'" :has-answer="Boolean(chatMessage.answerStreaming)" :started-at="chatMessage.createdAt" :elapsed-ms="chatMessage.elapsedMs" :tools="chatMessage.toolCalls ?? []" />
+                <AgentMessageDiagnostics :question="questionForMessage(chatMessage)" :task-ids="chatMessage.taskIds ?? []" :pending="chatMessage.status === 'pending'" :has-answer="Boolean(chatMessage.answerStreaming)" :started-at="chatMessage.createdAt" :elapsed-ms="chatMessage.elapsedMs" :tools="chatMessage.toolCalls ?? []" :run-timings="chatMessage.runTimings" />
                 <p v-if="chatMessage.status === 'pending' && chatMessage.content && (!chatMessage.availability?.length || chatMessage.metricAskDetails)" class="whitespace-pre-wrap break-words leading-7">{{ replyText(chatMessage.nativeAnswer ? chatMessage.content : chatMessage.metricAskClarificationPrompt ?? chatMessage.metricAskClarification?.prompt ?? governedReply(chatMessage.metricAskDetails) ?? chatMessage.content) }}<span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></p>
                 <ChatResultContent v-else-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :show-data-details="!chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
                 <p v-else-if="chatMessage.status !== 'pending'" class="whitespace-pre-wrap break-words leading-6">{{ replyText(chatMessage.content) }}</p>

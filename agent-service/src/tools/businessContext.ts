@@ -6,10 +6,11 @@ import { BackendApiError } from "../backendClient.js";
 import { createCapabilities } from "../business-context/capabilities.js";
 import { createFieldResolvers, businessDate } from "../business-context/resolvers.js";
 import { BusinessContextService, businessKey } from "../business-context/service.js";
-import type { BusinessFrame, ContextDelta, FieldResolution } from "../business-context/types.js";
+import type { BusinessFrame, ContextDelta, FieldResolution, OrganizationScopeInput, ResolvedOrganizations } from "../business-context/types.js";
 import { createBusinessTools } from "../business-context/adapters.js";
 import { createMetricReadTool } from "./readTools.js";
 import { BusinessInputError } from "../business-context/inputError.js";
+import { modelFields } from "../business-context/modelView.js";
 import { metricMentions } from "../business-context/metricMentions.js";
 
 const selector = Type.Object({
@@ -20,8 +21,8 @@ const selector = Type.Object({
 const parameters = Type.Object({
   capabilityHint: Type.String({enum: createCapabilities().list().map(schema => schema.capability), description: "必填：选择本次业务能力；继续当前业务时使用焦点 Frame 的 capability"}),
   baseReference: Type.Optional(Type.Union([selector, Type.Null()], {description: "null 只用于明确开始独立问题。用户补充待澄清字段或继续追问时省略本参数（沿用焦点），不要传 null 清除已确定条件。明确历史引用用选择条件，多个匹配必须澄清"})),
-  fieldChanges: Type.Array(Type.Object({fieldHint: Type.String(), operation: StringEnum(["set", "clear", "retain"]),
-    rawValue: Type.Optional(Type.Unknown({description: "新指标传 {fromQuestion:true, mentionIndexes?:number[]}，服务端算法匹配完整原文，不自行提取指标名；机构为本轮原文名称，日期为本轮原始日期表达；禁止生成编码或换算日期；控制字段用 Schema 枚举；确认上轮候选传 {candidateIndex}；未变化字段省略或 retain"})),
+  fieldChanges: Type.Array(Type.Object({fieldHint: Type.String(), operation: StringEnum(["set", "clear", "retain", "remove"]),
+    rawValue: Type.Optional(Type.Unknown({description: "新指标传 {fromQuestion:true, mentionIndexes?:number[]}，服务端算法匹配完整原文，不自行提取指标名；机构为本轮原文名称或Schema声明的集合原文对象，operation独立表达取值/排名，日期为本轮原始日期表达；禁止生成编码或换算日期；控制字段用 Schema 枚举；确认上轮候选传 {candidateIndex}；remove=用户明确放弃某项指标，rawValue 传 {mentionIndexes:[...]}（引用上一论 Frame 的 mention 序号，从1开始）；未变化字段省略或 retain"})),
   }, {additionalProperties: false}), {maxItems: 32, description: "只提交本轮改变/补充的字段。未变字段省略或 retain；确认继续已有查询且无变化时传 []，不要重填历史名称和日期。"}),
   executionMode: StringEnum(["execute", "resolve_more", "reuse_result"], {description: "请求取得结果用 execute，校验通过立即执行；仅明确暂不执行、只补条件用 resolve_more；重显已有结果用 reuse_result 且 fieldChanges=[]。"}),
 }, {additionalProperties: false});
@@ -65,14 +66,43 @@ function resolverContext(request: AskMetricRequestContext, signal: AbortSignal |
       }
       return {status: "resolved", value: bindings};
     },
+    async resolveOrganizationScope(scope: OrganizationScopeInput): Promise<FieldResolution> {
+      // 配置/权限失败由后端错误码保留，不能转为“机构缺项”询问用户。
+      let response: FieldResolution;
+      try {
+        response = await request.backend.resolveOrganizationScope(scope, {signal});
+      } catch (error) {
+        if (error instanceof BackendApiError && error.code === "SCOPE_SOURCE_INVALID") {
+          throw new BusinessInputError("SCOPE_SOURCE_INVALID", "organizations",
+            "集合 sourceText 必须是本轮明确的集合表达（如各家农商行、全省各行、账号权限内农商行）。具体机构名称应作为普通 organizations 名称提交；未知机构不能回退为集合，不能裁掉限定词扩大范围。原焦点未改变。");
+        }
+        throw error;
+      }
+      if (!response || !["resolved", "ambiguous", "not_found", "needs_confirmation"].includes(response.status)) throw new Error("INVALID_RESOLVER_RESPONSE");
+      if (response.status === "resolved") {
+        const value = response.value as ResolvedOrganizations | undefined;
+        if (!value || !Array.isArray(value.codes) || !value.codes.length || !value.codes.every(code => typeof code === "string" && code)
+          || !Array.isArray(value.names) || value.names.length !== value.codes.length || !value.names.every(name => typeof name === "string" && name)
+          || typeof value.scope_fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(value.scope_fingerprint) || !value.scope || value.scope.kind !== scope.kind
+          || (value.scope.kind === "authorized_cohort" ? value.scope.cohort !== "rural_commercial_banks" : typeof value.scope.parent_code !== "string" || !value.scope.parent_code)) throw new Error("INVALID_RESOLVER_RESPONSE");
+      }
+      return response;
+    },
     async resolveCatalog(entity: string, raw: string[], referenceYear?: number): Promise<FieldResolution> {
       try {
         const response = await request.backend.resolveBusinessField(entity, raw, {signal}, referenceYear);
         if (!response || !["resolved", "missing", "ambiguous", "not_found", "needs_confirmation", "invalid", "temporary_error"].includes(response.status)) throw new Error("INVALID_RESOLVER_RESPONSE");
         if (response.status === "resolved" && entity === "date") {
-          const value = response.value as {start?: unknown; end?: unknown} | undefined;
+          const value = response.value as {start?: unknown; end?: unknown; dates?: unknown} | undefined;
           if (!value || typeof value.start !== "string" || typeof value.end !== "string"
             || !isCalendarDate(value.start) || !isCalendarDate(value.end) || value.start > value.end) throw new Error("INVALID_RESOLVER_RESPONSE");
+          // 离散多点：dates 必须是升序去重的日历日期数组，且首尾等于 start/end。
+          if (value.dates !== undefined) {
+            const dates = value.dates;
+            if (!Array.isArray(dates) || dates.length < 2 || !dates.every(item => typeof item === "string" && isCalendarDate(item))
+              || dates.some((item, index) => index > 0 && (item as string) <= (dates[index - 1] as string))
+              || dates[0] !== value.start || dates[dates.length - 1] !== value.end) throw new Error("INVALID_RESOLVER_RESPONSE");
+          }
         }
         if (response.status === "resolved" && entity !== "date") {
           const value = response.value as {codes?: unknown; names?: unknown} | undefined;
@@ -92,9 +122,11 @@ export function createResolveBusinessTurnTool(): AgentHarnessTool<AskMetricReque
     execute: async (_id, params, _update, request, _invocation, context) => {
       try {
         const frame = await contextService(request).resolve(params as ContextDelta, identity(request), resolverContext(request, context.abortSignal));
-        const status = frame.status === "success" ? "REUSE_RESULT" : frame.status === "ready" ? "READY" : "NEEDS_CLARIFICATION";
-        return json({status, frameId: frame.frameId, capability: frame.capability, fields: frame.fields, issues: frame.issues,
+        const status = frame.status === "draft" && frame.errorCode === "TEMPORARY_ERROR" ? "TEMPORARY_ERROR" : frame.status === "success" ? "REUSE_RESULT" : frame.status === "ready" ? "READY" : "NEEDS_CLARIFICATION";
+        return json({status, frameId: frame.frameId, capability: frame.capability, fields: modelFields(frame.fields), issues: frame.issues,
           resultRef: frame.resultRef, executionMode: frame.delta.executionMode,
+          ...(status === "TEMPORARY_ERROR" ? {error_code: "TEMPORARY_ERROR", retry_reference: {frameId: frame.frameId},
+            message: "目录服务暂时不可用，原始条件已保存但不可执行。需要重试时用该 baseReference 解析，不要求用户重述业务条件。"} : {}),
           ...(status === "NEEDS_CLARIFICATION" ? {next_action: "ask_user", message: "请针对 issues 询问用户并结束本轮，不重复解析或通过其他能力绕过。"} : {}),
           ...(status === "READY" && frame.delta.executionMode === "execute" ? {
             next_action: "execute_business_frame", arguments: {frameId: frame.frameId},
@@ -112,12 +144,18 @@ export function createBusinessContextReadTool(): AgentHarnessTool<AskMetricReque
     description: "读取本会话 Frame、焦点、操作序号与能力 Schema；历史支持分页。无业务数据查询，不读取完整历史结果。序号按用户业务操作计算。",
     execute: async (_id, params, _update, request) => {
       const service = contextService(request);
-      if (params.frameId) return json({frame: await service.store.get(params.frameId) ?? null});
+      if (params.frameId) {
+        const frame = await service.store.get(params.frameId);
+        return json({frame: frame ? {...frame, fields: modelFields(frame.fields)} : null});
+      }
       const state = await service.store.state();
       const operationIds = state.frameOrder.filter(id => state.operations[id]);
       const offset = params.offset ?? Math.max(0, operationIds.length - 10);
       const ids = operationIds.slice(offset, offset + (params.limit ?? 10));
-      const frames = await Promise.all(ids.map(async (id, index) => ({ordinal: offset + index + 1, frame: await service.store.get(state.operations[id]!)})));
+      const frames = await Promise.all(ids.map(async (id, index) => {
+        const frame = await service.store.get(state.operations[id]!);
+        return {ordinal: offset + index + 1, frame: frame ? {...frame, fields: modelFields(frame.fields)} : undefined};
+      }));
       return json({version: state.version, focusFrameId: state.focusFrameId, frames,
         next_offset: offset + ids.length < operationIds.length ? offset + ids.length : null,
         schemas: service.capabilities.list().map(({capability, fields, tool}) => ({capability, fields, tool}))});

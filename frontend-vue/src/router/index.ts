@@ -7,7 +7,6 @@ import QueryRunsView from "@/views/QueryRunsView.vue"
 import DatasetsView from "@/views/DatasetsView.vue"
 import ChatView from "@/views/ChatView.vue"
 import LoginView from "@/views/LoginView.vue"
-import TestCenterView from "@/views/TestCenterView.vue"
 import { useAuth } from "@/composables/useAuth"
 import { setAuthFailureReason } from "@/lib/authSession"
 
@@ -29,7 +28,6 @@ const router = createRouter({
     { path: "/metrics", name: "metrics", component: MetricsView, meta: { requiresAuth: true } },
     { path: "/orgs", name: "orgs", component: OrgsView, meta: { requiresAuth: true } },
     { path: "/datasets", name: "datasets", component: DatasetsView, meta: { requiresAuth: true } },
-    { path: "/test-center", name: "test-center", component: TestCenterView, meta: { requiresAuth: true } },
   ],
 })
 
@@ -58,7 +56,7 @@ router.beforeEach(async (to) => {
   if (requiresAuth && !auth.isAuthenticated.value) {
     return { name: "login", query: { redirect: to.fullPath } }
   }
-  if (["llm", "test-center"].includes(String(to.name)) && auth.user.value?.role_code !== "SYSTEM_ADMIN") {
+  if (["llm"].includes(String(to.name)) && auth.user.value?.role_code !== "SYSTEM_ADMIN") {
     return { name: "chat" }
   }
   if (to.name === "login" && auth.isAuthenticated.value) return { path: "/chat" }

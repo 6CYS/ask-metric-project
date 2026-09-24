@@ -105,22 +105,13 @@ export type SmartConfigResponse = {
 
 export type ConfigVersion = {
   id: string
-  resource_type: "prompt" | "sql"
+  resource_type: "prompt"
   resource_key: string
   version_number: number
   action: "publish" | "rollback"
   created_at: string
   created_by: string
   source_version_id?: string | null
-}
-
-export type SqlTemplateConfig = {
-  dialect: string
-  template: string
-  sql: string
-  parameters: string[]
-  editable: boolean
-  enabled: boolean
 }
 
 /** 指标语义资产；说明、口径和同义词均参与前端模糊搜索。 */
@@ -367,94 +358,6 @@ export type BackendNextConversationCleanupResult = {
   protected_active_count: number
 }
 
-export type AccuracyCase = {
-  id: number
-  question: string
-  category: string
-  expected_status?: string | null
-  expected_shape?: string | null
-  expected_metric_codes: string[]
-  expected_metric_names: string[]
-  expected_orgs: string[]
-  expected_org_names: string[]
-  expected_missing: string[]
-  expected_row_count?: number | null
-  expected_value?: number | null
-  value_tolerance: number
-}
-
-export type AccuracySuite = {
-  id: string
-  name: string
-  description: string
-  cases: AccuracyCase[]
-  created_at: string
-  updated_at: string
-}
-
-export type AccuracyAssertion = {
-  name: string
-  expected: unknown
-  actual: unknown
-  passed: boolean
-}
-
-export type AccuracyResult = {
-  id: number
-  question: string
-  status: string
-  shape?: string
-  metric_codes?: string[]
-  orgs?: string[]
-  row_count?: number
-  error?: string
-  assertions: AccuracyAssertion[]
-  verdict: "passed" | "failed" | "needs_review"
-  semantic_passed: boolean
-  result_passed: boolean
-}
-
-export type AccuracyRun = {
-  id: string
-  suite_id: string
-  suite_name: string
-  status: "queued" | "running" | "completed" | "failed"
-  total: number
-  completed: number
-  passed: number
-  failed: number
-  needs_review: number
-  started_at: string
-  finished_at?: string | null
-  results: AccuracyResult[]
-  error?: string | null
-}
-
-export type AccuracyImportRow = {
-  row_number: number
-  status: "valid" | "duplicate" | "error"
-  question: string
-  message: string
-  case?: AccuracyCase | null
-}
-
-export type AccuracyImportPreview = {
-  filename: string
-  mode: "append" | "replace"
-  total_rows: number
-  valid_count: number
-  duplicate_count: number
-  error_count: number
-  can_import: boolean
-  rows: AccuracyImportRow[]
-  cases: AccuracyCase[]
-}
-
-export type AccuracyImportResult = {
-  suite: AccuracySuite
-  imported_count: number
-  skipped_count: number
-}
 export interface QueryReadiness {
   status: "initializing" | "ready" | "failed"
   message: string

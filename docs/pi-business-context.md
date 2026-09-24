@@ -41,8 +41,11 @@ NEEDS_CLARIFICATION 不调用业务数据查询，由 Pi 只针对 issues 和 ca
 
 此轮提示词调整后，223 项自动测试、类型检查与构建通过。基础提示词及加载正式业务知识目录的两组真实模型四轮回归均通过：各轮一次解析后执行/回读，没有重填历史日期的参数错误；取数各一次，历史回读不重查。测试使用合成后端，加载目录不代表模型逐项读取了业务知识正文。详见 [提示词与上下文验证记录](verification/prompt-context-2026-09-22.json)。
 
-- 指标由后端 `/api/v1/business-context/metric-mentions` 直接匹配宿主绑定的完整用户原文，每轮只解析一次。Pi 新指标传 `{fromQuestion:true}`；涉及排除或替换时用从 1 开始的 `mentionIndexes` 引用算法片段，不自行切分或纠正名称。机构仍提交原文名称；候选确认通过 `resolve-field` 重新核对目录。
+- 指标由后端 `/api/v1/business-context/metric-mentions` 直接匹配宿主绑定的完整用户原文，每轮只解析一次。Pi 新指标传 `{fromQuestion:true}`；涉及排除或替换时用从 1 开始的 `mentionIndexes` 引用算法片段，不自行切分或纠正名称。`mentionIndexes` 只引用本轮注入清单的 index：清单每轮从本轮消息重新抽取，不跨轮复用；确认上一论候选用 `{candidateIndex}`；用户明确放弃某项指标用 `operation=remove`。机构仍提交原文名称；候选确认通过 `resolve-field` 重新核对目录。
 - 指标唯一完整名称/别名命中，或完整片段算法相似度的唯一最高分达到 95%，返回 resolved 并直接采用。低分、不同编码并列最高、同名/同别名多项仍需澄清，不能截断后当唯一命中；机构沿用原精确匹配与候选确认规则。
+- 指标字段按 mention 逐条持久化解析快照（`metadata.mentionResolutions` + `questionText`）。跨轮候选确认直接拼装快照：已 resolved 的 mention 沿用可信编码，被确认条目取候选编码，不再对已确定项重跑目录复核；仍有未决项时保持澄清且候选只暴露未决项。旧 Frame 无快照时回退 pendingRawValues 复核路径。模型视图的 `lockedMentions` 列出已锁定项名称。
+- `operation=remove` 是用户明确放弃某项指标的显式通道：`rawValue` 传 `{mentionIndexes:[...]}`（引用上一论 Frame 的 mention 序号，从 1 开始），剩余项按快照合成 resolved/澄清，被放弃片段记入 `metadata.removedMentions`。只有指标字段支持 remove；其他字段收到 remove 报 `FIELD_REMOVE_NOT_SUPPORTED` 参数错误，不会静默退化为继承。放弃全部指标用 clear。
+- 覆盖率复核贯通续查轮：凡带 mention 快照的指标 Frame，执行时按 span 把已确定片段替换为最终名称、被 remove 片段整段删除，构造归一化原句作为 `source_question` 提交；后端重跑原文匹配，指标集合不一致即 409 `METRIC_TARGETS_INCOMPLETE`/`METRIC_TARGETS_UNRESOLVED`。首轮行为不变（原句即原句）；续查轮的静默丢项（mentionIndexes 部分选择）在解析层仍合法，在执行期被该复核拦下——这是有意的收紧。
 - 确认上轮候选使用 `{candidateIndex}`。序号仅选择当前父 Frame 的候选，确认原文由宿主绑定且必须来自新回合；重新查询目录后才接受业务值。旧 `sourceText` 参数兼容读取但不参与校验，防止模型误填上一轮名称导致确认失败。
 - 日期直接复用后端 `parse_time_expression`，业务日期按 Asia/Shanghai 取得。省略年份的日历表达继承同年历史标准日期的年份；明确相对今天的表达仍以当前业务日期计算。已有季度、半年、近期等规则继续有效；latest 等无确定起止日期的状态保持 invalid，不猜测数据日期。
 - 日期、指标或机构表达必须来自本轮原文，继承则使用服务端已保存的字段。Pi 不能自行换算最终日期或提交伪造编码。
@@ -55,6 +58,32 @@ NEEDS_CLARIFICATION 不调用业务数据查询，由 Pi 只针对 issues 和 ca
 
 指标算法采用 HanLP 独立 Trie、拼音倒排和 RapidFuzz，完整名称优先，近似匹配按上述 95% 规则确定或返回候选。
 算法、基准与离线部署边界见 [指标匹配方案](metric-matching.md)。
+
+## 查询意图与授权机构集合（v2）
+
+`metric_query` 的 `selection` 仅表示 `exact/latest_in_range/all_in_range`。操作独立为
+`{kind:"value"}` 或 `{kind:"ranking",order:"desc"|"asc",top_n:1..100}`；指定日和排名可以同时成立。
+整段区间逐日排名暂不支持，返回可识别的 `UNSUPPORTED`，不丢弃排名或偷偷改日期。
+
+具体机构仍逐项匹配并校验；“各家农商行”由 Pi 提交有原文依据的 `authorized_cohort`，
+范围接口按正式法人层级与账号权限取交集，返回实际编码及范围指纹。`children_of` 表示已确定上级的直接下级。
+执行时不再把实际机构二次展开。原文缺失、未知具体行、含糊指代都不能自动扩成全机构。
+覆盖能力目前仍使用具体机构；集合范围的覆盖请求明确不支持。
+
+新 Frame 继承集合时重新解析授权指纹；执行前和发布结果前复查范围，变化返回 `SCOPE_CHANGED`，
+不能继续展示旧授权榜单。发布前对本地 JWT 再次校验账号状态、角色及登录版本。
+历史结果读取、导出及任务幂等恢复仍按当前权限复查，任何组成机构失权时整体拒绝回放。
+
+排名只比较同一业务日的有效数值；NULL 不补零，同值按机构编码稳定排序。`latest_in_range`
+按每指标在授权范围内最大有效日期取数，不拼接各机构不同日期。回执 `evidence.ranking`
+提供授权候选、有值、缺数、返回条数及目标日期。MySQL 重复事实、Inceptor 最高批次重复事实
+均拒绝发布整榜，包含 TopN 外冲突；普通取值的既有批次规则保持不变。
+
+参数组合错误本轮有界纠正，不保存成待用户澄清的焦点；用户确实给出无效日期或同名候选才澄清。
+所有业务查询与覆盖 SQL 统一由 builder 生成；模板文件、执行切换和在线 SQL 编辑已清理，模型及提示词配置保留。
+
+新契约及配套发布前置条件见 [接口合同](external-api.md#3-结构化基础查询basic-queries) 与
+[交付记录](verification/query-intent-v2-delivery.md)。
 
 ## Frame、历史及焦点
 

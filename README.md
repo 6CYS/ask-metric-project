@@ -30,7 +30,7 @@ Frame 可以调用现有后端查询、覆盖和计算服务。支持字段补�
 ```
 
 实现、检查和配套升级说明见 [Pi 通用多轮业务上下文](docs/pi-business-context.md)。
-底层结构化接口 `/api/v1/basic-queries` 继续复用，合同见 [基础查询合同](docs/external-api.md#结构化基础查询basic-queries)。
+底层结构化接口 `/api/v1/basic-queries` 采用 v2 契约：时间选择与排名操作分离，机构集合按正式层级和当前权限解析；Agent 与后端须配套升级。合同见 [基础查询合同](docs/external-api.md#3-结构化基础查询basic-queries)。
 受控计算继续使用既有后端 Decimal 表达式执行器，详见 [通用表达式计算工具](docs/calculation-tools.md)。
 
 ## 环境要求
@@ -75,7 +75,6 @@ QUERY_DATABASE_DIALECT=inceptor
 METRIC_CATALOG_DATABASE_URL=
 ORG_CATALOG_DATABASE_URL=
 
-CONTINUATION_TOKEN_SECRET=ENC[SM4:v1:...]
 JWT_SECRET=ENC[SM4:v1:...]
 SM2_PRIVATE_KEY=ENC[SM4:v1:...]
 ASK_METRIC_CONFIG_SM4_KEY_FILE=/etc/ask-metric/config-sm4.key
@@ -89,7 +88,7 @@ ASK_METRIC_CONFIG_SM4_KEY_FILE=/etc/ask-metric/config-sm4.key
 
 - `NACOS_PASSWORD`；
 - `APP_DATABASE_URL`、`QUERY_DATABASE_URL`、`METRIC_CATALOG_DATABASE_URL`、`ORG_CATALOG_DATABASE_URL`；
-- `CONTINUATION_TOKEN_SECRET`、`MODEL_ADMIN_TOKEN`、`TRUSTED_PROXY_TOKEN`、`JWT_SECRET`；
+- `MODEL_ADMIN_TOKEN`、`TRUSTED_PROXY_TOKEN`、`JWT_SECRET`；
 - `SM2_PRIVATE_KEY`；
 - 模型配置所引用的 `MODEL_CHAT_API_KEY`、`MODEL_EMBEDDING_API_KEY`、`MODEL_RERANK_API_KEY` 等密钥环境变量。
 
@@ -157,7 +156,7 @@ MODEL_ADMIN_TOKEN_REQUIRED=true
 MODEL_ADMIN_TOKEN=ENC[SM4:v1:...]
 ```
 
-提示词位于 `backend-next/config/prompts.json`，语义配置位于 `backend-next/config/semantic-config.json`。业务 SQL 默认由查询计划经 SQLGlot builder 生成；`backend-next/config/query-templates.json` 与 `backend-next/resources/sql/` 的登记模板在 `QUERY_SQL_ENGINE=templates` 时作为回退路径。生产安装会把这些文件初始化到持久状态目录，升级只补充缺失项，不覆盖管理员已发布的版本。
+提示词位于 `backend-next/config/prompts.json`，语义配置位于 `backend-next/config/semantic-config.json`。业务查询和数据覆盖统一由 SQLGlot builder 生成 SQL，方言与字段映射仍使用受校验配置；不再提供 SQL 模板文件、引擎切换或在线模板编辑。模型与提示词配置继续持久保存并支持版本管理。
 
 ### 数字农商统一单点登录
 
@@ -214,12 +213,12 @@ python deploy/package/build_bundle.py `
 
 - 查询账号必须由数据库侧强制只读，不能与应用库读写账号复用；
 - 模型只能输出受约束语义结构，不能提交 SQL、表名、字段名或机构编码；
-- SQL 只从登记模板加载，业务值全部使用绑定参数；
+- SQL 统一由 builder 生成并执行只读校验，业务值全部使用绑定参数；
 - 明确机构和指标由目录保护，泛化机构范围须经目录展开和权限裁剪；
 - 生产密钥不得明文提交，不得打印到日志，不得出现在前端响应；
 - 配置密文与 SM4 主密钥必须分开保存，密钥文件权限建议为 `0640` 或更严格；
 - Schema 变更、配置写入和目录初始化均需要独立开关或确认口令；
-- 运行日志、查询任务、SQL 模板版本和配置变更均保留审计信息。
+- 运行日志、查询任务、builder 场景标识和配置变更均保留审计信息。
 
 ## 相关文档
 

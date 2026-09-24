@@ -15,6 +15,8 @@ export interface AgentServiceConfig {
   backendBaseUrl: string;
   backendTimeoutMs: number;
   modelTimeoutMs?: number;
+  /** 模型重试策略：默认只重试一次，避免超时按指数退避静默拖满两分钟 */
+  modelRetry: { enabled: boolean; maxRetries: number; baseDelayMs: number };
   model: {
     baseUrl: string;
     name: string;
@@ -89,6 +91,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceCo
   const apiKey = resolve(requireEnv(env, "AGENT_MODEL_API_KEY"));
   const contextWindow = parsePositiveInt(env.AGENT_MODEL_CONTEXT_WINDOW, 128_000, "AGENT_MODEL_CONTEXT_WINDOW");
   const maxTokens = parsePositiveInt(env.AGENT_MODEL_MAX_TOKENS, 8_192, "AGENT_MODEL_MAX_TOKENS");
+  // 原生 SDK 默认 3 次重试 + 1s/2s/4s 退避，最坏 30s×4≈2 分钟无反馈；这里收紧为一次快速重试。
+  const modelRetry = {
+    enabled: parseBoolean(env.AGENT_MODEL_RETRY_ENABLED, true, "AGENT_MODEL_RETRY_ENABLED"),
+    maxRetries: parsePositiveInt(env.AGENT_MODEL_MAX_RETRIES, 1, "AGENT_MODEL_MAX_RETRIES"),
+    baseDelayMs: parsePositiveInt(env.AGENT_MODEL_RETRY_BASE_DELAY_MS, 1_000, "AGENT_MODEL_RETRY_BASE_DELAY_MS"),
+  };
   const compaction = {
     enabled: parseBoolean(env.AGENT_COMPACTION_ENABLED, true, "AGENT_COMPACTION_ENABLED"),
     reserveTokens: parsePositiveInt(env.AGENT_COMPACTION_RESERVE_TOKENS, 16_384, "AGENT_COMPACTION_RESERVE_TOKENS"),
@@ -107,6 +115,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceCo
     backendBaseUrl: (env.BACKEND_BASE_URL ?? "http://127.0.0.1:8010").replace(/\/+$/, ""),
     backendTimeoutMs: parsePositiveInt(env.BACKEND_TIMEOUT_MS, 120_000, "BACKEND_TIMEOUT_MS"),
     modelTimeoutMs: parsePositiveInt(env.AGENT_MODEL_TIMEOUT_MS, 30_000, "AGENT_MODEL_TIMEOUT_MS"),
+    modelRetry,
     model: {
       baseUrl: requireEnv(env, "AGENT_MODEL_BASE_URL").replace(/\/+$/, ""),
       name: requireEnv(env, "AGENT_MODEL_NAME"),

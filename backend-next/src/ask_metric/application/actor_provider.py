@@ -1,12 +1,8 @@
 from typing import Protocol
 
-from ask_metric.application.requests import (
-    ActorContext,
-    IncomingClarificationRequest,
-    IncomingRequest,
-)
+from ask_metric.application.requests import ActorContext, IncomingRequest
 
-ActorRequest = IncomingRequest | IncomingClarificationRequest
+ActorRequest = IncomingRequest
 
 
 class ActorProvider(Protocol):

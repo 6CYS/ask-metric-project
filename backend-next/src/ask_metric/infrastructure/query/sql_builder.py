@@ -4,6 +4,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
+from typing import TYPE_CHECKING
 
 from sqlglot import exp, parse_one
 from sqlglot.expressions import Select
@@ -14,12 +15,11 @@ from ask_metric.domain.query_execution import (
     QueryTemplateId,
 )
 from ask_metric.infrastructure.query.sql_safety import validate_readonly_sql
-from ask_metric.infrastructure.query.templates import (
-    _validate_template_variables,
-)
 
-# 与 QueryTemplateRepository 相同的默认模板变量；标识符只允许来自这份白名单配置。
-# partition_predicate 只服务模板引擎的历史模板回退渲染，builder 从不引用，不在此登记。
+if TYPE_CHECKING:
+    from ask_metric.core.config import Settings
+
+# 事实表标识符与批次排序仅允许来自白名单配置。
 _DEFAULT_VARIABLES = {
     "fact_table": "ads_lake.adm_rmt_pub_gnrl_drv_indcr_tab",
     "fact_metric_code_field": "indcr_no",
@@ -75,11 +75,13 @@ class _Shape(Enum):
     AT_PERIODS = auto()  # 多期间取值
     PERIOD_COMPARE = auto()  # 基期/本期对比
     AVAILABILITY = auto()  # 先按实体和日期粒度去重，再选全部/最早/最新覆盖
+    AVAILABLE_METRICS = auto()  # 按原始记录发现指标，不要求有效数值
+    AVAILABLE_DATES = auto()  # 按原始记录统计日期及共同覆盖
 
 
 @dataclass(frozen=True)
 class _Scenario:
-    """方言无关的场景定义：19 个场景只在此登记一次。
+    """方言无关的场景定义；每个场景只登记一次。
 
     required 是 planner 必须提供的绑定参数（方言的契约差异由适配器 required_params
     调整）；direction 仅 RANKING 形态使用。
@@ -102,6 +104,17 @@ _T = QueryTemplateId
 # 场景唯一注册表：场景 →（形态、日期谓词、必需参数）。新增场景只在这里加一行；
 # 必需参数缺失即中止，不拼出不完整 SQL。
 _SCENARIOS: dict[QueryTemplateId, _Scenario] = {
+    _T.DATA_AVAILABLE_METRICS: _Scenario(
+        _Shape.AVAILABLE_METRICS, _TimeKind.NONE,
+        frozenset({"metric_codes", "org_codes", "start_date", "end_date", "offset", "page_end"}),
+    ),
+    _T.DATA_AVAILABILITY: _Scenario(
+        _Shape.AVAILABLE_DATES, _TimeKind.NONE,
+        frozenset({
+            "metric_codes", "org_codes", "filter_metrics", "start_date", "end_date",
+            "require_all", "combination_count", "offset", "page_end",
+        }),
+    ),
     _T.METRIC_AVAILABILITY: _Scenario(
         _Shape.AVAILABILITY, _TimeKind.NONE,
         _params("filter_dates", "start_date", "end_date", "grain", "selection"),
@@ -177,6 +190,8 @@ class _DialectAdapter:
             _Shape.AT_PERIODS: self.at_periods,
             _Shape.PERIOD_COMPARE: self.period_compare,
             _Shape.AVAILABILITY: self.availability,
+            _Shape.AVAILABLE_METRICS: self.available_metrics,
+            _Shape.AVAILABLE_DATES: self.available_dates,
         }
         return handlers[scenario.shape](scenario)
 
@@ -208,6 +223,55 @@ class _DialectAdapter:
 
     def availability(self, scenario: _Scenario) -> Select:
         raise self._unsupported(scenario)
+
+    def _record_source(self) -> tuple[str, str, str, str]:
+        """原始记录覆盖仅引用机构、指标和业务日期，不复用数值清洗/批次去重。"""
+        raise NotImplementedError
+
+    def _available_records(self, *, metrics_only: bool) -> Select:
+        table, metric, org, day = self._record_source()
+        metric_filter = f"{metric} IN :metric_codes"
+        if not metrics_only:
+            metric_filter = f"(:filter_metrics = FALSE OR {metric_filter})"
+        columns = f"{metric} AS metric_code"
+        if not metrics_only:
+            columns += f", {org} AS org_code, {day} AS stat_date"
+        return self._parse(
+            f"SELECT DISTINCT {columns} FROM {table} WHERE {org} IN :org_codes "
+            f"AND {metric_filter} AND {day} IS NOT NULL "
+            f"AND (:start_date IS NULL OR {day} >= CAST(:start_date AS DATE)) "
+            f"AND (:end_date IS NULL OR {day} <= CAST(:end_date AS DATE))"
+        )
+
+    def available_metrics(self, scenario: _Scenario) -> Select:
+        # 统计与分页在同一次查询中返回；空页仍保留总数。
+        return self._parse(
+            "SELECT s.metric_count, r.metric_code FROM stats s LEFT JOIN ranked r "
+            "ON r.rn > :offset AND r.rn <= :page_end ORDER BY r.metric_code"
+        ).with_("available", as_=self._available_records(metrics_only=True)).with_(
+            "stats", as_=self._parse("SELECT COUNT(*) AS metric_count FROM available")
+        ).with_("ranked", as_=self._parse(
+            "SELECT metric_code, ROW_NUMBER() OVER (ORDER BY metric_code) AS rn FROM available"
+        ))
+
+    def available_dates(self, scenario: _Scenario) -> Select:
+        dates = self._parse(
+            "SELECT stat_date FROM pairs GROUP BY stat_date "
+            "HAVING :require_all = FALSE OR COUNT(*) = :combination_count"
+        )
+        return self._parse(
+            "SELECT CASE WHEN :require_all = TRUE THEN 'common' ELSE 'any' END AS scope, "
+            "'' AS org_code, '' AS metric_code, s.date_count, s.earliest, s.latest, r.stat_date "
+            "FROM stats s LEFT JOIN ranked r ON r.rn > :offset AND r.rn <= :page_end "
+            "ORDER BY r.stat_date DESC"
+        ).with_("pairs", as_=self._available_records(metrics_only=False)).with_(
+            "dates", as_=dates
+        ).with_("stats", as_=self._parse(
+            "SELECT COUNT(*) AS date_count, MIN(stat_date) AS earliest, "
+            "MAX(stat_date) AS latest FROM dates"
+        )).with_("ranked", as_=self._parse(
+            "SELECT stat_date, ROW_NUMBER() OVER (ORDER BY stat_date DESC) AS rn FROM dates"
+        ))
 
     def _availability_result(self, periods: Select) -> Select:
         # 每个指标/机构独立计算边界，不能把多实体的日期隐式取交集。
@@ -243,6 +307,9 @@ class _MySqlAdapter(_DialectAdapter):
 
     name = "mysql"
     read_dialect = "mysql"
+
+    def _record_source(self) -> tuple[str, str, str, str]:
+        return "metric_values", "metric_code", "org_code", "stat_date"
 
     def availability(self, scenario: _Scenario) -> Select:
         period = (
@@ -380,46 +447,40 @@ class _MySqlAdapter(_DialectAdapter):
         )
 
     def ranking(self, scenario: _Scenario) -> Select:
-        # 机构排名：exact 直接按目标日排名；其余先定位各指标最新数据日再排名。
-        # `rank` 是 MySQL 保留字，必须反引号转义；TopN 用 WHERE rank <= :limit 而非 LIMIT。
-        ranked_values = (
-            exp.select(
-                *self._value_columns(),
-                "ROW_NUMBER() OVER ("
-                f"PARTITION BY mv.metric_code ORDER BY mv.metric_value "
-                f"{scenario.direction}, mv.org_name"
-                ") AS `rank`",
-                dialect=self.read_dialect,
-            )
-            .from_("metric_values AS mv", dialect=self.read_dialect)
-            .join(
-                "metric_terms AS mt",
-                on="mt.metric_code = mv.metric_code",
-                join_type="LEFT",
-                dialect=self.read_dialect,
-            )
+        # 先在授权/日期范围内排除缺数，再按指标选择同一业务日；普通取值路径不变。
+        candidates = self._value_from().select(
+            "COUNT(*) OVER (PARTITION BY mv.metric_code, mv.org_code, mv.stat_date) "
+            "AS fact_count", dialect=self.read_dialect,
+        ).where("mv.metric_code IN :metric_codes", dialect=self.read_dialect).where(
+            self._org_filter("mv."), dialect=self.read_dialect,
+        ).where("mv.metric_value IS NOT NULL", dialect=self.read_dialect)
+        predicate = _date_predicate(scenario.time, "mv.stat_date")
+        if predicate is not None:
+            candidates = candidates.where(predicate, dialect=self.read_dialect)
+        ranked_values = self._parse(
+            "SELECT mv.*, ROW_NUMBER() OVER (PARTITION BY mv.metric_code "
+            f"ORDER BY mv.metric_value {scenario.direction}, mv.org_code) AS `rank`, "
+            "COUNT(*) OVER (PARTITION BY mv.metric_code) AS rank_population, "
+            "MAX(CASE WHEN mv.fact_count > 1 THEN 1 ELSE 0 END) "
+            "OVER (PARTITION BY mv.metric_code) AS rank_data_conflict "
+            "FROM candidate_values AS mv"
         )
         query = exp.select(
             "metric_code", "metric_name", "unit", "org_code", "org_name",
-            "metric_value", "stat_date", "`rank`",
+            "metric_value", "stat_date", "`rank`", "rank_population", "rank_data_conflict",
             dialect=self.read_dialect,
-        )
-        if scenario.time is _TimeKind.EXACT:
-            ranked_values = (
-                ranked_values.where("mv.metric_code IN :metric_codes", dialect=self.read_dialect)
-                .where(self._org_filter("mv."), dialect=self.read_dialect)
-                .where(_date_predicate(scenario.time, "mv.stat_date"), dialect=self.read_dialect)
-            )
-        else:
+        ).with_("candidate_values", as_=candidates)
+        if scenario.time is not _TimeKind.EXACT:
             ranked_values = ranked_values.join(
                 "target_dates AS td",
                 on="td.metric_code = mv.metric_code AND td.stat_date = mv.stat_date",
                 dialect=self.read_dialect,
-            ).where(self._org_filter("mv."), dialect=self.read_dialect)
-            query = query.with_(
-                "target_dates",
-                as_=self._target_dates(_date_predicate(scenario.time, "stat_date")),
             )
+            query = query.with_("target_dates", as_=self._parse(
+                "SELECT metric_code, MAX(stat_date) AS stat_date FROM candidate_values "
+                "GROUP BY metric_code"
+            ))
+        # 有值机构数量与冲突在 TopN 截断前统计；低名次重复也必须阻断整张榜单。
         return (
             query.with_("ranked_values", as_=ranked_values)
             .from_("ranked_values", dialect=self.read_dialect)
@@ -545,6 +606,14 @@ class _InceptorAdapter(_DialectAdapter):
     name = "inceptor"
     read_dialect = "hive"
 
+    def _record_source(self) -> tuple[str, str, str, str]:
+        return (
+            f"{self.variables['fact_table']} f",
+            f"f.{self.variables['fact_metric_code_field']}",
+            f"f.{self.variables['fact_org_code_field']}",
+            self._date_field,
+        )
+
     def availability(self, scenario: _Scenario) -> Select:
         period = (
             "CASE WHEN :grain = 'month' THEN SUBSTR(CAST(stat_date AS STRING), 1, 7) "
@@ -588,9 +657,9 @@ class _InceptorAdapter(_DialectAdapter):
     def _date_field(self) -> str:
         return f"f.{self.variables['fact_data_date_field']}"
 
-    def _normalized(self, predicate: str | None) -> Select:
+    def _normalized(self, predicate: str | None, *, detect_conflicts: bool = False) -> Select:
         # 数据湖事实表清洗层：字符串数值白名单清洗（剔除 -999.999 缺失哨兵），
-        # 并按批次优先级 ROW_NUMBER 去重；标识符全部来自白名单模板变量。
+        # 并按批次优先级 ROW_NUMBER 去重；标识符全部来自白名单标识符配置。
         v = self.variables
         metric = f"f.{v['fact_metric_code_field']}"
         org = f"f.{v['fact_org_code_field']}"
@@ -607,10 +676,11 @@ class _InceptorAdapter(_DialectAdapter):
             f"AND CAST({increment} AS DECIMAL(38, 10)) <> CAST(-999.999 AS DECIMAL(38, 10)) "
             f"THEN CAST({increment} AS DECIMAL(38, 10)) ELSE NULL END"
         )
+        version_function = "RANK" if detect_conflicts else "ROW_NUMBER"
         sql = (
             f"SELECT {metric} AS metric_code, {org} AS org_code, {data_date} AS stat_date, "
             f"{value_case} AS metric_value, {increment_case} AS metric_increment, "
-            f"ROW_NUMBER() OVER (PARTITION BY {org}, {metric}, {data_date} "
+            f"{version_function}() OVER (PARTITION BY {org}, {metric}, {data_date} "
             f"ORDER BY {v['batch_order']}) AS version_rank "
             f"FROM {v['fact_table']} AS f "
             f"WHERE {metric} IN :metric_codes "
@@ -698,7 +768,10 @@ class _InceptorAdapter(_DialectAdapter):
             "SELECT f.*, ROW_NUMBER() OVER ("
             f"PARTITION BY f.metric_code ORDER BY f.metric_value "
             f"{scenario.direction}, f.org_code"
-            ") AS `rank` FROM facts AS f "
+            ") AS `rank`, COUNT(*) OVER (PARTITION BY f.metric_code) AS rank_population, "
+            "MAX(CASE WHEN f.fact_count > 1 THEN 1 ELSE 0 END) "
+            "OVER (PARTITION BY f.metric_code) AS rank_data_conflict "
+            "FROM facts AS f "
             "JOIN target_dates AS t ON t.metric_code = f.metric_code "
             "AND t.stat_date = f.stat_date"
         )
@@ -706,14 +779,25 @@ class _InceptorAdapter(_DialectAdapter):
             exp.select(
                 *self._VALUE_COLUMNS,
                 "`rank`",
+                "rank_population",
+                "rank_data_conflict",
                 dialect=self.read_dialect,
             )
             .from_("ranked", dialect=self.read_dialect)
             .where("`rank` <= :limit", dialect=self.read_dialect)
             .order_by("metric_code, `rank`", dialect=self.read_dialect)
         )
+        # 最高有效批次仍有多条事实时标记整榜，不能用任意物理行决定名次。
+        facts = self._parse(
+            "SELECT metric_code, org_code, stat_date, MAX(metric_value) AS metric_value, "
+            "MAX(metric_increment) AS metric_increment, COUNT(*) AS fact_count "
+            "FROM normalized WHERE version_rank = 1 "
+            "GROUP BY metric_code, org_code, stat_date HAVING MAX(metric_value) IS NOT NULL"
+        )
         return (
-            self._query(_date_predicate(scenario.time, self._date_field), final)
+            final.with_("normalized", as_=self._normalized(
+                _date_predicate(scenario.time, self._date_field), detect_conflicts=True,
+            )).with_("facts", as_=facts)
             .with_("target_dates", as_=self._target_dates())
             .with_("ranked", as_=ranked)
         )
@@ -723,7 +807,7 @@ class _InceptorAdapter(_DialectAdapter):
         # 12 行 UNION ALL + :period_count 截断（planner 已生成 period_start_0..11）。
         union: Select | None = None
         for index in range(12):
-            # UNION 的列名由首个分支决定，后续分支与模板一致不写别名。
+            # UNION 的列名由首个分支决定，后续分支不重复写别名。
             columns = (
                 (
                     f"{index} AS period_no",
@@ -756,7 +840,7 @@ class _InceptorAdapter(_DialectAdapter):
             .order_by("period_no, metric_code, org_code", dialect=self.read_dialect)
             .limit(":limit")
         )
-        # CTE 顺序与模板一致：requested_periods 最先定义，ranked 依赖 facts 放最后。
+        # CTE 按依赖排序：requested_periods 最先定义，ranked 依赖 facts 放最后。
         return (
             self._query(
                 _date_predicate(_TimeKind.IN_RANGE, self._date_field),
@@ -791,27 +875,27 @@ _DIALECTS: dict[str, type[_DialectAdapter]] = {
 
 
 class SqlBuilder:
-    """按计划模板编号确定性组装只读 SQL，替代模板文件渲染。
+    """按查询计划的场景编号确定性组装只读 SQL。
 
     治理边界：SQL 结构由本模块的开发者常量决定；表名/列名等标识符只取自
-    白名单校验过的 template_variables；指标、机构、日期等业务值一律保留为
+    白名单校验过的 identifiers；指标、机构、日期等业务值一律保留为
     :named 绑定占位符，由数据库适配器绑定，不拼入 SQL 文本。
-    19 个场景在 _SCENARIOS 方言无关注册一次，方言差异收拢在 _DialectAdapter
+    场景在 _SCENARIOS 方言无关注册一次，方言差异收拢在 _DialectAdapter
     子类；复杂固定片段（数值清洗 CASE、JSON_TABLE 等）用 parse_one 解析后与
-    表达式 API 组装的结果拼接，双方言输出与登记模板逐一对应。
+    表达式 API 组装的结果拼接。
     """
 
     def __init__(
         self,
         dialect: str,
-        template_variables: dict[str, str] | None = None,
+        identifiers: dict[str, str] | None = None,
     ) -> None:
         adapter_class = _DIALECTS.get(dialect)
         if adapter_class is None:
             raise QueryPlanError(f"SqlBuilder does not support dialect {dialect}")
         self.dialect = dialect
-        self.variables = {**_DEFAULT_VARIABLES, **(template_variables or {})}
-        _validate_template_variables(self.variables)
+        self.variables = {**_DEFAULT_VARIABLES, **(identifiers or {})}
+        _validate_identifiers(self.variables)
         self._adapter = adapter_class(self.variables)
         self.read_dialect = self._adapter.read_dialect
 
@@ -823,7 +907,7 @@ class SqlBuilder:
         scenario = _SCENARIOS.get(plan.template)
         if scenario is None:
             raise QueryPlanError(
-                f"Template {plan.template.value} is not registered "
+                f"Query scenario {plan.template.value} is not registered "
                 "in the SqlBuilder scenario registry"
             )
         required = self._adapter.required_params(plan.template, scenario)
@@ -834,7 +918,7 @@ class SqlBuilder:
             )
         sql = self._adapter.build(plan.template, scenario).sql(self.read_dialect)
         self._validate_bound_parameters(plan, sql)
-        # 出口再校验一次只读形态，与模板路径保持同一道闸门。
+        # 出口校验只读形态，所有查询场景均经过同一道闸门。
         validate_readonly_sql(sql)
         return sql
 
@@ -852,3 +936,39 @@ class SqlBuilder:
                 f"SQL for {plan.template.value} binds parameters missing from the plan: "
                 + ", ".join(missing)
             )
+
+
+def _validate_identifiers(values: dict[str, str]) -> None:
+    if not re.fullmatch(
+        r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*){0,2}", values["fact_table"]
+    ):
+        raise ValueError("SIT_FACT_TABLE must be a qualified SQL identifier")
+    for name in (
+        "fact_metric_code_field",
+        "fact_org_code_field",
+        "fact_data_date_field",
+        "fact_value_field",
+        "fact_increment_field",
+    ):
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", values[name]):
+            raise ValueError(f"{name} must be a SQL identifier")
+    if not re.fullmatch(
+        r"f\.[A-Za-z_][A-Za-z0-9_]*\s+(?:ASC|DESC),\s*"
+        r"f\.[A-Za-z_][A-Za-z0-9_]*\s+(?:ASC|DESC)",
+        values["batch_order"],
+        re.IGNORECASE,
+    ):
+        raise ValueError("SIT_BATCH_ORDER must order etl_date and btch_seq_no")
+
+
+def sql_builder_from_settings(settings: Settings) -> SqlBuilder:
+    """运行时与验证工具共用同一份经过白名单校验的事实表配置。"""
+    return SqlBuilder(settings.query_database_dialect, {
+        "fact_table": settings.sit_fact_table,
+        "fact_metric_code_field": settings.sit_fact_metric_code_field,
+        "fact_org_code_field": settings.sit_fact_org_code_field,
+        "fact_data_date_field": settings.sit_fact_data_date_field,
+        "fact_value_field": settings.sit_fact_value_field,
+        "fact_increment_field": settings.sit_fact_increment_field,
+        "batch_order": "f." + settings.sit_batch_order.replace(", ", ", f."),
+    })

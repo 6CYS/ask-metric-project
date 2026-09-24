@@ -3,9 +3,11 @@
 行内 GoldenDB + 只读 SIT 数据湖的配置、同步与待确认规则见
 [`docs/sit-data-lake.md`](docs/sit-data-lake.md)。
 
-FastAPI 后端负责账号与机构权限、指标目录、会话任务、语义解析、SQL 确定性组装（SQLGlot builder，模板回退）和全过程审计。
+FastAPI 后端负责账号与机构权限、指标目录、会话任务、SQL 确定性组装（SQLGlot builder）和全过程审计。
+自然语言理解由独立 `agent-service`（Pi Agent）完成；旧后端语义链路（槽位模型、澄清协议、
+外部渠道接口）已整体删除，历史任务记录仍可读取与导出。
 应用元数据连接固定使用 `APP_DATABASE_URL`，经营指标查询固定使用只读
-`QUERY_DATABASE_URL`；后者按配置使用 MySQL 或 Inceptor 查询模板。
+`QUERY_DATABASE_URL`；后者按配置使用 MySQL 或 Inceptor 方言适配器。
 
 当前机构目录采用扁平结构，`org_terms` 只依赖机构编号、名称、别名和启停状态，不要求
 `org_type` 或 `parent_org_code`。普通用户只能查询自己的机构；系统管理员继续按管理权限访问。
@@ -23,46 +25,20 @@ FastAPI 后端负责账号与机构权限、指标目录、会话任务、语义
 
 `POST /api/v1/basic-queries` 接收正式 `metric_codes`、`org_codes`、显式日期范围和
 `selection`（`exact`、`latest_in_range`、`all_in_range`），使用 Bearer 认证及必填
-`Idempotency-Key`。该入口跳过意图与槽位模型，复用任务、目录/权限校验、模板执行和结果证据；
+`Idempotency-Key`。该入口不调用模型，复用任务、目录/权限校验、模板执行和结果证据；
 不接收 SQL、自然语言或同比等分析操作。完整合同与请求示例见
-[外部 API 文档](../docs/external-api.md#结构化基础查询basic-queries)。
+[外部 API 文档](../docs/external-api.md#3-结构化基础查询basic-queries)。
 
-现有聊天入口保持原能力和不支持请求的明确拒绝。完整歧义别名也会在槽位模型调用前隐藏名称内部
-的操作词，仍须通过原澄清流程选择编码；不会根据选中的指标名称删除已经识别出的外围操作。
-上层 harness 可编排多次基础查询，将计算交给受控工具；本次没有接入 harness 运行器。
+旧自然语言聊天入口（`/questions`、analyze、execute、澄清与会话接口）已随外部渠道迁移删除；
+多轮追问由 agent-service 的 Business Frame 编排多次基础查询完成，计算交给受控工具。
 升级无需数据库迁移或新增配置，也不会修改旧失败任务的槽位。升级后使用明确编码与日期验证取数。
 
-
-原句不再按“明细、详情、逐笔、流水”等关键词拦截。先保护正式指标与机构名称，
-再由模型提取结构化操作；执行前由 `QueryPlanner` 统一核对查询形态、操作、维度和筛选条件。
+执行前由 `QueryPlanner` 统一核对查询形态、操作、维度和筛选条件。
 系统仍只执行已登记的指标查询模板，不提供逐笔交易或原始流水查询。
 合法但不支持的查询返回 `QUERY_UNSUPPORTED`，不会调用业务查询数据库；旧的
 `INITIAL_SCOPE_UNSUPPORTED` 和“一期单指标”拒绝文案不再由新查询返回。
 
-槽位模型必须显式返回 `ops` 数组，纯取值返回 `[]`。缺失或格式错误的操作，以及错误的
-筛选、维度、参数或任务类型会使语义解析失败，返回 `SLOT_FRAME_VALIDATION_FAILED`；
-不得删除错误条件后继续执行。这里收紧的是外部模型输出，历史 SlotFrame 的读取默认值保持兼容。
-
-此契约通过现有 `slot_frame_schema_json` 注入槽位提示词，不新增模型调用、不改变模型 HTTP 接口或认证方式，
-也不覆盖持久提示词。升级时确认 `PROMPT_CONFIG_PATH` 实际文件中的 `slot_extraction.user_template`
-保留 `{slot_frame_schema_json}`；若现场自定义模板曾移除它，应按当前模板补回并联调。
-字段完整性校验不能证明模型语义理解一定正确：模型明确返回 `ops: []` 但实际漏理解操作的情况，
-仍需使用行内模型准确率用例验证，不能视为静态检查已解决。
-
-`slot_extraction` 1.3.1 明确区分取值与额外计算：询问某机构某日的指标值返回 `ops: []`，
-不能因机构名包含“汇总”、指标属于客户数/总额或编码中有数量缩写就生成 `aggregate/sum`。
-正式目录候选只说明实体身份；真实的求和、动态排名、比较要求仍须保留并交由后端校验。
-时间保留用户表达的粒度：“2026年4月”解析为 `2026-04-01至2026-04-30`，
-“2026年4月末”解析为 `2026-04-30`；指标名称中的“当日数”等字样不能把整月缩成月末。
-普通区间取值仍返回范围内最新一期，并在回复中说明查询范围及实际数据日期；
-不等同于整月合计或每天明细，实际返回日期也不回写为用户查询范围。
-升级时备份后合并实际 `PROMPT_CONFIG_PATH` 中该提示词的 `system` 和 `user_template`；
-协议、占位符和模型鉴权不变，不整份覆盖其他自定义配置。失败历史不会自动重算，使用新问题验证。
-
 后续上层 harness 可以复用相同的可信执行边界；目录、权限、日期、操作和模板校验仍由后端执行。
-
-槽位提示词按实体保护、日期粒度、查询操作与机构范围分段约束；普通取值仍返回 `ops: []`，
-明确提出的额外计算仍须保留并通过能力校验。升级时合并实际使用的槽位提示词，不覆盖其他自定义配置。
 
 ## 查询结果展示与追溯
 
@@ -76,42 +52,21 @@ FastAPI 后端负责账号与机构权限、指标目录、会话任务、语义
 `1.230%` → `1.23%`）。已带 `%` 单位的指标不再乘 100，仅程序计算的变化比例转为百分比；
 未知单位不猜测。审计事实仍绑定未换算数值。已有历史任务不会重写，需重新查询才能得到新版结果。
 
-## 独立问数与当前任务澄清
+## 独立问数与历史结果
 
-每次新问题只解析本次输入，模型调用不读取其他任务的条件或结果。查询完成后输入“那江阴呢？”
-会创建新任务，并澄清缺失的指标、日期等条件。会话用于集中展示历史，不代表自动继承条件。
-尚未完成的任务通过 `task_id`、版本和 `clarification_id` 补充条件，保留本任务已经确认的条件。
-日期缺失时等待用户补充，不代填；正式指标名称仍先做目录匹配和实体保护。
-
-机构不明确或不在目录中时必须澄清，不能用整个目录代替。槽位提示词 1.3.2 要求明确全机构
-查询同时输出 `options.organization_scope=synchronized_catalog` 和原文依据
-`options.organization_scope_text`；依据不得来自已保护的指标或机构名称。若缺少依据、同时
-要求补充机构，或同时返回具体/未知机构，后端停止展开并要求选择机构，已确认的指标和日期保留。
-这项修复需同时更新后端与实际 `PROMPT_CONFIG_PATH` 中的 `slot_extraction`，并重启后端；
-仅更新仓库默认提示词不会替换生产持久配置。旧提示词返回无依据范围时会进入澄清，旧结果不改写。
+每次 basic-queries 调用只按本次输入创建任务，不读取其他任务的条件或结果。
+会话用于集中展示历史，不代表自动继承条件；多轮追问由 agent-service 一侧编排。
 
 历史会话及结果可查看、下载，不会重新查询业务库。自然语言历史指代、结果裁剪和基于历史结果
-继续查询已退出；旧跨任务追问或指代任务尝试分析、澄清、执行时返回 `CROSS_TASK_CONTEXT_RETIRED`（409）。
+继续查询已退出；旧语义链路的提问、分析、澄清、执行和外部渠道接口已删除，请求返回 404。
 已保存的结果和消息不改写，不提前接入 harness。
-
-升级时同步部署前后端，并备份后合并实际 `PROMPT_CONFIG_PATH` 指向的持久配置：
-
-- 删除 `conversation_contextualization`、`multiturn_context_patch`、`result_reference_selection` 提示词；
-  合并默认 `slot_extraction` 中独立问题、缺失条件不猜测的要求，保留自定义模型协议。
-- 移除运行环境的 `MULTITURN_*` 配置项；这些项已没有运行入口，不能恢复旧功能。
-- 集成 `/api/v1/integrations/ask` 的 `history` / `messages` 仍兼容接收，但不参与解析；续澄清须传 `clarification_id`。
-  `reply_to_task_id` 等旧引用仅保留请求协议兼容，不用于条件继承。
-- 旧 `/multiturn/metrics`、`/multiturn/readiness`、`/multiturn/review-samples` 和任务 `multiturn-review` 接口已移除。
-- 无数据库结构变更。重启后验证独立提问、同任务补日期/选指标、旧结果查看和下载。
 
 ## 归因功能退出与升级
 
 机构贡献度归因已整体移除：原 LangGraph 归因运行器、专属 Skill/关系配置、归因模型参数和
 进度/取消接口早已退出；后续的受治理归因通道（`metric_attribution` 工具、
 `selection=attribution`、可加性门控与受控计算渲染）也已删除，不支持通过开关恢复。
-归因类请求由意图路由识别后返回 `INTENT_NOT_AVAILABLE`，不会转成普通取值或历史结果读取；
 `/api/v1/basic-queries` 传入旧值 `selection=attribution` 返回 422 参数校验错误。
-`POST /api/v1/query-tasks/{task_id}/analyze` 仍是普通查询的语义解析入口，继续保留。
 
 升级原试验环境时：
 
@@ -124,7 +79,7 @@ FastAPI 后端负责账号与机构权限、指标目录、会话任务、语义
    `config/prompts.query-only.json` 保留客户已有部署的兼容路径；已使用该路径的环境无需改路径，
    仍须按同一查询协议合并实际持久配置并移除旧 `MULTITURN_*` 环境项。
    默认提示词与兼容文件分别按部署实际路径核对，不直接用其中一份覆盖另一环境的自定义配置。
-3. 重新安装当前依赖并同步部署前后端，重启后验证独立查询、当前任务澄清、历史结果读取与导出。
+3. 重新安装当前依赖并同步部署前后端，重启后验证独立查询、历史结果读取与导出。
    前端不再轮询 `analysis-progress` 或调用 `analysis-cancel`，这两个接口返回 404。
 
 旧归因记录按普通历史记录查看与导出，不再有只读拦截或证据权限复核
@@ -274,14 +229,14 @@ SSO_SOURCE_SYSTEM=jsrcb
 - 三类模型均支持受校验的 `extra_body` JSON，可透传 `top_p`、`seed` 和厂商扩展参数，
   无需修改请求代码。系统管理的核心字段和鉴权字段不能由 `extra_body` 覆盖。
 
-提示词位于 `config/prompts.json`。业务 SQL 默认由查询计划经 SQLGlot builder
-（`src/ask_metric/infrastructure/query/sql_builder.py`）确定性组装并绑定参数；登记模板
-（`config/query-templates.json` 与 `resources/sql/mysql/`、`resources/sql/inceptor/`）在
-`QUERY_SQL_ENGINE=templates` 时作为回退路径保留。MySQL 场景保留给
-外网/本地模式；行内设置 `QUERY_DATABASE_DIALECT=inceptor` 后按 Inceptor 字段映射生成。Inceptor
-场景的事实表及核心字段均由 `SIT_*` 环境变量配置，当前行内测试表名只是默认值。生产安装会
-把这些可编辑文件初始化到持久状态目录，使管理员界面
-可以发布、试跑和回滚且不受版本升级覆盖。
+提示词位于 `config/prompts.json`。所有业务查询与数据覆盖 SQL 统一由 SQLGlot builder
+（`src/ask_metric/infrastructure/query/sql_builder.py`）确定性组装，业务值始终绑定参数，
+生成后仍通过只读校验。MySQL 用于外网/本地模式；`QUERY_DATABASE_DIALECT=inceptor`
+使用 Inceptor 字段映射，事实表及核心字段继续由受校验的 `SIT_*` 配置提供。
+
+已移除 SQL 模板文件、模板配置接口和 UI；`QUERY_SQL_ENGINE`、`QUERY_TEMPLATE_CONFIG_PATH`、
+`SQL_RESOURCE_DIR` 不再生效。历史持久 SQL 文件不由升级过程删除，整包回退时仍可使用旧快照；
+新版本一律执行随代码发布的 builder。模型与提示词的编辑、版本历史和回滚保持可用。
 
 配置读取要求系统管理员。要允许写入和连通性测试，还必须设置：
 
@@ -351,8 +306,8 @@ float32 转换可能使极近分数或阈值边界出现微小差异，不能承
 
 启动期间 HTTP 服务可访问，`GET /api/v1/query-readiness` 返回 `initializing`、`ready` 或 `failed`，
 及脱敏提示、已完成条数和总条数（相同文本去重）。前端显示“问数系统指标检索功能正在初始化”，
-禁用提问和澄清提交，完成后自动开放；历史结果仍可查看。失败后每隔 30 秒自动重试并复用成功批次。
-后端同步对提问、解析、执行、补充条件、集成问数和测试中心启动返回 HTTP 503；不会创建半成品任务。
+禁用提问提交，完成后自动开放；历史结果仍可查看。失败后每隔 30 秒自动重试并复用成功批次。
+后端同步对 basic-queries、data-availability 等取数接口返回 HTTP 503；不会创建半成品任务。
 `/health` 只检查进程存活；`/health/ready` 在目录初始化完成且原有应用表检查通过后返回 200。
 初始化期间 `/health/ready` 返回 503 属于预期状态，不应据此反复重启进程；一万条目录默认分约 625 批，
 部署就绪等待时间应覆盖模型实际吞吐。可通过初始化状态接口查看进度后再做模型和真实查询验收。
@@ -376,40 +331,26 @@ float32 转换可能使极近分数或阈值边界出现微小差异，不能承
 - 每次密码登录重新获取 SM2 公钥，前后端均禁止缓存，不依赖旧登录 token。
   本地持续开发也应配置持久 `SM2_PRIVATE_KEY`，避免热重启更换临时密钥。
   公钥获取后到提交前仍应避免轮换密钥；多实例必须使用同一受保护配置。
-- 模型只返回槽位、意图和总结，不生成 SQL；
-- SQL 只能来自登记模板，标识符不接受模型或用户输入，业务参数全部绑定；
+- 模型只生成回答文本，不生成 SQL；
+- SQL 只能由 builder 生成，标识符不接受模型或用户输入，业务参数全部绑定；
 - 查询连接必须使用数据库侧只读账号，应用 Unit of Work 不会复用查询连接；
 - 普通用户按所属机构查询，配置中的省级机构可查全行；系统管理员权限由服务端账号记录决定；
 - Schema 变更、生产库测试、配置写入均有独立显式开关。
 
 ## 代码检查
 
-语义边界回归测试使用固定模型响应，不连接数据库或真实模型：
+本地回归测试使用内存桩与固定模型响应，不连接数据库或真实模型：
 
 ```powershell
-python -m unittest discover -s tests -v
+python -m pytest tests verification -q
 ```
 
-语义解析保留通过结构校验的模型操作、排序参数、日期和时间模式，不再通过中文关键词
-增删操作或按指标名称删除对比、重写排名。正式指标与机构仍由目录校验，确定名称在模型
-调用前通过占位符保护；日期合法性、机构权限和查询模板能力仍由后端检查。模型识别出
-暂不支持的明细、汇总或动态期间对比时，查询能力检查会明确拒绝，不会降级为普通取值。
+正式指标与机构仍由目录校验；日期合法性、机构权限和查询模板能力仍由后端检查。
+合法但不支持的场景由查询能力检查明确拒绝，不会降级为普通取值。
 
-`config/semantic-config.json` 的 `clarification_prompts` 同时控制澄清字段的 `message`
-和最终澄清提示中的对应文案：
-
-- `metrics_with_options`：指标候选提示，支持 `{options}`。
-- `metrics_without_options`：没有候选指标时的提示，不含占位符。
-- `missing_fields`：缺失字段汇总提示，支持 `{fields}`。
-- `field_labels`：按 `metrics`、`time`、`orgs` 等字段设置名称。
-- `scenarios`：场景文案优先于通用指标文案；支持 `metric_missing`、`metric_ambiguous`、
-  `metric_not_found`、`invalid_date`、`year_required`、`time_missing`、
-  `organization_missing`、`organization_unknown`，占位符可用 `{time}`、`{metric}`、
-  `{organization}`、`{options}`。未配置的非指标场景沿用内置文案。
-
-模板中的字面花括号使用 `{{` 和 `}}`；不支持的占位符、格式化选项或不完整花括号会在
-配置加载时拒绝。请修改运行环境实际使用的 `SEMANTIC_CONFIG_PATH` 文件；生产环境可能
-使用持久状态目录中的副本，而不是仓库中的默认文件。固定的开场与回复示例仍由程序生成。
+`config/semantic-config.json` 当前影响运行行为的配置项为 `organization_aliases`（机构别名，
+用于目录匹配和历史结果回读核对）与 `metric_matching`（目录向量预热批次参数）；文件中的其他键
+是旧语义链路遗留，仅做兼容解析，不再影响运行行为。
 
 ```powershell
 python -m ruff check src scripts
@@ -429,6 +370,12 @@ python -m ask_metric sync-metric-catalog --all-snapshots
 ```
 
 第一条只预览，确认汇总后才执行第二条写入应用库；正式 CLI 不带 `--dry-run` 就会写入。
+多口径省略匹配依赖 `0005_metric_source_structure` 的三个可空目录列。先按上文 Goldendb
+迁移流程导出 SQL 供 DBA 审核，迁移应用库后再执行本节目录同步，以回填源编码、基础名称和
+取值口径。未完成迁移及回填时，旧目录仍可读取完整名称；只有相邻省略项能从当前启用目录的
+唯一完整名称补全时才可确定编码，同名或多种补全保持待确认。该兼容路径不能证明源血缘正确，
+正式目录同步写入源结构列前必须完成迁移。不要只依据迁移版本号判断列已存在，还须检查
+`metric_terms` 实际列和源字段回填情况。
 默认只读最新事实快照；`--all-snapshots` 扫描全部快照中的不同指标定义。
 配置表 `indcr_no` 严格关联事实表 `orig_indcr_no`，配置名称仅去掉开头一次“机构”，
 再直接拼接事实表 `indcr_nm`。最终编码来自事实表 `indcr_no`，不猜测或改写正式口径。
@@ -458,18 +405,12 @@ python -m ask_metric sync-org-catalog --strict-scope
 遇到编码或范围冲突先核对权限和历史引用，不通过扩大同步范围消除错误。
 这些操作不变更数据库结构，也不修改数据湖；目录变更后重启服务刷新缓存。
 
-### Token 用量与机构候选
+### Token 用量
 
-提槽仅向模型发送本轮已匹配机构与歧义别名的所有相关候选；机构完整目录继续用于后端校验、
-权限与全机构集合展开。未知机构保持澄清，追问的冻结条件仍由后端提供和合并。
-
-`model_usage` 日志记录 `slot_extraction` 等实际调用阶段，记录供应商实际输入、输出和总
+`model_usage` 日志记录模型实际调用阶段（目录向量预热、检索重排等），记录供应商实际输入、输出和总
 Token、模型名、请求标识、Trace-ID、耗时及请求字节数。失败或供应商未返回的字段为 null；
 `usage_known=false` 不能计作零消耗。HTTP 成功但响应解析失败的已发生用量仍被记录。
 不记录提示词、问题、回答或凭据；本日志是诊断用量，不能直接代替供应商账单。
-
-Agent 调用的 `trace_id` 对应前端问答的 `request_id`，各业务阶段仍保留独立请求及幂等标识。
-无需数据库迁移或配置修改。实际验收参见 `../docs/acceptance/token-optimization-2026-09-19.md`。
 
 ### 普通用户全行查询授权
 
@@ -511,10 +452,8 @@ Agent 调用的 `trace_id` 对应前端问答的 `request_id`，各业务阶段�
 前端用自然语言展示总数与日期，较多时明确仅列部分，旧历史不再堆叠表格。
 无结果直接说明；未完成或失败不作为无数据。未新增缓存或表。
 
-升级时将两个方言的 `data_availability.sql` 部署至实际 `SQL_RESOURCE_DIR`，在实际
-`QUERY_TEMPLATE_CONFIG_PATH` 对应方言映射中登记 `data_availability`；已有登记仅更新该资源，
-保留其他模板和配置修改。缺少模板返回服务不可用。MySQL查询超时沿用现有配置，
-Inceptor依赖部署驱动与服务端超时。大范围日期统计仍需结合实际数据规模评估性能。
+数据覆盖查询随版本内 builder 发布，无独立 SQL 文件或登记配置。MySQL 查询超时沿用现有配置，
+Inceptor 依赖部署驱动与服务端超时。大范围日期统计仍需结合实际数据规模评估性能。
 
 
 ### 按机构和日期发现有记录的指标
@@ -532,8 +471,11 @@ Inceptor依赖部署驱动与服务端超时。大范围日期统计仍需结合
 
 ### pi 工具选择与基础查询边界
 
-高层任务选择由 pi 负责。基础问数提交从 `SLOT_EXTRACTION` 开始，不再调用意图路由模型，也不执行归因、异常洞察等任务分支。目录、日期、操作组合和权限校验保留；提槽结果中的不支持操作仍在澄清前拒绝，不能降级普通取值。历史 `INTENT_ROUTING` 阶段、旧任务和结果仍可读取，不迁移或删除既有数据。
+高层任务选择由 pi 负责。基础查询任务直接以 `LOGICAL_DSL` 阶段创建并执行，不调用意图或槽位模型，
+也不执行归因、异常洞察等任务分支。目录、日期、操作组合和权限校验保留；不支持的操作组合在
+规划阶段拒绝，不能降级普通取值。历史 `INTENT_ROUTING`、`SLOT_EXTRACTION` 等阶段、旧任务和结果
+仍可读取，不迁移或删除既有数据。
 
 `POST /api/v1/data-availability` 为 pi 提供专门覆盖查询：`dimension=metrics` 返回范围内有记录的正式指标，`dates` 返回有记录的日期；二者不承诺每天均有有效数值。结果包含查询范围、总数和分页，继续按当前用户权限执行只读 SQL。
 
-升级时重启后端与 agent。仓库默认 prompts 已移除 `intent_routing`；旧持久配置中的该项在加载时忽略，不再显示为可用提示词。若使用自定义 `PROMPT_CONFIG_PATH`，需合并 `slot_extraction` 的基础查询边界（分析目标输出 unsupported 操作，不能删除目标）。不要覆盖自定义模型连接、凭据或其他提示词。模型连接测试改用澄清提示词，不依赖退役路由。
+升级时重启后端与 agent。仓库默认 prompts 已移除 `intent_routing`；旧持久配置中的该项在加载时忽略，不再显示为可用提示词。不要覆盖自定义模型连接、凭据或其他提示词。

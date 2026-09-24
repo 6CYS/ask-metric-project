@@ -8,7 +8,6 @@ import type {
   ModelRuntimeConfig,
   PromptTemplateConfig,
   SmartConfigResponse,
-  SqlTemplateConfig,
   MetricItem,
   MetricPayload,
   OrgItem,
@@ -17,10 +16,6 @@ import type {
   AuthUser,
   LoginResponse,
   Sm2PublicKeyResponse,
-  AccuracySuite,
-  AccuracyRun,
-  AccuracyImportPreview,
-  AccuracyImportResult,
 } from "@/types/api"
 import { encryptLoginPassword } from "@/lib/gm"
 import {
@@ -158,75 +153,6 @@ export function restoreBrowserSession() {
   }, false)
 }
 
-export function listAccuracySuites() {
-  return request<AccuracySuite[]>(apiUrl(backendNextBase, "/api/v1/test-center/suites"))
-}
-
-export function createAccuracySuite(value: Pick<AccuracySuite, "name" | "description" | "cases">) {
-  return request<AccuracySuite>(apiUrl(backendNextBase, "/api/v1/test-center/suites"), { method: "POST", body: JSON.stringify(value) })
-}
-
-export function updateAccuracySuite(id: string, value: Pick<AccuracySuite, "name" | "description" | "cases">) {
-  return request<AccuracySuite>(apiUrl(backendNextBase, `/api/v1/test-center/suites/${encodeURIComponent(id)}`), { method: "PUT", body: JSON.stringify(value) })
-}
-
-export function deleteAccuracySuite(id: string) {
-  return request<void>(apiUrl(backendNextBase, `/api/v1/test-center/suites/${encodeURIComponent(id)}`), { method: "DELETE" })
-}
-
-export function listAccuracyRuns() {
-  return request<AccuracyRun[]>(apiUrl(backendNextBase, "/api/v1/test-center/runs"))
-}
-
-export function getAccuracyRun(id: string) {
-  return request<AccuracyRun>(apiUrl(backendNextBase, `/api/v1/test-center/runs/${encodeURIComponent(id)}`))
-}
-
-export function startAccuracyRun(suiteId: string) {
-  return request<AccuracyRun>(apiUrl(backendNextBase, `/api/v1/test-center/runs?suite_id=${encodeURIComponent(suiteId)}`), { method: "POST" })
-}
-
-export function downloadAccuracyImportTemplate() {
-  return downloadAuthenticated(
-    apiUrl(backendNextBase, "/api/v1/test-center/import-template"),
-    "准确率测试案例导入模板.xlsx",
-  )
-}
-
-export function previewAccuracyImport(
-  suiteId: string,
-  file: File,
-  mode: "append" | "replace",
-) {
-  return request<AccuracyImportPreview>(
-    apiUrl(
-      backendNextBase,
-      `/api/v1/test-center/suites/${encodeURIComponent(suiteId)}/imports/preview?mode=${mode}`,
-    ),
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "X-Filename": encodeURIComponent(file.name),
-      },
-      body: file,
-    },
-  )
-}
-
-export function confirmAccuracyImport(
-  suiteId: string,
-  value: { mode: "append" | "replace"; cases: AccuracySuite["cases"] },
-) {
-  return request<AccuracyImportResult>(
-    apiUrl(
-      backendNextBase,
-      `/api/v1/test-center/suites/${encodeURIComponent(suiteId)}/imports/confirm`,
-    ),
-    { method: "POST", body: JSON.stringify(value) },
-  )
-}
-
 export function logoutUser() {
   clearCatalogCaches()
   return request<void>("/api/v1/auth/logout", {
@@ -297,38 +223,6 @@ export function listPromptVersions(name: string) {
 
 export function rollbackPromptConfig(name: string, versionId: string, adminToken: string) {
   return request<PromptTemplateConfig>(apiUrl(backendNextBase, `/api/v1/model-config/prompts/${encodeURIComponent(name)}/versions/${encodeURIComponent(versionId)}/rollback`), {
-    method: "POST", headers: configAdminHeaders(adminToken),
-  })
-}
-
-export function listSqlTemplates() {
-  return request<SqlTemplateConfig[]>(apiUrl(backendNextBase, "/api/v1/model-config/sql-templates"))
-}
-
-export function validateSqlTemplate(sql: string) {
-  return request<{ valid: boolean; parameters: string[] }>(apiUrl(backendNextBase, "/api/v1/model-config/sql-templates/validate"), {
-    method: "POST", body: JSON.stringify({ sql }),
-  })
-}
-
-export function trialRunSqlTemplate(sql: string, parameters: Record<string, unknown>, adminToken: string) {
-  return request<{ columns: string[]; rows: Record<string, unknown>[]; row_count: number }>(apiUrl(backendNextBase, "/api/v1/model-config/sql-templates/trial-run"), {
-    method: "POST", headers: configAdminHeaders(adminToken), body: JSON.stringify({ sql, parameters }),
-  })
-}
-
-export function updateSqlTemplate(item: SqlTemplateConfig, adminToken: string) {
-  return request<SqlTemplateConfig>(apiUrl(backendNextBase, `/api/v1/model-config/sql-templates/${encodeURIComponent(item.dialect)}/${encodeURIComponent(item.template)}`), {
-    method: "PUT", headers: configAdminHeaders(adminToken), body: JSON.stringify({ sql: item.sql, enabled: item.enabled }),
-  })
-}
-
-export function listSqlTemplateVersions(item: SqlTemplateConfig) {
-  return request<ConfigVersion[]>(apiUrl(backendNextBase, `/api/v1/model-config/sql-templates/${encodeURIComponent(item.dialect)}/${encodeURIComponent(item.template)}/versions`))
-}
-
-export function rollbackSqlTemplate(item: SqlTemplateConfig, versionId: string, adminToken: string) {
-  return request<SqlTemplateConfig>(apiUrl(backendNextBase, `/api/v1/model-config/sql-templates/${encodeURIComponent(item.dialect)}/${encodeURIComponent(item.template)}/versions/${encodeURIComponent(versionId)}/rollback`), {
     method: "POST", headers: configAdminHeaders(adminToken),
   })
 }

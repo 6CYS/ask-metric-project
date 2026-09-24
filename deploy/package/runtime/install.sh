@@ -151,7 +151,7 @@ RELEASES_DIR="$INSTALL_ROOT/releases"
 FINAL_RELEASE="$RELEASES_DIR/$RELEASE"
 STAGING_RELEASE="$RELEASES_DIR/.${RELEASE}.installing.$$"
 RUNTIME_CONFIG_ROOT="$STATE_ROOT/runtime-config"
-mkdir -p "$RELEASES_DIR" "$STATE_ROOT/config-history" "$STATE_ROOT/test-center" \
+mkdir -p "$RELEASES_DIR" "$STATE_ROOT/config-history" \
   "$RUNTIME_CONFIG_ROOT"
 
 cleanup() {
@@ -204,17 +204,7 @@ else
     "$RUNTIME_CONFIG_ROOT/prompts.json" \
     "$FINAL_RELEASE/backend/config/prompts.json"
 fi
-if [[ ! -f "$RUNTIME_CONFIG_ROOT/query-templates.json" ]]; then
-  cp "$FINAL_RELEASE/backend/config/query-templates.json" \
-    "$RUNTIME_CONFIG_ROOT/query-templates.json"
-fi
-if [[ ! -d "$RUNTIME_CONFIG_ROOT/sql" ]]; then
-  cp -a "$FINAL_RELEASE/backend/resources/sql" "$RUNTIME_CONFIG_ROOT/sql"
-fi
-
-# Existing r3 installations already have query-templates.json and sql/, so the
-# seed-once rules above intentionally keep them. Merge only newly registered
-# dialects/templates and missing SQL files without overwriting operator edits.
+# SQL 由版本内 builder 生成；旧持久 SQL 文件留存供整包回退，不再读取或覆盖。
 if [[ -f "$CONFIG_FILE" ]]; then
   "$FINAL_RELEASE/venv/bin/python" "$BUNDLE_ROOT/ops/intranet_deploy.py" \
     init-config \
@@ -261,12 +251,6 @@ migrate_legacy_runtime_path "MODEL_CONFIG_PATH" \
 migrate_legacy_runtime_path "PROMPT_CONFIG_PATH" \
   "$INSTALL_ROOT/current/backend/config/prompts.json" \
   "$RUNTIME_CONFIG_ROOT/prompts.json"
-migrate_legacy_runtime_path "QUERY_TEMPLATE_CONFIG_PATH" \
-  "$INSTALL_ROOT/current/backend/config/query-templates.json" \
-  "$RUNTIME_CONFIG_ROOT/query-templates.json"
-migrate_legacy_runtime_path "SQL_RESOURCE_DIR" \
-  "$INSTALL_ROOT/current/backend/resources/sql" \
-  "$RUNTIME_CONFIG_ROOT/sql"
 
 if grep -Eq '<[^>]+>|development-only-change-me' "$CONFIG_FILE"; then
   echo "ERROR: unresolved placeholders or development secrets remain in $CONFIG_FILE" >&2

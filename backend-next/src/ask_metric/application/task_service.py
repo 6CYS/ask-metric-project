@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -11,51 +11,21 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
-from ask_metric.application.commands import (
-    CancelClarificationCommand,
-    CancelTaskCommand,
-    RequestClarificationCommand,
-    SubmitClarificationCommand,
-    SubmitQuestionCommand,
-)
-from ask_metric.application.continuation_tokens import (
-    ContinuationTarget,
-    ContinuationTokenCodec,
-)
+from ask_metric.application.commands import SubmitQuestionCommand
 from ask_metric.application.ports import PermissionDeniedError, PermissionService
-from ask_metric.application.query_scope import require_current_query_scope
 from ask_metric.application.requests import ActorContext
-from ask_metric.application.semantic_workflow import (
-    advance_slot_frame,
-    apply_clarification_answers,
-    resolved_question,
-)
-from ask_metric.application.task_results import (
-    ConversationCleanupResult,
-    ConversationListItem,
-    ConversationMessageResult,
-    ConversationSnapshot,
-    ConversationTaskResult,
-    TaskCommandResult,
-    TaskResultPage,
-)
+from ask_metric.application.task_results import TaskCommandResult, TaskResultPage
 from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.calculation import CalculationScope
+from ask_metric.domain.catalog_references import explicit_catalog_references
 from ask_metric.domain.metric_matching import conflicting_metric_references
 from ask_metric.domain.query_execution import QueryExecutionResult
-from ask_metric.domain.semantic_engine import explicit_catalog_references, is_direct_catalog_query
-from ask_metric.domain.semantic_reference import (
-    ReferenceSourceInvalid,
-    freeze_source_reference,
-    structured_source_slots,
-)
 from ask_metric.domain.task import (
     QueryTaskStage,
     QueryTaskState,
     QueryTaskStatus,
     append_task_trace,
 )
-from ask_metric.domain.task_state_machine import InvalidTaskTransition, QueryTaskStateMachine
 from ask_metric.infrastructure.db.models import ChatConversation, ChatMessage, QueryTask
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
 from ask_metric.infrastructure.export.xlsx import build_xlsx
@@ -126,20 +96,16 @@ class ConversationLimitReachedError(ApplicationError):
 
 
 class QueryTaskApplicationService:
-    """管理问题提交、澄清和历史结果；模型理解与 SQL 执行分别交给对应服务。"""
+    """管理问题提交和历史结果读取；SQL 执行交给 QueryExecutionApplicationService。"""
     def __init__(
         self,
         uow_factory: UnitOfWorkFactory | None = None,
-        continuation_token_codec: ContinuationTokenCodec | None = None,
         semantic_config_repository: SemanticConfigRepository | None = None,
-        today_provider: Callable[[], date] = date.today,
         max_conversations_per_user: int = 500,
         permission_service: PermissionService | None = None,
     ) -> None:
         self.uow_factory = uow_factory or SqlAlchemyUnitOfWork
-        self.continuation_token_codec = continuation_token_codec
         self.semantic_config_repository = semantic_config_repository
-        self.today_provider = today_provider
         self.max_conversations_per_user = max_conversations_per_user
         self.permission_service = permission_service
 
@@ -185,6 +151,7 @@ class QueryTaskApplicationService:
                 conversation_id, command.idempotency_key
             )
             if existing is not None:
+                self._authorize_task_result(command.actor, existing, uow=uow)
                 return _question_replay_result(
                     existing,
                     fingerprint,
@@ -250,11 +217,6 @@ class QueryTaskApplicationService:
                 actor_context=command.actor.model_dump(mode="json"),
             )
             initial_stage = QueryTaskStage.SLOT_EXTRACTION
-            if command.query_reference is not None:
-                # 单来源追问：提交时校验并冻结来源条件，作为后续分析的派生依据
-                state.query_reference = self._freeze_query_reference(
-                    uow, command, conversation_id
-                )
             if command.basic_query is not None:
                 # 结构化调用直接进入同一执行链；不调用模型，也不注入历史条件。
                 spec = command.basic_query
@@ -347,462 +309,12 @@ class QueryTaskApplicationService:
                     conversation_id,
                     fingerprint,
                 )
+            self._authorize_task_result(command.actor, existing, uow=uow)
             return _question_replay_result(
                 existing,
                 fingerprint,
                 original_question=command.request.text,
             )
-
-    def request_clarification(
-        self, command: RequestClarificationCommand
-    ) -> TaskCommandResult:
-        request_id = command.request_id or f"clarification:{command.clarification_id}"
-        fingerprint = _fingerprint(
-            {
-                "kind": "request_clarification",
-                "task_id": command.task_id,
-                "clarification_id": command.clarification_id,
-                "prompt": command.prompt,
-                "type": command.clarification_type,
-                "options": command.options,
-            }
-        )
-        with self.uow_factory() as uow:
-            # The public semantic route authenticates ownership before this internal transition.
-            task = uow.tasks.get(command.task_id)
-            if task is None:
-                raise TaskNotFoundError(command.task_id)
-            state = _load_state(task)
-            replay = _processed_replay(state, request_id, fingerprint, task)
-            if replay is not None:
-                return replay
-            _require_version(task, command.expected_version)
-            _require_transition(
-                task,
-                next_status=QueryTaskStatus.WAITING_USER,
-                next_stage=QueryTaskStage.CLARIFICATION,
-            )
-
-            message_id = str(uuid4())
-            continuation_token = self._create_continuation_token(command)
-            state.clarification = {
-                "id": command.clarification_id,
-                "type": command.clarification_type,
-                "prompt": command.prompt,
-                "options": command.options,
-                "created_for_version": command.expected_version,
-                "task_version": command.expected_version + 1,
-                "continuation_token": continuation_token,
-            }
-            _record_processed_request(
-                state,
-                request_id,
-                kind="request_clarification",
-                fingerprint=fingerprint,
-                message_id=message_id,
-            )
-            uow.messages.add(
-                ChatMessage(
-                    id=message_id,
-                    conversation_id=task.conversation_id,
-                    task_id=task.id,
-                    role="assistant",
-                    content=command.prompt,
-                    created_at=datetime.now(UTC),
-                    payload={
-                        "kind": "clarification",
-                        "channel": command.channel,
-                        "external_message_id": command.external_message_id,
-                        "task_version": command.expected_version + 1,
-                        "clarification_id": command.clarification_id,
-                        "channel_context": command.channel_context,
-                        "continuation_token": continuation_token,
-                        "clarification": state.clarification,
-                    },
-                )
-            )
-            updated = uow.tasks.update_optimistically(
-                task_id=task.id,
-                expected_version=command.expected_version,
-                status=QueryTaskStatus.WAITING_USER.value,
-                current_stage=QueryTaskStage.CLARIFICATION.value,
-                state_json=state.model_dump(mode="json"),
-                intent=task.intent,
-                query_shape=task.query_shape,
-                error_code=task.error_code,
-                error_message=task.error_message,
-            )
-            if updated is None:
-                raise _version_conflict(command.task_id, command.expected_version)
-            conversation = uow.conversations.get(task.conversation_id)
-            if conversation is not None:
-                conversation.preview = _preview(command.prompt)
-                conversation.updated_at = datetime.now(UTC)
-            uow.commit()
-            return _task_result(
-                updated,
-                message_id=message_id,
-                continuation_token=continuation_token,
-            )
-
-    def _create_continuation_token(
-        self, command: RequestClarificationCommand
-    ) -> str | None:
-        if self.continuation_token_codec is None:
-            return None
-        return self.continuation_token_codec.encode(
-            ContinuationTarget(
-                task_id=command.task_id,
-                expected_version=command.expected_version + 1,
-                clarification_id=command.clarification_id,
-                channel=command.channel,
-                channel_context=command.channel_context,
-            )
-        )
-
-    def submit_clarification(
-        self, command: SubmitClarificationCommand
-    ) -> TaskCommandResult:
-        fingerprint = _fingerprint(
-            {
-                "kind": "submit_clarification",
-                "task_id": command.task_id,
-                "clarification_id": command.clarification_id,
-                "answers": command.answers,
-                "actor": command.actor.subject,
-                "channel": command.channel,
-            }
-        )
-        with self.uow_factory() as uow:
-            task = _get_owned_task(uow, command.task_id, command.actor.user_id or "")
-            if task is None:
-                raise TaskNotFoundError(command.task_id)
-            state = _load_state(task)
-            replay = _processed_replay(state, command.request_id, fingerprint, task)
-            if replay is not None:
-                return replay
-
-            _require_version(task, command.expected_version)
-            clarification = state.clarification or {}
-            require_current_query_scope(task.state_json or {})
-            active_clarification_id = clarification.get("id")
-            if active_clarification_id != command.clarification_id:
-                raise TaskConflictError(
-                    "CLARIFICATION_MISMATCH",
-                    "The clarification response is stale or does not belong to this task",
-                    details={
-                        "task_id": task.id,
-                        "expected_clarification_id": active_clarification_id,
-                        "received_clarification_id": command.clarification_id,
-                    },
-                )
-
-            # 自由文本完整新查询不能作为缺项答案改写旧任务。复用正式目录和
-            # 完整查询语法校验；显式结构化选择仍按用户指定的卡片推进。
-            if (clarification.get("type") == "semantic_slots"
-                    and isinstance(command.answers, str)
-                    and self.semantic_config_repository is not None):
-                config = self.semantic_config_repository.load()
-                if is_direct_catalog_query(
-                    command.answers, metrics=uow.metric_catalog.list_enabled(),
-                    organizations=uow.organization_catalog.list_enabled(),
-                    organization_aliases=config.organization_aliases, require_complete=True,
-                ):
-                    raise TaskConflictError(
-                        "CLARIFICATION_INDEPENDENT_QUERY",
-                        "本轮已独立给齐指标、机构和日期，请提交新查询；旧澄清任务未修改。",
-                        details={"task_id": task.id, "next_action": "new", "write_applied": False},
-                    )
-
-            message_id = str(uuid4())
-            state.clarification_answers.append(
-                {
-                    "clarification_id": command.clarification_id,
-                    "answers": command.answers,
-                    "actor": command.actor.model_dump(mode="json"),
-                    "channel": command.channel,
-                    "channel_context": command.channel_context,
-                    "request_id": command.request_id,
-                }
-            )
-            state.debug["clarification_answers"] = state.clarification_answers
-            state.clarification = None
-            _record_processed_request(
-                state,
-                command.request_id,
-                kind="submit_clarification",
-                fingerprint=fingerprint,
-                message_id=message_id,
-            )
-            answer_text = _answer_text(command.answers)
-            calculation_context = state.channel_context.get("calculation_context")
-            if calculation_context:
-                # 用户补充属于当前任务，保留同一计算范围及常数的原句来源。
-                calculation_context["user_question"] = (
-                    calculation_context.get("user_question", "") + "\n" + answer_text
-                )[-8000:]
-            uow.messages.add(
-                ChatMessage(
-                    id=message_id,
-                    conversation_id=task.conversation_id,
-                    task_id=task.id,
-                    role="user",
-                    content=answer_text,
-                    created_at=datetime.now(UTC),
-                    payload={
-                        "kind": "clarification_answer",
-                        "clarification_id": command.clarification_id,
-                        "answers": command.answers,
-                        "request_id": command.request_id,
-                        "channel": command.channel,
-                    },
-                )
-            )
-            next_status = QueryTaskStatus.RUNNING
-            next_stage = QueryTaskStage.VALIDATION
-            continuation_token = None
-            result_message_id = message_id
-            next_intent = task.intent
-            next_query_shape = task.query_shape
-            if clarification.get("type") == "semantic_slots":
-                if self.semantic_config_repository is None:
-                    raise RuntimeError("Semantic configuration is not available")
-                metrics = uow.metric_catalog.list_enabled()
-                organizations = uow.organization_catalog.list_enabled()
-                config = self.semantic_config_repository.load()
-                raw_frame = state.slots or state.slot_frame or {}
-                frame = apply_clarification_answers(
-                    raw_frame,
-                    command.answers,
-                    metrics=metrics,
-                    organizations=organizations,
-                )
-                advance = advance_slot_frame(
-                    frame,
-                    metrics=metrics,
-                    organizations=organizations,
-                    config=config,
-                    today=self.today_provider(),
-                    metric_candidates=[
-                        item
-                        for item in metrics
-                        if item.code
-                        in {
-                            candidate.get("code")
-                            for candidate in state.candidates.get("metrics", [])
-                        }
-                    ],
-                )
-                state.slots = advance.slot_frame.model_dump(mode="json")
-                state.missing_slots = list(advance.slot_frame.missing)
-                state.logical_dsl = (
-                    advance.logical_dsl.model_dump(mode="json")
-                    if advance.logical_dsl is not None
-                    else None
-                )
-                state.debug["slot_frame"] = state.slots
-                state.debug["logical_dsl"] = state.logical_dsl
-                next_intent = advance.slot_frame.task.value
-                next_query_shape = advance.query_shape
-                if advance.logical_dsl is not None:
-                    state.resolved_question = resolved_question(advance.slot_frame)
-                    state.debug["resolved_question"] = state.resolved_question
-                    uow.messages.add(
-                        ChatMessage(
-                            id=str(uuid4()),
-                            conversation_id=task.conversation_id,
-                            task_id=task.id,
-                            role="user",
-                            content=f"已确认问题：{state.resolved_question}",
-                            created_at=datetime.now(UTC),
-                            payload={
-                                "kind": "resolved_question",
-                                "original_question": task.original_question,
-                                "resolved_question": state.resolved_question,
-                                "clarification_answers": state.clarification_answers,
-                            },
-                        )
-                    )
-                    next_stage = QueryTaskStage.LOGICAL_DSL
-                else:
-                    next_status = QueryTaskStatus.WAITING_USER
-                    next_stage = QueryTaskStage.CLARIFICATION
-                    result_message_id, continuation_token = self._renew_semantic_clarification(
-                        uow=uow,
-                        task=task,
-                        state=state,
-                        advance=advance,
-                        channel=command.channel,
-                        expected_version=command.expected_version,
-                    )
-            append_task_trace(
-                state,
-                stage=next_stage.value,
-                status=next_status.value,
-                node=(
-                    "clarification_resolved"
-                    if next_stage == QueryTaskStage.LOGICAL_DSL
-                    else "clarification_updated"
-                ),
-                detail={"clarification_id": command.clarification_id},
-            )
-            _require_transition(
-                task,
-                next_status=next_status,
-                next_stage=next_stage,
-            )
-            updated = uow.tasks.update_optimistically(
-                task_id=task.id,
-                expected_version=command.expected_version,
-                status=next_status.value,
-                current_stage=next_stage.value,
-                state_json=state.model_dump(mode="json"),
-                intent=next_intent,
-                query_shape=next_query_shape,
-                error_code=task.error_code,
-                error_message=task.error_message,
-            )
-            if updated is None:
-                raise _version_conflict(command.task_id, command.expected_version)
-            conversation = uow.conversations.get(task.conversation_id)
-            if conversation is not None:
-                conversation.preview = _preview(answer_text)
-                conversation.updated_at = datetime.now(UTC)
-            uow.commit()
-            return _task_result(
-                updated,
-                message_id=result_message_id,
-                continuation_token=continuation_token,
-            )
-
-    def cancel_clarification(
-        self, command: CancelClarificationCommand
-    ) -> TaskCommandResult:
-        with self.uow_factory() as uow:
-            task = _get_owned_task(uow, command.task_id, command.actor.user_id or "")
-            if task is None:
-                raise TaskNotFoundError(command.task_id)
-            _require_version(task, command.expected_version)
-            state = _load_state(task)
-            clarification = state.clarification or {}
-            if clarification.get("id") != command.clarification_id:
-                raise TaskConflictError(
-                    "CLARIFICATION_MISMATCH",
-                    "The clarification cancellation is stale or does not belong to this task",
-                    details={
-                        "task_id": task.id,
-                        "expected_clarification_id": clarification.get("id"),
-                        "received_clarification_id": command.clarification_id,
-                    },
-                )
-
-            _require_transition(
-                task,
-                next_status=QueryTaskStatus.CANCELLED,
-                next_stage=QueryTaskStage.CLARIFICATION,
-            )
-            state.clarification = None
-            state.debug["clarification_cancelled"] = {
-                "clarification_id": command.clarification_id,
-                "actor": command.actor.model_dump(mode="json"),
-                "request_id": command.request_id,
-            }
-            append_task_trace(
-                state,
-                stage=QueryTaskStage.CLARIFICATION.value,
-                status=QueryTaskStatus.CANCELLED.value,
-                node="clarification_cancelled",
-                detail={"clarification_id": command.clarification_id},
-            )
-            updated = uow.tasks.update_optimistically(
-                task_id=task.id,
-                expected_version=command.expected_version,
-                status=QueryTaskStatus.CANCELLED.value,
-                current_stage=QueryTaskStage.CLARIFICATION.value,
-                state_json=state.model_dump(mode="json"),
-                intent=task.intent,
-                query_shape=task.query_shape,
-                error_code=task.error_code,
-                error_message=task.error_message,
-                completed_at=datetime.now(UTC),
-            )
-            if updated is None:
-                raise _version_conflict(command.task_id, command.expected_version)
-            uow.commit()
-            return _task_result(updated)
-
-    def cancel_task(self, command: CancelTaskCommand) -> TaskCommandResult:
-        """通用逻辑取消：先回读幂等记录，再校验版本与状态后原子写入。
-
-        取消先提交则阻止后续分析/澄清/执行的晚到写入（乐观锁与状态机保证）；
-        成功先提交则保留成功（SUCCEEDED 等终态不允许迁移到 CANCELLED）。
-        """
-        fingerprint = _fingerprint(
-            {
-                "kind": "cancel_task",
-                "task_id": command.task_id,
-                "actor": command.actor.subject,
-            }
-        )
-        with self.uow_factory() as uow:
-            task = _get_owned_task(uow, command.task_id, command.actor.user_id or "")
-            if task is None:
-                raise TaskNotFoundError(command.task_id)
-            state = _load_state(task)
-            replay = _processed_replay(state, command.request_id, fingerprint, task)
-            if replay is not None:
-                return replay
-            if task.status == QueryTaskStatus.CANCELLED.value:
-                # 已取消：直接返回当前状态，不重复推进版本
-                return _task_result(task)
-            _require_version(task, command.expected_version)
-            _require_transition(
-                task,
-                next_status=QueryTaskStatus.CANCELLED,
-                next_stage=QueryTaskStage(task.current_stage),
-            )
-            state.clarification = None
-            state.debug["task_cancelled"] = {"request_id": command.request_id}
-            _record_processed_request(
-                state, command.request_id,
-                kind="cancel_task", fingerprint=fingerprint, message_id=None,
-            )
-            append_task_trace(
-                state,
-                stage=QueryTaskStage(task.current_stage).value,
-                status=QueryTaskStatus.CANCELLED.value,
-                node="task_cancelled",
-                detail={"request_id": command.request_id},
-            )
-            updated = uow.tasks.update_optimistically(
-                task_id=task.id,
-                expected_version=command.expected_version,
-                status=QueryTaskStatus.CANCELLED.value,
-                current_stage=task.current_stage,
-                state_json=state.model_dump(mode="json"),
-                intent=task.intent,
-                query_shape=task.query_shape,
-                error_code=task.error_code,
-                error_message=task.error_message,
-                completed_at=datetime.now(UTC),
-            )
-            if updated is None:
-                raise _version_conflict(command.task_id, command.expected_version)
-            uow.commit()
-            return _task_result(updated)
-
-    def lookup_task(
-        self, conversation_id: str, submission_key: str, actor: ActorContext
-    ) -> TaskCommandResult:
-        """只读找回已提交任务：conversation + 提交键定位；未找到返回 404，不创建任务。"""
-        with self.uow_factory() as uow:
-            conversation = uow.conversations.get_owned(conversation_id, actor.user_id or "")
-            if conversation is None:
-                raise ConversationNotFoundError(conversation_id)
-            task = uow.tasks.find_by_idempotency_key(conversation_id, submission_key)
-            if task is None:
-                raise TaskNotFoundError(f"{conversation_id}/{submission_key}")
-            return _task_result(task)
 
     def get_task_result(
         self, task_id: str, actor: ActorContext, *, offset: int = 0, limit: int = 100,
@@ -829,6 +341,7 @@ class QueryTaskApplicationService:
                     details={"task_id": task.id, "status": task.status},
                 )
             result = QueryExecutionResult.model_validate(saved)
+            self._authorize_task_result(actor, task, uow=uow)
             if read_question is not None:
                 config = (
                     self.semantic_config_repository.load()
@@ -881,277 +394,70 @@ class QueryTaskApplicationService:
                 evidence=result.evidence,
             )
 
-    def _renew_semantic_clarification(
-        self,
-        *,
-        uow: SqlAlchemyUnitOfWork,
-        task: QueryTask,
-        state: QueryTaskState,
-        advance: Any,
-        channel: str,
-        expected_version: int,
-    ) -> tuple[str, str | None]:
-        clarification_id = advance.clarification_id
-        prompt = advance.clarification_prompt
-        if prompt is None:
-            raise RuntimeError("Semantic clarification prompt is missing")
-        token = None
-        if self.continuation_token_codec is not None:
-            token = self.continuation_token_codec.encode(
-                ContinuationTarget(
-                    task_id=task.id,
-                    expected_version=expected_version + 1,
-                    clarification_id=clarification_id,
-                    channel=channel,
-                    channel_context={},
-                )
-            )
-        state.clarification = {
-            "id": clarification_id,
-            "type": "semantic_slots",
-            "prompt": prompt,
-            "options": advance.clarification_options,
-            "fields": advance.clarification_fields,
-            "understood": advance.clarification_understood,
-            "reply_examples": advance.clarification_reply_examples,
-            "missing": state.missing_slots,
-            "created_for_version": expected_version,
-            "task_version": expected_version + 1,
-            "continuation_token": token,
-        }
-        message_id = str(uuid4())
-        uow.messages.add(
-            ChatMessage(
-                id=message_id,
-                conversation_id=task.conversation_id,
-                task_id=task.id,
-                role="assistant",
-                content=prompt,
-                created_at=datetime.now(UTC),
-                payload={
-                    "kind": "clarification",
-                    "channel": channel,
-                    "task_version": expected_version + 1,
-                    "clarification_id": clarification_id,
-                    "continuation_token": token,
-                    "clarification": state.clarification,
-                },
-            )
-        )
-        return message_id, token
-
-    def _freeze_query_reference(
-        self,
-        uow: SqlAlchemyUnitOfWork,
-        command: SubmitQuestionCommand,
-        conversation_id: str,
-    ) -> dict[str, Any]:
-        """提交时校验并冻结追问来源：归属/会话/版本/成功状态/目录/数据权限。
-
-        校验不通过时拒绝创建派生任务；来源版本改变报 REFERENCE_VERSION_CONFLICT，
-        不能悄悄改用更新版本。
-        """
-        ref = command.query_reference
-        if ref is None:
-            raise ReferenceSourceInvalid("缺少引用参数")
-        source = uow.tasks.get_owned(ref.task_id, command.actor.user_id or "")
-        if source is None or source.conversation_id != conversation_id:
-            # 不泄露其他用户/会话任务的存在性
-            raise TaskNotFoundError(ref.task_id)
-        if source.version != ref.version:
-            raise TaskConflictError(
-                "REFERENCE_VERSION_CONFLICT",
-                "The referenced task version has changed",
-                details={
-                    "source_task_id": ref.task_id,
-                    "expected_version": ref.version,
-                    "actual_version": source.version,
-                },
-            )
-        if source.status != QueryTaskStatus.SUCCEEDED.value:
-            raise TaskConflictError(
-                "REFERENCE_UNAVAILABLE",
-                "The referenced task is not a succeeded query",
-                details={"source_task_id": ref.task_id, "status": source.status},
-            )
-        source_state = _load_state(source)
-        source_slots = source_state.slots or source_state.slot_frame
-        source_dsl = source_state.logical_dsl
-        try:
-            if not source_slots and source_state.debug.get("basic_query"):
-                # 结构化入口不经过提槽。兼容已有成功记录，只从正式快照恢复，
-                # 不改写历史任务；归属、版本、目录和权限仍按同一追问合同校验。
-                artifact = getattr(source_state, "result_artifact", None) or {}
-                source_dsl = artifact.get("logical_dsl") or source_dsl
-                source_slots = structured_source_slots(
-                    source_dsl,
-                    metrics=uow.metric_catalog.list_enabled(),
-                    organizations=uow.organization_catalog.list_enabled(),
-                )
-            frozen = freeze_source_reference(
-                source_task_id=source.id,
-                source_version=source.version,
-                change_field=ref.change_field,
-                mode=ref.mode,
-                source_slots=source_slots,
-                source_logical_dsl=source_dsl,
-            )
-        except ReferenceSourceInvalid as exc:
-            raise TaskConflictError(
-                "REFERENCE_UNAVAILABLE",
-                str(exc),
-                details={"source_task_id": ref.task_id},
-            ) from exc
-        # 目录与数据权限复核：来源条件在当前授权下仍须有效
-        known_metrics = {item.code for item in uow.metric_catalog.list_enabled()}
-        dsl_metrics = (source_dsl or {}).get("metrics") or []
-        if any(code not in known_metrics for code in dsl_metrics):
-            raise TaskConflictError(
-                "REFERENCE_UNAVAILABLE",
-                "The referenced metric is no longer in the enabled catalog",
-                details={"source_task_id": ref.task_id},
-            )
-        if self.permission_service is not None and source_dsl:
-            try:
-                self.permission_service.authorize_logical_dsl(
-                    actor=command.actor, logical_dsl=source_dsl
-                )
-            except PermissionDeniedError as exc:
-                raise ApplicationError(
-                    "PERMISSION_DENIED",
-                    "来源查询涉及的机构已超出当前权限范围",
-                    status_code=403,
-                ) from exc
-        return frozen
-
     def get_task(self, task_id: str, actor: ActorContext) -> TaskCommandResult:
         with self.uow_factory() as uow:
             task = uow.tasks.get_owned(task_id, actor.user_id or "")
             if task is None:
                 raise TaskNotFoundError(task_id)
+            self._authorize_task_result(actor, task, uow=uow)
             return _task_result(task)
 
-    def get_conversation(self, conversation_id: str, actor: ActorContext) -> ConversationSnapshot:
-        with self.uow_factory() as uow:
-            conversation = uow.conversations.get_owned(conversation_id, actor.user_id or "")
-            if conversation is None:
-                raise ConversationNotFoundError(conversation_id)
-            messages = uow.messages.list_for_conversation(conversation_id)
-            tasks = uow.tasks.list_for_conversation(conversation_id)
-            return ConversationSnapshot(
-                id=conversation.id,
-                title=conversation.title,
-                preview=conversation.preview,
-                messages=[
-                    ConversationMessageResult(
-                        id=message.id,
-                        role=message.role,
-                        content=message.content,
-                        created_at=message.created_at.isoformat() if message.created_at else None,
-                        task_id=message.task_id,
-                        payload=message.payload,
-                    )
-                    for message in messages
-                ],
-                tasks=[
-                    ConversationTaskResult(
-                        id=task.id,
-                        status=task.status,
-                        current_stage=task.current_stage,
-                        version=task.version,
-                        original_question=task.original_question,
-                        query_shape=task.query_shape,
-                        error_code=task.error_code,
-                        error_message=task.error_message,
-                        logical_dsl=_load_state(task).logical_dsl,
-                        timings_ms=_load_state(task).timings_ms,
-                        debug=_load_state(task).debug,
-                    )
-                    for task in tasks
-                ],
+    def _authorize_task_result(
+        self, actor: ActorContext, task: QueryTask, *, result_payload: dict | None = None,
+        uow: SqlAlchemyUnitOfWork | None = None,
+    ) -> None:
+        """所有含成功结果或诊断事实的入口共用校验；旧记录仅从可信持久化条件恢复。"""
+        if self.permission_service is None:
+            return
+        state = task.state_json or {}
+        artifact = state.get("result_artifact") or {}
+        saved = artifact.get("result") or result_payload or {}
+        if not saved and task.status == QueryTaskStatus.SUCCEEDED.value and uow is not None:
+            saved = _message_query_result(
+                uow.messages.list_for_conversation(task.conversation_id), task.id,
+            ) or {}
+        has_result = (
+            task.status == QueryTaskStatus.SUCCEEDED.value or bool(saved)
+            or (state.get("execution") or {}).get("status") == "succeeded"
+        )
+        if not has_result:
+            return
+        sources = (
+            artifact.get("logical_dsl"), (saved.get("evidence") or {}).get("logical_dsl"),
+            state.get("logical_dsl"),
+        )
+        dsl = next((
+            value for value in sources if isinstance(value, dict) and value.get("orgs")
+        ), None)
+        if dsl is None:
+            raise ApplicationError(
+                "RESULT_SCOPE_UNAVAILABLE", "历史结果缺少可信机构范围，无法安全读取，请重新查询。",
+                status_code=409,
             )
+        self._authorize_saved_result(actor, dsl)
+        # 旧排名记录可能保存上级条件，结果里的实际机构仍须逐一复核。
+        result_orgs = {row.get("org_code") for row in saved.get("rows", []) if row.get("org_code")}
+        if result_orgs:
+            self._authorize_saved_result(actor, {**dsl, "orgs": sorted(result_orgs)})
 
-    def list_conversations(
-        self, actor: ActorContext, *, limit: int = 12, offset: int = 0
-    ) -> tuple[list[ConversationListItem], bool]:
-        with self.uow_factory() as uow:
-            rows = uow.conversations.list_owned(
-                actor.user_id or "", limit=limit + 1, offset=offset
+    def _authorize_saved_result(self, actor: ActorContext, dsl: dict | None) -> None:
+        """结果引用不是授权票据；任一组成机构失权时拒绝整个快照。"""
+        if self.permission_service is None:
+            return
+        if not dsl or not dsl.get("orgs"):
+            raise ApplicationError(
+                "RESULT_SCOPE_UNAVAILABLE", "历史结果缺少可信机构范围，无法安全读取，请重新查询。",
+                status_code=409,
             )
-            items = [
-                ConversationListItem(
-                    id=item.id,
-                    title=item.title,
-                    preview=item.preview,
-                    created_at=item.created_at.isoformat() if item.created_at else None,
-                    updated_at=item.updated_at.isoformat() if item.updated_at else None,
-                )
-                for item in rows[:limit]
-            ]
-            return items, len(rows) > limit
-
-
-    def rename_conversation(
-        self, conversation_id: str, title: str, actor: ActorContext
-    ) -> ConversationListItem:
-        with self.uow_factory() as uow:
-            conversation = uow.conversations.rename_owned(
-                conversation_id, actor.user_id or "", title
+        try:
+            authorized = self.permission_service.authorize_logical_dsl(
+                actor=actor, logical_dsl=dsl,
             )
-            if conversation is None:
-                raise ConversationNotFoundError(conversation_id)
-            uow.commit()
-            return ConversationListItem(
-                id=conversation.id,
-                title=conversation.title,
-                preview=conversation.preview,
-                created_at=conversation.created_at.isoformat() if conversation.created_at else None,
-                updated_at=conversation.updated_at.isoformat() if conversation.updated_at else None,
-            )
-
-    def export_conversation(self, conversation_id: str, actor: ActorContext) -> tuple[str, bytes]:
-        with self.uow_factory() as uow:
-            conversation = uow.conversations.get_owned(conversation_id, actor.user_id or "")
-            if conversation is None:
-                raise ConversationNotFoundError(conversation_id)
-            messages = uow.messages.list_for_conversation(conversation_id)
-            tasks = uow.tasks.list_for_conversation(conversation_id)
-            workbook = build_xlsx(
-                [
-                    (
-                        "会话消息",
-                        ["时间", "角色", "内容", "任务ID", "附加数据"],
-                        [
-                            [
-                                item.created_at.isoformat() if item.created_at else "",
-                                item.role,
-                                item.content,
-                                item.task_id or "",
-                                json.dumps(item.payload, ensure_ascii=False, default=str)
-                                if item.payload
-                                else "",
-                            ]
-                            for item in messages
-                        ],
-                    ),
-                    (
-                        "任务",
-                        ["任务ID", "原问题", "状态", "阶段", "查询类型", "错误"],
-                        [
-                            [
-                                item.id,
-                                item.original_question,
-                                item.status,
-                                item.current_stage,
-                                item.query_shape or "",
-                                item.error_message or "",
-                            ]
-                            for item in tasks
-                        ],
-                    ),
-                ]
-            )
-            return conversation.title, workbook
+            if set(authorized.get("orgs", [])) != set(dsl.get("orgs", [])):
+                raise PermissionDeniedError("结果机构范围已变化")
+        except PermissionDeniedError as exc:
+            raise ApplicationError("ORG_SCOPE_FORBIDDEN", "无权访问该查询结果。",
+                                   status_code=403) from exc
 
     def export_task_result(self, task_id: str, actor: ActorContext) -> tuple[str, bytes]:
         with self.uow_factory() as uow:
@@ -1159,16 +465,8 @@ class QueryTaskApplicationService:
             if task is None:
                 raise TaskNotFoundError(task_id)
             messages = uow.messages.list_for_conversation(task.conversation_id)
-            result_payload = next(
-                (
-                    message.payload.get("result")
-                    for message in reversed(messages)
-                    if message.task_id == task_id
-                    and message.payload
-                    and message.payload.get("kind") == "query_result"
-                ),
-                None,
-            )
+            result_payload = _message_query_result(messages, task_id)
+            self._authorize_task_result(actor, task, result_payload=result_payload)
             if not isinstance(result_payload, dict):
                 raise ApplicationError(
                     "QUERY_RESULT_NOT_FOUND", "该任务没有可导出的查询结果。", status_code=404
@@ -1187,34 +485,6 @@ class QueryTaskApplicationService:
                 ]
             )
             return task.original_question, workbook
-
-    def delete_conversation(self, conversation_id: str, actor: ActorContext) -> None:
-        with self.uow_factory() as uow:
-            if not uow.conversations.delete_owned(conversation_id, actor.user_id or ""):
-                raise ConversationNotFoundError(conversation_id)
-            uow.commit()
-
-    def cleanup_conversations(
-        self, actor: ActorContext, *, keep_latest: int
-    ) -> ConversationCleanupResult:
-        if not 10 <= keep_latest <= 100:
-            raise ValueError("keep_latest must be between 10 and 100")
-        user_id = actor.user_id or ""
-        with self.uow_factory() as uow:
-            before_count = uow.conversations.count_owned(user_id)
-            deleted_count = uow.conversations.delete_old_owned(
-                user_id, keep_latest=keep_latest
-            )
-            remaining_count = uow.conversations.count_owned(user_id)
-            uow.commit()
-            return ConversationCleanupResult(
-                keep_latest=keep_latest,
-                deleted_count=deleted_count,
-                remaining_count=remaining_count,
-                protected_active_count=max(
-                    0, remaining_count - min(before_count, keep_latest)
-                ),
-            )
 
 
 def _resolve_conversation_id(command: SubmitQuestionCommand) -> str:
@@ -1253,14 +523,6 @@ def _question_fingerprint(command: SubmitQuestionCommand, conversation_id: str) 
                if command.request.channel_context.get("calculation_context") else {}),
             **({"basic_query": command.basic_query.model_dump(mode="json")}
                if command.basic_query is not None else {}),
-            # 引用参数是业务内容的一部分：同键不同引用必须报冲突而不是复用
-            **({"query_reference": {
-                "task_id": command.query_reference.task_id,
-                "version": command.query_reference.version,
-                "change_field": command.query_reference.change_field,
-                **({"mode": command.query_reference.mode}
-                   if command.query_reference.mode != "explicit" else {}),
-            }} if command.query_reference is not None else {}),
         }
     )
 
@@ -1303,27 +565,6 @@ def _record_processed_request(
         state.processed_requests.pop(next(iter(state.processed_requests)))
 
 
-def _processed_replay(
-    state: QueryTaskState,
-    request_id: str,
-    fingerprint: str,
-    task: QueryTask,
-) -> TaskCommandResult | None:
-    record = state.processed_requests.get(request_id)
-    if record is None:
-        return None
-    if record.get("fingerprint") != fingerprint:
-        raise TaskConflictError(
-            "IDEMPOTENCY_KEY_REUSED",
-            "The same request identifier was reused with different content",
-        )
-    return _task_result(
-        task,
-        message_id=record.get("message_id"),
-        idempotent_replay=True,
-    )
-
-
 def _question_replay_result(
     task: QueryTask,
     fingerprint: str,
@@ -1350,59 +591,11 @@ def _question_replay_result(
     )
 
 
-def _require_version(task: QueryTask, expected_version: int) -> None:
-    if task.version != expected_version:
-        raise _version_conflict(task.id, expected_version, actual_version=task.version)
-
-
-def _version_conflict(
-    task_id: str,
-    expected_version: int,
-    *,
-    actual_version: int | None = None,
-) -> TaskConflictError:
-    return TaskConflictError(
-        "TASK_VERSION_CONFLICT",
-        "The QueryTask was updated by another request",
-        details={
-            "task_id": task_id,
-            "expected_version": expected_version,
-            "actual_version": actual_version,
-        },
-    )
-
-
-def _require_transition(
-    task: QueryTask,
-    *,
-    next_status: QueryTaskStatus,
-    next_stage: QueryTaskStage,
-) -> None:
-    try:
-        QueryTaskStateMachine.require_transition(
-            current_status=task.status,
-            current_stage=task.current_stage,
-            next_status=next_status,
-            next_stage=next_stage,
-        )
-    except InvalidTaskTransition as exc:
-        raise TaskConflictError(
-            "INVALID_TASK_TRANSITION",
-            str(exc),
-            details={
-                "task_id": task.id,
-                "status": task.status,
-                "current_stage": task.current_stage,
-            },
-        ) from exc
-
-
 def _task_result(
     task: QueryTask,
     *,
     message_id: str | None = None,
     idempotent_replay: bool = False,
-    continuation_token: str | None = None,
 ) -> TaskCommandResult:
     state = _load_state(task)
     return TaskCommandResult(
@@ -1414,9 +607,8 @@ def _task_result(
         message_id=message_id,
         idempotent_replay=idempotent_replay,
         clarification=state.clarification,
-        continuation_token=continuation_token or (
-            state.clarification or {}
-        ).get("continuation_token"),
+        # 历史任务的状态里可能仍留有旧链路澄清令牌，读取时透传，不新生成。
+        continuation_token=(state.clarification or {}).get("continuation_token"),
         slot_frame=state.slots or state.slot_frame,
         logical_dsl=state.logical_dsl,
         missing=state.missing_slots,
@@ -1449,35 +641,6 @@ def _result_ref(state: QueryTaskState) -> dict[str, Any] | None:
     }
 
 
-def _answer_text(answers: Any) -> str:
-    if isinstance(answers, str):
-        return answers
-    if isinstance(answers, dict):
-        selected = answers.get("set")
-        if isinstance(selected, dict):
-            labels = []
-            for values in selected.values():
-                if not isinstance(values, list):
-                    continue
-                for value in values:
-                    if isinstance(value, dict):
-                        label = (
-                            value.get("name")
-                            or value.get("metric_name")
-                            or value.get("org_name")
-                        )
-                    else:
-                        label = value
-                    if isinstance(label, str) and label.strip():
-                        labels.append(label.strip())
-            text = answers.get("text")
-            if isinstance(text, str) and text.strip():
-                labels.append(text.strip())
-            if labels:
-                return "、".join(labels)
-    return json.dumps(answers, ensure_ascii=False, sort_keys=True)
-
-
 def _conversation_title(text: str) -> str:
     value = text.strip()
     return value[:80] + ("..." if len(value) > 80 else "")
@@ -1486,3 +649,12 @@ def _conversation_title(text: str) -> str:
 def _preview(text: str) -> str:
     value = text.strip()
     return value[:200] + ("..." if len(value) > 200 else "")
+
+
+def _message_query_result(messages: list, task_id: str) -> dict | None:
+    """兼容仅在历史消息中保存结果的记录，不执行查询或猜测机构范围。"""
+    return next((
+        message.payload.get("result") for message in reversed(messages)
+        if message.task_id == task_id and message.payload
+        and message.payload.get("kind") == "query_result"
+    ), None)

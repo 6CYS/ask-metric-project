@@ -93,8 +93,10 @@ function normalizeProviderResponse(
 ): ReturnType<ProviderStreams["streamSimple"]> {
   const output = createAssistantMessageEventStream();
   const normalize = (message: AssistantMessage): AssistantMessage => {
+    // 错误码刻意不含 "timeout" 字样：SDK 的 isRetryableAssistantError 按字符串匹配
+    // "timeout" 判定可重试，超时是确定性失败，重试只会把单次预算花两遍且全程无反馈。
     if (message.stopReason === "aborted" && !callerSignal?.aborted) return {...message, stopReason: "error",
-      errorMessage: "MODEL_REQUEST_TIMEOUT: 模型请求中断或超时，请稍后重试。"};
+      errorMessage: "MODEL_DEADLINE_EXCEEDED: 模型请求超出本地时限，本轮未正常完成。"};
     // 网关偶发把工具协议标签作为正文返回；禁止展示或把文本伪调用解析成可执行工具。
     const text = message.content.filter(block => block.type === "text").map(block => block.text).join("").trim();
     if (/<(?:[｜|]DSML[｜|]|tool_call(?:s)?[>\s])/u.test(text)) return {...message, content: [], stopReason: "error",

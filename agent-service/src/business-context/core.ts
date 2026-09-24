@@ -27,6 +27,8 @@ export class FieldResolverRegistry {
     return resolver;
   }
 }
+/** 范围失效只允许重解析原条件；其他失败仍不自动继承。 */
+export const inheritableFrame = (frame: BusinessFrame) => frame.status !== "failed" || frame.errorCode === "SCOPE_CHANGED";
 export const missingField = (): ResolvedField => ({source: "explicit", resolutionStatus: "missing"});
 
 function matchesConstraint(value: unknown, constraint: unknown): boolean {
@@ -85,14 +87,21 @@ export async function mergeFields(schema: CapabilitySchema, base: BusinessFrame 
   for (const [name, definition] of Object.entries(schema.fields)) {
     const change = changes.get(name);
     const previous = base?.fields[name];
-    const canInherit = !!base && base.status !== "failed" && definition.inheritable
+    const canInherit = !!base && inheritableFrame(base) && definition.inheritable
       && (base.capability === schema.capability || !!definition.allowedSourceCapabilities?.includes(base.capability));
     if (change?.operation === "clear") {
       fields[name] = missingField();
       if (!definition.clearable) fields[name]!.resolutionStatus = "invalid";
-    } else if (change?.operation === "set" || (canInherit && previous?.resolutionStatus === "temporary_error"
+    } else if (change?.operation === "set" || change?.operation === "remove" || (canInherit && (previous?.resolutionStatus === "temporary_error" || (base?.capability === schema.capability && previous?.metadata?.refreshOnInherit === true))
       && (!change || change.operation === "retain"))) {
-      const retryInherited = change?.operation !== "set";
+      // remove 必须显式路由给声明支持的 Resolver；未声明的字段报参数错误，不能静默落入继承分支。
+      const resolver = registry.getResolver(definition);
+      if (change?.operation === "remove" && !resolver.removable) {
+        inputErrors.push(new BusinessInputError("FIELD_REMOVE_NOT_SUPPORTED", name,
+          "该字段不支持 remove；放弃整个字段用 clear，或重新提出新问题。原焦点未改变。"));
+        continue;
+      }
+      const retryInherited = change?.operation !== "set" && change?.operation !== "remove";
       const rawValue = retryInherited ? previous?.rawValue : change.rawValue;
       if (definition.inputSchema) {
         try {
@@ -106,8 +115,8 @@ export async function mergeFields(schema: CapabilitySchema, base: BusinessFrame 
       // 编码和值只能由注册的 Resolver 返回。异常不能变成 resolved。
       let resolution;
       try {
-        resolution = await registry.getResolver(definition).resolve(rawValue, definition,
-          {...context, inputSource: retryInherited ? "inherited" : "explicit", ...(previous ? {previous,
+        resolution = await resolver.resolve(rawValue, definition,
+          {...context, inputSource: retryInherited ? "inherited" : "explicit", ...(change ? {fieldOperation: change.operation} : {}), ...(previous ? {previous,
             previousTurnId: typeof previous.metadata?.candidateTurnId === "string" ? previous.metadata.candidateTurnId : base!.turnId} : {})});
       } catch (error) {
         if (!(error instanceof BusinessInputError)) throw error;
@@ -135,7 +144,8 @@ export async function mergeFields(schema: CapabilitySchema, base: BusinessFrame 
       fields[name] = {...structuredClone(previous), source: "inherited", sourceFrameId: base!.frameId};
     } else {
       fields[name] = missingField();
-      if (change?.operation === "retain") fields[name]!.resolutionStatus = "invalid";
+      // 从未提供的条件仍是缺项；retain 不能把正常澄清升级成调用错误。
+      if (change?.operation === "retain" && previous && previous.resolutionStatus !== "missing") fields[name]!.resolutionStatus = "invalid";
     }
   }
   // 一次返回本次 Delta 的全部原文错误，避免模型逐字段修复触发多轮请求；错误不落盘。

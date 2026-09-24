@@ -40,7 +40,7 @@ WEB_PORT=18080
 
 `backend.env` 按 `backend-next/.env.example` 配置生产环境，完整填写双库连接、独立签名密钥、SM2 私钥、模型服务、日志与多轮开关。敏感值通过既有 SM4 配置加密命令生成，设置 `ASK_METRIC_CONFIG_SM4_KEY_FILE=/run/secrets/config_sm4_key`。主密钥由 Compose secrets 挂载，不存入镜像。
 
-若复制仓库的 `backend-next/config/` 到 `runtime-config/`，并将 `backend-next/resources/sql/` 复制到 `runtime-config/sql/`，可设置：
+若复制仓库的 `backend-next/config/` 到 `runtime-config/`，可设置以下路径；SQL 统一由版本内 builder 生成，不复制或加载模板目录：
 
 ```dotenv
 APP_ENV=production
@@ -50,11 +50,8 @@ LOG_DIRECTORY=/app/logs
 MODEL_CONFIG_PATH=/app/runtime-config/model-config.json
 PROMPT_CONFIG_PATH=/app/runtime-config/prompts.json
 SEMANTIC_CONFIG_PATH=/app/runtime-config/semantic-config.json
-QUERY_TEMPLATE_CONFIG_PATH=/app/runtime-config/query-templates.json
-SQL_RESOURCE_DIR=/app/runtime-config/sql
 MODEL_SECRET_ENV_PATH=/app/model-secrets/runtime.env
 CONFIG_HISTORY_DIR=/app/state/config-history
-TEST_CENTER_DATA_DIR=/app/state/test-center
 MULTITURN_V2_ENABLED=true
 ```
 

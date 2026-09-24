@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from ask_metric.domain.semantics import MetricCatalogItem, MetricMatch
@@ -157,30 +158,12 @@ class MetricMatcher:
         self, text: str, start: int, end: int, matched: _TextTerm,
     ) -> list[MetricCatalogItem]:
         """Do not protect a short alias inside an unfinished, more specific catalog name."""
-        strongest_extension = 0
-        candidates: list[MetricCatalogItem] = []
-        for term in self.terms:
-            if term.item.code == matched.item.code or len(term.normalized) <= end - start:
-                continue
-            offset = term.normalized.find(matched.normalized)
-            while offset >= 0:
-                left = 0
-                while (left < min(start, offset)
-                       and text[start - left - 1] == term.normalized[offset - left - 1]):
-                    left += 1
-                right = 0
-                suffix = offset + end - start
-                while (end + right < len(text) and suffix + right < len(term.normalized)
-                       and text[end + right] == term.normalized[suffix + right]):
-                    right += 1
-                extension = left + right
-                if extension > strongest_extension:
-                    strongest_extension = extension
-                    candidates = [term.item]
-                elif extension and extension == strongest_extension:
-                    candidates.append(term.item)
-                offset = term.normalized.find(matched.normalized, offset + 1)
-        return deduplicate_metrics(candidates)
+        items_by_code = {item.code: item for item in self.catalog}
+        codes = more_specific_name_codes(
+            text, start, end, matched.item.code,
+            ((term.item.code, term.normalized) for term in self.terms),
+        )
+        return deduplicate_metrics([items_by_code[code] for code in codes])
 
     def protect(self, text: str, matches: list[MetricMatch]) -> str:
         """标记已确认的指标名称，避免名称中的“排名”等文字被误读为查询操作。"""
@@ -233,6 +216,47 @@ def deduplicate_metrics(items: list[MetricCatalogItem]) -> list[MetricCatalogIte
         # setdefault 只在键不存在时写入；直接赋值则会覆盖前面优先级更高的对象。
         values.setdefault(item.code, item)
     return list(values.values())
+
+
+def more_specific_name_codes(
+    normalized_text: str,
+    start: int,
+    end: int,
+    matched_code: str,
+    terms: Iterable[tuple[str, str]],
+) -> list[str]:
+    """归一化命中片段若落在某个更长且原文相邻延续的完整名称内部，返回那些更具体编码。
+
+    terms 为 (code, normalized_name) 序列。仅当原文在片段左/右还能沿更长名称继续对齐时才判定，
+    避免把恰巧同尾的无关短名误当成“用户尚未说完整”。识别器与执行闸门共用同一判定，标准不分裂。
+    """
+    matched = normalized_text[start:end]
+    span = end - start
+    strongest_extension = 0
+    codes: list[str] = []
+    for code, normalized in terms:
+        if code == matched_code or len(normalized) <= span:
+            continue
+        offset = normalized.find(matched)
+        while offset >= 0:
+            left = 0
+            while (left < min(start, offset)
+                   and normalized_text[start - left - 1] == normalized[offset - left - 1]):
+                left += 1
+            right = 0
+            suffix = offset + span
+            while (end + right < len(normalized_text) and suffix + right < len(normalized)
+                   and normalized_text[end + right] == normalized[suffix + right]):
+                right += 1
+            extension = left + right
+            if extension > strongest_extension:
+                strongest_extension = extension
+                codes = [code]
+            elif extension and extension == strongest_extension:
+                codes.append(code)
+            offset = normalized.find(matched, offset + 1)
+    # 去重保持首次出现顺序，等价于原 deduplicate_metrics 的按编码去重。
+    return list(dict.fromkeys(codes))
 
 
 def conflicting_metric_references(

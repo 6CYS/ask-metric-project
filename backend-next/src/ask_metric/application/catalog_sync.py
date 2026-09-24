@@ -9,6 +9,10 @@ from typing import Any
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from ask_metric.domain.organization_scope import (
+    OrganizationHierarchyNode,
+    OrganizationHierarchySnapshot,
+)
 from ask_metric.infrastructure.db.models import (
     AppUser,
     MetricSynonym,
@@ -179,6 +183,10 @@ class SitCatalogSyncService:
                     session.add(term)
                 before = _metric_state(term)
                 term.metric_name = name
+                # 源字段给出了正式基础指标与取值口径；保留原值供问句省略项核验。
+                term.source_metric_code = row["source_metric_code"]
+                term.base_name = row["base_name"]
+                term.value_basis = row["value_basis"]
                 term.enabled = True
                 if units_by_name is not None:
                     term.unit = units_by_name[name]
@@ -235,17 +243,16 @@ class SitCatalogSyncService:
         if include_branch_level:
             # 支行层级扩展：上级字段名来自配置（由 verify_org_hierarchy.py 核实），
             # 未配置时拒绝扩展，避免静默写入空层级。
-            _validate_field_name(branch_hier_code)
+            # 层级编码是绑定参数值，不是 SQL 列名（正式默认值为数字 "2"）。
+            if not branch_hier_code.strip() or len(branch_hier_code) > 8:
+                raise ValueError("支行层级编码为空或超长")
             if not parent_field:
                 raise ValueError("启用支行层级扩展必须配置 SIT_ORG_PARENT_FIELD")
             _validate_field_name(parent_field)
-        # 默认范围保持现行 1/3 层级 61 家；扩展时额外纳入支行层级，
-        # 并多读层级与上级字段用于写入 org_terms 层级列。
-        extra_columns = (
-            f", {hierarchy_field} AS org_hier_code, {parent_field} AS parent_org_no"
-            if include_branch_level
-            else ""
-        )
+        # 层级元数据始终读取；支行开关只控制目录范围及是否需要源上级字段。
+        extra_columns = f", {hierarchy_field} AS org_hier_code"
+        if include_branch_level:
+            extra_columns += f", {parent_field} AS parent_org_no"
         branch_condition = (
             f" OR {hierarchy_field} = :branch_hier_code" if include_branch_level else ""
         )
@@ -276,6 +283,7 @@ class SitCatalogSyncService:
         selected, skipped = _select_latest(rows, "org_no", ["source_load_date"])
         # 同一快照必须能唯一确定名称；不截断超过应用字段长度的源名称。
         seen_names: dict[str, str] = {}
+        seen_hierarchy: dict[str, tuple[str, str]] = {}
         for row in rows:
             code = str(row.get("org_no") or "").strip()
             name = str(row.get("org_chn_nm") or "").strip()
@@ -284,6 +292,41 @@ class SitCatalogSyncService:
             if code in seen_names and seen_names[code] != name:
                 raise ValueError("机构同编码出现不同名称，未写入应用库")
             seen_names[code] = name
+            level = str(row.get("org_hier_code") or "").strip()
+            parent = str(row.get("parent_org_no") or "").strip()
+            hierarchy_key = (level, parent)
+            if code in seen_hierarchy and seen_hierarchy[code] != hierarchy_key:
+                raise ValueError("机构同编码出现冲突层级，未写入应用库")
+            if len(parent) > 128 or len(level) > 8:
+                raise ValueError("机构层级字段超长，未写入应用库")
+            seen_hierarchy[code] = hierarchy_key
+        roots = [
+            code for code, row in selected.items()
+            if str(row.get("org_hier_code") or "").strip() == head_office_hier_code
+        ]
+        if len(roots) != 1:
+            raise ValueError("机构目录必须包含唯一正式省级根机构，未写入应用库")
+        root_code = roots[0]
+        hierarchy_nodes = []
+        for code, row in selected.items():
+            level = str(row.get("org_hier_code") or "").strip()
+            # 未纳入支行时，源查询仅选正式省级/法人级；唯一省级根是其治理上级。
+            # 此关系来自正式层级字段，不根据机构名称或编码形状猜测。
+            parent = (
+                str(row.get("parent_org_no") or "").strip() or None
+                if include_branch_level else None if code == root_code else root_code
+            )
+            hierarchy_nodes.append(OrganizationHierarchyNode(
+                code=code, name=str(row.get("org_chn_nm") or "").strip(),
+                parent_code=parent, hierarchy_level=level,
+            ))
+        snapshot = OrganizationHierarchySnapshot(
+            nodes=tuple(hierarchy_nodes), root_level=head_office_hier_code,
+            cohort_level=legal_entity_hier_code,
+        )
+        # 整批先验证再打开写事务；dry-run 执行同样校验，不发布半同步层级。
+        snapshot.validated_root()
+        hierarchy_by_code = {node.code: node for node in snapshot.nodes}
         additions = aliases_by_code if aliases_by_code is not None else {}
         if not isinstance(additions, dict) or set(additions) - set(selected):
             raise ValueError("机构别名映射含本次范围以外的编码，未写入应用库")
@@ -338,14 +381,9 @@ class SitCatalogSyncService:
                     *(term.aliases or []), *(alias.strip() for alias in additions.get(code, [])),
                 ]))
                 term.enabled = True
-                if include_branch_level:
-                    # 扩展模式写入真实层级：上级机构编码（汇总节点无上级置空）
-                    # 与 org_hier_code 层级值；默认模式不动这两列，保持全 NULL。
-                    parent = str(row.get("parent_org_no") or "").strip()
-                    if len(parent) > 128:
-                        raise ValueError("上级机构编码超长，未写入应用库")
-                    term.parent_org_code = parent or None
-                    term.hierarchy_level = str(row.get("org_hier_code") or "").strip() or None
+                node = hierarchy_by_code[code]
+                term.parent_org_code = node.parent_code
+                term.hierarchy_level = node.hierarchy_level
                 after = _org_state(term)
                 if created:
                     summary.created += 1
@@ -477,11 +515,14 @@ def _build_metric_catalog(
         candidate = {
             "metric_name": metric_name,
             "source_metric_code": source_metric_code,
+            "base_name": base_name,
             "value_basis": value_basis,
             "config": config,
         }
         current = selected.get(metric_code)
-        if current is not None and current["metric_name"] != metric_name:
+        if current is not None and any(current[key] != candidate[key] for key in (
+            "metric_name", "source_metric_code", "base_name", "value_basis"
+        )):
             errors += 1
             continue
         selected[metric_code] = candidate
@@ -550,7 +591,8 @@ def _as_date(value: Any) -> date | None:
 
 
 def _metric_state(term: MetricTerm) -> tuple[Any, ...]:
-    return (term.metric_name, term.enabled, term.unit)
+    return (term.metric_name, term.enabled, term.unit, term.source_metric_code,
+            term.base_name, term.value_basis)
 
 
 def _org_state(term: OrgTerm) -> tuple[Any, ...]:

@@ -1,5 +1,5 @@
 /**
- * 结构化查询适配器：新会话仅由已校验 Business Frame 调用，旧工具定义用于历史兼容。
+ * 结构化查询适配器：仅由已校验 Business Frame 调用。
  * Resolver 完成实体和日期解析后，以正式字段调用后端 basic-queries（不调用后端语义模型）。
  * 编码不是授权凭据，后端仍按当前用户权限与启用目录校验；幂等键由参数指纹派生，不用随机键。
  */
@@ -18,33 +18,35 @@ import {
 } from "./shared.js";
 
 const structuredQueryParameters = Type.Object({
+  verify_question_coverage: Type.Optional(Type.Boolean()),
+  source_question: Type.Optional(Type.String({minLength: 1,
+    description: "覆盖率复核的归一化原句，仅由业务 Frame 适配器按已确认口径注入；缺省使用本轮用户原文"})),
   metric_codes: Type.Array(Type.String({ minLength: 1 }), {
     minItems: 1,
     maxItems: 100,
     description: "正式指标编码数组，必须来自 catalog 的指标检索结果或会话中已确认的编码，不得编造",
   }),
-  org_codes: Type.Array(Type.String({ minLength: 1 }), {
-    maxItems: 1000,
-    description:
-      "正式机构编码数组，必须来自 catalog 的机构检索结果、会话中已确认的编码或已展开的全目录集合，不得编造；" +
-      "selection=ranking 时至多一个范围机构，空数组表示全省汇总的直接下级",
+  org_codes: Type.Optional(Type.Array(Type.String({minLength: 1}), {minItems: 1, maxItems: 1000,
+    description: "实际查询目标的正式机构编码，不表示父机构；集合范围用 organization_scope"})),
+  organization_scope: Type.Optional(Type.Union([
+    Type.Object({kind: Type.Literal("authorized_cohort"), cohort: Type.Literal("rural_commercial_banks")}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("children_of"), parent_code: Type.String({minLength: 1})}, {additionalProperties: false}),
+  ])),
+  scope_fingerprint: Type.Optional(Type.String({pattern: "^[a-f0-9]{64}$"})),
+  start: Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "起始日期 YYYY-MM-DD（含）；多个离散日期时为最早日期" }),
+  end: Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "结束日期 YYYY-MM-DD（含）；多个离散日期时为最晚日期" }),
+  dates: Type.Optional(Type.Array(Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" }), {
+    minItems: 2, maxItems: 31,
+    description: "多个离散日期点（如各月末），各点独立取值；start/end 须等于最早/最晚。与排名、完整时间序列互斥。",
+  })),
+  selection: StringEnum(["exact", "latest_in_range", "all_in_range"], {
+    description: "日期取值方式：exact=指定同一天；latest_in_range=范围内最新有值日期；all_in_range=全部已有数据点。排名单独由 operation 表达，不扩展日期。",
   }),
-  start: Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "起始日期 YYYY-MM-DD（含）" }),
-  end: Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "结束日期 YYYY-MM-DD（含）" }),
-  selection: StringEnum(["exact", "latest_in_range", "all_in_range", "ranking"], {
-    description:
-      "exact：起止必须同日的指定日原值，明确月末使用该月最后一天；latest_in_range：用户指定范围内最后一个可用日期的原值，不得为月末自行扩展或倒退日期范围；all_in_range：范围内全部已有数据点；" +
-      "ranking：排名榜单与名次反查，按范围机构（缺省全省汇总直接下级）的下级排序取前 top_n 名，结果行自带机构、数值和名次",
-  }),
-  order: Type.Optional(
-    StringEnum(["asc", "desc"], {
-      description: "仅 selection=ranking：排名方向，desc=数值高在前（缺省），asc=数值低在前（问排名最后时用）",
-    }),
-  ),
-  top_n: Type.Optional(
-    Type.Integer({ minimum: 1, maximum: 100, description: "仅 selection=ranking：返回名次条数，缺省 5；问第1名用 top_n=1" }),
-  ),
-});
+  operation: Type.Optional(Type.Union([
+    Type.Object({kind: Type.Literal("value")}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("ranking"), order: StringEnum(["asc", "desc"]), top_n: Type.Integer({minimum: 1, maximum: 100})}, {additionalProperties: false}),
+  ])),
+}, {additionalProperties: false});
 
 export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestContext, typeof structuredQueryParameters, StructuredQueryDetails> {
   return {
@@ -59,24 +61,34 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
           details: { kind: "metric_query_structured" as const, status: "error", retryable: true, public_answer: "查询参数未通过校验，请核对日期与机构范围。" },
         };
       }
-      if (params.selection === "exact" && params.start !== params.end) {
+      const hasDates = Array.isArray(params.dates) && params.dates.length > 0;
+      if (hasDates) {
+        const dates = params.dates!;
+        const sortedUnique = [...new Set(dates)].sort();
+        if (dates.length < 2 || !dates.every(isCalendarDate) || sortedUnique.length !== dates.length
+          || dates.some((date, index) => index > 0 && date <= dates[index - 1]!)
+          || dates[0] !== params.start || dates[dates.length - 1] !== params.end) {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ status: "error", message: "离散日期须为升序去重的日历日期，且 start/end 等于最早/最晚" }) }],
+            details: { kind: "metric_query_structured" as const, status: "error", retryable: true, public_answer: "查询参数未通过校验，请核对日期与机构范围。" },
+          };
+        }
+      }
+      if (!hasDates && params.selection === "exact" && params.start !== params.end) {
         return {
           content: [{ type: "text", text: JSON.stringify({ status: "error", message: "selection=exact 时 start 与 end 必须是同一天" }) }],
           details: { kind: "metric_query_structured" as const, status: "error", retryable: true, public_answer: "查询参数未通过校验，请核对日期与机构范围。" },
         };
       }
-      const isRanking = params.selection === "ranking";
-      // 排名只在一个范围机构内分解下级：空数组=全省汇总直接下级，多于一个范围机构无法定义名次口径
-      if (isRanking && params.org_codes.length > 1) {
+      const scopeValid = params.organization_scope
+        ? !!params.scope_fingerprint && /^[a-f0-9]{64}$/.test(params.scope_fingerprint) && params.org_codes === undefined
+        : !params.scope_fingerprint && !!params.org_codes?.length;
+      if (!scopeValid || !["exact", "latest_in_range", "all_in_range"].includes(params.selection)
+        || "order" in params || "top_n" in params || (params.operation?.kind === "ranking" && params.selection === "all_in_range")
+        || (hasDates && (params.operation?.kind === "ranking" || params.selection === "all_in_range"))) {
         return {
-          content: [{ type: "text", text: JSON.stringify({ status: "error", message: "selection=ranking 时 org_codes 至多一个范围机构，空数组表示全省汇总的直接下级" }) }],
-          details: { kind: "metric_query_structured" as const, status: "error", retryable: true, public_answer: "查询参数未通过校验，请核对日期与机构范围。" },
-        };
-      }
-      if (!isRanking && params.org_codes.length === 0) {
-        return {
-          content: [{ type: "text", text: JSON.stringify({ status: "error", message: "org_codes 不能为空；仅 selection=ranking 允许空数组（缺省为全省汇总直接下级）" }) }],
-          details: { kind: "metric_query_structured" as const, status: "error", retryable: true, public_answer: "查询参数未通过校验，请核对日期与机构范围。" },
+          content: [{type: "text", text: JSON.stringify({status: "error", error_code: "QUERY_CONTRACT_INVALID", message: "机构必须为实际编码或带指纹的集合；尚不支持逐日排名"})}],
+          details: {kind: "metric_query_structured" as const, status: "error", retryable: false, error_code: "QUERY_CONTRACT_INVALID", public_answer: "查询条件组合未通过校验。"},
         };
       }
       try {
@@ -89,15 +101,15 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
         const spec: BasicQuerySpec = {
           conversation_id: conversationId,
           calculation_context: {scope_id: request.operationId, user_question: request.originalMessage},
+          ...(params.verify_question_coverage ? {source_question: params.source_question ?? request.originalMessage} : {}),
           metric_codes: [...new Set(params.metric_codes)],
-          org_codes: [...new Set(params.org_codes)],
-          time: { start: params.start, end: params.end },
+          schema_version: 2,
+          ...(params.organization_scope ? {organization_scope: params.organization_scope, scope_fingerprint: params.scope_fingerprint!}
+            : {org_codes: [...new Set(params.org_codes!)]}),
+          time: { start: params.start, end: params.end, ...(hasDates ? { dates: params.dates } : {}) },
           selection: params.selection as BasicQuerySpec["selection"],
+          operation: (params.operation ?? {kind: "value"}) as NonNullable<BasicQuerySpec["operation"]>,
         };
-        if (isRanking) {
-          spec.order = (params.order ?? "desc") as "asc" | "desc";
-          spec.top_n = params.top_n ?? 5;
-        }
         // 稳定幂等键：同一请求内相同参数重试复用同一后端任务，不产生重复查询
         const key = commandKey({
           owner: request.actor.id,
@@ -148,6 +160,7 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
             result_id: task?.result?.result_id,
             public_answer: result.status === "succeeded" ? resultAnswer(result) : readableMessage ?? "查询未成功。",
             status: result.status,
+            ...(result.error_code ? {error_code: result.error_code} : {}),
             columns: result.columns,
             rows: result.rows,
             row_count: result.row_count,
@@ -156,7 +169,14 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
         };
       } catch (error) {
         if (request.businessExecutionFrame && (!(error instanceof BackendApiError) || error.status >= 500)) throw error;
-        const handled = backendErrorResult(error, { kind: "metric_query_structured" as const, status: "error" });
+        if (error instanceof BackendApiError && error.code === "SCOPE_CHANGED") return {
+          content: [{type: "text", text: JSON.stringify({status: "error", error_code: error.code,
+            message: "机构范围已变化，使用原Frame条件重新解析以校验当前权限和范围，不沿用过期指纹。"})}],
+          details: {kind: "metric_query_structured", status: "error", error_code: error.code, retryable: true,
+            public_answer: "机构范围发生变化，本次查询未执行成功，需要重新校验原查询条件。"},
+        };
+        const handled = backendErrorResult(error, {kind: "metric_query_structured" as const, status: "error",
+          ...(error instanceof BackendApiError && error.code ? {error_code: error.code} : {})});
         if (handled) return handled;
         throw error;
       }

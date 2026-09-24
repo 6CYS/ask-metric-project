@@ -24,7 +24,7 @@ VENV = SITE / 'ask-metric-venv-r9'
 LOGS = SITE / 'ask-metric-logs'
 SENSITIVE = {
     'APP_DATABASE_URL', 'QUERY_DATABASE_URL', 'METRIC_CATALOG_DATABASE_URL',
-    'ORG_CATALOG_DATABASE_URL', 'NACOS_PASSWORD', 'CONTINUATION_TOKEN_SECRET',
+    'ORG_CATALOG_DATABASE_URL', 'NACOS_PASSWORD',
     'JWT_SECRET', 'SM2_PRIVATE_KEY', 'MODEL_ADMIN_TOKEN', 'TRUSTED_PROXY_TOKEN',
     'MODEL_CHAT_API_KEY', 'MODEL_EMBEDDING_API_KEY', 'MODEL_RERANK_API_KEY',
 }
@@ -69,7 +69,7 @@ def prepare():
         if '${' in value or (value.startswith('<') and value.endswith('>')):
             raise SystemExit(f'{name}: resolve the placeholder in the original config first.')
     # Preserve configured session secrets; generate only missing private application keys.
-    for name in ('JWT_SECRET', 'CONTINUATION_TOKEN_SECRET'):
+    for name in ('JWT_SECRET',):
         if not config.get(name) or config[name].startswith('development-only'):
             config[name] = secrets.token_urlsafe(48)
     if not config.get('SM2_PRIVATE_KEY'):
@@ -110,9 +110,6 @@ def prepare():
         'MODEL_SECRET_ENV_PATH': str(CONFIG),
         'PROMPT_CONFIG_PATH': str(RUNTIME / 'prompts.json'),
         'SEMANTIC_CONFIG_PATH': str(runtime / 'config/semantic-config.json'),
-        'QUERY_TEMPLATE_CONFIG_PATH': str(runtime / 'config/query-templates.json'),
-        'SQL_RESOURCE_DIR': str(runtime / 'resources/sql'),
-        'TEST_CENTER_BASELINE_PATH': str(runtime / 'resources/testing/accuracy-baseline.json'),
         'BACKEND_NEXT_ALLOW_SCHEMA_CHANGES': 'false',
         'LOG_FILE_ENABLED': 'true',
     })
@@ -144,8 +141,7 @@ def check():
     for name in ('APP_DATABASE_URL', 'QUERY_DATABASE_URL'):
         if not config.get(name, '').startswith('ENC[SM4:v1:'):
             raise SystemExit(f'{name} must be configured and encrypted.')
-    for name in ('MODEL_CONFIG_PATH', 'PROMPT_CONFIG_PATH', 'SEMANTIC_CONFIG_PATH',
-                 'QUERY_TEMPLATE_CONFIG_PATH'):
+    for name in ('MODEL_CONFIG_PATH', 'PROMPT_CONFIG_PATH', 'SEMANTIC_CONFIG_PATH'):
         json.loads(Path(config[name]).read_text(encoding='utf-8'))
     model = json.loads(Path(config['MODEL_CONFIG_PATH']).read_text(encoding='utf-8'))
     from ask_metric.infrastructure.model.configuration import ModelConfigRepository

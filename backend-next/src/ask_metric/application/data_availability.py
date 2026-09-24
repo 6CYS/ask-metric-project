@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ask_metric.domain.query_execution import QueryTemplateId
+from ask_metric.domain.query_execution import QueryExecutionPlan, QueryTemplateId
 
 
 class AvailabilityRequest(BaseModel):
@@ -149,9 +149,8 @@ def execute_availability(
         if spec.dimension == "metrics"
         else QueryTemplateId.DATA_AVAILABILITY
     )
-    sql = execution.templates.load(dialect=dialect, template=template)
-    result = execution.data_source.execute_readonly(
-        sql=sql,
+    plan = QueryExecutionPlan(
+        shape="metric_availability", template=template, dialect=dialect, dsl=dsl,
         parameters={
             "metric_codes": list(selected_metrics)
             if spec.dimension == "metrics"
@@ -166,4 +165,6 @@ def execute_availability(
             "page_end": spec.page * spec.page_size,
         },
     )
+    sql = execution.sql_builder.build(plan)
+    result = execution.data_source.execute_readonly(sql=sql, parameters=plan.parameters)
     return render(spec, result.rows, selected_metrics, selected_orgs)

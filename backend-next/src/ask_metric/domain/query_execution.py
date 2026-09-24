@@ -20,6 +20,8 @@ class SupportedQueryShape(StrEnum):
 
 
 class QueryTemplateId(StrEnum):
+    """builder 场景标识；沿用历史名称和值以兼容已保存的查询计划。"""
+
     DATA_AVAILABLE_METRICS = "data_available_metrics"
     DATA_AVAILABILITY = "data_availability"
     METRIC_AVAILABILITY = "metric_availability"
@@ -93,10 +95,10 @@ class UnsupportedQueryError(QueryPlanError):
 
 
 class QueryPlanner:
-    """将受校验的 LogicalDSL 转成已登记的模板编号、绑定参数及结果操作。
+    """将受校验的 LogicalDSL 转成已登记的查询场景、绑定参数及结果操作。
 
     DSL 是指标、机构、时间等结构化查询条件，并非 SQL；不支持的条件必须报错，
-    不能删掉条件后扩大查询范围。SQL 文本由模板仓库提供，模型不参与拼接。
+    不能删掉条件后扩大查询范围。SQL 文本统一由 builder 生成，模型不参与拼接。
     """
     def __init__(
         self,
@@ -346,6 +348,8 @@ def _target_dates(value: Any) -> list[date]:
             raise QueryPlanError("target_dates contains an invalid date")
         if target not in parsed:
             parsed.append(target)
+    if len(parsed) > 31:
+        raise QueryPlanError("target_dates cannot contain more than 31 dates")
     return sorted(parsed)
 
 

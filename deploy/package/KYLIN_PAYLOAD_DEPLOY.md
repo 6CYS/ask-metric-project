@@ -56,12 +56,12 @@ APP 表，则不得直接运行基线迁移。
 
 ## SIT 数据湖配置与目录同步
 
-新安装生成的 `backend.env` 已包含 Inceptor、指标事实表、指标配置表和机构维表配置。升级已有
-安装时，运维工具会把缺失的 Inceptor 模板和 SQL 文件合并到运行目录，但不会覆盖已有的人工
-模板；已有 `backend.env` 也不会被覆盖，需要人工补充并复核全部 `SIT_*` 表名和字段映射。
+新安装生成的 `backend.env` 已包含 Inceptor、指标事实表、指标配置表和机构维表配置。查询 SQL
+统一由发布包内 builder 生成，升级不再合并或加载 SQL 模板；现场旧文件保留供整包回退。
+已有 `backend.env` 不会被覆盖，需要人工补充并复核全部 `SIT_*` 表名和字段映射。
 示例值对应当前测试湖，生产表名或字段名变化时只修改 `backend.env`，无需修改 SQL/Python。
-行内必须保持 `QUERY_DATABASE_DIALECT=inceptor`；配置文件中同时存在的 MySQL 模板只用于
-外网/本地回退，不会被该运行模式选中。
+行内必须保持 `QUERY_DATABASE_DIALECT=inceptor`；builder 的 MySQL 方言只用于采用
+`metric_values` 表结构的外网/本地环境，不会被该运行模式选中。
 
 应用库迁移审批并执行后，先进行只读连接检查和目录同步预演：
 

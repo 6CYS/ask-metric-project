@@ -1,0 +1,817 @@
+{
+  "date": "2026-09-22",
+  "model": "deepseek-ai/DeepSeek-V4-Flash",
+  "business_backend": "synthetic",
+  "real_business_database": false,
+  "command": "node --env-file=.env --import tsx scripts/check-multiturn-model.ts --live --handoff",
+  "runs": [
+    {
+      "passed": false,
+      "environment": "configured_model_synthetic_backend_real_date_resolver",
+      "business_skills": [
+        "analysis-boundary",
+        "data-coverage",
+        "metric-query",
+        "result-calculation"
+      ],
+      "reports": [
+        {
+          "turn": 1,
+          "clarification_followup": false,
+          "passed": false,
+          "errors": [
+            "query count\n\n0 !== 1\n"
+          ],
+          "tools": [
+            "resolve_business_turn"
+          ],
+          "query_count": 0,
+          "reads": 0,
+          "model_calls": 2,
+          "elapsed_ms": 8807,
+          "focus_status": "clarifying",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "个人经营性贷款余额全省均值"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "M1"
+                ],
+                "names": [
+                  "个人经营性贷款余额全省均值"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "个人经营性贷款余额全省均值"
+                ],
+                "referenceValues": [
+                  "M1",
+                  "个人经营性贷款余额全省均值"
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "合成机构甲",
+              "resolvedValue": {
+                "codes": [
+                  "O1"
+                ],
+                "names": [
+                  "合成机构甲"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "O1",
+                  "合成机构甲"
+                ]
+              }
+            },
+            "time": {
+              "rawValue": "2024年4月末",
+              "resolvedValue": {
+                "start": "2024-04-30",
+                "end": "2024-04-30"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "businessDate": "2026-09-21"
+              }
+            },
+            "selection": {
+              "source": "explicit",
+              "resolutionStatus": "missing"
+            },
+            "operation": {
+              "source": "explicit",
+              "resolutionStatus": "missing"
+            }
+          },
+          "answer": {
+            "role": "assistant",
+            "text": "您查询的是**合成机构甲**在**2024年4月末**的**个人经营性贷款余额全省均值**。为了准确取数，请确认一下时间取数方式：您是指**4月30日当天**的数值，还是需要其他处理方式？",
+            "business_protocol": "frame_v1",
+            "tools": [],
+            "tool_calls": [],
+            "timestamp": 1790042659042,
+            "entry_id": "01a0c6db-58e1-745b-a010-33ef5fa67e7f"
+          }
+        },
+        {
+          "turn": 2,
+          "clarification_followup": false,
+          "passed": false,
+          "errors": [
+            "query count\n\n0 !== 1\n"
+          ],
+          "tools": [
+            "resolve_business_turn",
+            "resolve_business_turn"
+          ],
+          "query_count": 0,
+          "reads": 0,
+          "model_calls": 3,
+          "elapsed_ms": 10231,
+          "focus_status": "clarifying",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "个人经营性贷款余额全省均值"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "M1"
+                ],
+                "names": [
+                  "个人经营性贷款余额全省均值"
+                ]
+              },
+              "source": "inherited",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "个人经营性贷款余额全省均值"
+                ],
+                "referenceValues": [
+                  "M1",
+                  "个人经营性贷款余额全省均值"
+                ]
+              },
+              "sourceFrameId": "ddfa3869-b8ce-4c1a-9772-109c523682da"
+            },
+            "organizations": {
+              "rawValue": "合成机构甲",
+              "resolvedValue": {
+                "codes": [
+                  "O1"
+                ],
+                "names": [
+                  "合成机构甲"
+                ]
+              },
+              "source": "inherited",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "O1",
+                  "合成机构甲"
+                ]
+              },
+              "sourceFrameId": "ddfa3869-b8ce-4c1a-9772-109c523682da"
+            },
+            "time": {
+              "rawValue": "3月末",
+              "resolvedValue": {
+                "start": "2024-03-31",
+                "end": "2024-03-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "businessDate": "2026-09-21"
+              }
+            },
+            "selection": {
+              "source": "inherited",
+              "resolutionStatus": "missing",
+              "sourceFrameId": "ddfa3869-b8ce-4c1a-9772-109c523682da"
+            },
+            "operation": {
+              "source": "inherited",
+              "resolutionStatus": "missing",
+              "sourceFrameId": "ddfa3869-b8ce-4c1a-9772-109c523682da"
+            }
+          },
+          "answer": {
+            "role": "assistant",
+            "text": "您是要查询**合成机构甲**在**2024年3月末**的**个人经营性贷款余额全省均值**。请确认取数方式：是指**3月31日当天**的数值吗？",
+            "business_protocol": "frame_v1",
+            "tools": [],
+            "tool_calls": [],
+            "timestamp": 1790042669811,
+            "entry_id": "01a0c6db-82f3-745b-a010-3409c5e6b82d"
+          }
+        },
+        {
+          "turn": 3,
+          "clarification_followup": true,
+          "passed": true,
+          "errors": [],
+          "tools": [
+            "resolve_business_turn",
+            "resolve_business_turn",
+            "execute_business_frame"
+          ],
+          "query_count": 1,
+          "reads": 0,
+          "model_calls": 4,
+          "elapsed_ms": 13925,
+          "focus_status": "success",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "个人经营性贷款余额较年初"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "M2"
+                ],
+                "names": [
+                  "个人经营性贷款余额较年初"
+                ]
+              },
+              "source": "inherited",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "个人经营性贷款余额较年初"
+                ],
+                "referenceValues": [
+                  "M2",
+                  "个人经营性贷款余额较年初"
+                ]
+              },
+              "sourceFrameId": "28c47d65-8781-4a19-b7e6-bc04a82a5976"
+            },
+            "organizations": {
+              "rawValue": "合成机构甲",
+              "resolvedValue": {
+                "codes": [
+                  "O1"
+                ],
+                "names": [
+                  "合成机构甲"
+                ]
+              },
+              "source": "inherited",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "O1",
+                  "合成机构甲"
+                ]
+              },
+              "sourceFrameId": "28c47d65-8781-4a19-b7e6-bc04a82a5976"
+            },
+            "time": {
+              "rawValue": "3月末",
+              "resolvedValue": {
+                "start": "2024-03-31",
+                "end": "2024-03-31"
+              },
+              "source": "inherited",
+              "resolver": "date",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "businessDate": "2026-09-21"
+              },
+              "sourceFrameId": "28c47d65-8781-4a19-b7e6-bc04a82a5976"
+            },
+            "selection": {
+              "rawValue": "all_in_range",
+              "resolvedValue": "all_in_range",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "source": "inherited",
+              "resolutionStatus": "missing",
+              "sourceFrameId": "28c47d65-8781-4a19-b7e6-bc04a82a5976"
+            }
+          },
+          "answer": {
+            "role": "assistant",
+            "text": "**合成机构甲** 2024年3月末 **个人经营性贷款余额较年初** 的已有记录如下：\n\n- **2024-03-31**：731.25 元\n\n该月目前仅有一条记录（3月末当日）。如需查询其他时间范围或指标，请告诉我。",
+            "business_protocol": "frame_v1",
+            "tools": [],
+            "tool_calls": [],
+            "timestamp": 1790042684606,
+            "entry_id": "01a0c6db-bcbd-745b-a010-343c43c525f5"
+          }
+        },
+        {
+          "turn": 4,
+          "clarification_followup": false,
+          "passed": true,
+          "errors": [],
+          "tools": [
+            "resolve_business_turn",
+            "read_business_result"
+          ],
+          "query_count": 0,
+          "reads": 1,
+          "model_calls": 3,
+          "elapsed_ms": 4303,
+          "focus_status": "success",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "个人经营性贷款余额较年初"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "M2"
+                ],
+                "names": [
+                  "个人经营性贷款余额较年初"
+                ]
+              },
+              "source": "inherited",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "个人经营性贷款余额较年初"
+                ],
+                "referenceValues": [
+                  "M2",
+                  "个人经营性贷款余额较年初"
+                ]
+              },
+              "sourceFrameId": "28c47d65-8781-4a19-b7e6-bc04a82a5976"
+            },
+            "organizations": {
+              "rawValue": "合成机构甲",
+              "resolvedValue": {
+                "codes": [
+                  "O1"
+                ],
+                "names": [
+                  "合成机构甲"
+                ]
+              },
+              "source": "inherited",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "O1",
+                  "合成机构甲"
+                ]
+              },
+              "sourceFrameId": "28c47d65-8781-4a19-b7e6-bc04a82a5976"
+            },
+            "time": {
+              "rawValue": "3月末",
+              "resolvedValue": {
+                "start": "2024-03-31",
+                "end": "2024-03-31"
+              },
+              "source": "inherited",
+              "resolver": "date",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "businessDate": "2026-09-21"
+              },
+              "sourceFrameId": "28c47d65-8781-4a19-b7e6-bc04a82a5976"
+            },
+            "selection": {
+              "rawValue": "all_in_range",
+              "resolvedValue": "all_in_range",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "source": "inherited",
+              "resolutionStatus": "missing",
+              "sourceFrameId": "28c47d65-8781-4a19-b7e6-bc04a82a5976"
+            }
+          },
+          "answer": {
+            "role": "assistant",
+            "text": "刚才的查询结果如下：\n\n**合成机构甲** 2024年3月末 **个人经营性贷款余额较年初**：\n\n- **2024-03-31**：**731.25 元**\n\n该月仅有一条记录。如需其他查询，请告诉我。",
+            "business_protocol": "frame_v1",
+            "tools": [],
+            "tool_calls": [],
+            "timestamp": 1790042689404,
+            "entry_id": "01a0c6db-cf7a-745b-a010-3457fbb816df"
+          }
+        }
+      ],
+      "run": "before_internal_parameter_fix"
+    },
+    {
+      "passed": true,
+      "environment": "configured_model_synthetic_backend_real_date_resolver",
+      "business_skills": [
+        "analysis-boundary",
+        "data-coverage",
+        "metric-query",
+        "result-calculation"
+      ],
+      "reports": [
+        {
+          "turn": 1,
+          "clarification_followup": false,
+          "passed": true,
+          "errors": [],
+          "tools": [
+            "resolve_business_turn",
+            "execute_business_frame"
+          ],
+          "query_count": 1,
+          "reads": 0,
+          "model_calls": 3,
+          "elapsed_ms": 15111,
+          "focus_status": "success",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "个人经营性贷款余额全省均值"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "M1"
+                ],
+                "names": [
+                  "个人经营性贷款余额全省均值"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "个人经营性贷款余额全省均值"
+                ],
+                "referenceValues": [
+                  "M1",
+                  "个人经营性贷款余额全省均值"
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "合成机构甲",
+              "resolvedValue": {
+                "codes": [
+                  "O1"
+                ],
+                "names": [
+                  "合成机构甲"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "O1",
+                  "合成机构甲"
+                ]
+              }
+            },
+            "time": {
+              "rawValue": "2024年4月末",
+              "resolvedValue": {
+                "start": "2024-04-30",
+                "end": "2024-04-30"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "businessDate": "2026-09-21"
+              }
+            },
+            "selection": {
+              "rawValue": "exact",
+              "resolvedValue": "exact",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "source": "explicit",
+              "resolutionStatus": "missing"
+            }
+          },
+          "answer": {
+            "role": "assistant",
+            "text": "合成机构甲2024年4月末的**个人经营性贷款余额全省均值**为 **731.25元**。",
+            "business_protocol": "frame_v1",
+            "tools": [],
+            "tool_calls": [],
+            "timestamp": 1790042888021,
+            "entry_id": "01a0c6de-d754-75e2-8df6-e06d7acf7af3"
+          }
+        },
+        {
+          "turn": 2,
+          "clarification_followup": false,
+          "passed": true,
+          "errors": [],
+          "tools": [
+            "resolve_business_turn",
+            "resolve_business_turn",
+            "execute_business_frame"
+          ],
+          "query_count": 1,
+          "reads": 0,
+          "model_calls": 4,
+          "elapsed_ms": 34509,
+          "focus_status": "success",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "个人经营性贷款余额全省均值"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "M1"
+                ],
+                "names": [
+                  "个人经营性贷款余额全省均值"
+                ]
+              },
+              "source": "inherited",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "个人经营性贷款余额全省均值"
+                ],
+                "referenceValues": [
+                  "M1",
+                  "个人经营性贷款余额全省均值"
+                ]
+              },
+              "sourceFrameId": "367dde55-2097-44b8-8200-84f68554657a"
+            },
+            "organizations": {
+              "rawValue": "合成机构甲",
+              "resolvedValue": {
+                "codes": [
+                  "O1"
+                ],
+                "names": [
+                  "合成机构甲"
+                ]
+              },
+              "source": "inherited",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "O1",
+                  "合成机构甲"
+                ]
+              },
+              "sourceFrameId": "367dde55-2097-44b8-8200-84f68554657a"
+            },
+            "time": {
+              "rawValue": "3月末",
+              "resolvedValue": {
+                "start": "2024-03-31",
+                "end": "2024-03-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "businessDate": "2026-09-21"
+              }
+            },
+            "selection": {
+              "rawValue": "exact",
+              "resolvedValue": "exact",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "source": "inherited",
+              "resolutionStatus": "missing",
+              "sourceFrameId": "367dde55-2097-44b8-8200-84f68554657a"
+            }
+          },
+          "answer": {
+            "role": "assistant",
+            "text": "合成机构甲2024年3月末的**个人经营性贷款余额全省均值**为 **731.25元**。",
+            "business_protocol": "frame_v1",
+            "tools": [],
+            "tool_calls": [],
+            "timestamp": 1790042918702,
+            "entry_id": "01a0c6df-4f2d-75e2-8df6-e08fa9f1c427"
+          }
+        },
+        {
+          "turn": 3,
+          "clarification_followup": false,
+          "passed": true,
+          "errors": [],
+          "tools": [
+            "resolve_business_turn",
+            "execute_business_frame"
+          ],
+          "query_count": 1,
+          "reads": 0,
+          "model_calls": 3,
+          "elapsed_ms": 14632,
+          "focus_status": "success",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "个人经营性贷款余额较年初"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "M2"
+                ],
+                "names": [
+                  "个人经营性贷款余额较年初"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "个人经营性贷款余额较年初"
+                ],
+                "referenceValues": [
+                  "M2",
+                  "个人经营性贷款余额较年初"
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "合成机构甲",
+              "resolvedValue": {
+                "codes": [
+                  "O1"
+                ],
+                "names": [
+                  "合成机构甲"
+                ]
+              },
+              "source": "inherited",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "O1",
+                  "合成机构甲"
+                ]
+              },
+              "sourceFrameId": "c76f2105-63b4-4234-8a01-6890ede7dfc3"
+            },
+            "time": {
+              "rawValue": "3月末",
+              "resolvedValue": {
+                "start": "2024-03-31",
+                "end": "2024-03-31"
+              },
+              "source": "inherited",
+              "resolver": "date",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "businessDate": "2026-09-21"
+              },
+              "sourceFrameId": "c76f2105-63b4-4234-8a01-6890ede7dfc3"
+            },
+            "selection": {
+              "rawValue": "exact",
+              "resolvedValue": "exact",
+              "source": "inherited",
+              "resolver": "enum",
+              "resolutionStatus": "resolved",
+              "sourceFrameId": "c76f2105-63b4-4234-8a01-6890ede7dfc3"
+            },
+            "operation": {
+              "source": "inherited",
+              "resolutionStatus": "missing",
+              "sourceFrameId": "c76f2105-63b4-4234-8a01-6890ede7dfc3"
+            }
+          },
+          "answer": {
+            "role": "assistant",
+            "text": "合成机构甲2024年3月末的**个人经营性贷款余额较年初**为 **731.25元**。",
+            "business_protocol": "frame_v1",
+            "tools": [],
+            "tool_calls": [],
+            "timestamp": 1790042932935,
+            "entry_id": "01a0c6df-86c6-75e2-8df6-e0a9bbf270ea"
+          }
+        },
+        {
+          "turn": 4,
+          "clarification_followup": false,
+          "passed": true,
+          "errors": [],
+          "tools": [
+            "resolve_business_turn",
+            "read_business_result"
+          ],
+          "query_count": 0,
+          "reads": 1,
+          "model_calls": 3,
+          "elapsed_ms": 23091,
+          "focus_status": "success",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "个人经营性贷款余额较年初"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "M2"
+                ],
+                "names": [
+                  "个人经营性贷款余额较年初"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "个人经营性贷款余额较年初"
+                ],
+                "referenceValues": [
+                  "M2",
+                  "个人经营性贷款余额较年初"
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "合成机构甲",
+              "resolvedValue": {
+                "codes": [
+                  "O1"
+                ],
+                "names": [
+                  "合成机构甲"
+                ]
+              },
+              "source": "inherited",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "O1",
+                  "合成机构甲"
+                ]
+              },
+              "sourceFrameId": "c76f2105-63b4-4234-8a01-6890ede7dfc3"
+            },
+            "time": {
+              "rawValue": "3月末",
+              "resolvedValue": {
+                "start": "2024-03-31",
+                "end": "2024-03-31"
+              },
+              "source": "inherited",
+              "resolver": "date",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "businessDate": "2026-09-21"
+              },
+              "sourceFrameId": "c76f2105-63b4-4234-8a01-6890ede7dfc3"
+            },
+            "selection": {
+              "rawValue": "exact",
+              "resolvedValue": "exact",
+              "source": "inherited",
+              "resolver": "enum",
+              "resolutionStatus": "resolved",
+              "sourceFrameId": "c76f2105-63b4-4234-8a01-6890ede7dfc3"
+            },
+            "operation": {
+              "source": "inherited",
+              "resolutionStatus": "missing",
+              "sourceFrameId": "c76f2105-63b4-4234-8a01-6890ede7dfc3"
+            }
+          },
+          "answer": {
+            "role": "assistant",
+            "text": "合成机构甲2024年3月末的**个人经营性贷款余额较年初**为 **731.25元**。",
+            "business_protocol": "frame_v1",
+            "tools": [],
+            "tool_calls": [],
+            "timestamp": 1790042952119,
+            "entry_id": "01a0c6df-d1b5-75e2-8df6-e0c3fe28b7cb"
+          }
+        }
+      ],
+      "run": "after_internal_parameter_fix"
+    }
+  ]
+}

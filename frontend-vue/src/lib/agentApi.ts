@@ -9,6 +9,24 @@ import type { BackendNextClarification } from "@/types/api"
  */
 const agentApiBase = "/agent-api"
 
+/** 流空闲上限：服务端 drive 挂起（模型重试、工具卡死）时超过此时长即判定中断。 */
+const STREAM_IDLE_TIMEOUT_MS = 150_000
+
+/**
+ * 带空闲超时的分块读取：read() 本身不参与 signal 竞速，服务端不写数据也不结束响应时，
+ * 裸 read() 会永久挂起，消息就停在 pending。超时后返回 done 让调用方按中断处理。
+ */
+function readWithIdleTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutMs: number,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<ReadableStreamReadResult<Uint8Array>>((resolve) => {
+    timer = setTimeout(() => resolve({ done: true, value: undefined }), timeoutMs)
+  })
+  return Promise.race([reader.read(), timeout]).finally(() => clearTimeout(timer))
+}
+
 export class AgentApiError extends Error {
   constructor(message: string, readonly status: number) {
     super(message)
@@ -103,11 +121,15 @@ export type AgentStreamEvent =
   | { type: "tool_start"; tool: string; tool_call_id?: string }
   | { type: "tool_end"; tool: string; tool_call_id?: string; details: unknown; isError: boolean }
   | { type: "message_done"; text: string }
+  /** 执行期心跳：模型重试与工具执行期间没有可投影事件，用于区分“仍在执行”与“卡死”。 */
+  | { type: "progress"; elapsed_ms?: number }
   | {
       type: "run_terminal"
       run_status: string
       answer_status: string
       error_code?: string | null
+      /** 服务端已脱敏的失败原因摘要，error_code 为空时用于给出可读提示。 */
+      error_message?: string | null
       business_tasks?: Array<{ task_id: string; status: string; result_id?: string | null; error_code?: string | null }>
       timings_ms?: { auth_ms: number; total_ms: number; model_ms?: number[]; tool_ms?: number[] }
     }
@@ -234,7 +256,8 @@ async function streamAgentSession(sessionId: string, input: AgentPromptInput | u
   let terminated = false
   try {
     for (;;) {
-      const { done, value } = await reader.read()
+      // 服务端 drive 挂起时不会主动结束响应；无超时的 read() 会让消息永久停在 pending。
+      const { done, value } = await readWithIdleTimeout(reader, STREAM_IDLE_TIMEOUT_MS)
       if (done) break
       // 统一 CRLF，按空行切分事件块。
       buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n")

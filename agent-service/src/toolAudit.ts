@@ -10,7 +10,7 @@ export function summarizeToolArguments(args: unknown): Record<string, unknown> {
   };
   const enums: Record<string, string[]> = {
     action: ["new", "clarify", "followup", "clarify_context", "search", "overview"], kind: ["task", "result", "list", "entry"],
-    dimension: ["metrics", "dates"], selection: ["exact", "latest_in_range", "all_in_range", "ranking"],
+    dimension: ["metrics", "dates"], selection: ["exact", "latest_in_range", "all_in_range"],
     name: ["metric-query", "data-coverage", "result-calculation", "analysis-boundary"],
   };
   for (const [key, allowed] of Object.entries(enums)) {

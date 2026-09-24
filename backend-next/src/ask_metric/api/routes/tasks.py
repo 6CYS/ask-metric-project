@@ -1,116 +1,48 @@
 """问数 HTTP 入口：接收并校验请求，交给应用服务，再序列化返回结果。
 
-提交、语义解析和执行是分开的接口；expected_version 防止旧页面覆盖新状态，
-幂等键用于识别同一次操作的重试。二者不能互相替代。
+仅保留新链路所需接口：基础查询、Agent 会话关联、计算、任务与结果读取。
+幂等键用于识别同一次操作的重试。
 """
 
 from datetime import UTC, datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from pydantic import BaseModel, ConfigDict, Field
 
 from ask_metric.api.dependencies import (
-    get_actor_provider,
-    get_channel_clarification_service,
     get_query_execution_service,
     get_query_task_service,
-    get_semantic_task_service,
     require_actor,
 )
 from ask_metric.api.query_readiness import require_query_ready
-from ask_metric.application.actor_provider import ActorProvider
 from ask_metric.application.calculation_service import CalculationApplicationService
-from ask_metric.application.channel_service import ChannelClarificationService
-from ask_metric.application.commands import (
-    AnalyzeSemanticCommand,
-    CancelClarificationCommand,
-    CancelTaskCommand,
-    ExecuteQueryCommand,
-    QueryReference,
-    SubmitClarificationCommand,
-    SubmitQuestionCommand,
-)
+from ask_metric.application.commands import ExecuteQueryCommand, SubmitQuestionCommand
+from ask_metric.application.metric_candidates import metric_candidate_index
 from ask_metric.application.query_execution_service import QueryExecutionApplicationService
 from ask_metric.application.requests import (
     QUESTION_MAX_LENGTH,
     ActorContext,
-    IncomingClarificationRequest,
     IncomingRequest,
-    UntrustedIdentityClaims,
 )
-from ask_metric.application.semantic_task_service import SemanticTaskApplicationService
-from ask_metric.application.task_results import (
-    ConversationCleanupResult,
-    ConversationListItem,
-    ConversationSnapshot,
-    TaskCommandResult,
-    TaskResultPage,
-)
+from ask_metric.application.task_results import TaskCommandResult, TaskResultPage
 from ask_metric.application.task_service import QueryTaskApplicationService
 from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.basic_query import BasicQuerySpec
 from ask_metric.domain.calculation import CalculationRequest, CalculationScope
 from ask_metric.domain.query_execution import QueryExecutionResult
+from ask_metric.domain.semantics import MetricCatalogItem
 from ask_metric.infrastructure.db.models import ChatConversation
 
 router = APIRouter(prefix="/api/v1", tags=["query-tasks"])
 
 
-class QueryReferencePayload(BaseModel):
-    """单来源组合追问引用；后端校验归属、版本、状态与权限。"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    task_id: str = Field(min_length=1, max_length=128)
-    version: int = Field(ge=0)
-    change_field: Literal["orgs", "time", "compose"] = "compose"
-    mode: Literal["explicit", "candidate"] = "explicit"
-
-
-class SubmitQuestionRequest(BaseModel):
-    conversation_id: str | None = None
-    message: str = Field(min_length=1, max_length=QUESTION_MAX_LENGTH)
-    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
-    external_user_id: str | None = None
-    external_session_id: str | None = None
-    external_message_id: str | None = None
-    reply_to_external_message_id: str | None = None
-    reply_to_task_id: str | None = Field(default=None, min_length=1, max_length=128)
-    # 可选单来源追问引用；缺省为空时旧请求语义不变
-    query_reference: QueryReferencePayload | None = None
-    identity_claims: UntrustedIdentityClaims | None = None
-    business_context: dict[str, Any] = Field(default_factory=dict)
-    channel_context: dict[str, Any] = Field(default_factory=dict)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    debug: bool = False
-
-
-class SubmitClarificationRequest(BaseModel):
-    expected_version: int = Field(ge=0)
-    clarification_id: str = Field(min_length=1, max_length=128)
-    answers: Any
-    channel_context: dict[str, Any] = Field(default_factory=dict)
-
-
-class CancelClarificationRequest(BaseModel):
-    expected_version: int = Field(ge=0)
-    clarification_id: str = Field(min_length=1, max_length=128)
-
-
-class AnalyzeSemanticRequest(BaseModel):
-    expected_version: int = Field(ge=0)
-
-
-class ExecuteQueryRequest(BaseModel):
-    expected_version: int = Field(ge=0)
-
-
 class BasicQueryRequest(BasicQuerySpec):
     conversation_id: str | None = Field(default=None, min_length=1, max_length=128)
     calculation_context: CalculationScope | None = None
+    source_question: str | None = Field(default=None, min_length=1, max_length=QUESTION_MAX_LENGTH)
 
 
 class BasicQueryResponse(BaseModel):
@@ -134,9 +66,13 @@ def execute_basic_query(
         str, Header(alias="Idempotency-Key", min_length=1, max_length=128)
     ],
 ) -> BasicQueryResponse:
-    # 身份只来自认证依赖；请求不接收 SQL、操作、身份声明或任意 DSL。
+    # 身份只来自认证依赖；请求仅接受结构化查询契约，不接收 SQL 或任意 DSL。
     spec = BasicQuerySpec.model_validate(payload.model_dump(
-        exclude={"conversation_id", "calculation_context"}))
+        exclude={"conversation_id", "calculation_context", "source_question"}))
+    if payload.source_question:
+        with task_service.uow_factory() as uow:
+            catalog = uow.metric_catalog.list_enabled()
+        _verify_metric_coverage(payload.source_question, spec.metric_codes, catalog)
     created = task_service.submit_question(SubmitQuestionCommand(
         request=IncomingRequest(
             request_id=request.state.request_id,
@@ -159,6 +95,24 @@ def execute_basic_query(
         actor=actor,
     ))
     return BasicQueryResponse(query=spec, result=result)
+
+
+def _verify_metric_coverage(
+    question: str, requested: list[str], catalog: list[MetricCatalogItem]
+) -> None:
+    """宿主原句的所有目录目标必须进入独立新任务；无法确定时不部分取数。"""
+    mentions = metric_candidate_index(catalog).mentions(question)
+    if not mentions or any(item["resolution"]["status"] != "resolved" for item in mentions):
+        raise ApplicationError(
+            "METRIC_TARGETS_UNRESOLVED", "本轮指标目标未全部确定，请核对指标名称。",
+            status_code=409,
+        )
+    expected = {code for item in mentions for code in item["resolution"]["value"]["codes"]}
+    if expected != set(requested):
+        raise ApplicationError(
+            "METRIC_TARGETS_INCOMPLETE", "本轮指标未全部进入查询，请重新解析原问题。",
+            status_code=409,
+        )
 
 
 class AgentQueryContextRequest(BaseModel):
@@ -199,233 +153,6 @@ def calculate_query_facts(
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=128)],
 ) -> dict:
     return CalculationApplicationService(execution).calculate(payload, actor, idempotency_key)
-
-
-class SubmitChannelClarificationRequest(BaseModel):
-    channel: str = Field(min_length=1, max_length=64)
-    answers: Any
-    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
-    task_id: str | None = None
-    expected_version: int | None = Field(default=None, ge=0)
-    clarification_id: str | None = None
-    continuation_token: str | None = None
-    external_user_id: str | None = None
-    external_session_id: str | None = None
-    external_message_id: str | None = None
-    reply_to_external_message_id: str | None = None
-    conversation_id: str | None = None
-    identity_claims: UntrustedIdentityClaims | None = None
-    channel_context: dict[str, Any] = Field(default_factory=dict)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-@router.post(
-    "/questions", response_model=TaskCommandResult,
-    # 装饰器登记 URL；依赖在处理请求时执行，认证与就绪检查都通过才进入业务。
-    dependencies=[Depends(require_actor), Depends(require_query_ready)],
-)
-def submit_question(
-    payload: SubmitQuestionRequest,
-    request: Request,
-    actor_provider: Annotated[ActorProvider, Depends(get_actor_provider)],
-    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
-    idempotency_header: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
-) -> TaskCommandResult:
-    request_id = request.state.request_id
-    incoming = IncomingRequest(
-        request_id=request_id,
-        idempotency_key=idempotency_header or payload.idempotency_key or request_id,
-        channel="web",
-        external_user_id=payload.external_user_id,
-        external_session_id=payload.external_session_id,
-        external_message_id=payload.external_message_id,
-        reply_to_external_message_id=payload.reply_to_external_message_id,
-        reply_to_task_id=payload.reply_to_task_id,
-        conversation_id=payload.conversation_id,
-        text=payload.message,
-        identity_claims=payload.identity_claims,
-        business_context=payload.business_context,
-        channel_context=payload.channel_context,
-        metadata=payload.metadata,
-        debug=payload.debug,
-    )
-    actor = actor_provider.resolve(incoming)
-    reference = (
-        QueryReference(
-            task_id=payload.query_reference.task_id,
-            version=payload.query_reference.version,
-            change_field=payload.query_reference.change_field,
-            mode=payload.query_reference.mode,
-        )
-        if payload.query_reference is not None
-        else None
-    )
-    return service.submit_question(
-        SubmitQuestionCommand(
-            request=incoming,
-            actor=actor,
-            idempotency_key=incoming.idempotency_key or request_id,
-            query_reference=reference,
-        )
-    )
-
-
-@router.post(
-    "/query-tasks/{task_id}/analyze", response_model=TaskCommandResult,
-    dependencies=[Depends(require_actor), Depends(require_query_ready)],
-)
-def analyze_query_task(
-    task_id: str,
-    payload: AnalyzeSemanticRequest,
-    request: Request,
-    service: Annotated[SemanticTaskApplicationService, Depends(get_semantic_task_service)],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-) -> TaskCommandResult:
-    return service.analyze(
-        AnalyzeSemanticCommand(
-            task_id=task_id,
-            expected_version=payload.expected_version,
-            actor=actor,
-            request_id=request.state.request_id,
-        )
-    )
-
-
-@router.post(
-    "/query-tasks/{task_id}/execute", response_model=QueryExecutionResult,
-    dependencies=[Depends(require_actor), Depends(require_query_ready)],
-)
-def execute_query_task(
-    task_id: str,
-    payload: ExecuteQueryRequest,
-    request: Request,
-    actor_provider: Annotated[ActorProvider, Depends(get_actor_provider)],
-    service: Annotated[QueryExecutionApplicationService, Depends(get_query_execution_service)],
-    idempotency_header: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
-) -> QueryExecutionResult:
-    incoming = IncomingRequest(
-        request_id=request.state.request_id,
-        channel="web",
-        text="execute-query",
-    )
-    actor = actor_provider.resolve(incoming)
-    return service.execute(
-        ExecuteQueryCommand(
-            task_id=task_id,
-            expected_version=payload.expected_version,
-            request_id=idempotency_header or request.state.request_id,
-            actor=actor,
-        )
-    )
-
-
-@router.post(
-    "/query-tasks/{task_id}/clarifications", response_model=TaskCommandResult,
-    dependencies=[Depends(require_actor), Depends(require_query_ready)],
-)
-def submit_clarification(
-    task_id: str,
-    payload: SubmitClarificationRequest,
-    request: Request,
-    actor_provider: Annotated[ActorProvider, Depends(get_actor_provider)],
-    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
-) -> TaskCommandResult:
-    incoming = IncomingRequest(
-        request_id=request.state.request_id,
-        channel="web",
-        conversation_id=None,
-        text="clarification-answer",
-        channel_context=payload.channel_context,
-    )
-    actor = actor_provider.resolve(incoming)
-    return service.submit_clarification(
-        SubmitClarificationCommand(
-            task_id=task_id,
-            expected_version=payload.expected_version,
-            clarification_id=payload.clarification_id,
-            answers=payload.answers,
-            actor=actor,
-            channel="web",
-            channel_context=payload.channel_context,
-            request_id=request.state.request_id,
-        )
-    )
-
-
-@router.post(
-    "/query-tasks/{task_id}/clarifications/cancel",
-    response_model=TaskCommandResult,
-)
-def cancel_clarification(
-    task_id: str,
-    payload: CancelClarificationRequest,
-    request: Request,
-    actor_provider: Annotated[ActorProvider, Depends(get_actor_provider)],
-    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
-) -> TaskCommandResult:
-    incoming = IncomingRequest(
-        request_id=request.state.request_id,
-        channel="web",
-        text="cancel-clarification",
-    )
-    actor = actor_provider.resolve(incoming)
-    return service.cancel_clarification(
-        CancelClarificationCommand(
-            task_id=task_id,
-            expected_version=payload.expected_version,
-            clarification_id=payload.clarification_id,
-            actor=actor,
-            request_id=request.state.request_id,
-        )
-    )
-
-
-@router.post(
-    "/clarifications", response_model=TaskCommandResult,
-    dependencies=[Depends(require_actor), Depends(require_query_ready)],
-)
-def submit_channel_clarification(
-    payload: SubmitChannelClarificationRequest,
-    request: Request,
-    actor_provider: Annotated[ActorProvider, Depends(get_actor_provider)],
-    correlation_service: Annotated[
-        ChannelClarificationService, Depends(get_channel_clarification_service)
-    ],
-    task_service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
-    idempotency_header: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
-) -> TaskCommandResult:
-    incoming = IncomingClarificationRequest(
-        request_id=request.state.request_id,
-        idempotency_key=idempotency_header or payload.idempotency_key,
-        channel=payload.channel,
-        answers=payload.answers,
-        task_id=payload.task_id,
-        expected_version=payload.expected_version,
-        clarification_id=payload.clarification_id,
-        continuation_token=payload.continuation_token,
-        external_user_id=payload.external_user_id,
-        external_session_id=payload.external_session_id,
-        external_message_id=payload.external_message_id,
-        reply_to_external_message_id=payload.reply_to_external_message_id,
-        conversation_id=payload.conversation_id,
-        identity_claims=payload.identity_claims,
-        channel_context=payload.channel_context,
-        metadata=payload.metadata,
-    )
-    actor = actor_provider.resolve(incoming)
-    command = correlation_service.build_command(incoming, actor)
-    return task_service.submit_clarification(command)
-
-
-@router.get("/query-tasks/lookup", response_model=TaskCommandResult)
-def lookup_query_task(
-    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-    conversation_id: Annotated[str, Query(min_length=1, max_length=128)],
-    submission_key: Annotated[str, Query(min_length=1, max_length=128)],
-) -> TaskCommandResult:
-    """只读找回：提交成功但响应丢失时按会话与提交键定位，未找到不新建任务。"""
-    return service.lookup_task(conversation_id, submission_key, actor)
 
 
 @router.get("/query-tasks/{task_id}", response_model=TaskCommandResult)
@@ -470,91 +197,6 @@ def read_query_task_result(
     )
 
 
-class CancelTaskRequest(BaseModel):
-    expected_version: int = Field(ge=0)
-
-
-@router.post("/query-tasks/{task_id}/cancel", response_model=TaskCommandResult)
-def cancel_query_task(
-    task_id: str,
-    payload: CancelTaskRequest,
-    request: Request,
-    actor_provider: Annotated[ActorProvider, Depends(get_actor_provider)],
-    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
-) -> TaskCommandResult:
-    """通用逻辑取消：复用幂等记录与乐观锁；不承诺数据库驱动即时停止 SQL。"""
-    incoming = IncomingRequest(
-        request_id=request.state.request_id,
-        channel="web",
-        text="cancel-task",
-    )
-    actor = actor_provider.resolve(incoming)
-    return service.cancel_task(
-        CancelTaskCommand(
-            task_id=task_id,
-            expected_version=payload.expected_version,
-            actor=actor,
-            request_id=request.state.request_id,
-        )
-    )
-
-
-@router.get("/conversations/{conversation_id}", response_model=ConversationSnapshot)
-def get_conversation(
-    conversation_id: str,
-    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-) -> ConversationSnapshot:
-    return service.get_conversation(conversation_id, actor)
-
-
-class ConversationListResponse(BaseModel):
-    items: list[ConversationListItem]
-    has_more: bool
-
-
-class RenameConversationRequest(BaseModel):
-    title: str = Field(min_length=1, max_length=255)
-
-    @field_validator("title")
-    @classmethod
-    def validate_title(cls, value: str) -> str:
-        title = value.strip()
-        if not title:
-            raise ValueError("title must not be blank")
-        return title
-
-
-@router.get("/conversations", response_model=ConversationListResponse)
-def list_conversations(
-    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-    limit: Annotated[int, Query(ge=1, le=50)] = 12,
-    offset: Annotated[int, Query(ge=0)] = 0,
-) -> ConversationListResponse:
-    items, has_more = service.list_conversations(actor, limit=limit, offset=offset)
-    return ConversationListResponse(items=items, has_more=has_more)
-
-
-@router.delete("/conversations", response_model=ConversationCleanupResult)
-def cleanup_conversations(
-    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-    keep_latest: Annotated[int, Query(ge=10, le=100)] = 50,
-) -> ConversationCleanupResult:
-    return service.cleanup_conversations(actor, keep_latest=keep_latest)
-
-
-@router.patch("/conversations/{conversation_id}", response_model=ConversationListItem)
-def rename_conversation(
-    conversation_id: str,
-    payload: RenameConversationRequest,
-    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-) -> ConversationListItem:
-    return service.rename_conversation(conversation_id, payload.title, actor)
-
-
 def _xlsx_response(filename: str, content: bytes) -> Response:
     safe_name = filename.replace('"', "").replace("\r", "").replace("\n", "")[:80]
     disposition = f"attachment; filename=export.xlsx; filename*=UTF-8''{quote(safe_name)}.xlsx"
@@ -565,16 +207,6 @@ def _xlsx_response(filename: str, content: bytes) -> Response:
     )
 
 
-@router.get("/conversations/{conversation_id}/export")
-def export_conversation(
-    conversation_id: str,
-    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-) -> Response:
-    title, content = service.export_conversation(conversation_id, actor)
-    return _xlsx_response(title, content)
-
-
 @router.get("/query-tasks/{task_id}/result-export")
 def export_task_result(
     task_id: str,
@@ -583,13 +215,3 @@ def export_task_result(
 ) -> Response:
     title, content = service.export_task_result(task_id, actor)
     return _xlsx_response(title, content)
-
-
-@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_conversation(
-    conversation_id: str,
-    service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-) -> Response:
-    service.delete_conversation(conversation_id, actor)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)

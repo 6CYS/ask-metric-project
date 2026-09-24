@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onActivated, ref } from "vue"
-import { Activity, AlertTriangle, BrainCircuit, Braces, CheckCircle2, Database, History, KeyRound, LoaderCircle, RefreshCw, RotateCcw, Save, ShieldCheck } from "@lucide/vue"
+import { Activity, AlertTriangle, BrainCircuit, Braces, CheckCircle2, History, KeyRound, LoaderCircle, RefreshCw, RotateCcw, Save, ShieldCheck } from "@lucide/vue"
 
 import AppShell from "@/components/AppShell.vue"
 import PageHeader from "@/components/PageHeader.vue"
@@ -12,32 +12,21 @@ import LoadingSkeleton from "@/components/ui/LoadingSkeleton.vue"
 import {
   getSmartConfig,
   listPromptVersions,
-  listSqlTemplates,
-  listSqlTemplateVersions,
   rollbackPromptConfig,
-  rollbackSqlTemplate,
-  trialRunSqlTemplate,
   testSmartModel,
   updatePromptConfig,
   updateSmartModel,
-  updateSqlTemplate,
-  validateSqlTemplate,
 } from "@/lib/api"
-import type { ConfigVersion, ModelRole, ModelRuntimeConfig, PromptTemplateConfig, SmartConfigResponse, SqlTemplateConfig } from "@/types/api"
+import type { ConfigVersion, ModelRole, ModelRuntimeConfig, PromptTemplateConfig, SmartConfigResponse } from "@/types/api"
 
-type Tab = "model" | "prompts" | "sql"
+type Tab = "model" | "prompts"
 type PromptField = "system" | "user_template" | "query_prefix" | "query_template"
 
 const activeTab = ref<Tab>("model")
 const configResponse = ref<SmartConfigResponse | null>(null)
 const modelDraft = ref<ModelRuntimeConfig | null>(null)
-const sqlTemplates = ref<SqlTemplateConfig[]>([])
 const selectedPromptName = ref("")
 const promptDraft = ref<PromptTemplateConfig | null>(null)
-const selectedSqlKey = ref("")
-const sqlDraft = ref<SqlTemplateConfig | null>(null)
-const sqlTrialParameters = ref("{}")
-const sqlTrialResult = ref<Record<string, unknown>[] | null>(null)
 const versions = ref<ConfigVersion[]>([])
 const adminToken = ref("")
 const apiKeys = ref<Record<ModelRole, string>>({ chat: "", embedding: "", reranker: "" })
@@ -117,21 +106,10 @@ async function loadAll(refresh = false) {
   else isLoading.value = true
   clearStatus()
   try {
-    const [configResult, templatesResult] = await Promise.allSettled([getSmartConfig(), listSqlTemplates()])
-    if (configResult.status === "rejected") throw configResult.reason
-    const nextConfig = configResult.value
+    const nextConfig = await getSmartConfig()
     configResponse.value = nextConfig
     setModelDraft(nextConfig.config)
     selectPrompt(selectedPromptName.value || Object.keys(nextConfig.prompts.prompts)[0] || "")
-    if (templatesResult.status === "fulfilled") {
-      const templates = templatesResult.value
-      sqlTemplates.value = templates
-      selectSql(selectedSqlKey.value || (templates[0] ? sqlKey(templates[0]) : ""))
-    } else {
-      sqlTemplates.value = []
-      sqlDraft.value = null
-      errorMessage.value = `模型配置已加载，但 SQL 模板加载失败：${templatesResult.reason instanceof Error ? templatesResult.reason.message : "未知错误"}`
-    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "配置加载失败。"
   } finally {
@@ -148,22 +126,6 @@ function selectPrompt(name: string) {
   versions.value = []
   clearStatus()
   void loadPromptHistory()
-}
-
-function sqlKey(item: SqlTemplateConfig) {
-  return `${item.dialect}.${item.template}`
-}
-
-function selectSql(key: string) {
-  const value = sqlTemplates.value.find((item) => sqlKey(item) === key)
-  if (!value) return
-  selectedSqlKey.value = key
-  sqlDraft.value = clone(value)
-  sqlTrialParameters.value = JSON.stringify(Object.fromEntries(value.parameters.map((name) => [name, null])), null, 2)
-  sqlTrialResult.value = null
-  versions.value = []
-  clearStatus()
-  void loadSqlHistory()
 }
 
 async function saveModel() {
@@ -221,60 +183,9 @@ async function savePrompt() {
   }
 }
 
-async function saveSql() {
-  if (!sqlDraft.value || !canWrite.value || isSaving.value) return
-  isSaving.value = true
-  clearStatus()
-  try {
-    const validation = await validateSqlTemplate(sqlDraft.value.sql)
-    sqlDraft.value.parameters = validation.parameters
-    const saved = await updateSqlTemplate(sqlDraft.value, adminToken.value)
-    replaceSql(saved)
-    message.value = "SQL 模板已通过只读校验并发布，新版本已记录。"
-    await loadSqlHistory()
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : "SQL 模板发布失败。"
-  } finally {
-    isSaving.value = false
-  }
-}
-
-async function checkSql() {
-  if (!sqlDraft.value) return
-  clearStatus()
-  try {
-    const result = await validateSqlTemplate(sqlDraft.value.sql)
-    sqlDraft.value.parameters = result.parameters
-    message.value = "SQL 只读安全校验通过。"
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : "SQL 校验失败。"
-  }
-}
-
-async function trialRunSql() {
-  if (!sqlDraft.value || !canWrite.value || isSaving.value) return
-  isSaving.value = true
-  clearStatus()
-  try {
-    const parameters = JSON.parse(sqlTrialParameters.value) as Record<string, unknown>
-    const result = await trialRunSqlTemplate(sqlDraft.value.sql, parameters, adminToken.value)
-    sqlTrialResult.value = result.rows
-    message.value = `试运行成功，返回 ${result.row_count} 行预览数据。`
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : "SQL 试运行失败。"
-  } finally {
-    isSaving.value = false
-  }
-}
-
 async function loadPromptHistory() {
   if (!selectedPromptName.value) return
   versions.value = await listPromptVersions(selectedPromptName.value)
-}
-
-async function loadSqlHistory() {
-  if (!sqlDraft.value) return
-  versions.value = await listSqlTemplateVersions(sqlDraft.value)
 }
 
 async function rollbackPrompt(version: ConfigVersion) {
@@ -294,28 +205,6 @@ async function rollbackPrompt(version: ConfigVersion) {
   }
 }
 
-async function rollbackSql(version: ConfigVersion) {
-  if (!sqlDraft.value || !canWrite.value || isSaving.value) return
-  isSaving.value = true
-  clearStatus()
-  try {
-    const restored = await rollbackSqlTemplate(sqlDraft.value, version.id, adminToken.value)
-    replaceSql(restored)
-    message.value = `已回滚到版本 v${version.version_number}，并生成新的回滚记录。`
-    await loadSqlHistory()
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : "SQL 模板回滚失败。"
-  } finally {
-    isSaving.value = false
-  }
-}
-
-function replaceSql(value: SqlTemplateConfig) {
-  const index = sqlTemplates.value.findIndex((item) => sqlKey(item) === sqlKey(value))
-  if (index >= 0) sqlTemplates.value[index] = value
-  sqlDraft.value = clone(value)
-}
-
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value))
 }
@@ -327,13 +216,13 @@ onActivated(() => loadAll())
 
 <template>
   <AppShell>
-    <PageHeader eyebrow="Runtime Configuration" title="智能配置" description="集中管理模型、业务提示词与只读 SQL 模板。配置发布前经过约束校验，并保留可审计、可回滚的版本记录。" :stats="stats">
+    <PageHeader eyebrow="Runtime Configuration" title="智能配置" description="集中管理模型与业务提示词。提示词发布前经过约束校验，并保留可审计、可回滚的版本记录。" :stats="stats">
       <template #actions><BaseButton variant="outline" :disabled="isRefreshing" @click="loadAll(true)"><RefreshCw :class="isRefreshing && 'animate-spin'" />刷新</BaseButton></template>
     </PageHeader>
 
     <div class="mb-5 flex flex-wrap items-center justify-between gap-3 border-b">
       <div class="flex gap-1" role="tablist">
-        <button v-for="tab in [{ key: 'model', label: '模型配置', icon: BrainCircuit }, { key: 'prompts', label: '提示词配置', icon: Braces }, { key: 'sql', label: 'SQL 模板', icon: Database }]" :key="tab.key" type="button" class="flex h-10 items-center gap-2 border-b-2 px-3 text-sm font-medium" :class="activeTab === tab.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'" @click="activeTab = tab.key as Tab"><component :is="tab.icon" class="size-4" />{{ tab.label }}</button>
+        <button v-for="tab in [{ key: 'model', label: '模型配置', icon: BrainCircuit }, { key: 'prompts', label: '提示词配置', icon: Braces }]" :key="tab.key" type="button" class="flex h-10 items-center gap-2 border-b-2 px-3 text-sm font-medium" :class="activeTab === tab.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'" @click="activeTab = tab.key as Tab"><component :is="tab.icon" class="size-4" />{{ tab.label }}</button>
       </div>
       <label v-if="configResponse?.write_enabled && configResponse.write_token_required" class="mb-2 flex items-center gap-2 text-xs text-muted-foreground"><KeyRound class="size-4" />管理令牌<input v-model="adminToken" type="password" class="h-8 w-52 rounded-md border bg-background px-2 text-sm" placeholder="保存或回滚时必填" /></label>
       <BaseBadge v-else-if="configResponse?.write_enabled" variant="success" class="mb-2">本机管理员可直接写入</BaseBadge>
@@ -393,7 +282,7 @@ onActivated(() => loadAll())
           <textarea v-model="extraBodyDrafts[role.key]" class="form-control min-h-28 resize-y py-2 font-mono text-xs leading-5" spellcheck="false" placeholder="{}" />
         </label>
       </article>
-      <div class="flex items-center justify-between gap-3"><div class="flex gap-2 text-xs text-muted-foreground"><ShieldCheck class="size-4 shrink-0" />模型只参与语义解析和候选匹配，SQL 仍由受控模板生成并经过只读校验。</div><BaseButton :disabled="!canWrite || isSaving" @click="saveModel"><LoaderCircle v-if="isSaving" class="animate-spin" /><Save v-else />保存全部模型配置</BaseButton></div>
+      <div class="flex items-center justify-between gap-3"><div class="flex gap-2 text-xs text-muted-foreground"><ShieldCheck class="size-4 shrink-0" />模型只参与语义解析和候选匹配，数据查询由服务端按权限和查询规则执行。</div><BaseButton :disabled="!canWrite || isSaving" @click="saveModel"><LoaderCircle v-if="isSaving" class="animate-spin" /><Save v-else />保存全部模型配置</BaseButton></div>
     </section>
 
     <section v-else-if="activeTab === 'prompts'" class="grid min-h-[560px] gap-5 lg:grid-cols-[260px_minmax(0,1fr)_300px]">
@@ -412,10 +301,5 @@ onActivated(() => loadAll())
       <aside class="border-l pl-4"><h2 class="flex items-center gap-2 text-sm font-semibold"><History class="size-4" />版本记录</h2><p v-if="!versions.length" class="mt-4 text-xs text-muted-foreground">首次发布时将自动保存系统基线。</p><div class="mt-3 grid gap-2"><div v-for="version in versions" :key="version.id" class="rounded-md border p-3 text-xs"><div class="flex items-center justify-between gap-2"><span class="font-medium">v{{ version.version_number }} · {{ version.action === 'rollback' ? '回滚' : '发布' }}</span><BaseButton variant="ghost" size="sm" :disabled="!canWrite || isSaving" @click="rollbackPrompt(version)"><RotateCcw />回滚</BaseButton></div><p class="mt-1 text-muted-foreground">{{ version.created_by }} · {{ formatDate(version.created_at) }}</p></div></div></aside>
     </section>
 
-    <section v-else-if="activeTab === 'sql'" class="grid min-h-[560px] gap-5 lg:grid-cols-[280px_minmax(0,1fr)_300px]">
-      <nav class="border-r pr-4"><button v-for="item in sqlTemplates" :key="sqlKey(item)" type="button" class="mb-1 w-full border-l-2 px-3 py-2 text-left" :class="selectedSqlKey === sqlKey(item) ? 'border-primary bg-muted' : 'border-transparent hover:bg-muted/60'" @click="selectSql(sqlKey(item))"><span class="block text-sm font-medium">{{ item.template }}</span><span class="mt-1 block text-xs text-muted-foreground">{{ item.dialect }} · {{ item.enabled ? '启用' : '停用' }}</span></button></nav>
-      <div v-if="sqlDraft" class="grid content-start gap-4"><div class="flex flex-wrap items-center justify-between gap-3"><div><h2 class="font-semibold">{{ sqlDraft.template }}</h2><p class="text-sm text-muted-foreground">{{ sqlDraft.dialect }} 方言</p></div><BaseSwitch v-model="sqlDraft.enabled" label="启用模板" :disabled="!sqlDraft.editable" /></div><textarea v-model="sqlDraft.sql" class="form-control min-h-[330px] resize-y py-3 font-mono text-xs leading-5" spellcheck="false" :disabled="!sqlDraft.editable" /><div class="flex flex-wrap items-center justify-between gap-3"><div class="flex flex-wrap gap-1"><BaseBadge v-for="parameter in sqlDraft.parameters" :key="parameter" variant="secondary">:{{ parameter }}</BaseBadge></div><div class="flex gap-2"><BaseButton variant="outline" @click="checkSql"><ShieldCheck />安全校验</BaseButton><BaseButton variant="outline" :disabled="!canWrite || isSaving" @click="trialRunSql"><Database />试运行</BaseButton><BaseButton :disabled="!canWrite || isSaving || !sqlDraft.editable" @click="saveSql"><Save />校验并发布</BaseButton></div></div><label class="form-field">试运行参数（JSON）<textarea v-model="sqlTrialParameters" class="form-control min-h-28 resize-y py-2 font-mono text-xs" /></label><pre v-if="sqlTrialResult" class="max-h-48 overflow-auto rounded-md border bg-muted p-3 text-xs">{{ JSON.stringify(sqlTrialResult, null, 2) }}</pre></div>
-      <aside class="border-l pl-4"><h2 class="flex items-center gap-2 text-sm font-semibold"><History class="size-4" />版本记录</h2><p class="mt-2 text-xs leading-5 text-muted-foreground">发布前强制执行只读校验，禁止 DDL 和数据写操作。</p><div class="mt-3 grid gap-2"><div v-for="version in versions" :key="version.id" class="rounded-md border p-3 text-xs"><div class="flex items-center justify-between gap-2"><span class="font-medium">v{{ version.version_number }} · {{ version.action === 'rollback' ? '回滚' : '发布' }}</span><BaseButton variant="ghost" size="sm" :disabled="!canWrite || isSaving" @click="rollbackSql(version)"><RotateCcw />回滚</BaseButton></div><p class="mt-1 text-muted-foreground">{{ version.created_by }} · {{ formatDate(version.created_at) }}</p></div></div></aside>
-    </section>
   </AppShell>
 </template>

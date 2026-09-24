@@ -14,6 +14,8 @@ const props = defineProps<{
   startedAt?: string
   elapsedMs?: number
   tools: { id?: string; tool: string; status: string; elapsedMs?: number }[]
+  /** run_terminal 携带的 agent-service 侧耗时（鉴权、各次模型调用、工具处理）；重连流或旧记录无此数据 */
+  runTimings?: { auth_ms?: number; total_ms?: number; model_ms?: number[]; tool_ms?: number[] }
 }>()
 const expanded = ref(false)
 const toolLabels: Record<string, string> = {
@@ -152,6 +154,32 @@ function timingValueClass(timing: ReturnType<typeof timingItems>[number]) {
 
 
 const timings = computed(() => timingItems(task.value?.timings_ms))
+
+// agent-service 侧的模型与编排耗时：用于解释“本轮总耗时”与后端任务耗时的差值。
+type RunTimingRow = { key: string; label: string; formatted: string; total?: boolean; description?: string }
+const runTimingRows = computed<RunTimingRow[]>(() => {
+  const source = props.runTimings
+  if (!source) return []
+  const rows: RunTimingRow[] = []
+  const push = (key: string, label: string, value: number, total = false, description?: string) => {
+    rows.push({ key, label, formatted: formatDuration(Math.round(value)), total, description })
+  }
+  if (typeof source.auth_ms === "number") {
+    push("auth", "请求鉴权", source.auth_ms, false, "agent-service 校验登录态与历史结果权限。")
+  }
+  const modelMs = (source.model_ms ?? []).filter((value): value is number => typeof value === "number")
+  modelMs.forEach((value, index) => push(`model-${index}`, `大模型调用 · 第 ${index + 1} 次`, value))
+  if (modelMs.length) {
+    push("model-total", `大模型调用累计（${modelMs.length} 次）`, modelMs.reduce((sum, value) => sum + value, 0), true,
+      "编排循环中各次模型调用的耗时之和，通常是整轮总耗时的主要部分；单次接近 30 秒说明触发了模型超时重试。")
+  }
+  const toolMs = (source.tool_ms ?? []).filter((value): value is number => typeof value === "number")
+  if (toolMs.length) {
+    push("tool-total", `工具处理累计（${toolMs.length} 次）`, toolMs.reduce((sum, value) => sum + value, 0), true,
+      "各次工具执行的耗时之和，包含工具内部对后端服务的请求。")
+  }
+  return rows
+})
 function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? null : next }
 </script>
 
@@ -201,6 +229,13 @@ function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? n
           <span class="truncate text-muted-foreground" :class="timing.key === 'total_ms' && 'text-foreground'">{{ timing.label }}</span>
           <span class="shrink-0 font-mono tabular-nums" :class="timingValueClass(timing)">{{ timing.formatted }}</span>
         </div>
+        <template v-if="runTimingRows.length">
+          <div class="pt-1 text-xs font-medium text-muted-foreground sm:col-span-2">模型与编排耗时（agent-service）</div>
+          <div v-for="row in runTimingRows" :key="row.key" class="flex min-w-0 items-center justify-between gap-3 border-b border-border/50 py-1.5 text-xs last:border-b-0" :class="row.total && 'font-medium text-foreground sm:col-span-2'" :title="row.description">
+            <span class="truncate text-muted-foreground" :class="row.total && 'text-foreground'">{{ row.label }}</span>
+            <span class="shrink-0 font-mono tabular-nums" :class="row.total ? 'text-[#466987]' : 'text-[#52606D]'">{{ row.formatted }}</span>
+          </div>
+        </template>
         <div v-if="elapsed !== undefined" class="flex min-w-0 items-center justify-between gap-3 py-1.5 text-xs sm:col-span-2" title="包含 pi 编排、工具请求与网络等待，与后端累计处理耗时分别统计。">
           <span>{{ pending ? '本轮已等待' : '本轮总耗时' }}</span><span class="shrink-0 font-mono tabular-nums text-[#466987]">{{ formatDuration(elapsed) }}</span>
         </div>

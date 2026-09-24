@@ -9,7 +9,6 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import text
 
 from ask_metric.api.dependencies import get_model_service, require_actor
 from ask_metric.application.requests import ActorContext
@@ -20,8 +19,6 @@ from ask_metric.core.config_crypto import (
 )
 from ask_metric.core.env_file import update_env_file
 from ask_metric.core.errors import ApplicationError
-from ask_metric.domain.query_execution import QueryTemplateId
-from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
 from ask_metric.infrastructure.model.configuration import (
     ConfigHistoryRepository,
     ConfigVersion,
@@ -38,10 +35,6 @@ from ask_metric.infrastructure.model.provider import (
     ModelServiceUnavailable,
     credential_resolver_from_env_file,
     model_failure_category,
-)
-from ask_metric.infrastructure.query.templates import (
-    QueryTemplateRead,
-    QueryTemplateRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -144,20 +137,6 @@ def _update_model_credentials(
     os.environ.update(updates)
 
 
-class SqlTemplateUpdate(BaseModel):
-    sql: str
-    enabled: bool = True
-
-
-class SqlTemplateValidation(BaseModel):
-    sql: str
-
-
-class SqlTemplateTrialRun(BaseModel):
-    sql: str
-    parameters: dict[str, object]
-
-
 class ModelConnectionTestResponse(BaseModel):
     role: Literal["chat", "embedding", "reranker"]
     ok: bool
@@ -220,23 +199,11 @@ def get_model_config_repositories(
     )
 
 
-def get_config_management_repositories(
-    request: Request,
-) -> tuple[QueryTemplateRepository, ConfigHistoryRepository]:
+def get_config_management_repositories(request: Request) -> ConfigHistoryRepository:
     settings: Settings = request.app.state.settings
-    return (
-        QueryTemplateRepository(
-            resolve_config_path(PROJECT_DIR, settings.query_template_config_path),
-            resolve_config_path(PROJECT_DIR, settings.sql_resource_dir),
-        ),
-        ConfigHistoryRepository(
-            resolve_config_path(PROJECT_DIR, settings.config_history_dir)
-        ),
+    return ConfigHistoryRepository(
+        resolve_config_path(PROJECT_DIR, settings.config_history_dir)
     )
-
-
-def get_uow() -> SqlAlchemyUnitOfWork:
-    return SqlAlchemyUnitOfWork()
 
 
 def _require_config_write(
@@ -456,7 +423,7 @@ def update_prompt(
         Depends(get_model_config_repositories),
     ],
     management: Annotated[
-        tuple[QueryTemplateRepository, ConfigHistoryRepository],
+        ConfigHistoryRepository,
         Depends(get_config_management_repositories),
     ],
     actor: Annotated[ActorContext, Depends(require_actor)],
@@ -465,7 +432,7 @@ def update_prompt(
     settings: Settings = request.app.state.settings
     _require_config_write(settings, actor, admin_token)
     _, prompt_repository = repositories
-    _, history = management
+    history = management
     config = prompt_repository.load()
     current = config.prompts.get(prompt_name)
     if current is None:
@@ -492,13 +459,13 @@ def update_prompt(
 def list_prompt_versions(
     prompt_name: str,
     management: Annotated[
-        tuple[QueryTemplateRepository, ConfigHistoryRepository],
+        ConfigHistoryRepository,
         Depends(get_config_management_repositories),
     ],
     actor: Annotated[ActorContext, Depends(require_actor)],
 ) -> list[ConfigVersion]:
     _require_config_read(actor)
-    return management[1].list(resource_type="prompt", resource_key=prompt_name)
+    return management.list(resource_type="prompt", resource_key=prompt_name)
 
 
 @router.post("/prompts/{prompt_name}/versions/{version_id}/rollback", response_model=PromptTemplate)
@@ -511,7 +478,7 @@ def rollback_prompt(
         Depends(get_model_config_repositories),
     ],
     management: Annotated[
-        tuple[QueryTemplateRepository, ConfigHistoryRepository],
+        ConfigHistoryRepository,
         Depends(get_config_management_repositories),
     ],
     actor: Annotated[ActorContext, Depends(require_actor)],
@@ -520,7 +487,7 @@ def rollback_prompt(
     settings: Settings = request.app.state.settings
     _require_config_write(settings, actor, admin_token)
     _, prompt_repository = repositories
-    _, history = management
+    history = management
     try:
         version = history.get(
             resource_type="prompt", resource_key=prompt_name, version_id=version_id
@@ -538,163 +505,6 @@ def rollback_prompt(
         resource_type="prompt",
         resource_key=prompt_name,
         snapshot=restored.model_dump(mode="json"),
-        created_by=_actor_name(actor),
-        action="rollback",
-        source_version_id=version_id,
-    )
-    return restored
-
-
-@router.get("/sql-templates", response_model=list[QueryTemplateRead])
-def list_sql_templates(
-    management: Annotated[
-        tuple[QueryTemplateRepository, ConfigHistoryRepository],
-        Depends(get_config_management_repositories),
-    ],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-) -> list[QueryTemplateRead]:
-    _require_config_read(actor)
-    return management[0].list_templates()
-
-
-@router.post("/sql-templates/validate")
-def validate_sql_template(
-    payload: SqlTemplateValidation,
-    management: Annotated[
-        tuple[QueryTemplateRepository, ConfigHistoryRepository],
-        Depends(get_config_management_repositories),
-    ],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-) -> dict[str, object]:
-    _require_config_read(actor)
-    return {"valid": True, "parameters": management[0].validate_template(payload.sql)}
-
-
-@router.post("/sql-templates/trial-run")
-def trial_run_sql_template(
-    payload: SqlTemplateTrialRun,
-    request: Request,
-    management: Annotated[
-        tuple[QueryTemplateRepository, ConfigHistoryRepository],
-        Depends(get_config_management_repositories),
-    ],
-    uow: Annotated[SqlAlchemyUnitOfWork, Depends(get_uow)],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-    admin_token: Annotated[str | None, Header(alias="X-Model-Admin-Token")] = None,
-) -> dict[str, object]:
-    settings: Settings = request.app.state.settings
-    _require_config_write(settings, actor, admin_token)
-    management[0].validate_template(payload.sql)
-    sql = payload.sql.strip().rstrip(";")
-    with uow:
-        result = uow.session.execute(
-            text(
-                "SELECT /*+ MAX_EXECUTION_TIME(5000) */ * "
-                f"FROM ({sql}) AS config_template_preview LIMIT 20"
-            ),
-            payload.parameters,
-        )
-        columns = list(result.keys())
-        rows = [dict(row) for row in result.mappings().all()]
-    return {"columns": columns, "rows": rows, "row_count": len(rows)}
-
-
-@router.put("/sql-templates/{dialect}/{template}", response_model=QueryTemplateRead)
-def update_sql_template(
-    dialect: str,
-    template: QueryTemplateId,
-    payload: SqlTemplateUpdate,
-    request: Request,
-    management: Annotated[
-        tuple[QueryTemplateRepository, ConfigHistoryRepository],
-        Depends(get_config_management_repositories),
-    ],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-    admin_token: Annotated[str | None, Header(alias="X-Model-Admin-Token")] = None,
-) -> QueryTemplateRead:
-    settings: Settings = request.app.state.settings
-    _require_config_write(settings, actor, admin_token)
-    templates, history = management
-    current = next(
-        item
-        for item in templates.list_templates()
-        if item.dialect == dialect and item.template == template
-    )
-    resource_key = f"{dialect}.{template.value}"
-    _ensure_baseline(
-        history,
-        resource_type="sql",
-        resource_key=resource_key,
-        snapshot={"sql": current.sql, "enabled": current.enabled},
-    )
-    updated = templates.save_template(
-        dialect=dialect, template=template, sql=payload.sql, enabled=payload.enabled
-    )
-    history.record(
-        resource_type="sql",
-        resource_key=resource_key,
-        snapshot={"sql": updated.sql, "enabled": updated.enabled},
-        created_by=_actor_name(actor),
-    )
-    return updated
-
-
-@router.get(
-    "/sql-templates/{dialect}/{template}/versions", response_model=list[ConfigVersion]
-)
-def list_sql_template_versions(
-    dialect: str,
-    template: QueryTemplateId,
-    management: Annotated[
-        tuple[QueryTemplateRepository, ConfigHistoryRepository],
-        Depends(get_config_management_repositories),
-    ],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-) -> list[ConfigVersion]:
-    _require_config_read(actor)
-    return management[1].list(
-        resource_type="sql", resource_key=f"{dialect}.{template.value}"
-    )
-
-
-@router.post(
-    "/sql-templates/{dialect}/{template}/versions/{version_id}/rollback",
-    response_model=QueryTemplateRead,
-)
-def rollback_sql_template(
-    dialect: str,
-    template: QueryTemplateId,
-    version_id: str,
-    request: Request,
-    management: Annotated[
-        tuple[QueryTemplateRepository, ConfigHistoryRepository],
-        Depends(get_config_management_repositories),
-    ],
-    actor: Annotated[ActorContext, Depends(require_actor)],
-    admin_token: Annotated[str | None, Header(alias="X-Model-Admin-Token")] = None,
-) -> QueryTemplateRead:
-    settings: Settings = request.app.state.settings
-    _require_config_write(settings, actor, admin_token)
-    templates, history = management
-    resource_key = f"{dialect}.{template.value}"
-    try:
-        version = history.get(
-            resource_type="sql", resource_key=resource_key, version_id=version_id
-        )
-    except KeyError as exc:
-        raise ApplicationError("CONFIG_VERSION_NOT_FOUND", str(exc), status_code=404) from exc
-    if not isinstance(version.snapshot, dict):
-        raise ApplicationError("CONFIG_VERSION_INVALID", "SQL version is invalid", status_code=409)
-    restored = templates.save_template(
-        dialect=dialect,
-        template=template,
-        sql=str(version.snapshot["sql"]),
-        enabled=bool(version.snapshot.get("enabled", True)),
-    )
-    history.record(
-        resource_type="sql",
-        resource_key=resource_key,
-        snapshot={"sql": restored.sql, "enabled": restored.enabled},
         created_by=_actor_name(actor),
         action="rollback",
         source_version_id=version_id,

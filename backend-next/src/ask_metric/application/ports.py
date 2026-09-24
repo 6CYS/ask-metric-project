@@ -7,6 +7,7 @@ api/dependencies.py 装配。这样固定响应测试可以替换模型和数据
 from typing import Any, Protocol
 
 from ask_metric.application.requests import ActorContext
+from ask_metric.domain.organization_scope import OrganizationHierarchySnapshot
 
 
 class ModelService(Protocol):
@@ -41,6 +42,11 @@ class QueryResultEnricher(Protocol):
 
 
 class PermissionService(Protocol):
+    def authorized_org_codes(
+        self, *, actor: ActorContext, available_org_codes: set[str] | None = None,
+        hierarchy_snapshot: OrganizationHierarchySnapshot | None = None,
+    ) -> set[str]: ...
+
     def authorize_logical_dsl(
         self, *, actor: ActorContext, logical_dsl: dict[str, Any]
     ) -> dict[str, Any]: ...
@@ -64,6 +70,8 @@ class OrgHierarchyProvider(Protocol):
 
     def children_of(self, org_code: str) -> list[str]: ...
 
+    def strict_snapshot(self) -> OrganizationHierarchySnapshot: ...
+
     def root_code(self) -> str | None:
         """层级根节点编码：排名缺机构时的缺省范围；找不到返回 None 交澄清。"""
         ...
@@ -85,6 +93,12 @@ class NoopPermissionService:
     ) -> dict[str, Any]:
         return logical_dsl
 
+    def authorized_org_codes(
+        self, *, actor: ActorContext, available_org_codes: set[str] | None = None,
+        hierarchy_snapshot: OrganizationHierarchySnapshot | None = None,
+    ) -> set[str]:
+        return set(available_org_codes or ())
+
 
 class PermissionDeniedError(ValueError):
     code = "ORG_SCOPE_FORBIDDEN"
@@ -104,6 +118,42 @@ class ScopedOrganizationPermissionService:
         self.allow_unscoped_development = allow_unscoped_development
         self.all_organization_org_codes = all_organization_org_codes or set()
 
+    def authorized_org_codes(
+        self, *, actor: ActorContext, available_org_codes: set[str] | None = None,
+        hierarchy_snapshot: OrganizationHierarchySnapshot | None = None,
+    ) -> set[str]:
+        """显式机构与集合共用授权规则；集合使用同一目录快照，避免同步期间混读。"""
+        available = available_org_codes
+        if available is None and hierarchy_snapshot is not None:
+            available = {node.code for node in hierarchy_snapshot.nodes}
+        if actor.trust_level == "development" and self.allow_unscoped_development:
+            return set(available or ())
+        if actor.trust_level != "authenticated" or not actor.org_id:
+            raise PermissionDeniedError("缺少可信的机构权限范围")
+        if actor.role_code == "SYSTEM_ADMIN":
+            if available is not None:
+                return set(available)
+            return (
+                self.organization_scope_provider.all_org_codes()
+                if self.organization_scope_provider is not None else {actor.org_id}
+            )
+        allowed = (
+            hierarchy_snapshot.descendants_including(actor.org_id)
+            if hierarchy_snapshot is not None else
+            self.organization_scope_provider.allowed_org_codes(actor.org_id)
+            if self.organization_scope_provider is not None
+            else {actor.org_id}
+        )
+        if not allowed or actor.org_id not in allowed:
+            raise PermissionDeniedError("用户所属机构不存在或已停用")
+        # 全行权限属于配置中的省级机构，不再为某个用户 ID 绕过机构边界。
+        if actor.org_id in self.all_organization_org_codes:
+            if hierarchy_snapshot is not None:
+                allowed = {node.code for node in hierarchy_snapshot.nodes}
+            elif self.organization_scope_provider:
+                allowed = self.organization_scope_provider.all_org_codes()
+        return allowed if available is None else allowed & available
+
     def authorize_logical_dsl(
         self, *, actor: ActorContext, logical_dsl: dict[str, Any]
     ) -> dict[str, Any]:
@@ -113,16 +163,7 @@ class ScopedOrganizationPermissionService:
             raise PermissionDeniedError("缺少可信的机构权限范围")
         if actor.role_code == "SYSTEM_ADMIN":
             return logical_dsl
-        allowed = (
-            self.organization_scope_provider.allowed_org_codes(actor.org_id)
-            if self.organization_scope_provider is not None
-            else {actor.org_id}
-        )
-        if not allowed or actor.org_id not in allowed:
-            raise PermissionDeniedError("用户所属机构不存在或已停用")
-        # 全行权限属于配置中的省级机构，不再为某个用户 ID 绕过机构边界。
-        if actor.org_id in self.all_organization_org_codes and self.organization_scope_provider:
-            allowed = self.organization_scope_provider.all_org_codes()
+        allowed = self.authorized_org_codes(actor=actor)
         requested = list(logical_dsl.get("orgs") or [])
         authorized = dict(logical_dsl)
         # 明确指定越权机构时拒绝；仅正式目录展开的全机构范围允许取权限交集。

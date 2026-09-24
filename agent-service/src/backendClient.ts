@@ -185,25 +185,19 @@ export interface TaskResultPage {
   evidence?: Record<string, unknown>;
 }
 
-/** 单来源追问引用：仅机构或日期的单字段替换 */
-export interface QueryReference {
-  task_id: string;
-  version: number;
-  change_field: "orgs" | "time" | "compose";
-  mode?: "explicit" | "candidate";
-}
-
 /** 结构化基础查询（basic-queries）契约：不调用模型，按正式编码与明确日期取数 */
 export interface BasicQuerySpec {
   conversation_id?: string;
   calculation_context?: {scope_id: string; user_question: string};
+  source_question?: string;
   metric_codes: string[];
-  org_codes: string[];
-  time: { start: string; end: string };
-  selection: "exact" | "latest_in_range" | "all_in_range" | "ranking";
-  /** 仅 selection=ranking：排名方向（desc=数值高在前）与条数 */
-  order?: "asc" | "desc";
-  top_n?: number;
+  schema_version?: 2;
+  org_codes?: string[];
+  organization_scope?: import("./business-context/types.js").OrganizationScope;
+  scope_fingerprint?: string;
+  time: { start: string; end: string; dates?: string[] };
+  selection: "exact" | "latest_in_range" | "all_in_range";
+  operation?: import("./business-context/types.js").QueryOperation;
 }
 
 export interface BasicQueryResponse {
@@ -235,7 +229,6 @@ export class BackendApiError extends Error {
 }
 
 interface CallOptions {
-  calculationContext?: {scope_id: string; user_question: string};
   /** 调用方取消信号（原生 Context.abortSignal），与 HTTP 超时合并 */
   signal?: AbortSignal | undefined;
   /** 稳定请求标识：后端幂等记录按它回读，重试必须复用同一值 */
@@ -309,6 +302,13 @@ export class BackendClient {
     }, options);
   }
 
+  resolveOrganizationScope(scope: import("./business-context/types.js").OrganizationScopeInput, options?: CallOptions): Promise<import("./business-context/types.js").FieldResolution> {
+    return this.request("/api/v1/business-context/resolve-scope", {
+      method: "POST", body: JSON.stringify({kind: scope.kind, source_text: scope.sourceText,
+        ...(scope.kind === "authorized_cohort" ? {cohort: scope.cohort} : {parent_name: scope.parentName})}),
+    }, options);
+  }
+
   matchMetricQuestion(question: string, options?: CallOptions): Promise<import("./business-context/metricMentions.js").MetricMentions> {
     return this.request("/api/v1/business-context/metric-mentions", {
       method: "POST", body: JSON.stringify({question}),
@@ -325,67 +325,6 @@ export class BackendClient {
   searchOrganizations(keyword: string, limit: number, options?: CallOptions): Promise<OrgSearchResponse> {
     const query = new URLSearchParams({ keyword, limit: String(limit) });
     return this.request<OrgSearchResponse>(`/api/v1/catalog/organizations/search?${query}`, {}, options);
-  }
-
-  submitQuestion(
-    message: string,
-    conversationId: string | null,
-    idempotencyKey: string,
-    queryReference?: QueryReference,
-    options?: CallOptions,
-  ): Promise<TaskCommandResult> {
-    return this.request<TaskCommandResult>(
-      "/api/v1/questions",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          conversation_id: conversationId,
-          message,
-          ...(options?.calculationContext ? {channel_context: {calculation_context: options.calculationContext}} : {}),
-          idempotency_key: idempotencyKey,
-          ...(queryReference ? { query_reference: queryReference } : {}),
-        }),
-      },
-      { ...options, idempotencyKey },
-    );
-  }
-
-  analyzeTask(taskId: string, expectedVersion: number, options?: CallOptions): Promise<TaskCommandResult> {
-    return this.request<TaskCommandResult>(
-      `/api/v1/query-tasks/${encodeURIComponent(taskId)}/analyze`,
-      { method: "POST", body: JSON.stringify({ expected_version: expectedVersion }) },
-      options,
-    );
-  }
-
-  executeTask(
-    taskId: string,
-    expectedVersion: number,
-    requestId: string,
-    options?: CallOptions,
-  ): Promise<QueryExecutionResult> {
-    return this.request<QueryExecutionResult>(
-      `/api/v1/query-tasks/${encodeURIComponent(taskId)}/execute`,
-      {
-        method: "POST",
-        body: JSON.stringify({ expected_version: expectedVersion }),
-      },
-      { ...options, idempotencyKey: requestId, requestId },
-    );
-  }
-
-  /** 澄清提交：继续原业务任务；answers 可为自由文本或 {set, text} 组合 */
-  submitClarification(
-    taskId: string,
-    payload: { expected_version: number; clarification_id: string; answers: unknown },
-    requestId: string,
-    options?: CallOptions,
-  ): Promise<TaskCommandResult> {
-    return this.request<TaskCommandResult>(
-      `/api/v1/query-tasks/${encodeURIComponent(taskId)}/clarifications`,
-      { method: "POST", body: JSON.stringify(payload) },
-      { ...options, requestId },
-    );
   }
 
   getTask(taskId: string, options?: CallOptions): Promise<TaskCommandResult> {
@@ -410,21 +349,6 @@ export class BackendClient {
       `/api/v1/query-tasks/${encodeURIComponent(taskId)}/result?${query}`,
       {},
       options,
-    );
-  }
-
-  /** 只读找回：提交成功但响应丢失时按会话与提交键定位，不创建任务 */
-  lookupTask(conversationId: string, submissionKey: string, options?: CallOptions): Promise<TaskCommandResult> {
-    const query = new URLSearchParams({ conversation_id: conversationId, submission_key: submissionKey });
-    return this.request<TaskCommandResult>(`/api/v1/query-tasks/lookup?${query}`, {}, options);
-  }
-
-  /** 通用逻辑取消；不承诺数据库驱动即时停止 SQL */
-  cancelTask(taskId: string, expectedVersion: number, requestId: string, options?: CallOptions): Promise<TaskCommandResult> {
-    return this.request<TaskCommandResult>(
-      `/api/v1/query-tasks/${encodeURIComponent(taskId)}/cancel`,
-      { method: "POST", body: JSON.stringify({ expected_version: expectedVersion }) },
-      { ...options, requestId },
     );
   }
 

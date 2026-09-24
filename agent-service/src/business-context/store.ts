@@ -1,5 +1,5 @@
 import { BACKGROUND_CONTEXT, setValue, value, type Session } from "@earendil-works/pi-agent-core";
-import type { BusinessFrame, BusinessSessionState, FrameStore } from "./types.js";
+import type { BusinessFrame, BusinessGoal, BusinessSessionState, FrameStore } from "./types.js";
 
 const NS = "askmetric.business.v1";
 const stateAddress = value<BusinessSessionState>(NS, "state");
@@ -11,6 +11,19 @@ export class ContextConflict extends Error {
 /** Pi Session 的事务屏障保证同进程并发串行；部署沿用数据根单写锁。 */
 export class NativeFrameStore implements FrameStore {
   constructor(private readonly session: Session) {}
+  async goal(turnId: string): Promise<BusinessGoal | undefined> {
+    return structuredClone((await this.session.getValue(value<BusinessGoal>(NS, `goal/${turnId}`), BACKGROUND_CONTEXT))?.value);
+  }
+  async bindGoal(goal: BusinessGoal): Promise<BusinessGoal> {
+    // 先于字段解析落盘；参数错误和进程恢复都不能使同一用户回合换掉目标。
+    return this.session.mutate(async (tx, context) => {
+      const address = value<BusinessGoal>(NS, `goal/${goal.turnId}`);
+      const existing = await tx.getValue(address, context);
+      if (existing) return structuredClone(existing.value);
+      await tx.commit([setValue(address, goal)], context);
+      return structuredClone(goal);
+    }, BACKGROUND_CONTEXT);
+  }
   private empty(): BusinessSessionState {
     return {sessionId: this.session.metadata.id, version: 0, frameOrder: [], operations: {}};
   }

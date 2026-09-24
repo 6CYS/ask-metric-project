@@ -21,7 +21,6 @@ SENSITIVE_CONFIG_KEYS = {
     "METRIC_CATALOG_DATABASE_URL",
     "ORG_CATALOG_DATABASE_URL",
     "NACOS_PASSWORD",
-    "CONTINUATION_TOKEN_SECRET",
     "JWT_SECRET",
     "MODEL_CHAT_API_KEY",
     "MODEL_EMBEDDING_API_KEY",
@@ -40,48 +39,6 @@ def _copy_once(source: Path, target: Path) -> str:
     return "created"
 
 
-def _merge_query_template_config(source: Path, target: Path) -> str:
-    if not target.exists():
-        return _copy_once(source, target)
-    bundled = json.loads(source.read_text(encoding="utf-8"))
-    installed = json.loads(target.read_text(encoding="utf-8"))
-    changed = False
-    installed_dialects = installed.setdefault("dialects", {})
-    for dialect, registrations in bundled.get("dialects", {}).items():
-        installed_registrations = installed_dialects.setdefault(dialect, {})
-        for template, registration in registrations.items():
-            if template not in installed_registrations:
-                installed_registrations[template] = registration
-                changed = True
-    if installed.get("version") != bundled.get("version"):
-        installed["version"] = bundled.get("version")
-        changed = True
-    if not changed:
-        return "kept"
-    target.write_text(
-        json.dumps(installed, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
-    return "merged"
-
-
-def _copy_missing_tree(source: Path, target: Path) -> tuple[int, int]:
-    created = 0
-    kept = 0
-    target.mkdir(parents=True, exist_ok=True)
-    for source_file in sorted(path for path in source.rglob("*") if path.is_file()):
-        relative = source_file.relative_to(source)
-        target_file = target / relative
-        if target_file.exists():
-            kept += 1
-            continue
-        target_file.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_file, target_file)
-        created += 1
-    return created, kept
-
-
 def _load_runtime_environment(config_file: Path) -> None:
     from dotenv import dotenv_values
 
@@ -97,7 +54,6 @@ def init_config(args: argparse.Namespace) -> None:
     for directory in (
         runtime_config,
         state_root / "config-history",
-        state_root / "test-center",
     ):
         directory.mkdir(parents=True, exist_ok=True)
 
@@ -108,18 +64,6 @@ def init_config(args: argparse.Namespace) -> None:
     }
     for source, target in mappings.items():
         print(f"{_copy_once(source, target)}: {target}")
-    query_template_source = BUNDLE_ROOT / "backend/runtime/config/query-templates.json"
-    query_template_target = runtime_config / "query-templates.json"
-    print(
-        f"{_merge_query_template_config(query_template_source, query_template_target)}: "
-        f"{query_template_target}"
-    )
-    sql_target = runtime_config / "sql"
-    sql_created, sql_kept = _copy_missing_tree(
-        BUNDLE_ROOT / "backend/runtime/resources/sql", sql_target
-    )
-    print(f"merged: {sql_target} ({sql_created} created, {sql_kept} kept)")
-
     if config_file.exists():
         print(f"kept: {config_file}")
     else:
@@ -159,7 +103,6 @@ def validate_config(args: argparse.Namespace) -> None:
         {
             "APP_DATABASE_URL",
             "QUERY_DATABASE_URL",
-            "CONTINUATION_TOKEN_SECRET",
             "JWT_SECRET",
         }
         - required

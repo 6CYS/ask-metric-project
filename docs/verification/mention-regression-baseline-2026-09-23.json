@@ -1,0 +1,701 @@
+{
+  "corpus": {
+    "source": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/acceptance/**/*.json",
+    "question_keys": [
+      "message",
+      "question"
+    ],
+    "question_count": 72,
+    "skipped_files": [],
+    "catalog_enabled_size": 9306
+  },
+  "records": [
+    {
+      "question": "这个指标还有哪些月份有数据？",
+      "mentions": []
+    },
+    {
+      "question": "最早哪天开始有？",
+      "mentions": []
+    },
+    {
+      "question": "那虚构乙机构去年的呢？",
+      "mentions": []
+    },
+    {
+      "question": "加上虚构乙机构，并换成四月份",
+      "mentions": []
+    },
+    {
+      "question": "换成演示指标乙看看",
+      "mentions": []
+    },
+    {
+      "question": "乙机构四月份的呢？",
+      "mentions": []
+    },
+    {
+      "question": "四月换乙机构",
+      "mentions": []
+    },
+    {
+      "question": "乙机构，4月份",
+      "mentions": []
+    },
+    {
+      "question": "演示指标甲",
+      "mentions": []
+    },
+    {
+      "question": "改查虚构乙机构2026年5月演示指标乙",
+      "mentions": []
+    },
+    {
+      "question": "虚构甲机构这个指标有数据的还有哪几个月份呢？",
+      "mentions": []
+    },
+    {
+      "question": "这个指标都在哪些月有记录？",
+      "mentions": []
+    },
+    {
+      "question": "最早是哪天开始有的？",
+      "mentions": []
+    },
+    {
+      "question": "最后一次有数的日期是什么时候？",
+      "mentions": []
+    },
+    {
+      "question": "只看今年有数据的月份",
+      "mentions": []
+    },
+    {
+      "question": "那乙机构去年每个月的呢？",
+      "mentions": []
+    },
+    {
+      "question": "追问的 time 条件未声明修改方式，请重新表述",
+      "mentions": []
+    },
+    {
+      "question": "再加上乙机构，日期改成2026年4月末",
+      "mentions": []
+    },
+    {
+      "question": "换成乙机构2026年4月末的演示指标乙",
+      "mentions": []
+    },
+    {
+      "question": "为什么这个指标下降，帮我分析原因",
+      "mentions": []
+    },
+    {
+      "question": "当前不支持这项查询操作或操作组合，本次未执行取数。",
+      "mentions": []
+    },
+    {
+      "question": "这个指标有数据的月份呢",
+      "mentions": []
+    },
+    {
+      "question": "虚构乙机构2026年5月演示指标乙是多少",
+      "mentions": []
+    },
+    {
+      "question": "另外查演示指标乙",
+      "mentions": []
+    },
+    {
+      "question": "你可以查询哪些指标？",
+      "mentions": []
+    },
+    {
+      "question": "紫金农商行金融机构数量较年初增幅",
+      "mentions": [
+        {
+          "text": "金融机构数量较年初增幅",
+          "start": 5,
+          "end": 16,
+          "status": "resolved",
+          "codes": [
+            "ITRBNK_FINC_ORG_QTY_CMPBGNYR_INCRRNG"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "2026 年 3 月份",
+      "mentions": []
+    },
+    {
+      "question": "紫金农商行2026年3月末金融机构数量较同期增幅是多少？",
+      "mentions": [
+        {
+          "text": "金融机构数量较同期增幅",
+          "start": 13,
+          "end": 24,
+          "status": "resolved",
+          "codes": [
+            "ITRBNK_FINC_ORG_QTY_CMP_SAMEPRD_INCRRNG"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "那江阴呢？",
+      "mentions": []
+    },
+    {
+      "question": "改成2026年4月末。",
+      "mentions": []
+    },
+    {
+      "question": "再看紫金。",
+      "mentions": []
+    },
+    {
+      "question": "江阴农商行2026年3月末金融机构数量较同期增幅排名是多少？",
+      "mentions": [
+        {
+          "text": "金融机构数量较同期增幅排名",
+          "start": 13,
+          "end": 26,
+          "status": "resolved",
+          "codes": [
+            "ITRBNK_FINC_ORG_QTY_CMP_SAMEPRD_INCRRNG_RNKN"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "紫金农商行2026年3月末金融机构数量较同期期末是多少？",
+      "mentions": [
+        {
+          "text": "金融机构数量较同期期末",
+          "start": 13,
+          "end": 24,
+          "status": "resolved",
+          "codes": [
+            "ITRBNK_FINC_ORG_QTY_CMP_SAMEPRD_TERMEND"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "刚才江阴农商行3月末的数据再显示一下。",
+      "mentions": []
+    },
+    {
+      "question": "紫金农商行2026年4月末对公日均存款余额较同期是多少？",
+      "mentions": [
+        {
+          "text": "对公日均存款余额较同期",
+          "start": 13,
+          "end": 24,
+          "status": "resolved",
+          "codes": [
+            "ORG_CORP_DLYAVG_DEPT_BAL_CMP_SAMEPRD"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "江阴农商行2026年3月末对公日均存款余额较同期是多少？",
+      "mentions": [
+        {
+          "text": "对公日均存款余额较同期",
+          "start": 13,
+          "end": 24,
+          "status": "resolved",
+          "codes": [
+            "ORG_CORP_DLYAVG_DEPT_BAL_CMP_SAMEPRD"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "那紫金呢？",
+      "mentions": []
+    },
+    {
+      "question": "再看江阴。",
+      "mentions": []
+    },
+    {
+      "question": "紫金农商行2026年3月末营业支出金额较同期期末是多少？",
+      "mentions": [
+        {
+          "text": "营业支出金额较同期期末",
+          "start": 13,
+          "end": 24,
+          "status": "resolved",
+          "codes": [
+            "ORG_OPRTG_EXPTR_AMT_CMP_SAMEPRD_TERMEND"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "紫金农商行2026年4月末手机银行客户数量较上月增量排名是多少？",
+      "mentions": [
+        {
+          "text": "手机银行客户数量较上月增量排名",
+          "start": 13,
+          "end": 28,
+          "status": "resolved",
+          "codes": [
+            "ORG_MBPH_BNK_CUST_QTY_CMPRLATMO_RNKN"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "江阴农商行2026年3月末手机银行客户数量较上月增量排名是多少？",
+      "mentions": [
+        {
+          "text": "手机银行客户数量较上月增量排名",
+          "start": 13,
+          "end": 28,
+          "status": "resolved",
+          "codes": [
+            "ORG_MBPH_BNK_CUST_QTY_CMPRLATMO_RNKN"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "刚才紫金农商行3月末的数据再显示一下。",
+      "mentions": []
+    },
+    {
+      "question": "江阴农商行2026年4月末个人有效贷款客户数量占比较年初是多少？",
+      "mentions": [
+        {
+          "text": "个人有效贷款客户数量占比较年初",
+          "start": 13,
+          "end": 28,
+          "status": "resolved",
+          "codes": [
+            "ORG_PSON_VLD_LOAN_CUST_QTY_PRPR_CMPBGNYR"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "紫金农商行2026年3月末个人有效贷款客户数量占比较年初是多少？",
+      "mentions": [
+        {
+          "text": "个人有效贷款客户数量占比较年初",
+          "start": 13,
+          "end": 28,
+          "status": "resolved",
+          "codes": [
+            "ORG_PSON_VLD_LOAN_CUST_QTY_PRPR_CMPBGNYR"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "紫金农商行2026年4月末金融机构往来支出金额当日数是多少？",
+      "mentions": [
+        {
+          "text": "金融机构往来支出金额当日数",
+          "start": 13,
+          "end": 26,
+          "status": "resolved",
+          "codes": [
+            "ORG_FINC_ORG_INTRON_EXPTR_AMT"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "江阴农商行2026年3月末金融机构往来支出金额当日数是多少？",
+      "mentions": [
+        {
+          "text": "金融机构往来支出金额当日数",
+          "start": 13,
+          "end": 26,
+          "status": "resolved",
+          "codes": [
+            "ORG_FINC_ORG_INTRON_EXPTR_AMT"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "江阴农商行2026年4月末个人E1会员客户数量较同期期末增幅是多少？",
+      "mentions": [
+        {
+          "text": "个人E1会员客户数量较同期期末增幅",
+          "start": 13,
+          "end": 30,
+          "status": "resolved",
+          "codes": [
+            "ORG_PSON_E1_MBER_CUST_QTY_CMP_SAMEPRD_TERMEND_INCRRNG"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "紫金农商行2026年3月末个人E1会员客户数量较同期期末增幅是多少？",
+      "mentions": [
+        {
+          "text": "个人E1会员客户数量较同期期末增幅",
+          "start": 13,
+          "end": 30,
+          "status": "resolved",
+          "codes": [
+            "ORG_PSON_E1_MBER_CUST_QTY_CMP_SAMEPRD_TERMEND_INCRRNG"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "江阴农商行2026年3月末各项贷款日均余额_不含转贴现同业福费廷全省均值是多少？",
+      "mentions": [
+        {
+          "text": "各项贷款日均余额_不含转贴现同业福费廷全省均值",
+          "start": 13,
+          "end": 36,
+          "status": "resolved",
+          "codes": [
+            "ORG_VRS_LOAN_DLYAVG_BAL_ETITBNKFRFT_WHLPROV_MEANVL"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "紫金农商行2026年3月末对公非融资性保函业务客户数量较上季增幅是多少？",
+      "mentions": [
+        {
+          "text": "对公非融资性保函业务客户数量较上季增幅",
+          "start": 13,
+          "end": 32,
+          "status": "resolved",
+          "codes": [
+            "ORG_CORP_NONFNNCN_GRNTLTR_BUSI_CUST_QTY_CMPRPVSQRT_INCRRNG"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "江阴农商行2026年3月末个人数字人民币客户数量当日数是多少？",
+      "mentions": [
+        {
+          "text": "个人数字人民币客户数量当日数",
+          "start": 13,
+          "end": 27,
+          "status": "resolved",
+          "codes": [
+            "ORG_PSON_NUMC_RMB_CUST_QTY"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "紫金农商行2026年3月末净利润本年累计是多少？",
+      "mentions": [
+        {
+          "text": "净利润本年累计",
+          "start": 13,
+          "end": 20,
+          "status": "resolved",
+          "codes": [
+            "ORG_NET_PROFIT_CUR_YEAR"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "江阴农商行2026年3月末资产总额当日数是多少？",
+      "mentions": [
+        {
+          "text": "资产总额当日数",
+          "start": 13,
+          "end": 20,
+          "status": "ambiguous",
+          "codes": [
+            "ORG_ASSET_BAL_CUR_DAY",
+            "ORG_AST_TOTAMT"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "紫金农商行2026年3月末100万以下贷款余额当日数是多少？",
+      "mentions": [
+        {
+          "text": "100万以下贷款余额当日数",
+          "start": 13,
+          "end": 26,
+          "status": "resolved",
+          "codes": [
+            "ORG_100W_BLW_LOAN_BAL"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "江阴农商行2026年3月末保证金存款利息支出金额当日数是多少？",
+      "mentions": [
+        {
+          "text": "保证金存款利息支出金额当日数",
+          "start": 13,
+          "end": 27,
+          "status": "resolved",
+          "codes": [
+            "ORG_MRGN_DEPT_INT_EXPTR_AMT"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "紫金农商行2026年3月末收单客户数量当日数是多少？",
+      "mentions": [
+        {
+          "text": "收单客户数量当日数",
+          "start": 13,
+          "end": 22,
+          "status": "resolved",
+          "codes": [
+            "ORG_ACQRG_CUST_QTY"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "江阴农商行2026年3月末贷款余额当日数排名是多少？",
+      "mentions": [
+        {
+          "text": "贷款余额当日数排名",
+          "start": 13,
+          "end": 22,
+          "status": "resolved",
+          "codes": [
+            "STRC_WROFF_LOAN_BAL_RNKN"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "紫金农商行2026年3月末对公制造类企业数量较同期是多少？",
+      "mentions": [
+        {
+          "text": "对公制造类企业数量较同期",
+          "start": 13,
+          "end": 25,
+          "status": "resolved",
+          "codes": [
+            "ORG_CORP_MNFC_CLASS_ENTP_QTY_CMP_SAMEPRD"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "江阴农商行2026年3月末个人长尾客户数量当日数排名是多少？",
+      "mentions": [
+        {
+          "text": "个人长尾客户数量当日数排名",
+          "start": 13,
+          "end": 26,
+          "status": "resolved",
+          "codes": [
+            "ORG_PSON_LNG_TAIL_CUST_QTY_RNKN"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "紫金农商行2026年4月末金融机构数量较同期增幅是多少？",
+      "mentions": [
+        {
+          "text": "金融机构数量较同期增幅",
+          "start": 13,
+          "end": 24,
+          "status": "resolved",
+          "codes": [
+            "ITRBNK_FINC_ORG_QTY_CMP_SAMEPRD_INCRRNG"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "紫金农商行2026年3月末个人活期存款余额当日数是多少？",
+      "mentions": [
+        {
+          "text": "个人活期存款余额当日数",
+          "start": 13,
+          "end": 24,
+          "status": "resolved",
+          "codes": [
+            "ORG_PSON_DEDMDPT_BAL"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "刚才江阴农商行2026年3月末的个人活期存款余额当日数再显示一下。",
+      "mentions": [
+        {
+          "text": "个人活期存款余额当日数",
+          "start": 16,
+          "end": 27,
+          "status": "resolved",
+          "codes": [
+            "ORG_PSON_DEDMDPT_BAL"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "改成2026年5月末。",
+      "mentions": []
+    },
+    {
+      "question": "查询所有农商行2026年3月末个人活期存款余额当日数。",
+      "mentions": [
+        {
+          "text": "个人活期存款余额当日数",
+          "start": 15,
+          "end": 26,
+          "status": "resolved",
+          "codes": [
+            "ORG_PSON_DEDMDPT_BAL"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "把刚才结果的前20行再显示一下。",
+      "mentions": []
+    },
+    {
+      "question": "金融机构数量较同期金融机构数量较同期增幅金融机构数量较同期增幅排名",
+      "mentions": [
+        {
+          "text": "金融机构数量较同期增幅",
+          "start": 9,
+          "end": 20,
+          "status": "resolved",
+          "codes": [
+            "ITRBNK_FINC_ORG_QTY_CMP_SAMEPRD_INCRRNG"
+          ]
+        },
+        {
+          "text": "金融机构数量较同期增幅排名",
+          "start": 20,
+          "end": 33,
+          "status": "resolved",
+          "codes": [
+            "ITRBNK_FINC_ORG_QTY_CMP_SAMEPRD_INCRRNG_RNKN"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "紫金农商行2026年3月末金融机构数量较同期、金融机构数量较同期增幅、金融机构数量较同期增幅排名是多少？",
+      "mentions": [
+        {
+          "text": "金融机构数量较同期增幅",
+          "start": 23,
+          "end": 34,
+          "status": "resolved",
+          "codes": [
+            "ITRBNK_FINC_ORG_QTY_CMP_SAMEPRD_INCRRNG"
+          ]
+        },
+        {
+          "text": "金融机构数量较同期增幅排名",
+          "start": 35,
+          "end": 48,
+          "status": "resolved",
+          "codes": [
+            "ITRBNK_FINC_ORG_QTY_CMP_SAMEPRD_INCRRNG_RNKN"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "紫金农商行2026年3月末金融机构数量较同期增幅和金融机构数量较同期增幅排名是多少？",
+      "mentions": [
+        {
+          "text": "金融机构数量较同期增幅",
+          "start": 13,
+          "end": 24,
+          "status": "resolved",
+          "codes": [
+            "ITRBNK_FINC_ORG_QTY_CMP_SAMEPRD_INCRRNG"
+          ]
+        },
+        {
+          "text": "金融机构数量较同期增幅排名",
+          "start": 25,
+          "end": 38,
+          "status": "resolved",
+          "codes": [
+            "ITRBNK_FINC_ORG_QTY_CMP_SAMEPRD_INCRRNG_RNKN"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "紫金农商行2026年4月末金融机构数量较同期增幅排名是多少？",
+      "mentions": [
+        {
+          "text": "金融机构数量较同期增幅排名",
+          "start": 13,
+          "end": 26,
+          "status": "resolved",
+          "codes": [
+            "ITRBNK_FINC_ORG_QTY_CMP_SAMEPRD_INCRRNG_RNKN"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "江阴农商行2026年4月末金融机构数量较同期期末是多少？",
+      "mentions": [
+        {
+          "text": "金融机构数量较同期期末",
+          "start": 13,
+          "end": 24,
+          "status": "resolved",
+          "codes": [
+            "ITRBNK_FINC_ORG_QTY_CMP_SAMEPRD_TERMEND"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "江阴农商行2026年4月末营业支出金额较同期期末是多少？",
+      "mentions": [
+        {
+          "text": "营业支出金额较同期期末",
+          "start": 13,
+          "end": 24,
+          "status": "resolved",
+          "codes": [
+            "ORG_OPRTG_EXPTR_AMT_CMP_SAMEPRD_TERMEND"
+          ]
+        }
+      ]
+    },
+    {
+      "question": "选择资产总额当日数（ORG_ASSET_BAL_CUR_DAY，亿元）",
+      "mentions": [
+        {
+          "text": "资产总额当日数",
+          "start": 2,
+          "end": 9,
+          "status": "ambiguous",
+          "codes": [
+            "ORG_ASSET_BAL_CUR_DAY",
+            "ORG_AST_TOTAMT"
+          ]
+        }
+      ]
+    }
+  ]
+}

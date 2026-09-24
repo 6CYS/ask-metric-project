@@ -12,9 +12,9 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from ask_metric.application.metric_candidates import _lexical_metric_candidates
 from ask_metric.application.ports import ModelService
 from ask_metric.domain.metric_matching import normalize_semantic_text
-from ask_metric.domain.semantic_engine import _cosine, _lexical_metric_candidates
 from ask_metric.domain.semantics import MetricCatalogItem, OrganizationCatalogItem
 from ask_metric.infrastructure.model.catalog_vectors import (
     CatalogVectorCache,
@@ -191,6 +191,18 @@ def rank_organizations(
             )
     ranked = sorted(hits.values(), key=lambda hit: (-hit.score, hit.code))
     return OrgSearchResult(total=len(ranked), items=ranked[:limit])
+
+
+def _cosine(
+    left: Sequence[float], right: Sequence[float], *, left_norm: float | None = None,
+) -> float:
+    numerator = sum(a * b for a, b in zip(left, right, strict=False))
+    if left_norm is None:
+        left_norm = math.sqrt(sum(value * value for value in left))
+    denominator = left_norm * math.sqrt(
+        sum(value * value for value in right)
+    )
+    return numerator / denominator if denominator else 0
 
 
 def metric_embedding_scores(

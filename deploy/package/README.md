@@ -109,7 +109,7 @@ cd ask-metric-20260824.1-linux-x86_64-py3.12
 /opt/ask-metric/current               当前版本软链接
 /etc/ask-metric/backend.env           跨版本保留的配置
 /etc/ask-metric/agent.env             智能助手服务配置（跨版本保留）
-/var/lib/ask-metric/runtime-config/    模型、提示词和 SQL 模板（跨版本保留）
+/var/lib/ask-metric/runtime-config/    模型与提示词（跨版本保留）
 /var/lib/ask-metric/                   其他跨版本运行数据和配置历史
 /home/appuser/log/                     行内规范日志目录（物理目录，禁止软链接）
 ```
@@ -193,12 +193,8 @@ chmod 0640 /etc/ask-metric/config-sm4.key
 MODEL_CONFIG_PATH=/var/lib/ask-metric/runtime-config/model-config.json
 PROMPT_CONFIG_PATH=/var/lib/ask-metric/runtime-config/prompts.json
 SEMANTIC_CONFIG_PATH=/opt/ask-metric/current/backend/config/semantic-config.json
-QUERY_TEMPLATE_CONFIG_PATH=/var/lib/ask-metric/runtime-config/query-templates.json
-SQL_RESOURCE_DIR=/var/lib/ask-metric/runtime-config/sql
 MODEL_SECRET_ENV_PATH=/etc/ask-metric/backend.env
 CONFIG_HISTORY_DIR=/var/lib/ask-metric/config-history
-TEST_CENTER_DATA_DIR=/var/lib/ask-metric/test-center
-TEST_CENTER_BASELINE_PATH=/opt/ask-metric/current/backend/resources/testing/accuracy-baseline.json
 ```
 
 自定义安装路径时对应替换。持久状态由服务账号写入；首次安装后核对权限：
@@ -272,7 +268,7 @@ Use a different `--user-org-code` only after confirming that code exists in the
 synchronized organization catalog. This command is for the one-time test-data
 replacement, not the recurring catalog synchronization job.
 
-升级时会合并缺失的查询模板和 SQL 文件，不覆盖已有人工模板。已有 `backend.env` 不会自动
+升级不再加载或合并 SQL 模板；现场旧文件保留供整包回退。已有 `backend.env` 不会自动
 改写，切换 SIT 数据湖前必须人工补齐并复核 `QUERY_DATABASE_DIALECT=inceptor`、目录连接和
 `SIT_*` 配置。
 
@@ -353,3 +349,32 @@ sudo /opt/ask-metric/current/ops/rollback.sh --release 20260824.1
 
 回退前同样排空活动回合并恢复配套版本。旧版本不理解新 Frame 工具协议，回退后新建会话继续，保留旧结果供查看。
 完整契约及验证说明见 [Pi 通用多轮业务上下文](../../docs/pi-business-context.md)。
+
+
+### 查询契约 v2 配套升级
+
+后端 `/api/v1/basic-queries` 已移除 `selection=ranking`、顶层 `order/top_n` 及空数组缺省范围；
+实际机构编码不再代表待展开的上级。Agent 与后端必须整包配套升级；旧协议请求明确拒绝。
+暂停新操作，排空并对账在途任务、备份 Agent 状态后再切换；不得以清空会话绕过未知结果。
+旧执行工具会话只读保留，重新查询须新建会话；当前 Frame 会话继续按新契约执行。
+
+集合查询依赖 `org_terms.parent_org_code/hierarchy_level` 的正式层级，先在授权环境运行现有
+机构目录同步的 dry-run，核对唯一省级根、法人行和支行父链，再按原审批流程实际同步。
+本次未修改生产目录；原先仅同步名称的环境须完成此步骤。缺配置时明确返回配置错误，
+不能靠机构名称猜层级。参数与操作说明见 [数据湖配置](../../backend-next/docs/sit-data-lake.md)。
+
+不新增数据库字段、迁移或依赖。后端渠道集成仍有真实旧语义服务依赖，本次保留该渠道，
+不宣称已移除全部旧 HTTP 入口。回退时排空新版本任务，保留新旧状态，恢复整套旧包及匹配配置；
+不得让旧进程续跑新契约 Frame。新旧包联动、目录同步与真实数据库榜单须在授权环境验收。
+本地验证与未验收项见 [交付记录](../../docs/verification/query-intent-v2-delivery.md)。
+
+
+### SQL builder 统一生成
+
+业务取数与数据覆盖统一使用随发布包交付的 SQLGlot builder，已删除模板文件和管理页面。
+升级不再复制、注册或加载持久 SQL 模板；旧 `QUERY_SQL_ENGINE`、`QUERY_TEMPLATE_CONFIG_PATH`、
+`SQL_RESOURCE_DIR` 配置不再生效，可在维护配置时移除。`SIT_*` 字段映射、数据库方言、只读账号和
+SQL 安全校验继续生效。模型/提示词的配置与历史回滚功能保留。
+
+安装与升级不会删除现场旧 SQL 文件或配置历史，便于整包回退。新版本不执行这些文件；
+此前仅通过模板编辑发布的定制逻辑需迁到 builder 并验证后再升级，不能期望旧模板继续生效。

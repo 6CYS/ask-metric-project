@@ -1,19 +1,10 @@
-"""机构层级只读实现（v2：真实父子关系 + v1 汇总规则回退）。
+"""机构层级只读实现。
 
-数据前提（两种模式由 org_terms 数据自动切换，调用方契约不变）：
-- 层级模式：迁移 0004 后目录同步在启用支行层级扩展
-  （SIT_ORG_INCLUDE_BRANCH_LEVEL）时写入 parent_org_code/hierarchy_level。
-  恰好只有一个启用机构 parent_org_code 为空（唯一根）才认定层级数据完整，
-  进入层级模式：children_of 返回该机构在已启用机构中的直接下级
-  （parent_org_code = 本机构，自环除外）。半同步窗口（多个或零个无上级
-  节点）行为不稳，一律回退 v1。缺上级数据的机构不会出现在任何下级列表中。
-- v1 回退：层级列全空或数据不完整时保持原规则——只识别名称含
-  “全省汇总”的省级汇总节点，其直接下级视为全部启用机构（除自身）；
-  普通法人机构返回空列表，由上层转为澄清。
+新查询仅调用 strict_snapshot：目录同步始终写入正式 parent_org_code/hierarchy_level，
+完整校验唯一根、层级及父链，配置不全时拒绝集合查询。
 
-root_code 供排名缺机构时定位缺省范围：层级模式取唯一根节点；v1 回退取
-名称含“全省汇总”的唯一节点，存在多个时不随意取其一，与多根一样返回
-None 交上层澄清。
+children_of/root_code 仍供在用渠道的旧语义链路调用，保留历史名称回退规则；
+它们不参与新查询的集合解析或授权。待渠道迁移后才能删除这些兼容方法。
 """
 
 from __future__ import annotations
@@ -21,6 +12,10 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from ask_metric.domain.organization_scope import (
+    OrganizationHierarchyNode,
+    OrganizationHierarchySnapshot,
+)
 from ask_metric.infrastructure.db.models import OrgTerm
 
 # v1 层级判定规则：省级汇总节点名称中的固定字样；机构名来自受治理目录，非用户输入。
@@ -28,8 +23,31 @@ _SUMMARY_NODE_MARKER = "全省汇总"
 
 
 class SqlAlchemyOrgHierarchyProvider:
-    def __init__(self, session_factory: sessionmaker[Session] | None = None) -> None:
+    def __init__(
+        self, session_factory: sessionmaker[Session] | None = None, *,
+        root_level: str = "1", cohort_level: str = "3",
+    ) -> None:
         self.session_factory = session_factory
+        self.root_level = root_level
+        self.cohort_level = cohort_level
+
+    def strict_snapshot(self) -> OrganizationHierarchySnapshot:
+        """新集合查询仅采用完整正式层级；旧入口的回退逻辑不参与此调用。"""
+        session_factory = self.session_factory or _default_session_factory()
+        with session_factory() as session:
+            rows = session.execute(select(
+                OrgTerm.org_code, OrgTerm.org_name, OrgTerm.parent_org_code,
+                OrgTerm.hierarchy_level,
+            ).where(OrgTerm.enabled.is_(True))).all()
+        snapshot = OrganizationHierarchySnapshot(
+            nodes=tuple(OrganizationHierarchyNode(
+                code=code, name=name, parent_code=(parent or "").strip() or None,
+                hierarchy_level=(level or "").strip() or None,
+            ) for code, name, parent, level in rows),
+            root_level=self.root_level, cohort_level=self.cohort_level,
+        )
+        snapshot.validated_root()
+        return snapshot
 
     def children_of(self, org_code: str) -> list[str]:
         rows = self._enabled_rows()

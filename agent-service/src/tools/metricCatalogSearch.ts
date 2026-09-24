@@ -30,7 +30,7 @@ export function createMetricCatalogSearchTool(): AgentHarnessTool<AskMetricReque
               usage_hint:
                 "exact_matches 仅表示命中了本次检索词（可能是短别名），不表示符合用户原文。先核对用户完整名称及限定词；原文存在更完整名称时必须重新检索完整名称。match_type 为 exact/contains/lexical 的条目可作为编码来源，不能替代语义确认；" +
                 "semantic_suggestions 仅是语义近似推荐，不得据此锁定编码。未命中或 has_more 时不要断定指标不存在，" +
-                "纯基础取数可用 metric_ask 解析原句；计算或覆盖组合目标缺少正式编码时应缩小检索或澄清，不能改用 metric_ask。" +
+                "新指标通过 resolve_business_turn 的 {fromQuestion:true} 引用本轮目录算法匹配；计算或覆盖缺项应补齐原目标，不改成普通取值。" +
                 "结构化取值必须核对本次全部指标；未确认的指标不能丢弃后执行部分取数。限定指标类别的覆盖查询也必须保留该类别过滤。",
             }),
           },

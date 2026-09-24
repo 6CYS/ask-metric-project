@@ -83,10 +83,6 @@ class UnsupportedOperation(BaseModel):
     capability: str = Field(min_length=1, max_length=100)
 
 
-ChangeField = Literal["metrics", "orgs", "time", "ops", "filters", "dimensions"]
-ChangeAction = Literal["replace", "add", "remove", "clear"]
-
-
 SlotOperation = Annotated[
     AggregateOperation
     | TrendOperation
@@ -125,7 +121,10 @@ class SlotFrame(BaseModel):
     context_relation: Literal["independent", "followup", "ambiguous"] | None = Field(
         default=None, description="有候选来源时必须声明本轮与来源的关系；未确认关系禁止继承。",
     )
-    changes: dict[ChangeField, ChangeAction] = Field(
+    changes: dict[
+        Literal["metrics", "orgs", "time", "ops", "filters", "dimensions"],
+        Literal["replace", "add", "remove", "clear"],
+    ] = Field(
         default_factory=dict,
         description="引用追问的字段操作；值取本轮同名字段。未列出的字段继承来源。",
     )
@@ -257,6 +256,9 @@ class LogicalDSL(BaseModel):
 class MetricCatalogItem(BaseModel):
     code: str
     name: str
+    source_metric_code: str | None = None
+    base_name: str | None = None
+    value_basis: str | None = None
     aliases: list[str] = Field(default_factory=list)
     description: str = ""
     unit: str | None = None
@@ -277,9 +279,3 @@ class MetricMatch(BaseModel):
     end: int
     source: Literal["standard_name", "alias"]
     exact: bool = False
-
-
-class SemanticPatch(BaseModel):
-    set: dict[str, Any] = Field(default_factory=dict)
-    add_ops: list[SlotOperation] = Field(default_factory=list)
-    remove_ops: list[dict[str, Any]] = Field(default_factory=list)

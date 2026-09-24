@@ -99,7 +99,7 @@ outputs/
 /AgentHarness原生融合_AI开发任务书_*.md
 
 # 单元测试文件(不推送到远端)
-# 仅忽略测试代码;业务功能代码(如 backend-next/src/ask_metric/**/test_center.py、test_case_import.py)不在此列
+# 仅忽略测试代码;业务功能代码不在此列
 *.test.ts
 *.test.tsx
 *.test.js
