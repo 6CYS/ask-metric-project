@@ -5,6 +5,7 @@ import {
   clearAccessToken,
   hasAccessToken,
   setAccessToken,
+  setLoginMethod,
   setAuthFailureReason,
 } from "@/lib/authSession"
 import type { AuthUser } from "@/types/api"
@@ -34,6 +35,7 @@ async function initializeAuth() {
           // 初始化期间发生退出或新登录时，不让旧响应恢复之前的账号。
           if (revision === authRevision) {
             setAccessToken(session.access_token)
+            setLoginMethod(session.auth_method)
             user.value = session.user
           }
         }
@@ -57,18 +59,21 @@ async function login(username: string, password: string) {
   const result = await loginUser(username, password)
   if (revision !== authRevision) return result.user
   setAccessToken(result.access_token)
+  setLoginMethod(result.auth_method)
   user.value = result.user
   initialized.value = true
   return result.user
 }
 
 async function loginWithSso(token: string) {
+  setLoginMethod("sso")
   clearAuth()
   initialized.value = true
   const revision = ++authRevision
   const result = await ssoLoginUser(token)
   if (revision !== authRevision) return result.user
   setAccessToken(result.access_token)
+  setLoginMethod(result.auth_method)
   user.value = result.user
   initialized.value = true
   return result.user

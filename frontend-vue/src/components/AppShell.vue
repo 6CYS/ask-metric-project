@@ -5,6 +5,7 @@ import { RouterLink, useRoute } from "vue-router"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import { useSidebarPreference } from "@/composables/useSidebarPreference"
 import { navigationItems } from "@/config/navigation"
+import { getLoginMethod } from "@/lib/authSession"
 import { useAuth } from "@/composables/useAuth"
 import { resolveOrganizationBranding } from "@/config/organizationBranding"
 import BaseBadge from "@/components/ui/BaseBadge.vue"
@@ -48,7 +49,7 @@ async function handleLogout() {
   logoutError.value = ""
   try {
     await auth.logout()
-    await router.replace("/login")
+    await router.replace(getLoginMethod() === "sso" ? "/sso-entry" : "/login")
   } catch {
     logoutError.value = "退出登录未完成，请检查连接后重试。"
   } finally {
