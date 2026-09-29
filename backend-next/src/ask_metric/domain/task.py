@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
@@ -86,3 +86,36 @@ class QueryTaskState(BaseModel):
             value = dict(value)
             value.pop("query_spec", None)
         return value
+
+
+def running_execution_is_stale(
+    task_status: str | None, state: QueryTaskState, stale_after: timedelta
+) -> bool:
+    """已登记的执行超过时限仍为 running，视为进程中断（原执行不会再落库成功）。
+
+    没有开始时间的记录来自升级前，按已中断处理；原执行若仍在落库会因版本冲突失败。
+    """
+    execution = state.execution or {}
+    if (execution.get("status") != "running" or execution.get("summary") is not None
+            or task_status != QueryTaskStatus.RUNNING.value):
+        return False
+    return _older_than(execution.get("started_at"), stale_after)
+
+
+def submitted_task_is_stale(
+    task_status: str | None, state: QueryTaskState, stale_after: timedelta
+) -> bool:
+    """任务已创建但一直未登记执行（提交请求在执行前中断），超过时限即不会再有结果。"""
+    if state.execution is not None or task_status != QueryTaskStatus.RUNNING.value:
+        return False
+    return _older_than((state.debug.get("task_create") or {}).get("submitted_at"), stale_after)
+
+
+def _older_than(timestamp: Any, age: timedelta) -> bool:
+    try:
+        started_at = datetime.fromisoformat(str(timestamp))
+    except ValueError:
+        return True
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=UTC)
+    return datetime.now(UTC) - started_at > age

@@ -378,3 +378,17 @@ SQL 安全校验继续生效。模型/提示词的配置与历史回滚功能保
 
 安装与升级不会删除现场旧 SQL 文件或配置历史，便于整包回退。新版本不执行这些文件；
 此前仅通过模板编辑发布的定制逻辑需迁到 builder 并验证后再升级，不能期望旧模板继续生效。
+
+### 指标结构化识别与排名方向配套升级
+
+指标识别改为“基础指标 + 口径”结构（规则见 [指标匹配方案](../../docs/metric-matching.md)），依赖迁移
+`0005_metric_source_structure`（源字段），不新增表。按第 4 节生成 SQL、审核并执行迁移后，运行正式指标目录同步回填源字段
+（先 `--dry-run`），确认目标指标 `source_metric_code/base_name/value_basis` 已填充。
+
+同义词仍只在“指标术语”页面维护；基础指标别名与口径别名由后端从同义词自动推导，启动预热时建好识别索引，
+运行中每 60 秒检查目录版本并在后台重建，无需重启。可用只读脚本检查同义词写法冲突：
+`python /opt/ask-metric/current/scripts/check_metric_synonyms.py --config /etc/ask-metric/backend.env`。
+
+未完成回填时只剩完整名称匹配与保守确认，不能识别口径省略、缺口径追问。
+排名契约同时由 `operation.order` 改为 `operation.position=top|bottom`，名次类指标（单位“名”）的方向由后端决定；
+Agent、后端须配套升级，旧 Frame 中的排名条件需在新回合重建。回退时整包回退，回填字段可保留。

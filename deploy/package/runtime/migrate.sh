@@ -36,16 +36,32 @@ if grep -Eq '<[^>]+>|development-only-change-me' "$CONFIG_FILE"; then
   echo "ERROR: unresolved placeholders or development secrets remain in $CONFIG_FILE" >&2
   exit 1
 fi
+# 下面会切换到 backend 目录后再读取配置，先固定为绝对路径。
+CONFIG_FILE="$(CDPATH= cd -- "$(dirname -- "$CONFIG_FILE")" && pwd)/$(basename -- "$CONFIG_FILE")"
 
-set -a
-# shellcheck disable=SC1090
-. "$CONFIG_FILE"
-set +a
-export BACKEND_NEXT_ALLOW_SCHEMA_CHANGES=true
-export BACKEND_NEXT_ALLOW_NON_TEST_DATABASE=true
+PYTHON="$RELEASE_ROOT/venv/bin/python"
+
+# 配置文件是 systemd EnvironmentFile 格式，不是 shell 脚本：用 dotenv 按值解析
+# （不做 ${} 展开，与 site_upgrade.py 一致），避免带空格的值被 shell 当成命令，
+# 也避免 root 执行文件中的 $(...)。解析后 exec alembic，文件值覆盖继承的环境，
+# 迁移开关最后强制打开。
+run_with_config() {
+  "$PYTHON" -c '
+import os
+import sys
+
+from dotenv import dotenv_values
+
+config = dotenv_values(sys.argv[1], interpolate=False)
+os.environ.update({key: value for key, value in config.items() if value is not None})
+os.environ["BACKEND_NEXT_ALLOW_SCHEMA_CHANGES"] = "true"
+os.environ["BACKEND_NEXT_ALLOW_NON_TEST_DATABASE"] = "true"
+os.execv(sys.executable, [sys.executable, *sys.argv[2:]])
+' "$CONFIG_FILE" "$@"
+}
 
 cd "$RELEASE_ROOT/backend"
-ALEMBIC=("$RELEASE_ROOT/venv/bin/python" -m alembic -c alembic-goldendb.ini upgrade head)
+ALEMBIC=(run_with_config -m alembic -c alembic-goldendb.ini upgrade head)
 if [[ "$MODE" == "sql" ]]; then
   if [[ -z "$OUTPUT_FILE" ]]; then
     OUTPUT_FILE="$PWD/goldendb-migration.sql"

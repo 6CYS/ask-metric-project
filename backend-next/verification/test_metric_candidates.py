@@ -3,10 +3,10 @@ import pytest
 
 from ask_metric.api.routes.tasks import _verify_metric_coverage
 from ask_metric.application.catalog_sync import _build_metric_catalog
+from ask_metric.application.field_resolution import resolve_catalog_field
 from ask_metric.application.metric_candidates import (
     MetricCandidateIndex,
     metric_candidate_index,
-    unique_high_confidence_candidate,
 )
 from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.semantics import MetricCatalogItem
@@ -20,6 +20,46 @@ def catalog():
                           description="本月每天存款余额的平均值"),
         MetricCatalogItem(code="R", name="合成客户风险比率", aliases=["合成风险率"],
                           description="存在风险的客户占全部客户的比例"),
+    ]
+
+
+def structured(source, base, bases, *, synonym_bases=(), writings=None):
+    """按源端结构生成“基础指标 + 口径”目录，编码为 源编码:口径。
+
+    同义词按“指标术语”的实际维护方式逐指标给出（基础叫法 + 口径叫法拼接），
+    基础别名与口径别名由识别索引从中推导。
+    """
+    writings = writings or {}
+    return [
+        MetricCatalogItem(
+            code=f"{source}:{basis}", name=base + basis, source_metric_code=source,
+            base_name=base, value_basis=basis,
+            aliases=[prefix + writings.get(basis, basis) for prefix in synonym_bases],
+        )
+        for basis in bases
+    ]
+
+
+def deposit_catalog():
+    bases = ["当日数", "较同期", "较同期增幅", "较同期增幅排名", "较同期增量排名",
+             "较上月增幅", "较上月增幅排名"]
+    writings = {"较同期": "同比", "较上月增幅": "环比增幅"}
+    return [
+        *structured("CORP", "对公日均存款余额", bases, synonym_bases=["对公日均"],
+                    writings=writings),
+        *structured("PSON", "个人日均存款余额", bases, synonym_bases=["个人日均"],
+                    writings=writings),
+        *structured("TOTAL", "各项存款余额", bases, synonym_bases=["存款余额"],
+                    writings=writings),
+    ]
+
+
+def summary(mentions):
+    return [
+        (mention["text"], mention["resolution"]["status"],
+         mention["resolution"].get("value", {}).get("codes")
+         or [candidate.get("code") for candidate in mention["resolution"].get("candidates", [])])
+        for mention in mentions
     ]
 
 
@@ -39,13 +79,15 @@ def test_exact_longest_and_alias(question, expected):
     ("查询省联社2026年3月31日贷款讯额当日数", "D"),
     ("本月每天的存款平均值是多少", "S"),
     ("存在风险的客户占全部客户多少比例", "R"),
+    # 只差一个字但读音不同：保守策略下一律交用户确认。
+    ("合成客户风险比例", "R"),
 ])
-def test_low_confidence_typo_and_description_remain_candidates(question, expected):
+def test_non_homophone_typo_and_description_remain_candidates(question, expected):
     result = MetricCandidateIndex(catalog()).mentions(question)
     assert result
     candidates = [candidate for mention in result
                   for candidate in mention["resolution"].get("candidates", [])]
-    assert expected in [candidate["code"] for candidate in candidates[:5]]
+    assert expected in [candidate.get("code") for candidate in candidates[:5]]
     assert all(mention["resolution"]["status"] != "resolved" for mention in result)
 
 
@@ -55,52 +97,22 @@ def test_low_confidence_typo_and_description_remain_candidates(question, expecte
     ("戴款余额当日数", "D"),
     ("合成客护风险比率", "R"),
 ])
-def test_unique_high_confidence_homophone_is_resolved(question, expected):
+def test_unique_homophone_is_resolved_and_marked(question, expected):
     result = MetricCandidateIndex(catalog()).mentions(question)
     assert len(result) == 1
-    assert result[0]["resolution"]["value"]["codes"] == [expected]
-    assert result[0]["resolution"]["metadata"]["score"] >= .95
+    resolution = result[0]["resolution"]
+    assert resolution["value"]["codes"] == [expected]
+    assert resolution["metadata"]["match"] == "homophone"
 
 
-@pytest.mark.parametrize("scores,expected", [
-    ([.949999], None), ([.95], "A"), ([.96, .95], "A"),
-    ([.97, .97], None), ([1, 1], None), ([], None),
-])
-def test_threshold_boundary_and_ties(scores, expected):
-    hits = [{"code": chr(65 + i), "value": "合成指标", "score": score}
-            for i, score in enumerate(scores)]
-    result = unique_high_confidence_candidate(hits)
-    assert (result["code"] if result else None) == expected
-
-
-def test_same_code_alias_hits_are_not_a_tie():
-    assert unique_high_confidence_candidate([
-        {"code": "A", "score": 1}, {"code": "A", "score": 1}, {"code": "B", "score": .8},
-    ])["code"] == "A"
-
-
-@pytest.mark.parametrize("name,raw,expected", [
-    ("abcdefghijklmnopqrst", "abcdefghijklmnopqrsz", "resolved"),
-    ("abcdefghijklmnopqrs", "abcdefghijklmnopqrz", "needs_confirmation"),
-])
-def test_full_fragment_score_at_and_below_threshold(name, raw, expected):
-    index = MetricCandidateIndex([MetricCatalogItem(code="A", name=name)])
-    result = index.resolve_candidates(raw, index.candidates(raw))
-    assert result["status"] == expected
-    if expected == "resolved":
-        assert result["metadata"]["score"] == .95
-    else:
-        assert result["candidates"][0]["score"] < .95
-
-
-def test_homophone_two_different_codes_stays_ambiguous():
+def test_homophone_of_two_different_codes_needs_confirmation():
     index = MetricCandidateIndex([
         MetricCatalogItem(code="A", name="合成客户余额"),
         MetricCatalogItem(code="B", name="合成客护余额"),
     ])
     resolution = index.mentions("合成客互余额")[0]["resolution"]
     assert resolution["status"] == "needs_confirmation"
-    assert {hit["code"] for hit in resolution["candidates"] if hit["score"] == 1} == {"A", "B"}
+    assert {hit["code"] for hit in resolution["candidates"]} == {"A", "B"}
 
 
 def test_question_tail_does_not_turn_exact_metric_into_fuzzy_longer_one():
@@ -115,92 +127,38 @@ def test_question_tail_does_not_turn_exact_metric_into_fuzzy_longer_one():
         assert result[0]["resolution"]["value"]["codes"] == ["M0"]
 
 
-def test_incomplete_second_metric_clarifies_full_user_phrase():
+def test_base_without_value_basis_asks_for_value_basis():
+    items = structured("G", "保证金存款利息支出金额", ["当日数", "较同期", "较上月增幅"])
+    mentions = MetricCandidateIndex(items).mentions("保证金存款利息支出金额是多少")
+    assert len(mentions) == 1
+    assert mentions[0]["text"] == "保证金存款利息支出金额"
+    resolution = mentions[0]["resolution"]
+    assert resolution["status"] == "needs_confirmation"
+    assert resolution["metadata"]["issue"] == "missing_value_basis"
+    assert {c["code"] for c in resolution["candidates"]} == {item.code for item in items}
+    # 候选带口径，用户只回答“当日数”时也能按原文确定。
+    assert {c["metadata"]["value_basis"] for c in resolution["candidates"]} == {
+        "当日数", "较同期", "较上月增幅",
+    }
+    # 目录只有一个口径时也不替用户默认口径。
+    single = MetricCandidateIndex(structured("U", "特种单位协定存款余额", ["当日数"]))
+    assert single.mentions("特种单位协定存款余额")[0]["resolution"]["status"] == (
+        "needs_confirmation"
+    )
+
+
+def test_short_alias_inside_unfinished_specific_name_is_not_selected():
     items = [
-        MetricCatalogItem(code="A", name="收单客户数量当日数"),
-        MetricCatalogItem(code="C", name="其他客户数量", aliases=["客户数量"]),
-        MetricCatalogItem(code="B1", name="个人贷记卡普通卡客户数量当日数"),
-        MetricCatalogItem(code="B2", name="个人贷记卡普通卡客户数量较上月"),
+        *structured("ACQ", "收单客户数量", ["当日数"]),
+        MetricCatalogItem(code="CUST", name="其他客户数量", aliases=["客户数量"]),
+        *structured("CARD", "个人贷记卡普通卡客户数量", ["当日数", "较上月"]),
     ]
     question = "紫金农商行4月末收单客户数量当日数、个人贷记卡普通卡客户数量是多少？"
     mentions = MetricCandidateIndex(items).mentions(question)
-    assert [item["text"] for item in mentions] == [
-        "收单客户数量当日数", "个人贷记卡普通卡客户数量"
+    assert summary(mentions) == [
+        ("收单客户数量当日数", "resolved", ["ACQ:当日数"]),
+        ("个人贷记卡普通卡客户数量", "needs_confirmation", ["CARD:当日数", "CARD:较上月"]),
     ]
-    assert mentions[0]["resolution"]["value"]["codes"] == ["A"]
-    assert mentions[1]["resolution"]["status"] == "needs_confirmation"
-    assert {candidate["code"] for candidate in mentions[1]["resolution"]["candidates"]} == {
-        "B1", "B2"
-    }
-
-
-def test_prefix_segment_with_multiple_codes_needs_confirmation():
-    items = [
-        MetricCatalogItem(code="G1", name="保证金存款利息支出金额当日数"),
-        MetricCatalogItem(code="G2", name="保证金存款利息支出金额较同期"),
-        MetricCatalogItem(code="G3", name="保证金存款利息支出金额较上月增幅"),
-    ]
-    mentions = MetricCandidateIndex(items).mentions("保证金存款利息支出金额")
-    assert len(mentions) == 1
-    assert mentions[0]["text"] == "保证金存款利息支出金额"
-    assert mentions[0]["source"]["kind"] == "catalog_name_prefix"
-    resolution = mentions[0]["resolution"]
-    assert resolution["status"] == "needs_confirmation"
-    assert {c["code"] for c in resolution["candidates"]} == {"G1", "G2", "G3"}
-
-
-def test_unique_prefix_segment_is_resolved():
-    items = [
-        MetricCatalogItem(code="U1", name="特种单位协定存款余额当日数"),
-        MetricCatalogItem(code="U2", name="特种单位协定存款户数当日数"),
-    ]
-    mentions = MetricCandidateIndex(items).mentions("特种单位协定存款余额")
-    assert len(mentions) == 1
-    assert mentions[0]["source"]["kind"] == "catalog_name_prefix"
-    assert mentions[0]["resolution"]["status"] == "resolved"
-    assert mentions[0]["resolution"]["value"]["codes"] == ["U1"]
-
-
-def test_prefix_segment_coexists_with_exact_mention():
-    items = [
-        MetricCatalogItem(code="A", name="收单客户数量当日数"),
-        MetricCatalogItem(code="G1", name="保证金存款利息支出金额当日数"),
-        MetricCatalogItem(code="G2", name="保证金存款利息支出金额较同期"),
-    ]
-    question = "紫金农商行4月末收单客户数量当日数、保证金存款利息支出金额"
-    mentions = MetricCandidateIndex(items).mentions(question)
-    assert [item["text"] for item in mentions] == [
-        "收单客户数量当日数", "保证金存款利息支出金额"
-    ]
-    assert mentions[0]["resolution"]["value"]["codes"] == ["A"]
-    assert mentions[1]["resolution"]["status"] == "needs_confirmation"
-    assert {c["code"] for c in mentions[1]["resolution"]["candidates"]} == {"G1", "G2"}
-    assert all(question[m["start"]:m["end"]] == m["text"] for m in mentions)
-
-
-def test_prefix_segment_shorter_than_four_chars_does_not_trigger():
-    index = MetricCandidateIndex([MetricCatalogItem(code="P", name="净利润本年累计")])
-    mentions = index.mentions("净利润")
-    assert all(m.get("source", {}).get("kind") != "catalog_name_prefix" for m in mentions)
-    assert all(m["resolution"]["status"] != "resolved" for m in mentions)
-
-
-def test_prefix_must_cover_whole_segment():
-    items = [
-        MetricCatalogItem(code="G1", name="保证金存款利息支出金额当日数"),
-        MetricCatalogItem(code="G2", name="保证金存款利息支出金额较同期"),
-    ]
-    # 尾带“是多少”使整段不再是名称前缀，段内子串不能触发前缀通道。
-    mentions = MetricCandidateIndex(items).mentions("保证金存款利息支出金额是多少")
-    assert all(m.get("source", {}).get("kind") != "catalog_name_prefix" for m in mentions)
-    assert all(m["resolution"]["status"] != "resolved" for m in mentions)
-
-
-def test_partial_substring_full_score_does_not_auto_select_wrong_metric():
-    index = MetricCandidateIndex([MetricCatalogItem(code="A", name="甲乙丙丁")])
-    resolution = index.resolve_candidates("甲乙丙丁戊己", index.candidates("甲乙丙丁戊己"))
-    assert resolution["status"] == "needs_confirmation"
-    assert resolution["candidates"][0]["score"] < .95
 
 
 def test_duplicate_alias_and_name_never_overwritten():
@@ -220,39 +178,19 @@ def test_full_name_wins_over_ambiguous_embedded_alias():
     assert result[0]["resolution"]["value"]["codes"] == ["D"]
 
 
-def test_short_alias_inside_unfinished_specific_name_needs_confirmation():
-    # 复现原句：用户写“个人贷记卡普通卡客户数量”漏掉“当日数”，短别名“客户数量”不能被静默取值。
-    items = [
-        MetricCatalogItem(code="ACQ", name="收单客户数量当日数"),
-        MetricCatalogItem(code="CUST", name="客户数量当日数", aliases=["客户数量"]),
-        MetricCatalogItem(code="PSON", name="个人贷记卡普通卡客户数量当日数"),
+def test_unfinished_value_basis_is_confirmed_within_its_base():
+    index = MetricCandidateIndex(deposit_catalog())
+    unfinished = index.mentions("对公日均存款余额较同期增")
+    assert summary(unfinished) == [("对公日均存款余额较同期增", "needs_confirmation", [
+        "CORP:较同期增幅", "CORP:较同期增幅排名", "CORP:较同期增量排名",
+    ])]
+    assert unfinished[0]["resolution"]["metadata"]["issue"] == "value_basis_incomplete"
+    # 口径说完后接着别的文字（“增加了多少”）不是没说完。
+    assert summary(index.mentions("对公日均存款余额较同期增加了多少")) == [
+        ("对公日均存款余额较同期", "resolved", ["CORP:较同期"]),
     ]
-    result = MetricCandidateIndex(items).mentions(
-        "紫金农商行4月末收单客户数量当日数、个人贷记卡普通卡客户数量是多少？")
-    by_text = {mention["text"]: mention["resolution"] for mention in result}
-    # 第一项是完整名称，正常 resolved。
-    assert by_text["收单客户数量当日数"]["status"] == "resolved"
-    assert by_text["收单客户数量当日数"]["value"]["codes"] == ["ACQ"]
-    # 第二项的“客户数量”是更长未说完整名称内部的短别名：降级为待确认，指向更具体编码，不误取 CUST。
-    downgraded = next(res for text, res in by_text.items()
-                      if "客户数量" in text and res["status"] != "resolved")
-    assert downgraded["status"] == "needs_confirmation"
-    assert "PSON" in {candidate["code"] for candidate in downgraded["candidates"]}
-    assert all(mention["resolution"].get("value", {}).get("codes", []) != ["CUST"]
-               for mention in result)
-
-
-def test_same_code_short_alias_does_not_hide_unfinished_official_name():
-    item = MetricCatalogItem(code="D", name="净利润本年累计", aliases=["净利润"])
-    index = MetricCandidateIndex([item])
-    incomplete = index.mentions("净利润本年累")
-    assert len(incomplete) == 1
-    assert incomplete[0]["text"] == "净利润本年累"
-    assert incomplete[0]["resolution"]["status"] == "needs_confirmation"
-    assert incomplete[0]["resolution"]["candidates"][0]["code"] == "D"
-    assert index.mentions("净利润是多少")[0]["resolution"]["value"]["codes"] == ["D"]
     with pytest.raises(ApplicationError) as unresolved:
-        _verify_metric_coverage("净利润本年累", ["D"], [item])
+        _verify_metric_coverage("对公日均存款余额较同期增", ["CORP:较同期增幅"], deposit_catalog())
     assert unresolved.value.code == "METRIC_TARGETS_UNRESOLVED"
 
 
@@ -267,7 +205,7 @@ def test_crossing_names_are_ambiguous_instead_of_selecting_the_longer_one():
     assert {hit["code"] for hit in result[0]["resolution"]["candidates"]} == {"A", "B"}
 
 
-def test_exact_and_typo_in_same_question_keep_both_groups():
+def test_exact_and_homophone_in_same_question_keep_both():
     result = MetricCandidateIndex(catalog()).mentions("贷款余额当日数和存款余鹅月日均")
     assert len(result) == 2
     assert result[0]["resolution"]["value"]["codes"] == ["D"]
@@ -282,7 +220,8 @@ def test_no_match_does_not_invent_metric_and_snapshot_changes_invalidate_cache()
     assert first.mentions("你好，明天天气怎么样") == []
     changed = metric_candidate_index([item for item in items if item.code != "D"])
     assert changed is not first
-    assert "D" not in {hit["code"] for hit in changed.candidates("贷款余额当日数")}
+    assert "D" not in {code for _, _, codes in summary(changed.mentions("贷款余额当日数"))
+                       for code in codes}
 
 
 def test_input_spans_preserve_original_whitespace_and_unicode():
@@ -318,84 +257,47 @@ def test_source_based_ellipsis_keeps_all_four_metrics_without_connector_rules():
         assert all(question[m["start"]:m["end"]] == m["text"] for m in mentions)
 
 
-def test_legacy_catalog_completes_unique_shared_name_without_source_fields():
+def test_catalog_without_source_structure_does_not_guess_ellipsis():
     items = [
         MetricCatalogItem(code="A1", name="合成收入金额当日数"),
         MetricCatalogItem(code="A2", name="合成收入金额较上月增幅"),
-        MetricCatalogItem(code="B1", name="合成贷款余额当日数"),
-        MetricCatalogItem(code="B2", name="合成贷款余额较同期增幅"),
     ]
-    index = MetricCandidateIndex(items)
-    for question, expected in [
-        ("7月31日样本机构的合成收入金额当日数和较上月增幅", ["A1", "A2"]),
-        ("合成贷款余额当日数、较同期增幅", ["B1", "B2"]),
-        ("合成收入金额当日数和较上月增幅、合成贷款余额当日数", ["A1", "A2", "B1"]),
-    ]:
-        mentions = index.mentions(question)
-        assert [m["resolution"]["value"]["codes"][0] for m in mentions] == expected
-        assert all(question[m["start"]:m["end"]] == m["text"] for m in mentions)
-        _verify_metric_coverage(question, expected, items)
-        with pytest.raises(ApplicationError) as incomplete:
-            _verify_metric_coverage(question, expected[:1], items)
-        assert incomplete.value.code == "METRIC_TARGETS_INCOMPLETE"
-
-
-def test_legacy_catalog_does_not_select_ambiguous_or_unrelated_ellipsis():
-    items = [
-        MetricCatalogItem(code="A1", name="合成收入金额当日数"),
-        MetricCatalogItem(code="A2", name="合成收入金额较上月增幅"),
-        MetricCatalogItem(code="A3", name="合成收入金额较上月增幅"),
-        MetricCatalogItem(code="B", name="合成贷款余额较上月增幅"),
-    ]
-    index = MetricCandidateIndex(items)
-    mentions = index.mentions("合成收入金额当日数和较上月增幅")
+    question = "合成收入金额当日数和较上月增幅"
+    mentions = MetricCandidateIndex(items).mentions(question)
     assert mentions[0]["resolution"]["value"]["codes"] == ["A1"]
-    assert mentions[1]["resolution"]["status"] == "ambiguous"
-    assert {item["code"] for item in mentions[1]["resolution"]["candidates"]} == {"A2", "A3"}
-    unrelated = index.mentions("合成收入金额当日数和贷款余额较上月增幅")
-    assert not any(m.get("source", {}).get("kind") == "catalog_name_completion"
-                   for m in unrelated)
+    assert all(m["resolution"]["status"] != "resolved" for m in mentions[1:])
+    with pytest.raises(ApplicationError) as unresolved:
+        _verify_metric_coverage(question, ["A1", "A2"], items)
+    assert unresolved.value.code in {"METRIC_TARGETS_UNRESOLVED", "METRIC_TARGETS_INCOMPLETE"}
 
 
-@pytest.mark.parametrize("structured", [False, True])
 @pytest.mark.parametrize("last_name,confirmed", [
     ("合成贷款余额当日数", True),
     ("合成贷款余当日数", False),
 ])
-def test_four_metrics_keep_ellipsis_group_and_independent_last_metric(
-    structured, last_name, confirmed
-):
-    names = {
-        "A": "合成收入金额当日数",
-        "B": "合成收入金额较上月增幅",
-        "C": "合成收入金额较去年同期增幅",
-        "D": "合成贷款余额当日数",
-    }
-    items = []
-    for code, name in names.items():
-        base = "合成收入金额" if code != "D" else "合成贷款余额"
-        source = "INCOME" if code != "D" else "LOAN"
-        items.append(MetricCatalogItem(code=code, name=name, **(
-            {"source_metric_code": source, "base_name": base,
-             "value_basis": name[len(base):]} if structured else {}
-        )))
-    question = f"查询{names['A']}、较上月增幅、较去年同期增幅、{last_name}"
+def test_four_metrics_keep_ellipsis_group_and_independent_last_metric(last_name, confirmed):
+    items = [
+        *structured("INCOME", "合成收入金额", ["当日数", "较上月增幅", "较去年同期增幅"]),
+        *structured("LOAN", "合成贷款余额", ["当日数"]),
+    ]
+    question = f"查询合成收入金额当日数、较上月增幅、较去年同期增幅、{last_name}"
     mentions = MetricCandidateIndex(items).mentions(question)
     assert [item["text"] for item in mentions] == [
-        names["A"], "较上月增幅", "较去年同期增幅", last_name,
+        "合成收入金额当日数", "较上月增幅", "较去年同期增幅", last_name,
     ]
     assert [item["resolution"]["value"]["codes"] for item in mentions[:3]] == [
-        ["A"], ["B"], ["C"],
+        ["INCOME:当日数"], ["INCOME:较上月增幅"], ["INCOME:较去年同期增幅"],
     ]
+    codes = ["INCOME:当日数", "INCOME:较上月增幅", "INCOME:较去年同期增幅", "LOAN:当日数"]
     if confirmed:
-        assert mentions[3]["resolution"]["value"]["codes"] == ["D"]
-        _verify_metric_coverage(question, ["A", "B", "C", "D"], items)
+        assert mentions[3]["resolution"]["value"]["codes"] == ["LOAN:当日数"]
+        _verify_metric_coverage(question, codes, items)
     else:
         assert mentions[3]["resolution"]["status"] == "needs_confirmation"
-        assert "D" in {candidate["code"] for candidate
-                       in mentions[3]["resolution"]["candidates"]}
+        assert "LOAN:当日数" in {candidate.get("code") for candidate
+                                 in mentions[3]["resolution"]["candidates"]}
         with pytest.raises(ApplicationError) as unresolved:
-            _verify_metric_coverage(question, ["A", "B", "C", "D"], items)
+            _verify_metric_coverage(question, codes, items)
         assert unresolved.value.code == "METRIC_TARGETS_UNRESOLVED"
 
 
@@ -432,6 +334,93 @@ def test_ellipsis_does_not_cross_distinct_source_metric_lineages():
     assert mentions[0]["resolution"]["value"]["codes"] == ["A1"]
     assert mentions[1]["resolution"]["value"]["codes"] == ["A2"]
     assert mentions[2]["resolution"]["status"] == "needs_confirmation"
+    assert mentions[2]["resolution"]["metadata"]["issue"] == "value_basis_not_found"
+
+
+@pytest.mark.parametrize("question", [
+    "对公日均存款余额当日数和较同期增幅",
+    "对公日均存款余额的当日数和较同期增幅",
+    "对公日均存款余额当日数、较同期增幅",
+])
+def test_shared_base_with_several_value_bases(question):
+    mentions = MetricCandidateIndex(deposit_catalog()).mentions(question)
+    assert [codes for _, _, codes in summary(mentions)] == [
+        ["CORP:当日数"], ["CORP:较同期增幅"],
+    ]
+    assert len({mention["group"]["id"] for mention in mentions}) == 1
+    assert all(question[m["start"]:m["end"]] == m["text"] for m in mentions)
+    _verify_metric_coverage(question, ["CORP:当日数", "CORP:较同期增幅"], deposit_catalog())
+
+
+def test_homophone_base_resolves_every_value_basis_of_the_group():
+    index = MetricCandidateIndex(deposit_catalog())
+    mentions = index.mentions("对工日均存款余额当日数和较同期增幅")
+    assert summary(mentions) == [
+        ("对工日均存款余额当日数", "resolved", ["CORP:当日数"]),
+        ("较同期增幅", "resolved", ["CORP:较同期增幅"]),
+    ]
+    assert all(m["resolution"]["metadata"] == {
+        "match": "homophone", "understood_as": "对公日均存款余额",
+    } for m in mentions)
+
+
+def test_uncertain_base_shares_one_candidate_group_across_value_bases():
+    index = MetricCandidateIndex(deposit_catalog())
+    mentions = index.mentions("对公日均存钱余额当日数和较同期增幅")
+    assert [m["text"] for m in mentions] == ["对公日均存钱余额当日数", "较同期增幅"]
+    assert all(m["resolution"]["status"] == "needs_confirmation" for m in mentions)
+    assert len({m["group"]["id"] for m in mentions}) == 1
+    first, second = (m["resolution"]["candidates"] for m in mentions)
+    # 同一基础指标候选在各口径片段中一一对应，确认一次即可确定全部口径。
+    assert [c["metadata"]["source_metric_code"] for c in first] == [
+        c["metadata"]["source_metric_code"] for c in second
+    ]
+    assert "CORP" in {c["metadata"]["source_metric_code"] for c in first}
+    assert {c["metadata"]["kind"] for c in first + second} == {"base"}
+    by_source = {c["metadata"]["source_metric_code"]: c["code"] for c in second}
+    assert by_source["CORP"] == "CORP:较同期增幅"
+
+
+def test_alias_inside_longer_mistyped_text_is_not_silently_selected():
+    # “对公日均”是别名，但原文紧接着的“存钱余额”说明用户在说更长的名称。
+    mentions = MetricCandidateIndex(deposit_catalog()).mentions("对公日均存钱余额当日数")
+    assert all(m["resolution"]["status"] != "resolved" for m in mentions)
+    assert all("对公日均" != m["text"] for m in mentions)
+
+
+def test_shared_tail_is_reported_instead_of_dropped():
+    mentions = MetricCandidateIndex(deposit_catalog()).mentions("对公和个人日均存款余额当日数")
+    assert summary(mentions) == [
+        ("对公", "needs_confirmation", ["CORP:当日数"]),
+        ("个人日均存款余额当日数", "resolved", ["PSON:当日数"]),
+    ]
+    assert mentions[0]["resolution"]["metadata"]["issue"] == "shared_tail"
+
+
+def test_full_rank_value_basis_is_kept_as_metric_name():
+    index = MetricCandidateIndex(deposit_catalog())
+    assert summary(index.mentions("各家农商行对公日均存款余额较上月增幅排名前三")) == [
+        ("对公日均存款余额较上月增幅排名", "resolved", ["CORP:较上月增幅排名"]),
+    ]
+    missing = index.mentions("各家农商行对公日均存款余额排名前三")
+    assert missing[0]["resolution"]["metadata"]["issue"] == "missing_value_basis"
+
+
+def test_base_and_value_basis_aliases_compose():
+    assert summary(MetricCandidateIndex(deposit_catalog()).mentions("对公日均同比和环比增幅")) == [
+        ("对公日均同比", "resolved", ["CORP:较同期"]),
+        ("环比增幅", "resolved", ["CORP:较上月增幅"]),
+    ]
+
+
+def test_field_value_with_unrecognized_text_is_not_resolved():
+    items = [MetricCatalogItem(code="A", name="甲乙丙丁")]
+    result = resolve_catalog_field("metric", ["甲乙丙丁戊己"], items)
+    assert result["status"] == "needs_confirmation"
+    assert [candidate["code"] for candidate in result["candidates"]] == ["A"]
+    missing = resolve_catalog_field("metric", ["对公日均存款余额"], deposit_catalog())
+    assert missing["status"] == "needs_confirmation"
+    assert len(missing["candidates"]) == 7
 
 
 def test_catalog_sync_retains_source_structure_and_rejects_conflicting_source_rows():
@@ -452,11 +441,30 @@ def test_catalog_sync_retains_source_structure_and_rejects_conflicting_source_ro
     assert conflict_count == 1
 
 
-def test_catalog_snapshot_changes_when_source_structure_changes():
+def test_catalog_snapshot_changes_when_source_structure_or_synonyms_change():
     plain = MetricCatalogItem(code="A", name="合成余额较上月增幅")
-    structured = plain.model_copy(update={"source_metric_code": "S", "base_name": "合成余额",
-                                         "value_basis": "较上月增幅"})
-    assert metric_candidate_index([plain]) is not metric_candidate_index([structured])
+    structured_item = plain.model_copy(update={
+        "source_metric_code": "S", "base_name": "合成余额", "value_basis": "较上月增幅",
+    })
+    assert metric_candidate_index([plain]) is not metric_candidate_index([structured_item])
+    synonym = structured_item.model_copy(update={"aliases": ["合余环比增幅"]})
+    assert metric_candidate_index([synonym]) is not metric_candidate_index([structured_item])
+
+
+def test_aliases_are_derived_from_maintained_synonyms_only():
+    # 只在“指标术语”维护同义词：改动同义词后别名随索引重新推导，没有第二处数据。
+    index = MetricCandidateIndex(deposit_catalog())
+    assert index.base_terms["对公日均"] == {"CORP"}
+    assert index.basis_terms["同比"] == {"较同期"}
+    without = [item.model_copy(update={"aliases": []}) if item.source_metric_code == "CORP"
+               else item for item in deposit_catalog()]
+    assert "对公日均" not in MetricCandidateIndex(without).base_terms
+    # 两个基础指标共用的叫法不作为基础别名，只按完整同义词匹配，交用户确认。
+    shared = deposit_catalog() + structured(
+        "OTHER", "其他日均存款余额", ["当日数", "较同期"], synonym_bases=["对公日均"],
+        writings={"较同期": "同比"},
+    )
+    assert "对公日均" not in MetricCandidateIndex(shared).base_terms
 
 
 def test_formal_task_rejects_omitted_or_uncertain_targets_before_sql():
@@ -474,3 +482,6 @@ def test_formal_task_rejects_omitted_or_uncertain_targets_before_sql():
     with pytest.raises(ApplicationError) as uncertain:
         _verify_metric_coverage("未登记的指标", ["A1"], items)
     assert getattr(uncertain.value, "code", None) == "METRIC_TARGETS_UNRESOLVED"
+    with pytest.raises(ApplicationError) as basis_missing:
+        _verify_metric_coverage("合成余额是多少", ["A1"], items)
+    assert getattr(basis_missing.value, "code", None) == "METRIC_TARGETS_UNRESOLVED"

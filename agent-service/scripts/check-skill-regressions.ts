@@ -166,7 +166,7 @@ try {
         assert(calls.some(call => {
           const spec = call.args as BasicQuerySpec;
           return call.name === "structured" && spec.selection === "exact" && spec.operation?.kind === "ranking"
-            && spec.operation.order === "desc" && spec.operation.top_n === 3
+            && spec.operation.position === "top" && spec.operation.top_n === 3
             && spec.organization_scope?.kind === "authorized_cohort" && spec.org_codes === undefined
             && spec.time.start === "2026-04-30" && spec.time.end === "2026-04-30";
         }));

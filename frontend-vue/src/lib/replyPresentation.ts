@@ -1,8 +1,4 @@
-import MarkdownIt from "markdown-it"
 import type { MetricAskDetails } from "./agentApi"
-
-// 仅解析格式并提取文字，最终由 Vue 文本插值展示，不执行 HTML 或加载图片。
-const markdown = new MarkdownIt({ html: false, linkify: false })
 export interface CatalogOverviewDetails {
   kind: "catalog_overview"
   status: "succeeded"
@@ -25,20 +21,6 @@ const INTERNAL_DISPLAY_HINT = /(?:具体)?明细数据已在用户界面以结�
 /** 只清理内部展示提示，保留 markdown 结构，供块级解析路径使用。 */
 export function stripInternalDisplayHints(value: string): string {
   return value.replace(INTERNAL_DISPLAY_HINT, "").trim()
-}
-
-export function replyText(value: string): string {
-  const lines: string[] = []
-  for (const token of markdown.parse(value, {})) {
-    if (token.type === "inline") {
-      lines.push((token.children ?? []).map(child => {
-        if (child.type === "softbreak" || child.type === "hardbreak") return "\n"
-        if (child.type === "text" || child.type === "code_inline" || child.type === "image") return child.content
-        return ""
-      }).join(""))
-    } else if (token.type === "fence" || token.type === "code_block") lines.push(token.content.trimEnd())
-  }
-  return stripInternalDisplayHints(lines.join("\n"))
 }
 
 /** 失败原因使用工具的公开回执；不展示内部异常，也不以通用文案覆盖业务原因。 */

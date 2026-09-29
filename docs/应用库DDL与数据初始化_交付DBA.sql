@@ -1,7 +1,7 @@
 -- ============================================================================
 -- 问数应用库（GoldenDB/MySQL 方言）本次变更的表结构与数据初始化交付
 --
--- 来源：backend-next/alembic_goldendb 迁移链 0003、0004，
+-- 来源：backend-next/alembic_goldendb 迁移链 0003～0005，
 -- 由以下命令离线导出，未连接任何数据库：
 --   BACKEND_NEXT_ALLOW_SCHEMA_CHANGES=true BACKEND_NEXT_ALLOW_NON_TEST_DATABASE=true \
 --     python -m alembic -c alembic-goldendb.ini upgrade 0002_organization_hierarchy:head --sql
@@ -57,6 +57,15 @@ UPDATE backend_next_goldendb_alembic_version
    SET version_num='0004_org_hierarchy_and_org_code'
  WHERE version_num = '0003_analysis_checkpoints';
 
+-- ---- 1.3 迁移 0005：指标目录保留源指标编码、基础名称与取值口径（可空，旧行保持 NULL）
+ALTER TABLE metric_terms ADD COLUMN source_metric_code VARCHAR(128);
+ALTER TABLE metric_terms ADD COLUMN base_name VARCHAR(255);
+ALTER TABLE metric_terms ADD COLUMN value_basis VARCHAR(255);
+
+UPDATE backend_next_goldendb_alembic_version
+   SET version_num='0005_metric_source_structure'
+ WHERE version_num = '0004_org_hierarchy_and_org_code';
+
 
 -- ============================================================================
 -- 二、数据初始化与历史回填
@@ -106,7 +115,13 @@ SELECT COUNT(*) AS unmatched
 --     --display-name <显示名> --org-code <有效机构编码> \
 --     --role-code SYSTEM_ADMIN --config .env
 
--- ---- 2.4 chat_conversations.owner_user_id 历史归属（多用户上线前）
+-- ---- 2.4 metric_terms 源字段回填（迁移 0005 之后）
+-- 源字段由正式目录同步回填，不手写 UPDATE：
+--   python -m ask_metric sync-metric-catalog --dry-run   # 先预演
+--   python -m ask_metric sync-metric-catalog
+-- 基础指标别名与口径别名由后端从 metric_synonyms 自动推导，无需建表或导入。
+
+-- ---- 2.5 chat_conversations.owner_user_id 历史归属（多用户上线前）
 -- 历史会话 owner_user_id 为 NULL，用脚本归并到指定用户（默认 dry-run）：
 --   python scripts/backfill_conversation_owners.py --username <登录名>        # 预演
 --   python scripts/backfill_conversation_owners.py --username <登录名> --apply
@@ -116,10 +131,15 @@ SELECT COUNT(*) AS unmatched
 -- 三、执行后核对
 -- ============================================================================
 SELECT version_num FROM backend_next_goldendb_alembic_version;
--- 期望：0004_org_hierarchy_and_org_code
+-- 期望：0005_metric_source_structure
 
 -- 期望：org_code / parent_org_code / hierarchy_level 三列均存在（返回 3）
 SELECT COUNT(*) FROM information_schema.COLUMNS
  WHERE TABLE_SCHEMA = DATABASE()
    AND ((TABLE_NAME = 'metric_values' AND COLUMN_NAME = 'org_code')
      OR (TABLE_NAME = 'org_terms' AND COLUMN_NAME IN ('parent_org_code', 'hierarchy_level')));
+
+-- 期望：metric_terms 三个源字段存在（返回 3）
+SELECT COUNT(*) FROM information_schema.COLUMNS
+ WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'metric_terms'
+   AND COLUMN_NAME IN ('source_metric_code', 'base_name', 'value_basis');

@@ -55,11 +55,11 @@ it.each([401, 403])("鉴权失败 %s 整体传播，不作为普通检索失败�
   }))).rejects.toBe(error);
 });
 
-it("新入口有八个公开工具，概览仍生成可交付回执", async () => {
+it("入口注册普通回答与内部协议纠错，概览仍生成可交付回执", async () => {
   const tools = [...createAskMetricTools(), createBusinessSkillReadTool([])];
   expect(tools.map(tool => tool.name)).toEqual([
     "business_capability_explain", "resolve_business_turn", "business_context_read", "execute_business_frame",
-    "read_business_result", "read", "catalog", "business_skill_read",
+    "read_business_result", "read", "catalog", "respond_without_business_action", "business_action_required", "business_skill_read",
   ]);
   const result = await runTool(tools.find(tool => tool.name === "catalog")!, {action: "overview"}, request({
     metricCatalogOverview: async () => ({total: 2, groups: []}),

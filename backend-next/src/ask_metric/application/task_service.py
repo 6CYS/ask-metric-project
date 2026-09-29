@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -11,20 +12,26 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
+from ask_metric.application.catalog_references import explicit_catalog_references
 from ask_metric.application.commands import SubmitQuestionCommand
+from ask_metric.application.metric_candidates import conflicting_metric_references
 from ask_metric.application.ports import PermissionDeniedError, PermissionService
 from ask_metric.application.requests import ActorContext
-from ask_metric.application.task_results import TaskCommandResult, TaskResultPage
+from ask_metric.application.task_results import (
+    BasicQueryStatus,
+    TaskCommandResult,
+    TaskResultPage,
+)
 from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.calculation import CalculationScope
-from ask_metric.domain.catalog_references import explicit_catalog_references
-from ask_metric.domain.metric_matching import conflicting_metric_references
 from ask_metric.domain.query_execution import QueryExecutionResult
 from ask_metric.domain.task import (
     QueryTaskStage,
     QueryTaskState,
     QueryTaskStatus,
     append_task_trace,
+    running_execution_is_stale,
+    submitted_task_is_stale,
 )
 from ask_metric.infrastructure.db.models import ChatConversation, ChatMessage, QueryTask
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
@@ -64,6 +71,7 @@ def _result_column_label(column: object) -> str:
 # Callable[[], T] 表示“无参数、返回 T 的函数”；每次调用工厂才创建新的数据库单元。
 UnitOfWorkFactory = Callable[[], SqlAlchemyUnitOfWork]
 _PROCESSED_REQUEST_LIMIT = 50
+_MYSQL_DUPLICATE_ENTRY = 1062
 
 
 class TaskNotFoundError(ApplicationError):
@@ -85,28 +93,19 @@ class TaskConflictError(ApplicationError):
         super().__init__(code, message, status_code=409, details=details)
 
 
-class ConversationLimitReachedError(ApplicationError):
-    def __init__(self, limit: int) -> None:
-        super().__init__(
-            "CONVERSATION_LIMIT_REACHED",
-            f"会话数量已达到上限（{limit} 个），请先导出或删除部分历史会话。",
-            status_code=409,
-            details={"limit": limit},
-        )
-
-
 class QueryTaskApplicationService:
     """管理问题提交和历史结果读取；SQL 执行交给 QueryExecutionApplicationService。"""
     def __init__(
         self,
         uow_factory: UnitOfWorkFactory | None = None,
         semantic_config_repository: SemanticConfigRepository | None = None,
-        max_conversations_per_user: int = 500,
         permission_service: PermissionService | None = None,
+        running_stale_after: timedelta = timedelta(minutes=10),
     ) -> None:
         self.uow_factory = uow_factory or SqlAlchemyUnitOfWork
         self.semantic_config_repository = semantic_config_repository
-        self.max_conversations_per_user = max_conversations_per_user
+        # 与执行服务同一中断判定时限，回查时把超时未结束的执行报告为 interrupted。
+        self.running_stale_after = running_stale_after
         self.permission_service = permission_service
 
     def submit_question(self, command: SubmitQuestionCommand) -> TaskCommandResult:
@@ -182,11 +181,6 @@ class QueryTaskApplicationService:
             if conversation is None:
                 if not command.actor.user_id:
                     raise ConversationNotFoundError(conversation_id)
-                if (
-                    uow.conversations.count_owned(command.actor.user_id)
-                    >= self.max_conversations_per_user
-                ):
-                    raise ConversationLimitReachedError(self.max_conversations_per_user)
                 conversation = ChatConversation(
                     id=conversation_id,
                     title=_conversation_title(command.request.text),
@@ -273,6 +267,8 @@ class QueryTaskApplicationService:
                     "request_id": command.request.request_id,
                     "idempotency_key": command.idempotency_key,
                 },
+                # 提交后若未登记执行即中断，回查凭此判断是否已不可能产生结果。
+                "submitted_at": now.isoformat(),
                 "output": {
                     "task_id": task_id,
                     "version": task.version,
@@ -394,6 +390,45 @@ class QueryTaskApplicationService:
                 evidence=result.evidence,
             )
 
+    def find_basic_query(
+        self, idempotency_key: str, actor: ActorContext, *, conversation_id: str | None = None,
+    ) -> BasicQueryStatus:
+        """按幂等键回查本人基础查询的真实状态；只读，不创建任务、不执行或回收执行。
+
+        调用方在请求结果丢失（超时、断连、进程重启）后据此对账，不能用重发请求代替：
+        原请求若从未到达，重发会在用户未再提问时补跑查询。
+        """
+        resolved_conversation = conversation_id or _basic_query_conversation_id(
+            actor.user_id or "", idempotency_key
+        )
+        with self.uow_factory() as uow:
+            found = uow.tasks.find_by_idempotency_key(resolved_conversation, idempotency_key)
+            task = uow.tasks.get_owned(found.id, actor.user_id or "") if found else None
+            if task is None:
+                raise ApplicationError(
+                    "BASIC_QUERY_NOT_FOUND", "未找到该幂等键对应的查询。", status_code=404,
+                )
+            state = _load_state(task)
+            if task.status == QueryTaskStatus.SUCCEEDED.value:
+                # 结果引用同样受当前权限约束，撤权后不能借回查拿到结果。
+                self._authorize_task_result(actor, task, uow=uow)
+                result = _result_ref(state) or {}
+                return BasicQueryStatus(task_id=task.id, version=task.version,
+                                        status="succeeded", result_id=result.get("result_id"))
+            if task.status == QueryTaskStatus.RUNNING.value:
+                if (running_execution_is_stale(task.status, state, self.running_stale_after)
+                        or submitted_task_is_stale(task.status, state, self.running_stale_after)):
+                    return BasicQueryStatus(
+                        task_id=task.id, version=task.version, status="interrupted",
+                        error_code="QUERY_EXECUTION_INTERRUPTED",
+                        error_message="查询执行已中断，请重新查询。",
+                    )
+                return BasicQueryStatus(task_id=task.id, version=task.version, status="running")
+            return BasicQueryStatus(
+                task_id=task.id, version=task.version, status="failed",
+                error_code=task.error_code or "QUERY_FAILED", error_message=task.error_message,
+            )
+
     def get_task(self, task_id: str, actor: ActorContext) -> TaskCommandResult:
         with self.uow_factory() as uow:
             task = uow.tasks.get_owned(task_id, actor.user_id or "")
@@ -490,16 +525,19 @@ class QueryTaskApplicationService:
 def _resolve_conversation_id(command: SubmitQuestionCommand) -> str:
     if command.request.conversation_id:
         return command.request.conversation_id
-    stable_context = command.request.external_session_id or command.request.request_id
     if command.basic_query is not None:
         # 无会话 ID 的工具重试仍须落在同一幂等范围，且不同用户不能共用会话。
-        stable_context = f"{command.actor.user_id}:{command.idempotency_key}"
-    return str(
-        uuid5(
-            NAMESPACE_URL,
-            f"ask-metric:conversation:{command.request.channel}:{stable_context}",
-        )
-    )
+        return _basic_query_conversation_id(command.actor.user_id or "", command.idempotency_key)
+    stable_context = command.request.external_session_id or command.request.request_id
+    return _stable_conversation_id(command.request.channel, stable_context)
+
+
+def _basic_query_conversation_id(user_id: str, idempotency_key: str) -> str:
+    return _stable_conversation_id("basic_query", f"{user_id}:{idempotency_key}")
+
+
+def _stable_conversation_id(channel: str, stable_context: str) -> str:
+    return str(uuid5(NAMESPACE_URL, f"ask-metric:conversation:{channel}:{stable_context}"))
 
 
 def _get_owned_task(uow, task_id: str, user_id: str):
@@ -533,12 +571,32 @@ def _fingerprint(value: Any) -> str:
 
 
 def _is_recoverable_idempotency_race(exc: IntegrityError) -> bool:
+    """只识别"同一幂等键并发创建会话/任务"的唯一冲突，其他完整性错误照常抛出。
+
+    PostgreSQL 驱动通过 diag.constraint_name 给出约束名；GoldenDB/MySQL 的 pymysql
+    只返回 (1062, "Duplicate entry '...' for key '[表名.]索引名'")，需从消息解析。
+    MySQL 8.0.19 前的消息不带表名，此时无法区分哪张表的 PRIMARY，一并视为可恢复：
+    恢复路径会重新按幂等键查询，仍冲突时第二次 IntegrityError 会原样抛出。
+    """
     orig = getattr(exc, "orig", None)
-    diagnostic = getattr(orig, "diag", None)
-    constraint_name = getattr(diagnostic, "constraint_name", None)
-    return constraint_name in {
-        "chat_conversations_pkey",
-        "uq_query_tasks_conversation_idempotency",
+    constraint_name = getattr(getattr(orig, "diag", None), "constraint_name", None)
+    if constraint_name is not None:
+        return constraint_name in {
+            "chat_conversations_pkey",
+            "uq_query_tasks_conversation_idempotency",
+        }
+    args = getattr(orig, "args", ())
+    if len(args) < 2 or args[0] != _MYSQL_DUPLICATE_ENTRY:
+        return False
+    matched = re.search(r"for key '([^']+)'\s*$", str(args[1]))
+    if matched is None:
+        return False
+    table, _, key = matched.group(1).rpartition(".")
+    return (table, key) in {
+        ("", "PRIMARY"),
+        ("chat_conversations", "PRIMARY"),
+        ("", "uq_query_tasks_conversation_idempotency"),
+        ("query_tasks", "uq_query_tasks_conversation_idempotency"),
     }
 
 

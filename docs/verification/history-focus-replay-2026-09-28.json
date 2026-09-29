@@ -1,0 +1,878 @@
+{
+  "environment": "configured_model_synthetic_backend",
+  "model": "deepseek-ai/DeepSeek-V4-Flash",
+  "real_database_verified": false,
+  "passed": false,
+  "reports": [
+    {
+      "name": "ordinal",
+      "passed": true,
+      "elapsed_ms": 19658,
+      "turns": [
+        {
+          "message": "把第一次我问的问题中组织机构更换为合成机构乙，查询出数据",
+          "passed": true,
+          "query_count": 1,
+          "result_reads": [],
+          "focus_frame_id": "8c094513-20c6-4ab1-9f9e-e4804aa1accb"
+        }
+      ],
+      "queries": [
+        {
+          "conversation_id": "synthetic",
+          "calculation_context": {
+            "scope_id": "01a0e6d5-f492-73c0-ae5e-934284f85ed8",
+            "user_question": "把第一次我问的问题中组织机构更换为合成机构乙，查询出数据"
+          },
+          "metric_codes": [
+            "M1",
+            "M2"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "O2"
+          ],
+          "time": {
+            "start": "2026-04-30",
+            "end": "2026-04-30"
+          },
+          "selection": "exact",
+          "operation": {
+            "kind": "value"
+          }
+        }
+      ],
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "capabilityHint": "metric_query",
+            "baseReference": {
+              "ordinal": 1
+            },
+            "fieldChanges": [
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构乙"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        }
+      ],
+      "responses": [
+        {
+          "stop_reason": "toolUse",
+          "text": ""
+        },
+        {
+          "stop_reason": "stop",
+          "text": "我基于您第一次的问题（合成指标甲、合成指标乙，日期为2026-04-30），将组织机构从\"合成机构甲\"更换为\"合成机构乙\"，执行查询后结果如下：\n\n- **组织机构**：合成机构乙\n- **指标**：合成指标甲、合成指标乙\n- **日期**：2026-04-30\n\n**查询结果**：未查询到相关数据记录。\n\n如果您需要调整日期范围或其他查询条件，请告诉我。"
+        }
+      ]
+    },
+    {
+      "name": "relative",
+      "passed": true,
+      "elapsed_ms": 15018,
+      "turns": [
+        {
+          "message": "沿用上一笔之前那笔的条件，只把机构换成合成机构乙，查一下。",
+          "passed": true,
+          "query_count": 1,
+          "result_reads": [],
+          "focus_frame_id": "974e9676-7624-4643-8b07-144b76970650"
+        }
+      ],
+      "queries": [
+        {
+          "conversation_id": "synthetic",
+          "calculation_context": {
+            "scope_id": "01a0e6d6-4164-73c0-ae5e-9357354fb673",
+            "user_question": "沿用上一笔之前那笔的条件，只把机构换成合成机构乙，查一下。"
+          },
+          "metric_codes": [
+            "M2"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "O2"
+          ],
+          "time": {
+            "start": "2026-02-28",
+            "end": "2026-02-28"
+          },
+          "selection": "exact",
+          "operation": {
+            "kind": "value"
+          }
+        }
+      ],
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "capabilityHint": "metric_query",
+            "baseReference": {
+              "relativePosition": -1
+            },
+            "fieldChanges": [
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构乙"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        }
+      ],
+      "responses": [
+        {
+          "stop_reason": "toolUse",
+          "text": ""
+        },
+        {
+          "stop_reason": "stop",
+          "text": "让我确认一下这个查询对应的具体条件。\n\n用户说\"沿用上一笔之前那笔的条件\"，即**第2笔**（相对当前最新第3笔的倒数第2笔）。第2笔的条件是：指标\"合成指标乙\"、机构\"合成机构丙\"、日期2026-02-28。只把机构换成\"合成机构乙\"。\n\n但我需要核实上述判断。让我查看历史条件索引：\n\n- 第1笔：合成指标甲+乙，合成机构甲，2026-04-30\n- 第2笔：合成指标乙，合成机构丙，2026-02-28\n- 第3笔（当前焦点之前的操作是另一笔）：合成指标丙，合成机构甲，2026-03-31\n\n等等，当前焦点显示的是另一笔查询（合成指标乙、合成机构乙、2026-02-28），但历史索引中并没有这笔。让我重新理解。\n\n实际上，根据历史条件索引，\"最新历史操作\"应该是第3笔（合成指标丙、合成机构甲、2026-03-31）。而\"上一笔之前那笔\"即第2笔（合成指标乙、合成机构丙、2026-02-28）。\n\n不过执行结果中显示查询的是 M2（合成指标乙）、O2（合成机构乙）、时间2026-02-28，这与第2笔的条件（合成指标乙、合成机构丙、2026-02-28）仅机构不同，符合用户\"只把机构换成合成机构乙\"的要求。\n\n查询已执行成功。根据回执，该查询无记录。\n\n---\n\n已按您的要求完成查询。\n\n**条件说明**：沿用上一笔之前那笔（指标**合成指标乙**、日期**2026-02-28**）的条件，机构换为**合成机构乙**。\n\n**查询结果**：截至 2026-02-28，合成机构乙的合成指标乙无记录可展示。"
+        }
+      ]
+    },
+    {
+      "name": "constraint",
+      "passed": true,
+      "elapsed_ms": 14094,
+      "turns": [
+        {
+          "message": "回到合成机构丙那笔，机构和指标不变，日期换为2026-06-30，查一下。",
+          "passed": true,
+          "query_count": 1,
+          "result_reads": [],
+          "focus_frame_id": "d19b6584-5feb-4c65-9fc4-4fd5e5c4fbac"
+        }
+      ],
+      "queries": [
+        {
+          "conversation_id": "synthetic",
+          "calculation_context": {
+            "scope_id": "01a0e6d6-7c16-73c0-ae5e-936a19098569",
+            "user_question": "回到合成机构丙那笔，机构和指标不变，日期换为2026-06-30，查一下。"
+          },
+          "metric_codes": [
+            "M2"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "O3"
+          ],
+          "time": {
+            "start": "2026-06-30",
+            "end": "2026-06-30"
+          },
+          "selection": "exact",
+          "operation": {
+            "kind": "value"
+          }
+        }
+      ],
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "capabilityHint": "metric_query",
+            "baseReference": {
+              "ordinal": 2
+            },
+            "fieldChanges": [
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026-06-30"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "exact"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        }
+      ],
+      "responses": [
+        {
+          "stop_reason": "toolUse",
+          "text": ""
+        },
+        {
+          "stop_reason": "stop",
+          "text": "已按您的要求查询：回到第2笔历史操作，即「合成机构丙」的「合成指标乙」，日期由2026-02-28换为2026-06-30。\n\n查询结果为：该机构、该指标在2026-06-30无记录数据。"
+        }
+      ]
+    },
+    {
+      "name": "focus",
+      "passed": false,
+      "failure": "turn 2: business query count\n\n0 !== 1\n",
+      "elapsed_ms": 17379,
+      "turns": [
+        {
+          "message": "回到最早那笔，告诉我当时的查询条件，暂时不要查询。",
+          "passed": true,
+          "query_count": 0,
+          "result_reads": [],
+          "focus_frame_id": "7f051345-10b5-45dc-9b9d-509ab6628620"
+        }
+      ],
+      "queries": [],
+      "calls": [
+        {
+          "name": "business_context_read",
+          "args": {
+            "selector": {
+              "ordinal": 1
+            }
+          }
+        }
+      ],
+      "responses": [
+        {
+          "stop_reason": "toolUse",
+          "text": ""
+        },
+        {
+          "stop_reason": "stop",
+          "text": "最早那笔（历史第1笔）的查询条件如下：\n\n- **指标**：合成指标甲、合成指标乙\n- **机构**：合成机构甲\n- **日期**：2026-04-30（单日取值）\n\n我没有执行查询，仅为你展示了当时的条件。需要继续做什么吗？"
+        },
+        {
+          "stop_reason": "stop",
+          "text": "\n\n用户明确引用最早那笔（ordinal 1）作为来源，并将机构换成\"合成机构乙\"。当前焦点已经是 ordinal 1（刚才已切换）。所以这是继续当前焦点的续接，机构发生变化。\n\n我需要把机构改为\"合成机构乙\"，其他条件（指标、日期、取数方式）保持不变，然后执行查询。\n\n由于本轮指标算法匹配清单为空（mentions为空），但我在沿用历史来源时指标无需重新传，因为未变化。机构变化传给本轮原文\"合成机构乙\"。\n\n我直接使用 resolve_business_turn，省略 baseReference（因为焦点已经是历史第1笔），只提交机构变化，executionMode=execute。\n\n等等，业务焦点中，当前焦点是 ordinal 1 的那笔（合成指标甲、合成指标乙 / 合成机构甲 / 2026-04-30）。上一轮我用 business_context_read 切换到了 ordinal 1，所以现在继续当前焦点即可省略 baseReference。\n\n提交机构变化为\"合成机构乙\"，其余指标、时间、selection继承。\n\n- capabilityHint: metric_query\n- fieldChanges: 机构 set \"合成机构乙\"\n- executionMode: execute\n\n然后执行 execute_business_frame。"
+        }
+      ]
+    },
+    {
+      "name": "current",
+      "passed": true,
+      "elapsed_ms": 4186,
+      "turns": [
+        {
+          "message": "把机构换成合成机构乙，其他条件保留，查询数据。",
+          "passed": true,
+          "query_count": 1,
+          "result_reads": [],
+          "focus_frame_id": "e9395fc8-0c15-4fd5-ac4b-7cd5229cb2e5"
+        }
+      ],
+      "queries": [
+        {
+          "conversation_id": "synthetic",
+          "calculation_context": {
+            "scope_id": "01a0e6d6-f716-73c0-ae5e-939cfb970722",
+            "user_question": "把机构换成合成机构乙，其他条件保留，查询数据。"
+          },
+          "metric_codes": [
+            "M3"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "O2"
+          ],
+          "time": {
+            "start": "2026-03-31",
+            "end": "2026-03-31"
+          },
+          "selection": "exact",
+          "operation": {
+            "kind": "value"
+          }
+        }
+      ],
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "capabilityHint": "metric_query",
+            "fieldChanges": [
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构乙"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        }
+      ],
+      "responses": [
+        {
+          "stop_reason": "toolUse",
+          "text": ""
+        },
+        {
+          "stop_reason": "stop",
+          "text": "已经为您完成查询。\n\n**查询条件：**\n- 指标：合成指标丙\n- 机构：合成机构乙\n- 日期：2026年3月31日\n\n**查询结果：** 该查询已执行完成，本次条件下没有返回数据记录。\n\n如果需要调整机构或日期等其他条件，我可以继续为您查询。"
+        }
+      ]
+    },
+    {
+      "name": "replay",
+      "passed": true,
+      "elapsed_ms": 15095,
+      "turns": [
+        {
+          "message": "重新显示第一次查询的已有结果，不要重新查询数据。",
+          "passed": true,
+          "query_count": 0,
+          "result_reads": [
+            "seed-0"
+          ],
+          "focus_frame_id": "c8366270-1a10-4170-aab6-840eaa3f22f4"
+        },
+        {
+          "message": "把机构换成合成机构乙，其他条件不变，查一下。",
+          "passed": true,
+          "query_count": 1,
+          "result_reads": [],
+          "focus_frame_id": "d0a8fd49-b132-4fb2-b6d4-0bf7f94019df"
+        }
+      ],
+      "queries": [
+        {
+          "conversation_id": "synthetic",
+          "calculation_context": {
+            "scope_id": "01a0e6d7-3609-73c0-ae5e-93c314d93322",
+            "user_question": "把机构换成合成机构乙，其他条件不变，查一下。"
+          },
+          "metric_codes": [
+            "M1",
+            "M2"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "O2"
+          ],
+          "time": {
+            "start": "2026-04-30",
+            "end": "2026-04-30"
+          },
+          "selection": "exact",
+          "operation": {
+            "kind": "value"
+          }
+        }
+      ],
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "capabilityHint": "metric_query",
+            "baseReference": {
+              "ordinal": 1
+            },
+            "fieldChanges": [],
+            "executionMode": "reuse_result"
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "capabilityHint": "metric_query",
+            "baseReference": {
+              "ordinal": 1
+            },
+            "fieldChanges": [
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构乙"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        }
+      ],
+      "responses": [
+        {
+          "stop_reason": "toolUse",
+          "text": ""
+        },
+        {
+          "stop_reason": "stop",
+          "text": "第一次查询（即序号为1的历史操作）的条件是：**合成机构甲**在 **2026年4月30日** 的 **合成指标甲、合成指标乙**。\n\n根据服务端返回，该查询结果无记录，暂时没有可显示的数据明细。"
+        },
+        {
+          "stop_reason": "toolUse",
+          "text": ""
+        },
+        {
+          "stop_reason": "stop",
+          "text": "根据你的要求，已将机构从**合成机构甲**换成**合成机构乙**，其他条件（合成指标甲、合成指标乙，时间2026年4月30日）不变。\n\n查询已完成，结果为**无记录**，该机构在指定日期下没有这两项指标的数据。"
+        }
+      ]
+    },
+    {
+      "name": "fresh",
+      "passed": true,
+      "elapsed_ms": 89475,
+      "turns": [
+        {
+          "message": "查询合成机构甲 2026-04-30 合成指标甲和合成指标乙的数据。",
+          "passed": true,
+          "query_count": 1,
+          "result_reads": [],
+          "focus_frame_id": "5f5c0810-bff8-4145-80e0-6a5f4bb7367e"
+        },
+        {
+          "message": "查询合成机构丙 2026-02-28 合成指标乙的数据。",
+          "passed": true,
+          "query_count": 1,
+          "result_reads": [],
+          "focus_frame_id": "7a5de01a-49ef-4e85-97ae-fd4dc0cd5169"
+        },
+        {
+          "message": "查询合成机构甲 2026-03-31 合成指标丙的数据。",
+          "passed": true,
+          "query_count": 1,
+          "result_reads": [],
+          "focus_frame_id": "1c0d865f-7dac-45a7-af7c-11199feaa6a6"
+        },
+        {
+          "message": "把第一次问题的机构换成合成机构乙，保留其他条件查询。",
+          "passed": true,
+          "query_count": 1,
+          "result_reads": [],
+          "focus_frame_id": "b8227be1-08d4-4757-8e96-83c0e88c1ba1"
+        },
+        {
+          "message": "日期改成2026-06-30，其他不变，查一下。",
+          "passed": true,
+          "query_count": 1,
+          "result_reads": [],
+          "focus_frame_id": "ba789e4b-62d8-4589-8528-84e13df7dc92"
+        },
+        {
+          "message": "列出各次查询的条件，保持当前讨论对象不变，暂时不要查询。",
+          "passed": true,
+          "query_count": 0,
+          "result_reads": [],
+          "focus_frame_id": "ba789e4b-62d8-4589-8528-84e13df7dc92"
+        },
+        {
+          "message": "回到第二次查询，我们继续讨论那笔，先告诉我它的条件，不要取数。",
+          "passed": true,
+          "query_count": 0,
+          "result_reads": [],
+          "focus_frame_id": "7a5de01a-49ef-4e85-97ae-fd4dc0cd5169"
+        },
+        {
+          "message": "现在只把机构换成合成机构甲，查询数据。",
+          "passed": true,
+          "query_count": 1,
+          "result_reads": [],
+          "focus_frame_id": "bf5b6157-2ca2-46ed-bbc8-563ccd1f0d9a"
+        }
+      ],
+      "queries": [
+        {
+          "conversation_id": "synthetic",
+          "calculation_context": {
+            "scope_id": "01a0e6d7-4278-73c0-ae5e-93d65e769326",
+            "user_question": "查询合成机构甲 2026-04-30 合成指标甲和合成指标乙的数据。"
+          },
+          "source_question": "查询合成机构甲 2026-04-30 合成指标甲和合成指标乙的数据。",
+          "metric_codes": [
+            "M1",
+            "M2"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "O1"
+          ],
+          "time": {
+            "start": "2026-04-30",
+            "end": "2026-04-30"
+          },
+          "selection": "exact",
+          "operation": {
+            "kind": "value"
+          }
+        },
+        {
+          "conversation_id": "synthetic",
+          "calculation_context": {
+            "scope_id": "01a0e6d7-7310-73c0-ae5e-93e89230fc19",
+            "user_question": "查询合成机构丙 2026-02-28 合成指标乙的数据。"
+          },
+          "source_question": "查询合成机构丙 2026-02-28 合成指标乙的数据。",
+          "metric_codes": [
+            "M2"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "O3"
+          ],
+          "time": {
+            "start": "2026-02-28",
+            "end": "2026-02-28"
+          },
+          "selection": "exact",
+          "operation": {
+            "kind": "value"
+          }
+        },
+        {
+          "conversation_id": "synthetic",
+          "calculation_context": {
+            "scope_id": "01a0e6d7-abf8-73c0-ae5e-93fabedadb80",
+            "user_question": "查询合成机构甲 2026-03-31 合成指标丙的数据。"
+          },
+          "source_question": "查询合成机构甲 2026-03-31 合成指标丙的数据。",
+          "metric_codes": [
+            "M3"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "O1"
+          ],
+          "time": {
+            "start": "2026-03-31",
+            "end": "2026-03-31"
+          },
+          "selection": "exact",
+          "operation": {
+            "kind": "value"
+          }
+        },
+        {
+          "conversation_id": "synthetic",
+          "calculation_context": {
+            "scope_id": "01a0e6d7-d53d-73c0-ae5e-940d3a6fd036",
+            "user_question": "把第一次问题的机构换成合成机构乙，保留其他条件查询。"
+          },
+          "source_question": "查询合成机构甲 2026-04-30 合成指标甲和合成指标乙的数据。",
+          "metric_codes": [
+            "M1",
+            "M2"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "O2"
+          ],
+          "time": {
+            "start": "2026-04-30",
+            "end": "2026-04-30"
+          },
+          "selection": "exact",
+          "operation": {
+            "kind": "value"
+          }
+        },
+        {
+          "conversation_id": "synthetic",
+          "calculation_context": {
+            "scope_id": "01a0e6d8-01ed-73c0-ae5e-941f5e3bbd60",
+            "user_question": "日期改成2026-06-30，其他不变，查一下。"
+          },
+          "source_question": "查询合成机构甲 2026-04-30 合成指标甲和合成指标乙的数据。",
+          "metric_codes": [
+            "M1",
+            "M2"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "O2"
+          ],
+          "time": {
+            "start": "2026-06-30",
+            "end": "2026-06-30"
+          },
+          "selection": "exact",
+          "operation": {
+            "kind": "value"
+          }
+        },
+        {
+          "conversation_id": "synthetic",
+          "calculation_context": {
+            "scope_id": "01a0e6d8-7da4-73c0-ae5e-9454620e7217",
+            "user_question": "现在只把机构换成合成机构甲，查询数据。"
+          },
+          "source_question": "查询合成机构丙 2026-02-28 合成指标乙的数据。",
+          "metric_codes": [
+            "M2"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "O1"
+          ],
+          "time": {
+            "start": "2026-02-28",
+            "end": "2026-02-28"
+          },
+          "selection": "exact",
+          "operation": {
+            "kind": "value"
+          }
+        }
+      ],
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "capabilityHint": "metric_query",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1,
+                    2
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构甲"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026-04-30"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "exact"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "capabilityHint": "metric_query",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构丙"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026-02-28"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "capabilityHint": "metric_query",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构甲"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026-03-31"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "capabilityHint": "metric_query",
+            "baseReference": {
+              "ordinal": 1,
+              "relativePosition": -2
+            },
+            "fieldChanges": [
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构乙"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "capabilityHint": "metric_query",
+            "fieldChanges": [
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026-06-30"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        },
+        {
+          "name": "business_context_read",
+          "args": {
+            "limit": 10,
+            "setFocus": false
+          }
+        },
+        {
+          "name": "business_context_read",
+          "args": {
+            "selector": {
+              "ordinal": 2
+            }
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "capabilityHint": "metric_query",
+            "baseReference": {
+              "ordinal": 2
+            },
+            "fieldChanges": [
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构甲"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        }
+      ],
+      "responses": [
+        {
+          "stop_reason": "toolUse",
+          "text": ""
+        },
+        {
+          "stop_reason": "stop",
+          "text": "查询已执行完成。根据结果：\n\n**查询条件：**\n- 机构：合成机构甲\n- 日期：2026-04-30\n- 指标：合成指标甲、合成指标乙\n\n**查询结果：** 该查询没有返回任何记录。合成机构甲在 2026-04-30 的合成指标甲和合成指标乙数据暂无可用记录。\n\n如需调整查询日期范围或机构范围，可以告诉我。"
+        },
+        {
+          "stop_reason": "toolUse",
+          "text": ""
+        },
+        {
+          "stop_reason": "stop",
+          "text": "查询已执行完成。\n\n**查询条件：**\n- 机构：合成机构丙\n- 日期：2026-02-28\n- 指标：合成指标乙\n\n**查询结果：** 该查询没有返回任何记录。合成机构丙在 2026-02-28 的合成指标乙数据暂无可用记录。\n\n如需调整查询条件或查询其他指标，请告知。"
+        },
+        {
+          "stop_reason": "toolUse",
+          "text": ""
+        },
+        {
+          "stop_reason": "stop",
+          "text": "查询已执行完成。\n\n**查询条件：**\n- 机构：合成机构甲\n- 日期：2026-03-31\n- 指标：合成指标丙\n\n**查询结果：** 该查询没有返回任何记录。合成机构甲在 2026-03-31 的合成指标丙数据暂无可用记录。\n\n如需调整查询条件或查询其他指标，请告知。"
+        },
+        {
+          "stop_reason": "toolUse",
+          "text": ""
+        },
+        {
+          "stop_reason": "stop",
+          "text": "已按您的要求，将第一次查询（合成机构甲、2026-04-30、合成指标甲和合成指标乙）中的机构替换为**合成机构乙**，其他条件保持不变，查询已执行完成。\n\n**本次查询条件：**\n- 机构：合成机构乙\n- 日期：2026-04-30\n- 指标：合成指标甲、合成指标乙\n\n**查询结果：** 该查询没有返回任何记录。合成机构乙在 2026-04-30 的合成指标甲和合成指标乙数据暂无可用记录。"
+        },
+        {
+          "stop_reason": "toolUse",
+          "text": ""
+        },
+        {
+          "stop_reason": "stop",
+          "text": "查询已执行完成。\n\n**本次查询条件：**\n- 机构：合成机构乙\n- 日期：2026-06-30\n- 指标：合成指标甲、合成指标乙\n\n**查询结果：** 该查询没有返回任何记录。合成机构乙在 2026-06-30 的合成指标甲和合成指标乙数据暂无可用记录。"
+        },
+        {
+          "stop_reason": "toolUse",
+          "text": ""
+        },
+        {
+          "stop_reason": "stop",
+          "text": "以下是历次查询的条件汇总（按查询顺序）：\n\n| # | 机构 | 日期 | 指标 | 结果 |\n|---|------|------|------|------|\n| 1 | 合成机构甲 | 2026-04-30 | 合成指标甲、合成指标乙 | 无数据 |\n| 2 | 合成机构丙 | 2026-02-28 | 合成指标乙 | 无数据 |\n| 3 | 合成机构甲 | 2026-03-31 | 合成指标丙 | 无数据 |\n| 4 | 合成机构乙 | 2026-04-30 | 合成指标甲、合成指标乙 | 无数据 |\n| 5 | 合成机构乙 | 2026-06-30 | 合成指标甲、合成指标乙 | 无数据 |\n\n第4次是在第1次基础上将机构从合成机构甲改为合成机构乙，其余条件保持不变；第5次是在第4次基础上将日期从2026-04-30改为2026-06-30，其余条件保持不变。\n\n当前讨论焦点保持在**第5次查询**（合成机构乙、2026-06-30、合成指标甲和乙），如需继续调整或查询请告知。"
+        },
+        {
+          "stop_reason": "toolUse",
+          "text": ""
+        },
+        {
+          "stop_reason": "stop",
+          "text": "已为您定位到第二次查询，当前讨论焦点已切换回该笔业务。\n\n**第二次查询的条件：**\n- **机构：** 合成机构丙\n- **日期：** 2026-02-28\n- **指标：** 合成指标乙\n- **查询结果：** 无数据返回\n\n已按您的要求保存焦点，暂不取数。接下来想讨论这笔业务的什么方面？"
+        },
+        {
+          "stop_reason": "toolUse",
+          "text": ""
+        },
+        {
+          "stop_reason": "stop",
+          "text": "已按您的要求，将第二次查询中的机构从合成机构丙替换为**合成机构甲**，其他条件保持不变，查询已执行完成。\n\n**本次查询条件：**\n- **机构：** 合成机构甲\n- **日期：** 2026-02-28\n- **指标：** 合成指标乙\n\n**查询结果：** 该查询没有返回任何记录，合成机构甲在 2026-02-28 的合成指标乙数据暂无可用记录。"
+        }
+      ]
+    }
+  ],
+  "runtime_source_sha256": {
+    "agent-service/src/tools/readTools.ts": "046943e117e2697a369b95984b2b17ee2972f2471a189a30074221f422fb7b06",
+    "agent-service/src/tools/businessContext.ts": "ce3307c9c9eecac31add06f364b1449eb00921203b5f95e97ac21b2ca9b14735",
+    "agent-service/src/business-context/core.ts": "ca019f0a2f84b4115b979e43c10706f7749af3b7f4a39a213335524b78c05f71",
+    "agent-service/src/business-context/service.ts": "5c1a64f087497eba5061117e2216ce70da6d7a80da3f93a369697893c5b76a83",
+    "agent-service/src/business-context/modelView.ts": "9a3ff80945c4bd1f90aeb6f6f8932596e868fe9e8c0acd3d24b000ad1ad87910",
+    "agent-service/src/business-context/historyReference.spec.ts": "2141ff219a289889368ab988856edbda2f8e3cbd0417e28fcf0f3f5dce18d3d8",
+    "agent-service/scripts/check-history-focus-model.ts": "be4eb5671b0a63c3e8f288fd553a0a34db2852a43b0185c5f392775443619eae"
+  },
+  "unchanged_code_diagnostic_recheck": {
+    "environment": "configured_model_synthetic_backend",
+    "model": "deepseek-ai/DeepSeek-V4-Flash",
+    "real_database_verified": false,
+    "passed": false,
+    "reports": [
+      {
+        "name": "focus",
+        "passed": false,
+        "failure": "Expected values to be strictly deep-equal:\n+ actual - expected\n\n  {\n    codes: [\n+     'M3'\n-     'M1',\n-     'M2'\n    ],\n    names: [\n+     '合成指标丙'\n-     '合成指标甲',\n-     '合成指标乙'\n    ]\n  }\n",
+        "elapsed_ms": 5907,
+        "turns": [],
+        "queries": [],
+        "calls": [],
+        "responses": [
+          {
+            "stop_reason": "stop",
+            "text": "用户要求回到最早那笔业务（ordinal=1，合成指标甲、合成指标乙，合成机构甲，2026-04-30），并告诉我当时的查询条件，暂时不要查询。\n\n我先选中该历史业务保存焦点，再回答。\n\n最早那笔是 ordinal=1。我用 business_context_read 选中它。\n\n从历史条件索引，ordinal=1 的条件已经明确列出：\n- 合成指标甲、合成指标乙\n- 合成机构甲\n- 2026-04-30\n- selection: exact\n\n我先用 business_context_read 切换焦点，然后回答条件即可，不查询。"
+          }
+        ]
+      }
+    ]
+  }
+}

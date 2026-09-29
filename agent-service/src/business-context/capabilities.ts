@@ -49,10 +49,10 @@ export function createCapabilities(): CapabilityRegistry {
   }});
   registry.get("metric_query").fields.selection!.description = "根据用户目标选择枚举：exact=单个指定日，或多个明确离散日期逐点取值（如2月末、3月末、4月末）；latest_in_range=连续范围内最后有数据的日期；all_in_range=连续范围的完整时间序列。离散日期不要改写成连续区间，也不要使用 all_in_range。描述如何在日期范围内取数，不承载指标名称中的统计口径。日期跨度改变后须重新确定取数方式。排名独立用 operation。";
   const operation = registry.get("metric_query").fields.operation!;
-  operation.description = "省略为普通取值。排名提交 {kind:'ranking',order:'desc'或'asc',top_n:1..100}，只对已确定机构目标排序，不自动展开下级；取消排名提交 {kind:'value'}，整个排名条件随之移除。";
+  operation.description = "省略为普通取值。排名提交 {kind:'ranking',position:'top'或'bottom',top_n:1..100}：前N/最高/最多用 top，后N/最低/最少用 bottom；实际升降序由服务端按指标决定（名次类指标名次越小越靠前），不要自行换算方向。只对已确定机构目标排序，不自动展开下级；取消排名提交 {kind:'value'}，整个排名条件随之移除。";
   operation.inputSchema = {oneOf: [
     {type: "object", required: ["kind"], properties: {kind: {const: "value"}}, additionalProperties: false},
-    {type: "object", required: ["kind", "order", "top_n"], properties: {kind: {const: "ranking"}, order: {enum: ["asc", "desc"]}, top_n: {type: "integer", minimum: 1, maximum: 100}}, additionalProperties: false},
+    {type: "object", required: ["kind", "position", "top_n"], properties: {kind: {const: "ranking"}, position: {enum: ["top", "bottom"]}, top_n: {type: "integer", minimum: 1, maximum: 100}}, additionalProperties: false},
   ]};
   const calculation = registry.get("metric_calculate").fields;
   for (const capability of ["metric_query", "data_availability"]) {
@@ -60,11 +60,12 @@ export function createCapabilities(): CapabilityRegistry {
     registry.get(capability).fields.time!.inputSchema = {type: "string", minLength: 1};
     for (const name of ["metrics", "organizations"]) {
       const definition = registry.get(capability).fields[name]!;
-      definition.description = "新条件用本轮原文名称或名称数组。用户确认上一轮候选时只传 {candidateIndex: 从1开始的候选序号}，原文由服务端绑定；未修改的字段省略或 retain。";
+      definition.description = "新条件用本轮原文名称或名称数组。用户回复待确认问题时传 {confirm:true}：系统按用户原文或点选在系统展示的编号清单中确定所选项，不要自行判断选哪一个，也不要向用户罗列候选；未修改的字段省略或 retain。";
       definition.inputSchema = {anyOf: [
         {type: "string", minLength: 1, maxLength: 200},
         {type: "array", minItems: 1, maxItems: 100, items: {type: "string", minLength: 1, maxLength: 200}},
-        {type: "object", required: ["candidateIndex"], properties: {candidateIndex: {type: "integer", minimum: 1},
+        {type: "object", required: ["confirm"], properties: {confirm: {const: true}}, additionalProperties: false},
+        {type: "object", required: ["candidateIndex"], properties: {candidateIndex: {type: "integer", minimum: 1, description: "旧调用兼容字段；所选项由系统按用户回复确定，本序号不作依据"},
           sourceText: {type: "string", description: "旧调用兼容字段；确认原文由服务端绑定，本字段不作为依据"}}, additionalProperties: false},
       ]};
       if (name === "organizations" && capability === "metric_query") {
@@ -75,7 +76,7 @@ export function createCapabilities(): CapabilityRegistry {
         );
       }
       if (name === "metrics") {
-        definition.description = "指标由服务端对完整原文进行词典/拼音/字符算法匹配。新指标传 {fromQuestion:true}，默认使用全部匹配项；若只涉及部分已识别指标（如排除某项），mentionIndexes 引用本轮算法匹配清单的 index（从1开始，不能用0；清单每轮从本轮消息重新抽取，不跨轮复用）。不自行提取名称或改写错字。沿用历史则省略或 retain；确认上一论候选传 {candidateIndex}；用户明确放弃某项指标时 operation=remove，rawValue 传 {mentionIndexes:[上一论 Frame 的 mention 序号，从1开始]}。";
+        definition.description = "指标由服务端对完整原文进行词典/拼音/字符算法匹配。新指标传 {fromQuestion:true}，默认使用全部匹配项；若只涉及部分已识别指标（如排除某项），mentionIndexes 引用本轮算法匹配清单的 index（从1开始，不能用0；清单每轮从本轮消息重新抽取，不跨轮复用）。不自行提取名称或改写错字。沿用历史则省略或 retain；用户回复待确认问题时传 {confirm:true}：系统按用户原文或点选在系统展示的编号清单中确定所选项，不要自行判断选哪一个，也不要向用户罗列候选（同一基础指标下多个口径确认一次即全部确定；只说了基础指标时须请用户选择口径，不能替用户默认）；用户明确放弃某项指标时 operation=remove，rawValue 传 {mentionIndexes:[上一论 Frame 的 mention 序号，从1开始]}。";
         (definition.inputSchema.anyOf as unknown[]).push({type: "object", required: ["fromQuestion"], properties: {
           fromQuestion: {const: true}, mentionIndexes: {type: "array", minItems: 1, maxItems: 100, uniqueItems: true, items: {type: "integer", minimum: 1}},
         }, additionalProperties: false}, {type: "object", required: ["mentionIndexes"], properties: {

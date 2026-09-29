@@ -6,6 +6,7 @@
 import type { Entry, LaneSnapshot } from "@earendil-works/pi-agent-core";
 import { businessEvidence, combinedEvidenceAnswer, evidenceAnswer, presentedAnswer, type BusinessEvidence } from "./answerEvidence.js";
 import { EVIDENCE_BLOCKED_ANSWER, TOOL_LIMIT_ANSWER, mayDeliverWithoutEvidence } from "./replyGuard.js";
+import { MODEL_DEADLINE_EXCEEDED, MODEL_FIRST_RESPONSE_TIMEOUT } from "./models.js";
 import type { MetricAskDetails } from "./tools/shared.js";
 
 /** 历史消息条目（与前端 AgentSessionMessage 对齐） */
@@ -57,6 +58,13 @@ function toolCallNames(content: unknown): string[] {
     .map((block) => block.name ?? "");
 }
 
+/** 本轮未完成时的固定说明；模型服务超时（含自动重试后仍失败）单独说明，不让用户误以为条件有误。 */
+function incompleteAnswer(errorMessage: string): string {
+  return errorMessage.startsWith(MODEL_FIRST_RESPONSE_TIMEOUT) || errorMessage.startsWith(MODEL_DEADLINE_EXCEEDED)
+    ? "模型服务响应超时，请稍后重试。已确认的查询条件仍保留，无需重复输入。"
+    : "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。";
+}
+
 /**
  * 原生条目 → 页面消息。压缩与摘要条目不直接展示；
  * 旧自建 JSON 会话不进入本投影（旧历史只读能力由旧文件承担）。
@@ -91,13 +99,13 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
       messages.push({
         role: "assistant",
         text: toolCallNames(message.content).length ? "" : frameTurn && message.errorMessage
-          ? "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+          ? incompleteAnswer(message.errorMessage)
           : frameTurn ? visibleText(message.content) : visibleText(message.content) === EVIDENCE_BLOCKED_ANSWER
           ? EVIDENCE_BLOCKED_ANSWER : visibleText(message.content) === TOOL_LIMIT_ANSWER
           ? [combinedEvidenceAnswer(evidence), TOOL_LIMIT_ANSWER].filter(Boolean).join("\n\n") : evidence.length
           ? combinedEvidenceAnswer(evidence) + (message.errorMessage ? "\n\n本轮处理未完成，以上仅为已取得的结果。" : "")
           : contextClarification ? visibleText(message.content) : safeUnverifiedText(visibleText(message.content), question),
-        ...(message.errorMessage ? {error: "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"} : {}),
+        ...(message.errorMessage ? {error: incompleteAnswer(message.errorMessage)} : {}),
         ...(frameTurn ? {business_protocol: "frame_v1" as const} : {}),
         tools: toolCallNames(message.content),
         tool_calls: Array.isArray(message.content) ? (message.content as MessageContentBlock[])

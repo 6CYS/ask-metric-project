@@ -228,7 +228,7 @@ def _build_backend_wheelhouse(
 
 def _copy_backend_runtime(target: Path) -> None:
     backend = PROJECT_ROOT / "backend-next"
-    for directory in ("config", "resources", "alembic_goldendb", "scripts"):
+    for directory in ("config", "alembic_goldendb", "scripts"):
         _copy_tree(backend / directory, target / directory)
     for filename in ("alembic-goldendb.ini", "README.md"):
         shutil.copy2(backend / filename, target / filename)

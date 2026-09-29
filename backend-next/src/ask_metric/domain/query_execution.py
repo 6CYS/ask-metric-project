@@ -10,6 +10,14 @@ from pydantic import BaseModel, Field
 from ask_metric.domain.query_capabilities import CAPABILITIES
 from ask_metric.domain.semantics import LogicalDSL
 
+# 名次类指标的单位：数值是名次，越小越靠前，排名“前 N”须按数值升序。
+ORDINAL_UNITS = frozenset({"名"})
+
+# 规划层与基础查询契约共用同一组上限；契约先按此拒绝，规划层兜底集合展开后的数量。
+MAX_METRIC_CODES = 100
+MAX_ORG_CODES = 1000
+MAX_TARGET_DATES = 31
+
 
 class SupportedQueryShape(StrEnum):
     METRIC_AVAILABILITY = "metric_availability"
@@ -117,6 +125,7 @@ class QueryPlanner:
         org_names: list[str] | None = None,
         display_metric_names: list[str] | None = None,
         display_org_names: list[str] | None = None,
+        ordinal_metric_codes: list[str] | None = None,
     ) -> QueryExecutionPlan:
         if dsl.task.value != "metric_query":
             raise UnsupportedQueryError(f"Task {dsl.task.value} is not executable yet")
@@ -144,10 +153,11 @@ class QueryPlanner:
             if dates["base_date"] >= dates["current_date"]:
                 raise QueryPlanError("Comparison base date must precede current date")
         _validate_time_range(dsl)
-        metric_codes = _validate_codes(dsl.metrics, "metric_codes")
+        metric_codes = _validate_codes(dsl.metrics, "metric_codes", max_items=MAX_METRIC_CODES)
         normalized_orgs = _validate_codes(
             org_names if org_names is not None else dsl.orgs,
             "org_names",
+            max_items=MAX_ORG_CODES,
             allow_empty=True,
         )
         _validate_operation_support(dsl, shape)
@@ -218,6 +228,10 @@ class QueryPlanner:
                 org_names=normalized_orgs,
             )
             base_parameters.update(ranking_parameters)
+            # 名次类指标在同一 SQL 内按指标反转方向；无名次类指标时用不会命中的占位，
+            # 保持 IN 列表非空（与机构占位同一惯例）。
+            ordinal = sorted(set(ordinal_metric_codes or ()) & set(metric_codes))
+            base_parameters["ordinal_metric_codes"] = ordinal or [None]
         return QueryExecutionPlan(
             shape=shape,
             template=template,
@@ -348,8 +362,8 @@ def _target_dates(value: Any) -> list[date]:
             raise QueryPlanError("target_dates contains an invalid date")
         if target not in parsed:
             parsed.append(target)
-    if len(parsed) > 31:
-        raise QueryPlanError("target_dates cannot contain more than 31 dates")
+    if len(parsed) > MAX_TARGET_DATES:
+        raise QueryPlanError(f"target_dates cannot contain more than {MAX_TARGET_DATES} dates")
     return sorted(parsed)
 
 
@@ -451,10 +465,12 @@ def _shift_months(value: date, delta: int) -> date:
     return date(year, month, day)
 
 
-def _validate_codes(values: list[str], name: str, *, allow_empty: bool = False) -> list[str]:
+def _validate_codes(
+    values: list[str], name: str, *, max_items: int, allow_empty: bool = False
+) -> list[str]:
     if not values and not allow_empty:
         raise QueryPlanError(f"{name} cannot be empty")
-    if len(values) > 100:
+    if len(values) > max_items:
         raise QueryPlanError(f"{name} exceeds the maximum item count")
     normalized = []
     for value in values:

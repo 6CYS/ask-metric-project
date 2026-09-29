@@ -215,6 +215,15 @@ export interface BasicQueryResponse {
   };
 }
 
+export interface BasicQueryStatus {
+  task_id: string;
+  version: number;
+  status: "running" | "succeeded" | "failed" | "interrupted";
+  result_id?: string | null;
+  error_code?: string | null;
+  error_message?: string | null;
+}
+
 export class BackendApiError extends Error {
   constructor(
     public readonly status: number,
@@ -366,6 +375,14 @@ export class BackendClient {
 
   calculate(spec: CalculationSpec & {conversation_id: string; scope_id: string}, key: string, options?: CallOptions): Promise<CalculationResult> {
     return this.request("/api/v1/calculations", {method: "POST", body: JSON.stringify(spec)}, {...options, idempotencyKey: key});
+  }
+
+  /** 按幂等键只读回查基础查询真实状态；从未收到的键返回 404 BASIC_QUERY_NOT_FOUND，不执行查询。 */
+  getBasicQueryStatus(idempotencyKey: string, conversationId: string, options?: CallOptions): Promise<BasicQueryStatus> {
+    return this.request<BasicQueryStatus>(
+      `/api/v1/basic-queries/${encodeURIComponent(idempotencyKey)}?conversation_id=${encodeURIComponent(conversationId)}`,
+      {}, options,
+    );
   }
 
   basicQueries(spec: BasicQuerySpec, idempotencyKey: string, options?: CallOptions): Promise<BasicQueryResponse> {

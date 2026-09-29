@@ -21,7 +21,7 @@ export const organizations = [
 ];
 export const defaultVisible = ["P0", "O1", "O2", "O3", "B1", "B2", "B3"];
 export const cohort: OrganizationScope = {kind: "authorized_cohort", cohort: "rural_commercial_banks"};
-export const rank = (top_n = 3, order: "asc" | "desc" = "desc"): QueryOperation => ({kind: "ranking", order, top_n});
+export const rank = (top_n = 3, position: "top" | "bottom" = "top"): QueryOperation => ({kind: "ranking", position, top_n});
 export interface Expectation {
   queryCount: 0 | 1;
   status?: "success" | "clarifying";
@@ -52,7 +52,7 @@ export const cases: AcceptanceCase[] = [
   one("within_access", "equivalent_scope", "在账号可查看的农商行范围内，按2026年4月末信贷客户数量当日数由高到低列出前3家。"),
   one("top_english", "equivalent_scope", "2026-04-30各家农商行的信贷客户数量当日数，取Top 3，数量高的在前。"),
   one("top_chinese", "equivalent_scope", "2026年4月末，各家农商行信贷客户数量当日数最高的三家是哪几家？"),
-  one("ascending", "ranking", "查询2026年4月末各家农商行信贷客户数量当日数最低的3家。", expected({operation: rank(3, "asc")})),
+  one("ascending", "ranking", "查询2026年4月末各家农商行信贷客户数量当日数最低的3家。", expected({operation: rank(3, "bottom")})),
   one("top_one", "ranking", "查询2026年4月末各家农商行信贷客户数量当日数最高的1家。", expected({operation: rank(1)})),
   one("top_five", "ranking", "查询2026年4月末各家农商行信贷客户数量当日数前5名。", expected({operation: rank(5)})),
   one("march_end", "date", "查询2026年3月末各家农商行信贷客户数量当日数前3名。", expected({time: date("2026-03-31")})),
@@ -71,7 +71,7 @@ export const cases: AcceptanceCase[] = [
   one("children_rank", "children", "查询合成甲农商行下属支行2026年4月末信贷客户数量当日数前3名。", expected({scope: {kind: "children_of", parent_code: "O1"}})),
   one("children_other_parent", "children", "查询合成乙农商行下属支行2026年4月末信贷客户数量当日数前1名。", expected({scope: {kind: "children_of", parent_code: "O2"}, operation: rank(1)})),
   one("metric_name_ranking", "metric", "查询合成甲农商行2026年4月末的指标“合成贷款余额排名”。", explicit(["O1"], {metricCodes: ["M3"]})),
-  one("metric_name_plus_operation", "metric", "按2026年4月末“合成贷款余额排名”指标值从低到高，取各家农商行前3家。", expected({metricCodes: ["M3"], operation: rank(3, "asc")})),
+  one("metric_name_plus_operation", "metric", "按2026年4月末“合成贷款余额排名”指标值从低到高，取各家农商行前3家。", expected({metricCodes: ["M3"], operation: rank(3)})),
   one("multiple_value_metrics", "metric", "查询合成甲农商行2026年4月末的信贷客户数量当日数和合成贷款余额，两个指标都要，不排名。", explicit(["O1"], {metricCodes: ["M1", "M2"]})),
   one("shared_prefix_metrics", "metric", "查询合成甲农商行2026年4月30日合成收入金额当日数和较上月增幅。", explicit(["O1"], {metricCodes: ["M4", "M5"]})),
   one("shared_prefix_four_metrics", "metric", "查询合成甲农商行2026年4月30日合成收入金额当日数、较上月增幅、较同期增幅、合成贷款余额。", explicit(["O1"], {metricCodes: ["M4", "M5", "M6", "M2"]})),
@@ -94,7 +94,7 @@ export const cases: AcceptanceCase[] = [
   one("empty_cohort", "permission", original, noQuery(), ["P0", "B1"]),
   {id: "cancel_ranking", group: "multiturn", turns: [{text: original, expect: expected()}, {text: "取消排名，其他条件不变，展示全部。", expect: expected({operation: {kind: "value"}})}]},
   {id: "change_topn", group: "multiturn", turns: [{text: original, expect: expected()}, {text: "改成前2名，其他条件不变。", expect: expected({operation: rank(2)})}]},
-  {id: "change_order", group: "multiturn", turns: [{text: original, expect: expected()}, {text: "改查最低的2家，其他条件不变。", expect: expected({operation: rank(2, "asc")})}]},
+  {id: "change_order", group: "multiturn", turns: [{text: original, expect: expected()}, {text: "改查最低的2家，其他条件不变。", expect: expected({operation: rank(2, "bottom")})}]},
   {id: "change_date_keep_rank", group: "multiturn", turns: [{text: original, expect: expected()}, {text: "改查2026年5月末，其他条件不变。", expect: expected({time: date("2026-05-31")})}]},
   {id: "reopen_keep_scope", group: "multiturn", turns: [{text: original, expect: expected()}, {text: "改成前2名，其他条件不变。", reopen: true, expect: expected({operation: rank(2)})}]},
   {id: "scope_to_explicit", group: "multiturn", turns: [{text: original, expect: expected()}, {text: "取消排名，只查询合成甲农商行本级，其他条件不变。", expect: explicit()}]},

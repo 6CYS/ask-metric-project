@@ -13,6 +13,7 @@ from pydantic import (
 )
 
 from ask_metric.domain.organization_scope import OrganizationScopeSpec
+from ask_metric.domain.query_execution import MAX_METRIC_CODES, MAX_ORG_CODES, MAX_TARGET_DATES
 from ask_metric.domain.semantics import LogicalDSL, LogicalTimeRange, TaskType
 
 CatalogCode = Annotated[
@@ -27,7 +28,8 @@ class BasicQueryTime(BaseModel):
     end: date
     # 多个离散日期点（如"2月末、3月末、4月末"）；为空表示单点或连续区间。
     # start/end 始终是这些点的最早/最晚，兼容既有 {start,end} 消费方。
-    dates: list[date] | None = None
+    # 上限与规划层 MAX_TARGET_DATES 一致，超限在契约层返回 422，不进入任务执行。
+    dates: list[date] | None = Field(default=None, max_length=MAX_TARGET_DATES)
 
     @field_validator("start", "end", mode="before")
     @classmethod
@@ -71,9 +73,11 @@ class ValueOperation(BaseModel):
 
 
 class RankingOperation(BaseModel):
+    """排名只表达前 N / 后 N；实际排序方向由指标属性决定（名次类指标数值越小越靠前）。"""
+
     model_config = ConfigDict(extra="forbid")
     kind: Literal["ranking"]
-    order: Literal["asc", "desc"]
+    position: Literal["top", "bottom"]
     top_n: int = Field(ge=1, le=100, strict=True)
 
 
@@ -83,10 +87,10 @@ QueryOperation = Annotated[ValueOperation | RankingOperation, Field(discriminato
 class BasicQuerySpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    metric_codes: list[CatalogCode] = Field(min_length=1, max_length=100)
+    metric_codes: list[CatalogCode] = Field(min_length=1, max_length=MAX_METRIC_CODES)
     schema_version: Literal[2] = 2
     # 始终是实际查询对象；集合通过独立范围契约解析，禁止空数组隐式扩展。
-    org_codes: list[CatalogCode] = Field(default_factory=list, max_length=1000)
+    org_codes: list[CatalogCode] = Field(default_factory=list, max_length=MAX_ORG_CODES)
     organization_scope: OrganizationScopeSpec | None = None
     scope_fingerprint: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     time: BasicQueryTime
@@ -126,8 +130,10 @@ class BasicQuerySpec(BaseModel):
         if self.selection == "all_in_range":
             ops = [{"type": "trend"}]
         elif self.operation.kind == "ranking":
+            # order 是普通指标的数值方向；名次类指标由执行层按目录单位反转。
             ops = [{"type": "top_n", "n": self.operation.top_n,
-                    "order": self.operation.order}]
+                    "position": self.operation.position,
+                    "order": "desc" if self.operation.position == "top" else "asc"}]
         options: dict[str, Any] = {"query_contract_version": self.schema_version}
         if self.organization_scope is not None:
             options.update(query_scope=self.organization_scope.model_dump(mode="json"),

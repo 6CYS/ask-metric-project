@@ -26,8 +26,10 @@ from ask_metric.application.result_processing import process_query_result
 from ask_metric.application.result_repository import artifact_from_query, attach_artifact
 from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.query_execution import (
+    ORDINAL_UNITS,
     QueryExecutionPlan,
     QueryExecutionResult,
+    QueryPlanError,
     QueryPlanner,
     UnsupportedQueryError,
     json_safe,
@@ -38,6 +40,7 @@ from ask_metric.domain.task import (
     QueryTaskState,
     QueryTaskStatus,
     append_task_trace,
+    running_execution_is_stale,
 )
 from ask_metric.domain.task_state_machine import InvalidTaskTransition, QueryTaskStateMachine
 from ask_metric.infrastructure.db.models import ChatMessage, QueryRun, QueryTask
@@ -75,6 +78,7 @@ class QueryExecutionApplicationService:
         org_hierarchy_provider: OrgHierarchyProvider | None = None,
         organization_scope_provider: OrganizationScopeProvider | None = None,
         actor_validator: Callable[[ActorContext], None] | None = None,
+        running_stale_after: timedelta = timedelta(minutes=10),
     ) -> None:
         self.planner = planner
         self.data_source = data_source
@@ -87,6 +91,8 @@ class QueryExecutionApplicationService:
         self.org_hierarchy_provider = org_hierarchy_provider
         self.organization_scope_provider = organization_scope_provider
         self.actor_validator = actor_validator
+        # 超过该时长仍为 running 的执行视为进程中断，由同一任务的下一次执行请求回收。
+        self.running_stale_after = running_stale_after
 
     def execute(self, command: ExecuteQueryCommand) -> QueryExecutionResult:
         """先登记执行，再只读查询，最后持久化结果；跨数据库不假定是同一事务。"""
@@ -96,6 +102,34 @@ class QueryExecutionApplicationService:
         if isinstance(prepared, QueryExecutionResult):
             return prepared
         run_id, plan, sql, execution_version, timings_ms = prepared
+        try:
+            return self._run_prepared(
+                command, run_id=run_id, plan=plan, sql=sql,
+                execution_version=execution_version, timings_ms=timings_ms,
+                execution_total_started=execution_total_started,
+            )
+        except QueryExecutionConflictError:
+            # 任务已被其他请求推进（如超时回收），不能再覆盖其终态。
+            raise
+        except Exception as exc:
+            # RUNNING 已提交：结果渲染、复核或落库的意外异常都必须收敛为失败，
+            # 否则同一幂等键之后只能得到 QUERY_ALREADY_RUNNING。
+            return self._fail_unfinished_execution(
+                command, run_id=run_id, plan=plan, execution_version=execution_version,
+                timings_ms=timings_ms, exc=exc,
+            )
+
+    def _run_prepared(
+        self,
+        command: ExecuteQueryCommand,
+        *,
+        run_id: int,
+        plan: QueryExecutionPlan,
+        sql: str,
+        execution_version: int,
+        timings_ms: dict[str, int],
+        execution_total_started: float,
+    ) -> QueryExecutionResult:
         # 元数据事务已提交 RUNNING 状态并释放连接，再访问独立的业务查询数据库。
         sql_started = perf_counter()
         try:
@@ -128,6 +162,7 @@ class QueryExecutionApplicationService:
                                          if count is not None else None),
                         "returned": len(matching),
                         "tie_policy": "row_number_then_org_code",
+                        "sort": _ranking_sort(plan, metric),
                     })
             # 内部完整性列用于校验与证据，不成为用户指标或可计算事实。
             fetched_rows = [{key: value for key, value in row.items()
@@ -354,6 +389,64 @@ class QueryExecutionApplicationService:
         )
         return result
 
+    def _fail_unfinished_execution(
+        self,
+        command: ExecuteQueryCommand,
+        *,
+        run_id: int,
+        plan: QueryExecutionPlan,
+        execution_version: int,
+        timings_ms: dict[str, int],
+        exc: Exception,
+    ) -> QueryExecutionResult:
+        logger.error(
+            "query_execution_unfinished task_id=%s run_id=%s exception_type=%s",
+            command.task_id,
+            run_id,
+            type(exc).__name__,
+            exc_info=(type(exc), exc, exc.__traceback__),
+            extra={"trans_api": "result_publication", "exception_type": type(exc).__name__},
+        )
+        result = QueryExecutionResult(
+            run_id=run_id,
+            task_id=command.task_id,
+            status="failed",
+            query_shape=plan.shape.value,
+            error_code="QUERY_EXECUTION_FAILED",
+            error_message="查询结果处理失败，请重新查询。",
+            task_version=execution_version + 1,
+            task_status=QueryTaskStatus.FAILED.value,
+            timings_ms=timings_ms,
+            debug={
+                "error": _error_debug(
+                    code="QUERY_EXECUTION_FAILED",
+                    stage=QueryTaskStage.EXECUTION.value,
+                    node="result_publication",
+                ),
+                "query": {"template": plan.template.value},
+            },
+        )
+        try:
+            self._finish_failure(
+                command=command,
+                result=result,
+                expected_version=execution_version,
+                failed_node="result_publication",
+            )
+        except Exception:
+            logger.error(
+                "query_failure_unrecorded task_id=%s run_id=%s",
+                command.task_id,
+                run_id,
+                exc_info=True,
+                extra={"trans_api": "result_publication"},
+            )
+        else:
+            return result
+        # 失败状态也无法落库（如应用库不可用）时不能伪装成已知结果，抛出原异常；
+        # 任务留在 RUNNING，由同一幂等键在超时后回收。
+        raise exc
+
     def _prepare(
         self, command: ExecuteQueryCommand
     ) -> (
@@ -382,6 +475,11 @@ class QueryExecutionApplicationService:
                 )
             state = QueryTaskState.model_validate(task.state_json or {})
             require_current_query_scope(task.state_json or {})
+            if running_execution_is_stale(
+                getattr(task, "status", None), state, self.running_stale_after
+            ):
+                task = self._reclaim_stale_execution(uow, task, state)
+                state = QueryTaskState.model_validate(task.state_json or {})
             artifact = getattr(state, "result_artifact", None) or {}
             if state.execution and state.execution.get("status") == "succeeded":
                 # 工具重放也必须按当前权限/目录复核，不能把旧结果当成永久授权。
@@ -463,6 +561,7 @@ class QueryExecutionApplicationService:
                 "request_id": command.request_id,
                 "run_id": run.id,
                 "status": "running",
+                "started_at": datetime.now(UTC).isoformat(),
             }
             state.timings_ms["query_planning_ms"] = _elapsed_ms(planning_started)
             append_task_trace(
@@ -584,6 +683,11 @@ class QueryExecutionApplicationService:
             org_names=org_names,
             display_metric_names=display_metric_names,
             display_org_names=display_org_names,
+            # 名次类由目录单位决定，不按指标名称判断。
+            ordinal_metric_codes=[
+                item.code for item in metric_catalog
+                if item.code in dsl.metrics and item.unit in ORDINAL_UNITS
+            ],
         )
         plan.catalog = {
             "metrics": [
@@ -609,6 +713,8 @@ class QueryExecutionApplicationService:
     ) -> QueryExecutionResult:
         forbidden = isinstance(exc, PermissionDeniedError)
         unsupported = isinstance(exc, UnsupportedQueryError)
+        # 规划是纯函数：条件超限、日期组合非法等由输入决定，原样重试必然再次失败。
+        invalid_plan = isinstance(exc, QueryPlanError) and not unsupported
         expected_error = isinstance(exc, ApplicationError)
         status = "unsupported" if unsupported else "failed"
         code = (
@@ -616,13 +722,15 @@ class QueryExecutionApplicationService:
             if forbidden
             else "QUERY_UNSUPPORTED"
             if unsupported
+            else "QUERY_PLAN_INVALID"
+            if invalid_plan
             else exc.code if expected_error else "QUERY_PLANNING_FAILED"
         )
         error_debug = _error_debug(
             code=code,
             stage=QueryTaskStage.PLANNING.value,
             node="query_planning",
-            retryable=not forbidden and not unsupported and not expected_error,
+            retryable=not (forbidden or unsupported or invalid_plan or expected_error),
         )
         public_message = (
             "无权查询所选机构。"
@@ -630,10 +738,19 @@ class QueryExecutionApplicationService:
             else (
                 (getattr(exc, "public_message", None) or "当前问题暂不支持执行。")
                 if unsupported
+                else "查询条件超出可执行范围（如机构或日期数量过多），请缩小范围后重新查询。"
+                if invalid_plan
                 else exc.message if expected_error else "查询计划生成失败，请稍后重试。"
             )
         )
-        if not forbidden and not unsupported and not expected_error:
+        if invalid_plan:
+            logger.warning(
+                "query_plan_invalid task_id=%s exception_type=%s",
+                task.id,
+                type(exc).__name__,
+                extra={"trans_api": "query_planning", "exception_type": type(exc).__name__},
+            )
+        elif not forbidden and not unsupported and not expected_error:
             logger.error(
                 "query_planning_failed task_id=%s exception_type=%s",
                 task.id,
@@ -706,6 +823,75 @@ class QueryExecutionApplicationService:
             raise _version_conflict(task.id, command.expected_version)
         uow.commit()
         return result
+
+    def _reclaim_stale_execution(
+        self, uow: SqlAlchemyUnitOfWork, task: QueryTask, state: QueryTaskState,
+    ) -> QueryTask:
+        """把中断遗留的 running 执行收敛为失败并提交，释放任务行锁。
+
+        原执行进程若仍存活，其后续落库会因版本号已变化得到 TASK_VERSION_CONFLICT，
+        不会覆盖这里写入的终态。
+        """
+        execution = state.execution or {}
+        run_id = execution.get("run_id")
+        result = QueryExecutionResult(
+            run_id=run_id,
+            task_id=task.id,
+            status="failed",
+            query_shape=task.query_shape or "unknown",
+            error_code="QUERY_EXECUTION_INTERRUPTED",
+            error_message="查询执行已中断，请重新查询。",
+            task_version=task.version + 1,
+            task_status=QueryTaskStatus.FAILED.value,
+            timings_ms=dict(state.timings_ms),
+            debug={"error": _error_debug(
+                code="QUERY_EXECUTION_INTERRUPTED",
+                stage=QueryTaskStage.EXECUTION.value,
+                node="execution_reclaimed",
+            )},
+        )
+        run = uow.runs.get(run_id or 0)
+        if run is not None:
+            run.status = "failed"
+            run.failed_node = "execution_reclaimed"
+            run.error_type = result.error_code
+            run.error_message = result.error_message
+        state.execution = {**execution, "status": "failed", "summary": _result_summary(result)}
+        state.debug["error"] = result.debug["error"]
+        append_task_trace(
+            state,
+            stage=QueryTaskStage.EXECUTION.value,
+            status=QueryTaskStatus.FAILED.value,
+            node="execution_reclaimed",
+            detail={
+                "run_id": run_id,
+                "error_code": result.error_code,
+                "error_reference": result.debug["error"]["error_reference"],
+            },
+        )
+        _add_result_message(uow, task, result)
+        updated = uow.tasks.update_optimistically(
+            task_id=task.id,
+            expected_version=task.version,
+            status=QueryTaskStatus.FAILED.value,
+            current_stage=QueryTaskStage.EXECUTION.value,
+            state_json=state.model_dump(mode="json"),
+            intent=task.intent,
+            query_shape=task.query_shape,
+            error_code=result.error_code,
+            error_message=result.error_message,
+            completed_at=datetime.now(UTC),
+        )
+        if updated is None:
+            raise _version_conflict(task.id, task.version)
+        uow.commit()
+        logger.warning(
+            "query_execution_reclaimed task_id=%s run_id=%s",
+            task.id,
+            run_id,
+            extra={"trans_api": "execution_reclaim"},
+        )
+        return updated
 
     def _finish_success(
         self,
@@ -1248,6 +1434,14 @@ def _error_debug(
         "error_reference": uuid4().hex,
         "occurred_at": datetime.now(UTC).isoformat(),
     }
+
+
+def _ranking_sort(plan: QueryExecutionPlan, metric: str) -> str:
+    """回执写明实际排序：普通指标按数值，名次类指标按名次。"""
+    descending = plan.template.value.endswith("_desc")
+    if metric in (plan.parameters.get("ordinal_metric_codes") or ()):
+        return "rank_asc" if descending else "rank_desc"
+    return "value_desc" if descending else "value_asc"
 
 
 def _elapsed_ms(started: float) -> int:

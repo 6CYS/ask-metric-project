@@ -173,6 +173,8 @@ Bearer 认证，必填 `Idempotency-Key`（1～128 字符）。仍受查询就�
 可选 `conversation_id` 用于归档本次工具查询，不用于继承条件；省略时按用户和幂等键
 建立稳定会话。`metric_codes` 最多 100 项，`org_codes` 最多 1000 项，具体机构模式下为非空编码数组，
 重复项去重；集合模式省略 org_codes，使用下述范围对象和指纹。日期必须为 `YYYY-MM-DD`，起止均包含在范围内，开始不得晚于结束。
+离散日期 `time.dates` 为 2～31 个不同日期，最早/最晚须等于 start/end。集合范围展开后超过 1000 家机构时返回
+`QUERY_PLAN_INVALID`（不可重试），应缩小范围。
 
 | selection | 语义 |
 | --- | --- |
@@ -183,7 +185,9 @@ Bearer 认证，必填 `Idempotency-Key`（1～128 字符）。仍受查询就�
 查询契约版本为 `schema_version=2`（缺省2）。排名独立通过 `operation` 表达：
 
 - 普通取值：省略 operation 或传 `{"kind":"value"}`。
-- 排名：`{"kind":"ranking","order":"desc","top_n":3}`。方向与条数必须显式提供；条数1～100，不在后端猜测排名条件。
+- 排名：`{"kind":"ranking","position":"top","top_n":3}`。`position` 取 `top`（前N/最高）或 `bottom`（后N/最低），与条数都必须显式提供；条数1～100，后端不猜测是否排名、取前还是取后。
+- 实际升降序由后端按指标目录单位决定：普通指标 `top` 为数值降序；名次类指标（单位为“名”，数值即名次）`top` 为数值升序。同一次查询内各指标分别按自身属性排序。
+- 旧的 `operation.order`（asc/desc）已删除，返回422；调用方须配套升级。
 - `exact` 可与排名组合。`latest_in_range` 排名按每指标在授权候选内的最新有效日期统一排序，缺数机构不混入其较早日期。
 - `all_in_range + ranking` 尚不支持并拒绝，不能截成一期。
 - 旧 `selection=ranking` 和顶层 order/top_n 已删除，返回422；所有调用方须配套升级。
@@ -211,7 +215,7 @@ Bearer 认证，必填 `Idempotency-Key`（1～128 字符）。仍受查询就�
   "scope_fingerprint":"解析回执中的64位十六进制指纹",
   "time":{"start":"2026-04-30","end":"2026-04-30"},
   "selection":"exact",
-  "operation":{"kind":"ranking","order":"desc","top_n":3}
+  "operation":{"kind":"ranking","position":"top","top_n":3}
 }
 ```
 
@@ -225,13 +229,22 @@ Bearer 认证，必填 `Idempotency-Key`（1～128 字符）。仍受查询就�
 
 成功结果增加公共 `evidence` 字段，包含授权后的 `logical_dsl`、本次使用的 `catalog`
 （指标编码/名称/单位与机构编码/名称）、`template`、`coverage_notice` 和
-`missing_metric_notice`。排名另有 `ranking` 列表，按指标记录 date、authorized_candidates、with_data、without_data、returned 与 tie_policy。MySQL 同日事实重复、Inceptor 最高批次事实重复时返回 DATA_CONFLICT，不发布整榜。该字段也随结果证据持久化，不包含 SQL 或连接信息。
+`missing_metric_notice`。排名另有 `ranking` 列表，按指标记录 date、authorized_candidates、with_data、without_data、returned、tie_policy 与实际排序 sort（`value_desc`/`value_asc` 为按数值，`rank_asc`/`rank_desc` 为按名次）。MySQL 同日事实重复、Inceptor 最高批次事实重复时返回 DATA_CONFLICT，不发布整榜。该字段也随结果证据持久化，不包含 SQL 或连接信息。
 无数据为成功的空数组；`truncated=true` 表示结果不完整，上层不能把截断数据当作完整集合计算。
 
 相同用户/会话/幂等键和请求条件重复调用返回同一任务结果，`idempotent_replay=true`，
 包含持久化原值，不重复执行 SQL；成功结果重放前重新核对当前权限和目录。
 同键改条件返回 409 `IDEMPOTENCY_KEY_REUSED`；正在执行的重试返回 409
-`QUERY_ALREADY_RUNNING`。失败结果沿用原幂等结果，主动重试需新幂等键。
+`QUERY_ALREADY_RUNNING`。执行登记后超过“语句超时 + 5 分钟”仍未完成的视为中断，
+同键重试时收敛为失败结果 `QUERY_EXECUTION_INTERRUPTED`。失败结果沿用原幂等结果，主动重试需新幂等键。
+
+请求结果丢失（超时、断连、调用方重启）后，调用方用 `GET /api/v1/basic-queries/{Idempotency-Key}`
+（可选 `conversation_id`，省略时按用户和幂等键推导，与提交时一致）只读回查真实状态，不能用重发请求代替：
+原请求若从未到达，重发会在用户未再提问时补跑查询。响应为
+`{task_id, version, status, result_id?, error_code?, error_message?}`，`status` 取
+`running`、`succeeded`、`failed` 或 `interrupted`（执行登记后超时未结束，原执行不会再发布结果）。
+该接口不创建任务、不执行或回收执行；成功结果同样按当前权限复核。非本人或从未收到的键返回 404
+`BASIC_QUERY_NOT_FOUND`。
 首次目录/能力拒绝返回 HTTP 200、`result.status=unsupported` 和 `QUERY_UNSUPPORTED`；
 首次越权返回 HTTP 200、`result.status=failed` 和 `ORG_SCOPE_FORBIDDEN`。
 成功结果重放时权限撤销按公共权限异常返回 403，目录停用返回 422 `QUERY_UNSUPPORTED`。
@@ -244,7 +257,7 @@ Bearer 认证，必填 `Idempotency-Key`（1～128 字符）。仍受查询就�
 
 `POST /api/v1/agent-query-contexts`（Bearer，正文 `session_id: UUID`），返回
 `conversation_id: agent:<session_id>`，用于 Agent 与后端会话关联。其他用户的同名关联
-返回 404；超出会话数量上限返回 409。普通查询不会自动重建已删除的 `agent:` 会话。
+返回 404；会话数量不设上限。普通查询不会自动重建已删除的 `agent:` 会话。
 
 `POST /api/v1/calculations`（Bearer、必填 `Idempotency-Key`）：
 请求字段为 `conversation_id`、`scope_id`、`expressions`、`bindings` 和可选 `constants`。
@@ -279,10 +292,10 @@ Pydantic 请求格式错误仍使用既有 422 校验响应；缺失或无效 Be
 
 `POST /api/v1/business-context/resolve-field`，使用现有 Bearer 身份认证。
 
-`POST /api/v1/business-context/metric-mentions` 同样要求 Bearer，接收 `{"question":"完整用户原文"}`（1～8000 字符），返回 `mentions`：每项含原文 `text`、Unicode 码点 `start/end`（左闭右开）和 `resolution`。完整名称/别名唯一命中，或按完整片段计算的字符/拼音相似度唯一最高分达到 0.95（含）时返回 resolved；后者的 metadata 包含 match=high_confidence、score 和 autoSelectThreshold。低分、不同编码并列最高及描述匹配仍返回候选。分数是算法相似度，不是概率。该接口不执行 SQL、不调用模型；取数权限在正式执行时校验。详细算法与离线依赖见 [指标匹配方案](metric-matching.md)。
+`POST /api/v1/business-context/metric-mentions` 同样要求 Bearer，接收 `{"question":"完整用户原文"}`（1～8000 字符），返回 `mentions`：每项含原文 `text`、Unicode 码点 `start/end`（左闭右开）、`resolution`，同一基础指标下的各口径片段另带相同的 `group.id`。完整名称/别名，或“基础指标 + 口径”精确组合唯一命中时返回 resolved（metadata.match=exact）；拼音与唯一基础指标完全相同的错字同样 resolved，metadata 为 match=homophone 与 understood_as（按哪个指标理解）。缺口径（issue=missing_value_basis）、口径没说完（value_basis_incomplete）、该指标没有此口径（value_basis_not_found）、基础指标不确定（base_uncertain）及共用后半段未展开（shared_tail）均返回 needs_confirmation；基础指标候选的 metadata.kind 为 `base`（带 source_metric_code，同组按同一源指标一次确定）或 `base_only`（需再追问口径）。召回分数只用于候选排序，不决定采用。该接口不执行 SQL、不调用模型；取数权限在正式执行时校验。详细算法与离线依赖见 [指标匹配方案](metric-matching.md)。
 请求为 `{ "entity": "metric|organization|date", "raw_values": ["原始表达"] }`；每项非空且不超过 200 字符，最多 100 项，date 仅允许一项。
 响应统一为 `{status, value?, candidates?, metadata?}`。
-唯一精确名称、受控别名或编码命中返回 resolved；指标的近似匹配同样使用完整片段唯一最高分达到 0.95 的自动采用规则。其余候选返回 ambiguous/needs_confirmation，未命中返回 not_found。
+唯一精确名称、受控别名或编码命中返回 resolved；指标原值与原文识别同一规则，原值中还有未识别文字时只给候选。其余候选返回 ambiguous/needs_confirmation，未命中返回 not_found。
 机构候选在返回前裁剪到当前用户授权范围，日期复用后端确定性解析规则，以 Asia/Shanghai 为当前业务日期。
 接口不调用模型、不查询指标数值、不接受 SQL。正式执行和结果回读仍须分别校验当前权限。
 
@@ -465,6 +478,8 @@ Agent 对用户原文所指的历史结果使用同路径的 `POST`，请求体�
 | 409 | `IDEMPOTENCY_KEY_REUSED` | 修正幂等键生成逻辑 |
 | 400/422 | `REQUEST_INVALID` 等请求校验失败 | 按`details.fields`修正请求，不自动重试 |
 | 200 + `unsupported` | `QUERY_UNSUPPORTED` | 场景尚未实现 |
+| 200 + `failed` | `QUERY_PLAN_INVALID` | 条件超出可执行范围，缩小机构/日期后用新幂等键重试 |
+| 200 + `failed` | `QUERY_EXECUTION_INTERRUPTED` | 原执行已中断，用新幂等键重新查询 |
 | 200 + `failed` | `QUERY_EXECUTION_FAILED`等 | 记录task_id和request_id后排查 |
 | 500 | `INTERNAL_SERVER_ERROR` | 有限重试并告警 |
 

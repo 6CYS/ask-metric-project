@@ -43,9 +43,10 @@ it("新查询、缺项澄清、补充、继承、清除、任意历史分支不�
   const nextId = {...f.identity, turnId: "turn-b", requestId: "request-b"};
   const second = await f.service.resolve({fieldChanges: [{fieldHint: "time", operation: "set", rawValue: "2026年2月28日"}], executionMode: "execute"}, nextId, {...f.context, turnId: nextId.turnId});
   expect(second.status).toBe("ready"); expect(second.fields.metrics?.sourceFrameId).toBe(first.frameId);
-  const cleared = await f.service.resolve({fieldChanges: [{fieldHint: "metrics", operation: "clear"}], executionMode: "execute"}, {...nextId, requestId: "clear"}, f.context);
+  // 清除与历史分支分别是新用户回合，不能复用补充条件那一轮的 turnId。
+  const cleared = await f.service.resolve({fieldChanges: [{fieldHint: "metrics", operation: "clear"}], executionMode: "execute"}, {...nextId, turnId: "turn-c", requestId: "clear"}, {...f.context, turnId: "turn-c"});
   expect(cleared.issues).toEqual([{field: "metrics", reason: "missing"}]);
-  const branch = await f.service.resolve({baseReference: {ordinal: 2}, fieldChanges: [], executionMode: "resolve_more"}, {...nextId, requestId: "branch"}, f.context);
+  const branch = await f.service.resolve({baseReference: {ordinal: 2}, fieldChanges: [], executionMode: "resolve_more"}, {...nextId, turnId: "turn-d", requestId: "branch"}, {...f.context, turnId: "turn-d"});
   expect(branch.parentFrameId).toBe(second.frameId); expect(branch.fields.metrics?.resolutionStatus).toBe("resolved");
   expect(await f.store.get(first.frameId)).toEqual(first);
 });
@@ -290,6 +291,172 @@ it("多 mention 部分澄清→跨轮确认→续查一次执行双指标", asyn
   expect(query.metric_codes).toEqual(["A", "B"]);
   // 续查轮覆盖率复核：source_question 传给后端即触发复核；归一化原句把确认项替换为最终名称。
   expect(query.source_question).toBe("样本机构甲 2026年2月28日 合成余额当日数、百万以下贷款余额当日数");
+});
+it("同一基础指标下的多个口径共用一组候选，确认一次全部确定并只执行一次", async () => {
+  const f = await toolFixture();
+  const question = "样本机构甲 2026年2月28日 对公日均存钱余额当日数和较同期增幅";
+  const mention = (text: string) => ({text, start: question.indexOf(text), end: question.indexOf(text) + text.length});
+  const base = (source: string, basis: string, name: string) => ({value: `${name}${basis}`, code: `${source}:${basis}`,
+    metadata: {kind: "base", source_metric_code: source, base_name: name, group: "g1"}});
+  const member = (text: string, basis: string) => ({...mention(text), group: {id: "g1"}, resolution: {
+    status: "needs_confirmation" as const, metadata: {issue: "base_uncertain"},
+    candidates: [base("CORP", basis, "对公日均存款余额"), base("TOTAL", basis, "各项存款余额")]}});
+  const request = {...f.request, originalMessage: question, backend: {...f.backend, matchMetricQuestion: vi.fn(async () => ({
+    mentions: [member("对公日均存钱余额当日数", "当日数"), member("较同期增幅", "较同期增幅")]}))} as unknown as BackendClient};
+  const delta = {...f.delta, fieldChanges: f.delta.fieldChanges.map(change => change.fieldHint === "metrics"
+    ? {...change, rawValue: {fromQuestion: true}} : change)};
+  const first = receiptJson(await runTool(createResolveBusinessTurnTool(), delta, request));
+  expect(first.status).toBe("NEEDS_CLARIFICATION");
+  const firstFrame = await f.store.get(String(first.frameId));
+  // 同组只展示一次基础指标候选，不让用户对每个口径重复选择。
+  expect(firstFrame?.fields.metrics?.candidates?.map(candidate => candidate.code)).toEqual(["CORP:当日数", "TOTAL:当日数"]);
+  const next = {...request, originalMessage: "是对公日均存款余额", requestId: "confirmed", operationId: "confirmed",
+    backend: {...request.backend, matchMetricQuestion: async () => ({mentions: []})} as unknown as BackendClient};
+  const ready = receiptJson(await runTool(createResolveBusinessTurnTool(), {executionMode: "execute", fieldChanges: [
+    {fieldHint: "metrics", operation: "set", rawValue: {candidateIndex: 1}},
+  ]}, next));
+  expect(ready.status).toBe("READY");
+  const readyFrame = await f.store.get(String(ready.frameId));
+  expect(readyFrame?.fields.metrics?.resolvedValue).toEqual({codes: ["CORP:当日数", "CORP:较同期增幅"],
+    names: ["对公日均存款余额当日数", "对公日均存款余额较同期增幅"]});
+  await runTool(createExecuteBusinessFrameTool(), {frameId: String(ready.frameId)}, next);
+  expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
+  const query = (f.backend.basicQueries.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]![0];
+  expect(query.metric_codes).toEqual(["CORP:当日数", "CORP:较同期增幅"]);
+  expect(query.source_question).toBe("样本机构甲 2026年2月28日 对公日均存款余额当日数和对公日均存款余额较同期增幅");
+});
+it("只确认了基础指标、原文没有口径时继续按目录追问口径，不替用户默认", async () => {
+  const f = await toolFixture();
+  const question = "样本机构甲 2026年2月28日 手机银行客户数是多少";
+  const text = "手机银行客户数";
+  const request = {...f.request, originalMessage: question, backend: {...f.backend, matchMetricQuestion: vi.fn(async () => ({
+    mentions: [{text, start: question.indexOf(text), end: question.indexOf(text) + text.length, resolution: {
+      status: "needs_confirmation" as const, metadata: {issue: "base_uncertain"},
+      candidates: [{value: "手机银行客户数量", score: 0.9, metadata: {kind: "base_only", source_metric_code: "MOB"}}]}}]}))} as unknown as BackendClient};
+  f.backend.resolveBusinessField.mockImplementation(async (entity, raw) => entity === "metric"
+    ? {status: "needs_confirmation", candidates: [{value: "手机银行客户数量当日数", code: "MOB:当日数", metadata: {rawValueIndex: 0, value_basis: "当日数"}},
+      {value: "手机银行客户数量较上月", code: "MOB:较上月", metadata: {rawValueIndex: 0, value_basis: "较上月"}}]}
+    : f.context.resolveCatalog(entity, raw));
+  const delta = {...f.delta, fieldChanges: f.delta.fieldChanges.map(change => change.fieldHint === "metrics"
+    ? {...change, rawValue: {fromQuestion: true}} : change)};
+  const first = receiptJson(await runTool(createResolveBusinessTurnTool(), delta, request));
+  expect(first.status).toBe("NEEDS_CLARIFICATION");
+  const baseTurn = {...request, originalMessage: "是手机银行客户数量", requestId: "base", operationId: "base",
+    backend: {...request.backend, matchMetricQuestion: async () => ({mentions: []})} as unknown as BackendClient};
+  const basisAsked = receiptJson(await runTool(createResolveBusinessTurnTool(), {executionMode: "execute", fieldChanges: [
+    {fieldHint: "metrics", operation: "set", rawValue: {candidateIndex: 1}},
+  ]}, baseTurn));
+  expect(basisAsked.status).toBe("NEEDS_CLARIFICATION");
+  expect(f.backend.resolveBusinessField.mock.calls.some(call => call[0] === "metric"
+    && JSON.stringify(call[1]) === JSON.stringify(["手机银行客户数量"]))).toBe(true);
+  const askedFrame = await f.store.get(String(basisAsked.frameId));
+  expect(askedFrame?.fields.metrics?.candidates?.map(candidate => candidate.code)).toEqual(["MOB:当日数", "MOB:较上月"]);
+  const basisTurn = {...baseTurn, originalMessage: "较上月", requestId: "basis", operationId: "basis"};
+  const ready = receiptJson(await runTool(createResolveBusinessTurnTool(), {executionMode: "execute", fieldChanges: [
+    {fieldHint: "metrics", operation: "set", rawValue: {candidateIndex: 2}},
+  ]}, basisTurn));
+  expect(ready.status).toBe("READY");
+  expect((await f.store.get(String(ready.frameId)))?.fields.metrics?.resolvedValue)
+    .toEqual({codes: ["MOB:较上月"], names: ["手机银行客户数量较上月"]});
+  expect(f.backend.basicQueries).not.toHaveBeenCalled();
+});
+it.each([
+  // 复现：用户原文点名第2个候选，模型却提交序号1；以用户原文为准。
+  {reply: "对公日均存款余额当日数", modelIndex: 1, expected: "ORG:当日数"},
+  {reply: "当日数", modelIndex: 1, expected: "ORG:当日数"},
+  {reply: "当日数排名", modelIndex: 2, expected: "ORG:当日数排名"},
+  // 序号指系统展示清单的编号，与模型给出的序号无关。
+  {reply: "第一个", modelIndex: 3, expected: "ORG:全省均值"},
+  {reply: "3", modelIndex: 1, expected: "ORG:当日数排名"},
+])("缺口径确认以用户回复在系统清单中对应的候选为准：$reply", async ({reply, modelIndex, expected}) => {
+  const f = await toolFixture();
+  const question = "样本机构甲 2026年2月28日 对公日均存款余额是多少";
+  const text = "对公日均存款余额";
+  const candidate = (basis: string) => ({value: `对公日均存款余额${basis}`, code: `ORG:${basis}`, metadata: {value_basis: basis}});
+  const request = {...f.request, originalMessage: question, backend: {...f.backend, matchMetricQuestion: vi.fn(async () => ({
+    mentions: [{text, start: question.indexOf(text), end: question.indexOf(text) + text.length, resolution: {
+      status: "needs_confirmation" as const, metadata: {issue: "missing_value_basis"},
+      // 候选按名称排序：“全省均值”排在“当日数”之前。
+      candidates: [candidate("全省均值"), candidate("当日数"), candidate("当日数排名")]}}]}))} as unknown as BackendClient};
+  const delta = {...f.delta, fieldChanges: f.delta.fieldChanges.map(change => change.fieldHint === "metrics"
+    ? {...change, rawValue: {fromQuestion: true}} : change)};
+  expect(receiptJson(await runTool(createResolveBusinessTurnTool(), delta, request)).status).toBe("NEEDS_CLARIFICATION");
+  const replyMentions = reply === "对公日均存款余额当日数"
+    ? [{text: reply, start: 0, end: reply.length, resolution: {status: "resolved" as const, value: {codes: ["ORG:当日数"], names: [reply]}}}]
+    : [];
+  const next = {...request, originalMessage: reply, requestId: "confirm", operationId: "confirm",
+    backend: {...request.backend, matchMetricQuestion: async () => ({mentions: replyMentions})} as unknown as BackendClient};
+  const ready = receiptJson(await runTool(createResolveBusinessTurnTool(), {executionMode: "execute", fieldChanges: [
+    {fieldHint: "metrics", operation: "set", rawValue: {candidateIndex: modelIndex}},
+  ]}, next));
+  expect(ready.status).toBe("READY");
+  const metrics = (await f.store.get(String(ready.frameId)))?.fields.metrics;
+  expect((metrics?.resolvedValue as {codes: string[]}).codes).toEqual([expected]);
+  expect(metrics?.metadata?.confirmationSource).toBe("user_reply");
+});
+async function missingBasisFixture() {
+  const f = await toolFixture();
+  const question = "样本机构甲 2026年2月28日 对公日均存款余额是多少";
+  const text = "对公日均存款余额";
+  const candidate = (basis: string) => ({value: `对公日均存款余额${basis}`, code: `ORG:${basis}`, metadata: {value_basis: basis}});
+  const request = {...f.request, originalMessage: question, backend: {...f.backend, matchMetricQuestion: vi.fn(async () => ({
+    mentions: [{text, start: question.indexOf(text), end: question.indexOf(text) + text.length, resolution: {
+      status: "needs_confirmation" as const, candidates: [candidate("全省均值"), candidate("当日数"), candidate("当日数排名")]}}]}))} as unknown as BackendClient};
+  const delta = {...f.delta, fieldChanges: f.delta.fieldChanges.map(change => change.fieldHint === "metrics"
+    ? {...change, rawValue: {fromQuestion: true}} : change)};
+  const first = await runTool(createResolveBusinessTurnTool(), delta, request);
+  const turn = (reply: string, extra: Record<string, unknown> = {}) => ({...request, originalMessage: reply, requestId: reply, operationId: reply,
+    backend: {...request.backend, matchMetricQuestion: async () => ({mentions: []})} as unknown as BackendClient, ...extra});
+  return {...f, first, turn};
+}
+it("待确认时回执携带系统规范清单，模型视图只有候选数量", async () => {
+  const f = await missingBasisFixture();
+  const details = f.first.details as {status: string; options: Array<{title: string; options: Array<{no: number; label: string}>}>};
+  expect(details.status).toBe("NEEDS_CLARIFICATION");
+  expect(details.options[0]!.options.map(option => `${option.no}.${option.label}`))
+    .toEqual(["1.对公日均存款余额全省均值", "2.对公日均存款余额当日数", "3.对公日均存款余额当日数排名"]);
+  expect((f.first.details as {listing: string}).listing).toBe(
+    "请回复下列序号或名称：\n请选择「对公日均存款余额」的口径：\n1. 对公日均存款余额全省均值\n2. 对公日均存款余额当日数\n3. 对公日均存款余额当日数排名");
+  const receipt = receiptJson(f.first);
+  expect(JSON.stringify(receipt)).not.toContain("对公日均存款余额全省均值");
+  expect((receipt.fields as Record<string, {pendingChoices?: {count: number}}>).metrics?.pendingChoices?.count).toBe(3);
+});
+it("模型漏传指标字段时，用户回复已明确的候选仍被确认", async () => {
+  const f = await missingBasisFixture();
+  const ready = receiptJson(await runTool(createResolveBusinessTurnTool(), {executionMode: "execute", fieldChanges: []}, f.turn("当日数")));
+  expect(ready.status).toBe("READY");
+  const metrics = (await f.store.get(String(ready.frameId)))?.fields.metrics;
+  expect((metrics?.resolvedValue as {codes: string[]}).codes).toEqual(["ORG:当日数"]);
+});
+it("回复对应不上时保持待确认并重新展示清单，不按模型序号取数", async () => {
+  const f = await missingBasisFixture();
+  const unclear = await runTool(createResolveBusinessTurnTool(), {executionMode: "execute", fieldChanges: [
+    {fieldHint: "metrics", operation: "set", rawValue: {candidateIndex: 1}},
+  ]}, f.turn("好的"));
+  expect(receiptJson(unclear).status).toBe("NEEDS_CLARIFICATION");
+  expect((unclear.details as {confirmation_unclear?: boolean}).confirmation_unclear).toBe(true);
+  expect(f.backend.basicQueries).not.toHaveBeenCalled();
+  // 下一轮仍可按同一份清单回复。
+  const ready = receiptJson(await runTool(createResolveBusinessTurnTool(), {executionMode: "execute", fieldChanges: [
+    {fieldHint: "metrics", operation: "set", rawValue: {confirm: true}},
+  ]}, f.turn("第2个")));
+  expect(ready.status).toBe("READY");
+  expect(((await f.store.get(String(ready.frameId)))?.fields.metrics?.resolvedValue as {codes: string[]}).codes).toEqual(["ORG:当日数"]);
+});
+it("点选只对当前待确认 Frame 生效，回复文字无法识别时由点选确定", async () => {
+  const f = await missingBasisFixture();
+  const confirm = {executionMode: "execute", fieldChanges: [{fieldHint: "metrics", operation: "set", rawValue: {confirm: true}}]};
+  const optionId = (f.first.details as {options: Array<{options: Array<{id: string}>}>}).options[0]!.options[2]!.id;
+  // 点选指向别的 Frame：不生效，重新展示清单（产生新的待确认 Frame）。
+  const stale = await runTool(createResolveBusinessTurnTool(), confirm,
+    f.turn("这个", {clarificationSelection: {frame_id: "other-frame", option_ids: [optionId]}}));
+  expect(receiptJson(stale).status).toBe("NEEDS_CLARIFICATION");
+  const latest = (stale.details as {frame_id: string}).frame_id;
+  const clicked = receiptJson(await runTool(createResolveBusinessTurnTool(), confirm,
+    f.turn("就这个", {clarificationSelection: {frame_id: latest, option_ids: [optionId]}})));
+  expect(clicked.status).toBe("READY");
+  expect(((await f.store.get(String(clicked.frameId)))?.fields.metrics?.resolvedValue as {codes: string[]}).codes).toEqual(["ORG:当日数排名"]);
+  expect(f.backend.basicQueries).not.toHaveBeenCalled();
 });
 it("用户明确放弃一项指标后执行剩余项，归一化原句删除对应片段", async () => {
   const f = await toolFixture();
@@ -867,4 +1034,147 @@ it("新指标待确认保留候选，错误的再次提取不能抹掉它", asyn
   // 确认按逐条 mention 快照直接取候选编码，不再对候选编码重跑目录复核（首轮建帧的名称解析不受影响）。
   expect(f.backend.resolveBusinessField.mock.calls.some(call => call[0] === "metric" && call[1].includes("NEW"))).toBe(false);
   expect((await f.store.get(String(accepted.frameId)))?.fields.metrics?.resolvedValue).toEqual({codes: ["NEW"], names: ["合成新指标"]});
+});
+
+describe("指标匹配临时失败的恢复", () => {
+  const question = "查询合成余额本期数 样本机构甲 2026年2月28日";
+  const mentions = {mentions: [{text: "合成余额本期数", start: 2, end: 9,
+    resolution: {status: "resolved", value: {codes: ["FULL"], names: ["合成余额本期数"]}}}]};
+  async function failingOnce() {
+    const f = await toolFixture();
+    const matchMetricQuestion = vi.fn().mockRejectedValueOnce(new Error("synthetic timeout")).mockResolvedValue(mentions);
+    const request = {...f.request, originalMessage: question, backend: {...f.backend, matchMetricQuestion} as unknown as BackendClient};
+    const delta = {...f.delta, fieldChanges: f.delta.fieldChanges.map(change => change.fieldHint === "metrics"
+      ? {...change, rawValue: "合成余额本期数"} : change)};
+    const first = receiptJson(await runTool(createResolveBusinessTurnTool(), delta, request));
+    expect(first.status).toBe("TEMPORARY_ERROR");
+    return {f, request, delta, first, matchMetricQuestion};
+  }
+
+  it("同轮再次解析会重新匹配，临时失败不被缓存", async () => {
+    const {request, delta, matchMetricQuestion} = await failingOnce();
+    const again = receiptJson(await runTool(createResolveBusinessTurnTool(), delta, request));
+    expect(again.status).toBe("READY");
+    expect(matchMetricQuestion).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    {label: "沿用焦点", baseReference: undefined},
+    {label: "按回执引用", baseReference: "retry_reference"},
+  ])("下一轮继承重试按当时原句重新匹配，用户无需重述（$label）", async ({baseReference}) => {
+    const {f, request, first, matchMetricQuestion} = await failingOnce();
+    const retry = {...request, originalMessage: "再试一次", requestId: "retry", operationId: "retry"};
+    delete (retry as {metricMentions?: unknown}).metricMentions;
+    const next = receiptJson(await runTool(createResolveBusinessTurnTool(), {fieldChanges: [], executionMode: "execute",
+      ...(baseReference ? {baseReference: first.retry_reference as {frameId: string}} : {})}, retry));
+    expect(next.status).toBe("READY");
+    expect((await f.store.get(String(next.frameId)))?.fields.metrics).toMatchObject({resolvedValue: {codes: ["FULL"]}});
+    expect(matchMetricQuestion).toHaveBeenLastCalledWith(question);
+  });
+});
+
+describe("执行结果丢失后的对账", () => {
+  afterEach(() => { vi.useRealTimers(); });
+  const nextTurn = (request: Awaited<ReturnType<typeof toolFixture>>["request"]) =>
+    ({...request, originalMessage: "刚才的结果呢", requestId: "turn-2", operationId: "turn-2"});
+  const followUp = {fieldChanges: [], executionMode: "execute" as const};
+
+  /** 首轮执行在后端响应前中断，Frame 停在 executing；随后时钟越过宽限期。 */
+  async function interrupted(error: unknown = new BackendApiError(503, "synthetic unavailable")) {
+    const f = await toolFixture();
+    const getBasicQueryStatus = vi.fn();
+    Object.assign(f.backend, {getBasicQueryStatus});
+    f.backend.basicQueries.mockRejectedValueOnce(error);
+    const ready = receiptJson(await runTool(createResolveBusinessTurnTool(), f.delta, f.request));
+    const receipt = await runTool(createExecuteBusinessFrameTool(), {frameId: ready.frameId}, f.request);
+    vi.useFakeTimers({toFake: ["Date"]});
+    vi.setSystemTime(Date.now() + 5 * 60_000);
+    return {f, ready, receipt, getBasicQueryStatus};
+  }
+  const latest = async (f: Awaited<ReturnType<typeof toolFixture>>) => (await f.store.list()).at(-1)!;
+  const sentKey = (f: Awaited<ReturnType<typeof toolFixture>>) => (f.backend.basicQueries.mock.calls[0] as unknown[])[1];
+
+  it("结果未知时保持 executing，回执带 frameId 供同轮重试，并已登记幂等键", async () => {
+    const {f, ready, receipt} = await interrupted();
+    expect(receipt.details).toMatchObject({status: "error", retryable: true, frame_id: ready.frameId});
+    const executing = await latest(f);
+    expect(executing.status).toBe("executing");
+    expect(await f.request.businessResults!.executionLink(executing.frameId)).toMatchObject({
+      tool: "metric_query_structured", conversationId: "conversation-synthetic",
+      idempotencyKey: sentKey(f),
+    });
+  });
+
+  it("查询成功后读取任务遇到令牌过期，不把已成功的查询记成失败", async () => {
+    const f = await toolFixture();
+    f.backend.getTask.mockRejectedValueOnce(new BackendApiError(401, "expired"));
+    const ready = receiptJson(await runTool(createResolveBusinessTurnTool(), f.delta, f.request));
+    const receipt = await runTool(createExecuteBusinessFrameTool(), {frameId: ready.frameId}, f.request);
+    expect(receipt.details).toMatchObject({status: "error", retryable: false, error_code: "BACKEND_401"});
+    expect((await latest(f)).status).toBe("executing");
+  });
+
+  it("下一轮回查到成功：补写结果引用，可直接复用结果，不重发查询", async () => {
+    const {f, getBasicQueryStatus} = await interrupted();
+    getBasicQueryStatus.mockResolvedValue({task_id: "task-9", version: 2, status: "succeeded", result_id: "result-9"});
+    const reuse = receiptJson(await runTool(createResolveBusinessTurnTool(), {fieldChanges: [], executionMode: "reuse_result"}, nextTurn(f.request)));
+    expect(reuse.status).toBe("REUSE_RESULT");
+    expect(reuse.resultRef).toBe("query:task-9:result-9");
+    expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
+    const [key, conversation] = getBasicQueryStatus.mock.calls[0]!;
+    expect([key, conversation]).toEqual([sentKey(f), "conversation-synthetic"]);
+  });
+
+  it.each([
+    {label: "后端从未收到", lookup: () => Promise.reject(new BackendApiError(404, "missing", "BASIC_QUERY_NOT_FOUND")), code: "NOT_SUBMITTED"},
+    {label: "后端已中断", lookup: async () => ({task_id: "t", version: 2, status: "interrupted", error_code: "QUERY_EXECUTION_INTERRUPTED"}), code: "QUERY_EXECUTION_INTERRUPTED"},
+  ])("下一轮回查到未执行成功（$label）：记为失败，条件可直接继承重跑", async ({lookup, code}) => {
+    const {f, getBasicQueryStatus} = await interrupted();
+    getBasicQueryStatus.mockImplementation(lookup);
+    const next = receiptJson(await runTool(createResolveBusinessTurnTool(), followUp, nextTurn(f.request)));
+    expect((await f.store.list()).some(frame => frame.status === "failed" && frame.errorCode === code)).toBe(true);
+    expect(next.status).toBe("READY");
+  });
+
+  it("后端确认业务失败：记为失败并按原规则要求用户确认后重跑", async () => {
+    const {f, getBasicQueryStatus} = await interrupted();
+    getBasicQueryStatus.mockResolvedValue({task_id: "t", version: 2, status: "failed", error_code: "QUERY_PLAN_INVALID"});
+    const next = receiptJson(await runTool(createResolveBusinessTurnTool(), followUp, nextTurn(f.request)));
+    expect((await f.store.list()).some(frame => frame.errorCode === "QUERY_PLAN_INVALID")).toBe(true);
+    expect(next.status).toBe("NEEDS_CLARIFICATION");
+  });
+
+  it.each([
+    {label: "仍在执行", lookup: async () => ({task_id: "t", version: 1, status: "running"})},
+    {label: "回查暂不可用", lookup: () => Promise.reject(new BackendApiError(503, "unavailable"))},
+    {label: "后端尚未提供回查接口", lookup: () => Promise.reject(new BackendApiError(404, "Not Found"))},
+  ])("下一轮仍无法确认（$label）：保持 executing，并明确提示上一次查询仍在执行", async ({lookup}) => {
+    const {f, getBasicQueryStatus} = await interrupted();
+    getBasicQueryStatus.mockImplementation(lookup);
+    const next = receiptJson(await runTool(createResolveBusinessTurnTool(), followUp, nextTurn(f.request)));
+    expect(next.status).toBe("NEEDS_CLARIFICATION");
+    expect(JSON.stringify(next.issues)).toContain("pending_execution");
+    expect((await f.store.list()).filter(frame => frame.status === "executing")).toHaveLength(1);
+    expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
+  });
+
+  it("宽限期内不回查：请求可能仍在途，不据 404 判定未提交", async () => {
+    const {f, getBasicQueryStatus} = await interrupted();
+    vi.useRealTimers();
+    await runTool(createResolveBusinessTurnTool(), followUp, nextTurn(f.request));
+    expect(getBasicQueryStatus).not.toHaveBeenCalled();
+    expect((await f.store.list()).filter(frame => frame.status === "executing")).toHaveLength(1);
+  });
+
+  it("没有幂等键登记的遗留执行（请求未发出或升级前记录）记为中断，可继承重跑", async () => {
+    const f = await toolFixture();
+    Object.assign(f.backend, {getBasicQueryStatus: vi.fn()});
+    const ready = receiptJson(await runTool(createResolveBusinessTurnTool(), f.delta, f.request));
+    await f.service.beginExecution(String(ready.frameId), f.identity);
+    vi.useFakeTimers({toFake: ["Date"]});
+    vi.setSystemTime(Date.now() + 5 * 60_000);
+    const next = receiptJson(await runTool(createResolveBusinessTurnTool(), followUp, nextTurn(f.request)));
+    expect((await f.store.list()).some(frame => frame.errorCode === "EXECUTION_INTERRUPTED")).toBe(true);
+    expect(next.status).toBe("READY");
+  });
 });

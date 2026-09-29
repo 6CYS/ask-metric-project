@@ -74,6 +74,10 @@ export class NativeFrameStore implements FrameStore {
   }
 }
 
+/** 执行前登记的后端关联：请求结果丢失（超时、断连、重启）后按幂等键只读回查真实状态。 */
+export interface ExecutionLink {tool: string; idempotencyKey: string; conversationId: string}
+const executionLinkAddress = (frameId: string) => value<ExecutionLink>(NS, `link/${frameId}`);
+
 /** 非取数工具结果与 Frame 分离持久化；模型只看到引用，正文按需读取。 */
 export class NativeBusinessResultStore {
   constructor(private readonly session: Session) {}
@@ -86,5 +90,12 @@ export class NativeBusinessResultStore {
   }
   async get(ref: string) {
     return structuredClone((await this.session.getValue(value<import("@earendil-works/pi-agent-core").AgentToolResult<unknown>>(NS, `result/${ref}`), BACKGROUND_CONTEXT))?.value);
+  }
+  /** 发送前落盘，同一执行 Frame 的重试使用同一幂等键，覆盖写入内容不变。 */
+  async linkExecution(frameId: string, link: ExecutionLink): Promise<void> {
+    await this.session.setValue(executionLinkAddress(frameId), link, BACKGROUND_CONTEXT);
+  }
+  async executionLink(frameId: string): Promise<ExecutionLink | undefined> {
+    return structuredClone((await this.session.getValue(executionLinkAddress(frameId), BACKGROUND_CONTEXT))?.value);
   }
 }

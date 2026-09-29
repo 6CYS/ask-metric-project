@@ -164,7 +164,6 @@ function testConfig(dataDir: string): AgentServiceConfig {
       maxTokens: 8192,
     },
     dataDir,
-    maxSessionsPerUser: 20,
     compaction: { enabled: true, reserveTokens: 16_384, keepRecentTokens: 20_000 },
     modelRetry: { enabled: true, maxRetries: 1, baseDelayMs: 1_000 },
   };
@@ -308,6 +307,23 @@ describe("路由：协议 V3 与原生投影", () => {
     });
     expect(rejected.status).toBe(400);
     expect(((await rejected.json()) as { code?: string }).code).toBe("CLIENT_UPGRADE_REQUIRED");
+  });
+
+  it.each([
+    {frame_id: "", option_ids: ["metrics:0:code:A"]},
+    {frame_id: "f1", option_ids: []},
+    {frame_id: "f1", option_ids: [1]},
+    {frame_id: "f1", option_ids: ["metrics:0:code:A"], extra: true},
+    ["f1"],
+  ])("不合法的待确认点选整体拒绝：%j", async selection => {
+    const app = buildApp();
+    const created = await app.request("/sessions", {method:"POST", headers:{Authorization:"Bearer token-1"}});
+    const {session_id} = await created.json() as {session_id:string};
+    const response = await app.request(`/sessions/${session_id}/prompt`, {
+      method:"POST", headers:{"Content-Type":"application/json",Authorization:"Bearer token-1"},
+      body:JSON.stringify({protocol_version:3,request_id:"bad-selection",message:"对公日均存款余额当日数",clarification_selection:selection}),
+    });
+    expect(response.status).toBe(400);
   });
 
   it("已移除的强制新问题字段被拒绝，不再存在隐藏路由开关", async () => {

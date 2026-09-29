@@ -19,7 +19,6 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Runtime query and model configuration must travel with the image.
 COPY config ./config
-COPY resources ./resources
 COPY alembic-goldendb.ini ./alembic-goldendb.ini
 COPY alembic_goldendb ./alembic_goldendb
 COPY scripts ./scripts

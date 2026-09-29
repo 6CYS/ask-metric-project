@@ -23,6 +23,7 @@ const resultColumnLabels: Record<string, string> = {
 /**
  * 查询结果表只展示稳定的业务字段，不把数据源新增的物理字段直接暴露给用户。
  * 顺序也是 UI 契约：指标名称始终在最前，技术编码、单位和原始增量字段不进入表格。
+ * 整表只有一个指标时，由展示层借助 getSharedResultValue 把指标名称提到表头说明。
  */
 const visibleResultColumnOrder = [
   "metric_name",
@@ -86,14 +87,40 @@ export function isResultValueColumn(column: string) {
   return monetaryValueColumns.has(normalizeResultColumn(column))
 }
 
-/** 表格保持原单位与有效精度，仅去掉普通十进制小数末尾的零，不转 Number。 */
+/** 按字符串给整数部分加千分位，不经过 Number，避免大数或长小数丢精度；非普通十进制文本原样返回。 */
+function groupThousands(text: string) {
+  const match = /^([+-]?)(\d+)(\.\d+)?$/.exec(text)
+  if (!match) return text
+  const [, sign = "", integer = "", fraction = ""] = match
+  return `${sign}${integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${fraction}`
+}
+
+/** 表格保持原单位与有效精度，仅去掉普通十进制小数末尾的零并加千分位，不转 Number。 */
 export function formatResultTableValue(value: unknown, column: string, _row: Record<string, unknown>) {
   const normalized = normalizeResultColumn(column)
   if (!isResultValueColumn(normalized) && normalized !== "rank") return null
   if (typeof value !== "string" && typeof value !== "number") return null
   const text = String(value)
-  if (!/^[+-]?\d+\.\d+$/.test(text)) return text
-  return text.replace(/0+$/, "").replace(/\.$/, "")
+  if (!/^[+-]?\d+\.\d+$/.test(text)) return groupThousands(text)
+  return groupThousands(text.replace(/0+$/, "").replace(/\.$/, ""))
+}
+
+const numericResultColumns = new Set([...monetaryValueColumns, "rank", "change_rate"])
+
+/** 数值列右对齐并使用等宽数字，便于纵向比较大小；表头与单元格共用同一对齐。 */
+export function getResultColumnAlignClass(column: string) {
+  return numericResultColumns.has(normalizeResultColumn(column)) ? "text-right tabular-nums" : "text-left"
+}
+
+/**
+ * 所有行的某列取值完全相同且非空时返回该值，否则返回 null。
+ * 用于把整表一致的指标名称提到表头说明，避免每行重复；多指标结果仍保留该列。
+ */
+export function getSharedResultValue(rows: Record<string, unknown>[], column: string) {
+  if (!rows.length) return null
+  const first = getResultCellValue(rows[0]!, column)
+  if (typeof first !== "string" || !first.trim()) return null
+  return rows.every((row) => getResultCellValue(row, column) === first) ? first : null
 }
 
 export function getResultColumnClass(column: string) {

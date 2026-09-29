@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Protocol
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from ask_metric.infrastructure.db.models import (
@@ -87,12 +87,6 @@ class SqlAlchemyConversationRepository:
         if limit is not None:
             statement = statement.limit(limit)
         return list(self.session.execute(statement).scalars())
-
-    def count_owned(self, user_id: str) -> int:
-        statement = select(func.count()).select_from(ChatConversation).where(
-            ChatConversation.owner_user_id == user_id
-        )
-        return int(self.session.execute(statement).scalar_one())
 
     def rename_owned(
         self, conversation_id: str, user_id: str, title: str

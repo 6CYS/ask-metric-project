@@ -2,7 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from ask_metric.infrastructure.db.models import OrgTerm
-from ask_metric.infrastructure.db.session import get_app_session_factory
+from ask_metric.infrastructure.db.session import app_read_session
 
 
 class SqlAlchemyOrganizationScopeProvider:
@@ -17,8 +17,7 @@ class SqlAlchemyOrganizationScopeProvider:
         self.session_factory = session_factory
 
     def allowed_org_codes(self, org_code: str) -> set[str]:
-        session_factory = self.session_factory or get_app_session_factory()
-        with session_factory() as session:
+        with app_read_session(self.session_factory) as session:
             rows = session.execute(
                 select(OrgTerm.org_code, OrgTerm.parent_org_code).where(
                     OrgTerm.enabled.is_(True)
@@ -44,8 +43,7 @@ class SqlAlchemyOrganizationScopeProvider:
         return allowed
 
     def all_org_codes(self) -> set[str]:
-        session_factory = self.session_factory or get_app_session_factory()
-        with session_factory() as session:
+        with app_read_session(self.session_factory) as session:
             return set(session.scalars(
                 select(OrgTerm.org_code).where(OrgTerm.enabled.is_(True))
             ))

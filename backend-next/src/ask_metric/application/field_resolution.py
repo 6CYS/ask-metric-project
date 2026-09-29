@@ -1,12 +1,16 @@
-"""无模型的目录字段解析：指标唯一最高相似度达95%可直接采用；
+"""无模型的目录字段解析：指标与原句识别共用目录结构规则，不确定时交用户确认；
 机构写法剥离组织形式后缀后核心名唯一相等可直接解析，冲突仍交用户确认。"""
 
+import re
 from collections.abc import Sequence
 from datetime import date
 
 from ask_metric.application.catalog_search import rank_organizations
-from ask_metric.application.metric_candidates import metric_candidate_index
-from ask_metric.domain.metric_matching import normalize_semantic_text
+from ask_metric.application.metric_candidates import (
+    metric_candidate_index,
+    resolved_metric_codes,
+)
+from ask_metric.domain.metric_matching import _normalize_with_index, normalize_semantic_text
 from ask_metric.domain.semantics import MetricCatalogItem, OrganizationCatalogItem
 from ask_metric.domain.time_expression import parse_discrete_dates, parse_time_expression
 
@@ -20,6 +24,9 @@ _INSTITUTION_FORM_SUFFIXES = (
 )
 
 
+_FIELD_JOINERS = re.compile(r"(?:和|及|与|以及|还有|跟|的)*")
+
+
 def _organization_core(normalized: str) -> str:
     """反复剥离尾部的机构形式后缀；剥空时保留原文，避免失去区分信息。"""
     core = normalized
@@ -30,6 +37,16 @@ def _organization_core(normalized: str) -> str:
                 break
         else:
             return core
+
+
+def _covers_raw(raw: str, mentions: list[dict]) -> bool:
+    """字段原值除连接词外须全部落在识别片段内。"""
+    text, positions = _normalize_with_index(raw)
+    rest = "".join(
+        character for character, position in zip(text, positions, strict=True)
+        if not any(mention["start"] <= position < mention["end"] for mention in mentions)
+    )
+    return _FIELD_JOINERS.fullmatch(rest) is not None
 
 
 def _exact_matches(
@@ -81,13 +98,29 @@ def resolve_catalog_field(
             reason = "ambiguous"
         else:
             if entity == "metric":
+                # 与原句识别同一规则：完整名称或基础指标加口径可确定；其余只给候选。
                 index = metric_candidate_index(items)
-                result = index.resolve_candidates(raw, index.candidates(raw, limit=20))
-                if result["status"] == "resolved":
-                    code = result["value"]["codes"][0]
-                    selected[code] = index.items[code]
+                mentions = index.mentions(raw)
+                if mentions and _covers_raw(raw, mentions) and all(
+                    mention["resolution"]["status"] == "resolved" for mention in mentions
+                ):
+                    for code in resolved_metric_codes(mentions):
+                        selected[code] = index.items[code]
                     continue
-                hits = result["candidates"]
+                # 原值还有未识别的文字时，已识别的指标也只能作为候选，不能丢掉多余文字直接采用。
+                hits = [
+                    candidate for mention in mentions
+                    for candidate in (
+                        mention["resolution"].get("candidates", [])
+                        if mention["resolution"]["status"] != "resolved" else [
+                            {"value": name, "code": code} for code, name in zip(
+                                mention["resolution"]["value"]["codes"],
+                                mention["resolution"]["value"]["names"], strict=True,
+                            )
+                        ]
+                    )
+                    if candidate.get("code")
+                ]
             else:
                 result = rank_organizations(raw, items, limit=20)
                 hits = [{"value": hit.name, "code": hit.code, "score": hit.score}

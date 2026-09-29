@@ -94,10 +94,25 @@ class _Scenario:
 
 
 _BASE_PARAMS = frozenset({"metric_codes", "org_codes", "filter_orgs", "limit"})
+_RANKING_PARAMS = ("ordinal_metric_codes",)
 
 
 def _params(*extra: str) -> frozenset[str]:
     return _BASE_PARAMS | frozenset(extra)
+
+
+def _rank_order(prefix: str, direction: str) -> str:
+    """排名排序键：普通指标按场景方向，名次类指标（数值越小越靠前）反向；再按机构编码稳定排序。
+
+    每个分区只属于一个指标，两个 CASE 键中恒有一个为 NULL，互不干扰。
+    """
+    reverse = "ASC" if direction == "DESC" else "DESC"
+    ordinal = f"{prefix}metric_code IN :ordinal_metric_codes"
+    return (
+        f"CASE WHEN {ordinal} THEN {prefix}metric_value END {reverse}, "
+        f"CASE WHEN {ordinal} THEN NULL ELSE {prefix}metric_value END {direction}, "
+        f"{prefix}org_code"
+    )
 
 
 _T = QueryTemplateId
@@ -139,25 +154,31 @@ _SCENARIOS: dict[QueryTemplateId, _Scenario] = {
     _T.METRIC_PERIOD_COMPARE: _Scenario(
         _Shape.PERIOD_COMPARE, _TimeKind.NONE, _params("current_date", "base_date")
     ),
-    _T.METRIC_RANKING_LATEST_ASC: _Scenario(_Shape.RANKING, _TimeKind.NONE, _params(), "ASC"),
-    _T.METRIC_RANKING_LATEST_DESC: _Scenario(_Shape.RANKING, _TimeKind.NONE, _params(), "DESC"),
+    _T.METRIC_RANKING_LATEST_ASC: _Scenario(
+        _Shape.RANKING, _TimeKind.NONE, _params(*_RANKING_PARAMS), "ASC"
+    ),
+    _T.METRIC_RANKING_LATEST_DESC: _Scenario(
+        _Shape.RANKING, _TimeKind.NONE, _params(*_RANKING_PARAMS), "DESC"
+    ),
     _T.METRIC_RANKING_EXACT_ASC: _Scenario(
-        _Shape.RANKING, _TimeKind.EXACT, _params("stat_date"), "ASC"
+        _Shape.RANKING, _TimeKind.EXACT, _params("stat_date", *_RANKING_PARAMS), "ASC"
     ),
     _T.METRIC_RANKING_EXACT_DESC: _Scenario(
-        _Shape.RANKING, _TimeKind.EXACT, _params("stat_date"), "DESC"
+        _Shape.RANKING, _TimeKind.EXACT, _params("stat_date", *_RANKING_PARAMS), "DESC"
     ),
     _T.METRIC_RANKING_IN_RANGE_ASC: _Scenario(
-        _Shape.RANKING, _TimeKind.IN_RANGE, _params("start_date", "end_date"), "ASC"
+        _Shape.RANKING, _TimeKind.IN_RANGE,
+        _params("start_date", "end_date", *_RANKING_PARAMS), "ASC"
     ),
     _T.METRIC_RANKING_IN_RANGE_DESC: _Scenario(
-        _Shape.RANKING, _TimeKind.IN_RANGE, _params("start_date", "end_date"), "DESC"
+        _Shape.RANKING, _TimeKind.IN_RANGE,
+        _params("start_date", "end_date", *_RANKING_PARAMS), "DESC"
     ),
     _T.METRIC_RANKING_AS_OF_ASC: _Scenario(
-        _Shape.RANKING, _TimeKind.AS_OF, _params("end_date"), "ASC"
+        _Shape.RANKING, _TimeKind.AS_OF, _params("end_date", *_RANKING_PARAMS), "ASC"
     ),
     _T.METRIC_RANKING_AS_OF_DESC: _Scenario(
-        _Shape.RANKING, _TimeKind.AS_OF, _params("end_date"), "DESC"
+        _Shape.RANKING, _TimeKind.AS_OF, _params("end_date", *_RANKING_PARAMS), "DESC"
     ),
 }
 
@@ -459,7 +480,7 @@ class _MySqlAdapter(_DialectAdapter):
             candidates = candidates.where(predicate, dialect=self.read_dialect)
         ranked_values = self._parse(
             "SELECT mv.*, ROW_NUMBER() OVER (PARTITION BY mv.metric_code "
-            f"ORDER BY mv.metric_value {scenario.direction}, mv.org_code) AS `rank`, "
+            f"ORDER BY {_rank_order('mv.', scenario.direction)}) AS `rank`, "
             "COUNT(*) OVER (PARTITION BY mv.metric_code) AS rank_population, "
             "MAX(CASE WHEN mv.fact_count > 1 THEN 1 ELSE 0 END) "
             "OVER (PARTITION BY mv.metric_code) AS rank_data_conflict "
@@ -766,8 +787,7 @@ class _InceptorAdapter(_DialectAdapter):
         # 再按指标分区排名；TopN 用 WHERE rank <= :limit。
         ranked = self._parse(
             "SELECT f.*, ROW_NUMBER() OVER ("
-            f"PARTITION BY f.metric_code ORDER BY f.metric_value "
-            f"{scenario.direction}, f.org_code"
+            f"PARTITION BY f.metric_code ORDER BY {_rank_order('f.', scenario.direction)}"
             ") AS `rank`, COUNT(*) OVER (PARTITION BY f.metric_code) AS rank_population, "
             "MAX(CASE WHEN f.fact_count > 1 THEN 1 ELSE 0 END) "
             "OVER (PARTITION BY f.metric_code) AS rank_data_conflict "

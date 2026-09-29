@@ -7,9 +7,12 @@
  * 观察（SSE）使用独立的 lane.watch，与驱动 Context 分离，浏览器断线不中止执行。
  */
 import { NativeFrameStore, NativeBusinessResultStore } from "./business-context/store.js";
-import { modelCapabilitySchemas, modelFrame } from "./business-context/modelView.js";
+import { frameClarificationOptions, modelCapabilitySchemas, modelFrame, modelHistoryIndex } from "./business-context/modelView.js";
+import { renderClarificationOptions } from "./business-context/clarificationOptions.js";
 import { metricMentions } from "./business-context/metricMentions.js";
 import { pendingBusinessAction, deterministicBusinessAction } from "./business-context/continuation.js";
+import {businessKey} from "./business-context/service.js";
+import {ACTION_REQUIRED, CONVERSATION_REPLY, MAX_ACTION_REPAIRS, currentTurnMessages, hasTurnAction, conversationAnswer} from "./tools/turnContract.js";
 import { createHash } from "node:crypto";
 import { legacyToolsFor } from "./tools/index.js";
 import { auditToolCall, withToolExecutionAudit } from "./toolAudit.js";
@@ -30,6 +33,7 @@ import {
   type JsonlSessionMetadata,
   type LaneSnapshot,
   type OpenOperation,
+  type OperationResultRecord,
   type Session,
   type WatchHandle,
 } from "@earendil-works/pi-agent-core";
@@ -55,6 +59,12 @@ import { buildBusinessSystemPrompt } from "./prompts/businessSystemPrompt.js";
 /** 原生应用 values 的命名空间；此命名空间只存归属与请求关联；业务状态使用独立 business 命名空间 */
 const NS = "askmetric";
 const MAX_TOOL_CALLS_PER_OPERATION = 24;
+/**
+ * 常驻内存治理：会话数量不设上限（历史只是磁盘文件），只回收内存中的 harness 与文件句柄。
+ * 空闲超时或超过常驻上限时，从最久未用的空闲会话开始关闭；运行中、接纳中的会话不回收。
+ */
+const DEFAULT_RESIDENCY = {idleMs: 30 * 60_000, maxResident: 200, sweepIntervalMs: 60_000};
+const TITLE_CACHE_LIMIT = 5_000;
 const ownerValue = value<string>(NS, "owner");
 const conversationValue = value<string>(NS, "conversationId");
 
@@ -115,10 +125,14 @@ export interface PromptInput {
   message: string;
   clarification_target?: { task_id: string; version: number; clarification_id: string };
   selected_answers?: Record<string, unknown>;
+  /** 点选待确认清单的选项；系统按选项标识应用，模型不可见 */
+  clarification_selection?: { frame_id: string; option_ids: string[] };
 }
 
 export type AdmitOutcome =
-  | { ok: true; operationId: string; context: Context; request: AskMetricRequestContext }
+  | { ok: true; operationId: string; context: Context; request: AskMetricRequestContext;
+      /** 同一 request_id 的操作已结束：重试只回放原终态，不再接纳或驱动 */
+      completed?: OperationResultRecord }
   | { ok: false; code: "SESSION_BUSY" | "INVALID_MESSAGE" | "REQUEST_CONFLICT" | "SESSION_CLOSED" | "LEGACY_QUERY_REQUIRES_NEW_TURN"; message: string };
 
 export type DriveOutcomeResult =
@@ -130,18 +144,36 @@ export class HarnessHost {
   private readonly live = new Map<string, Promise<HostedSession>>();
   /** 会话级授权状态：撤权后该会话的后续模型请求（含压缩）在 provider 边界被拒 */
   private readonly authorization = new Map<string, { authorized: boolean }>();
+  /** 同会话接纳串行化：请求关联的“读→写→accept”跨多个 await，并发时会互相覆盖 */
+  private readonly admissions = new Map<string, Promise<void>>();
+  /** 已打开会话的最近使用时间；回收只看这里，列表读取不延长常驻 */
+  private readonly lastUsed = new Map<string, number>();
+  /** 列表读取标题时的临时打开；正式打开须等其释放，避免复用即将被关闭的 Session */
+  private readonly peeks = new Map<string, Promise<unknown>>();
+  private readonly titles = new Map<string, string | undefined>();
+  private readonly residency: typeof DEFAULT_RESIDENCY;
+  private readonly sweeper: ReturnType<typeof setInterval>;
 
   constructor(
     private readonly config: AgentServiceConfig,
     private readonly createModels: (authorize: () => boolean) => ModelBundle,
     private readonly store: NativeSessionStore,
     private readonly tools: AgentHarnessTool<AskMetricRequestContext>[],
-    private readonly options: { retry?: RetryPolicy; skills?: Skill[] } = {},
-  ) {}
+    private readonly options: { retry?: RetryPolicy; skills?: Skill[];
+      residency?: Partial<typeof DEFAULT_RESIDENCY> } = {},
+  ) {
+    this.residency = {...DEFAULT_RESIDENCY, ...options.residency};
+    this.sweeper = setInterval(() => {
+      void this.evictIdle().catch((error: unknown) => console.error(JSON.stringify({event: "session_eviction_failed",
+        reason: error instanceof Error ? error.message : String(error)})));
+    }, this.residency.sweepIntervalMs);
+    this.sweeper.unref();
+  }
 
   async createSession(actor: BackendUser): Promise<HostedSession> {
     const session = await this.store.create(actor.id);
     const hosted = await this.attach(actor, session);
+    this.touch(hosted.sessionId);
     // 归属在创建时落定；缺 owner 的半创建会话不可见、不可运行
     await session.setValue(ownerValue, actor.id, BACKGROUND_CONTEXT);
     return hosted;
@@ -149,13 +181,14 @@ export class HarnessHost {
 
   /** 打开当前身份名下的会话；不存在或不属于该用户都表现为不存在 */
   async openSession(actor: BackendUser, sessionId: string): Promise<HostedSession | undefined> {
-    const pending = this.live.get(sessionId);
-    if (pending) {
-      const hosted = await pending;
-      return hosted.ownerUserId === actor.id ? hosted : undefined;
-    }
+    const known = await this.liveFor(actor, sessionId);
+    if (known !== null) return known;
     const metadata = await this.store.findMetadata(actor.id, sessionId);
     if (!metadata) return undefined;
+    await this.peeks.get(sessionId)?.catch(() => undefined);
+    // 上面的等待期间可能已有并发请求开始打开；复查后同步登记，同一 Session 只挂一个 harness。
+    const raced = await this.liveFor(actor, sessionId);
+    if (raced !== null) return raced;
     const opening = this.store
       .open(actor.id, metadata)
       .then((session) => this.attach(actor, session))
@@ -166,12 +199,79 @@ export class HarnessHost {
       });
     this.live.set(sessionId, opening);
     try {
-      return await opening;
+      const hosted = await opening;
+      this.touch(sessionId);
+      return hosted;
     } catch (error) {
       this.live.delete(sessionId);
       if (error instanceof Error && error.message === "SESSION_OWNER_MISMATCH") return undefined;
       throw error;
     }
+  }
+
+  /** 已在打开或已打开：返回归属校验后的结果；null 表示尚未打开 */
+  private async liveFor(actor: BackendUser, sessionId: string): Promise<HostedSession | undefined | null> {
+    const pending = this.live.get(sessionId);
+    if (!pending) return null;
+    const hosted = await pending;
+    if (hosted.ownerUserId !== actor.id) return undefined;
+    this.touch(sessionId);
+    return hosted;
+  }
+
+  private touch(sessionId: string): void {
+    if (this.live.has(sessionId)) this.lastUsed.set(sessionId, Date.now());
+  }
+
+  /**
+   * 回收空闲会话的内存句柄（不删除历史）。按最久未用排序：超时的一律回收，
+   * 未超时的仅在超过常驻上限时回收；运行中、接纳中或检查期间被再次使用的跳过。
+   */
+  async evictIdle(now = Date.now()): Promise<string[]> {
+    const byAge = [...this.lastUsed.entries()].sort((a, b) => a[1] - b[1]);
+    let resident = byAge.length;
+    const evicted: string[] = [];
+    for (const [sessionId, usedAt] of byAge) {
+      if (now - usedAt <= this.residency.idleMs && resident <= this.residency.maxResident) break;
+      if (this.admissions.has(sessionId)) continue;
+      const hosted = await this.live.get(sessionId)?.catch(() => undefined);
+      if (!hosted) { this.lastUsed.delete(sessionId); continue; }
+      const execution = await hosted.lane.inspectExecution(BACKGROUND_CONTEXT);
+      if (execution.current || this.admissions.has(sessionId) || this.lastUsed.get(sessionId) !== usedAt) continue;
+      await this.closeSession(sessionId);
+      resident -= 1;
+      evicted.push(sessionId);
+    }
+    return evicted;
+  }
+
+  /**
+   * 列表标题：已打开的会话直接读取；未打开的临时打开、读完即释放，不因浏览列表常驻内存。
+   * 名称写入会更新文件修改时间，缓存按 id+修改时间失效。
+   */
+  async sessionTitle(ownerUserId: string, metadata: JsonlSessionMetadata): Promise<string | undefined> {
+    const cacheKey = `${metadata.id}:${metadata.modifiedAt}`;
+    if (this.titles.has(cacheKey)) return this.titles.get(cacheKey);
+    const pending = this.live.get(metadata.id);
+    let title: string | undefined;
+    if (pending) {
+      title = await (await pending.catch(() => undefined))?.session.getName(BACKGROUND_CONTEXT);
+    } else {
+      await this.peeks.get(metadata.id)?.catch(() => undefined);
+      const peek = (async () => {
+        const session = await this.store.open(ownerUserId, metadata);
+        try {
+          return await session.getName(BACKGROUND_CONTEXT);
+        } finally {
+          if (!this.live.has(metadata.id)) await this.store.release(ownerUserId, metadata.id);
+        }
+      })();
+      this.peeks.set(metadata.id, peek);
+      try { title = await peek; } finally { if (this.peeks.get(metadata.id) === peek) this.peeks.delete(metadata.id); }
+    }
+    if (this.titles.size >= TITLE_CACHE_LIMIT) this.titles.clear();
+    this.titles.set(cacheKey, title);
+    return title;
   }
 
   /** 已创建会话的打开结果登记；调用方负责 this.live 去重，这里不再查表（避免自引用死锁） */
@@ -252,17 +352,14 @@ export class HarnessHost {
     auditToolCall(request, event.toolCallId, action.name, "admitted", action.arguments);
     const result = await tool.execute(event.toolCallId, action.arguments as never, () => {}, request, invocationOf(event.toolCallId, request), context);
     auditToolCall(request, event.toolCallId, action.name, "executed", action.arguments);
-    // 业务回执原文保持在首块（调用方按 content[0] 解析 JSON），只补一句下一步说明，
-    // 替代原 READY 回执的 next_action 提示。
-    const finished = action.name === "execute_business_frame" ? "条件已全部确定，查询已执行" : "历史结果已回读";
-    return {content: [...result.content, {type: "text" as const,
-      text: `${finished}（frameId: ${details.frame_id}）。请直接依据本回执组织回答，不要再向用户确认，也不要重复取数。`}],
+    return {content: landedReceipt(result.content, action.name, details.frame_id, result.details),
       details: result.details as JsonValue};
   }
 
   /** /no_think 等提供方兼容只作用于发送副本，不改用户原文与原生历史 */
   private registerHooks(harness: AgentHarness<AskMetricRequestContext>, lane: AgentLane): void {
     const registeredNames = new Set([...this.tools, ...legacyToolsFor(this.tools)].map(tool => tool.name));
+    const turnContract = registeredNames.has(CONVERSATION_REPLY) && registeredNames.has(ACTION_REQUIRED);
     // 原生 usage 事件同时覆盖业务调用、自动压缩和分支摘要；after_response 不覆盖原生摘要。
     harness.events.on("usage", (event, context) => {
       if (event.row.adjustment) return;
@@ -298,7 +395,7 @@ export class HarnessHost {
         payload = {...payload, tools: payload.tools.filter(raw => {
           const definition = raw as {name?: string; function?: {name?: string}};
           const name = definition.function?.name ?? definition.name;
-          if (name === EVIDENCE_REPAIR_TOOL || name === "answer_present" && this.tools.some(tool => tool.name === "resolve_business_turn")) return false;
+          if (name === ACTION_REQUIRED || name === EVIDENCE_REPAIR_TOOL || name === "answer_present" && this.tools.some(tool => tool.name === "resolve_business_turn")) return false;
           // 已持久化的旧操作沿用原活跃集恢复；新请求在接纳前切换为合并入口。
           if (["metric_read", "session_history_read"].includes(name ?? "")) return !activeNames.includes("read");
           if (["metric_catalog_search", "org_catalog_search", "metric_catalog_overview"].includes(name ?? "")) return !activeNames.includes("catalog");
@@ -306,6 +403,17 @@ export class HarnessHost {
         })};
       }
       const messages = await currentLaneMessages(lane, context);
+      const current = currentTurnMessages(messages);
+      const contractActive = turnContract && (await lane.getActiveTools(context)).includes(CONVERSATION_REPLY);
+      if (contractActive && conversationAnswer(current) !== undefined) {
+        const {tools: _tools, ...answerPayload} = payload;
+        return {payload: {...answerPayload, tool_choice: "none"}};
+      }
+      if (contractActive && hasTurnAction(current) && Array.isArray(payload.tools)) {
+        // 已进入业务处理后继续用真实回执回答，不允许再改报“本轮无需动作”。
+        payload = {...payload, tools: payload.tools.filter(raw =>
+          (raw as {function?: {name?: string}}).function?.name !== CONVERSATION_REPLY)};
+      }
       const lastResolution = [...messages].reverse().find(message => message.role === "toolResult" && message.toolName === "resolve_business_turn");
       if (lastResolution?.role === "toolResult"
         && (lastResolution.details as {status?: string} | undefined)?.status === "NEEDS_CLARIFICATION") {
@@ -318,6 +426,10 @@ export class HarnessHost {
       if (action && Array.isArray(payload.tools)
         && payload.tools.some(raw => (raw as {function?: {name?: string}}).function?.name === action.name)) {
         return {payload: {...payload, tool_choice: {type: "function", function: {name: action.name}}}};
+      }
+      if (contractActive && !hasTurnAction(current) && Array.isArray(payload.tools) && payload.tools.length) {
+        // 与是否重复提及指标无关：Pi 选择实际业务动作或显式普通回答，纯文字不能冒充动作。
+        return {payload: {...payload, tool_choice: "required"}};
       }
       // 已命中正式指标的本轮先取得业务工具回执，避免模型只输出长篇计划直至请求超时。
       // 不指定具体能力：查询、目录解释和历史指代仍由 Pi 在可用工具中选择。
@@ -339,6 +451,12 @@ export class HarnessHost {
       const decide = async () => {
         // 从原生记录统计本轮预算，恢复后不重置；业务状态仍由后端管理。
         const budgetMessages = await currentLaneMessages(lane, context);
+        if (turnContract && conversationAnswer(currentTurnMessages(budgetMessages)) !== undefined) {
+          return {block: {reason: "本轮已选择无需业务操作的普通回答，不能追加业务动作。", terminate: true}};
+        }
+        if (turnContract && event.toolName === CONVERSATION_REPLY && hasTurnAction(currentTurnMessages(budgetMessages))) {
+          return {block: {reason: "本轮已有业务动作，请依据实际回执回答，不能改报无需业务操作。", terminate: false}};
+        }
         let turnStart = budgetMessages.length - 1;
         while (turnStart >= 0 && budgetMessages[turnStart]?.role !== "user") turnStart -= 1;
         const toolCount = budgetMessages.slice(turnStart + 1).filter(message => message.role === "toolResult").length;
@@ -396,6 +514,11 @@ export class HarnessHost {
       while (start >= 0 && messages[start]?.role !== "user") start -= 1;
       const current = messages.slice(start + 1);
       const receipts = current.filter(message => message.role === "toolResult");
+      const plainAnswer = turnContract ? conversationAnswer(current) : undefined;
+      if (plainAnswer !== undefined) {
+        // 普通回答选择没有业务副作用；网关忽略 none 也不能在其后插入取数或改焦点。
+        return {message: {...event.message, content: [{type: "text" as const, text: plainAnswer}], stopReason: "stop" as const}};
+      }
       let inputFailures = 0;
       for (const receipt of [...receipts].reverse()) {
         const status = (receipt.details as {status?: string} | undefined)?.status;
@@ -410,7 +533,18 @@ export class HarnessHost {
           text: "本轮参数解析连续失败，已停止重复尝试；原查询条件和待确认候选已保留，未执行新的业务查询。"}], stopReason: "stop" as const}};
       }
       // 同一工具重复相同失败才终止；不同错误表示纠错仍在推进，总调用预算仍生效。
+      const failedArguments = (receipt: (typeof receipts)[number]) => {
+        for (const message of current.slice(0, current.indexOf(receipt)).reverse()) {
+          if (message.role !== "assistant") continue;
+          const call = message.content.find(block => block.type === "toolCall"
+            && block.id === receipt.toolCallId && block.name === receipt.toolName);
+          if (call?.type === "toolCall") return businessKey(call.arguments);
+        }
+        return undefined;
+      };
       if (receipts.length >= 2 && receipts.at(-1)?.toolName === receipts.at(-2)?.toolName
+        && failedArguments(receipts.at(-1)!) !== undefined
+        && failedArguments(receipts.at(-1)!) === failedArguments(receipts.at(-2)!)
         && JSON.stringify(receipts.at(-1)?.content) === JSON.stringify(receipts.at(-2)?.content)
         && receipts.slice(-2).filter(message => message.isError ||
         (message.details as {retryable?: boolean} | undefined)?.retryable ||
@@ -419,6 +553,21 @@ export class HarnessHost {
       }
       // 后续工具调用保留，不能用中间回执替换 Pi 尚未完成的业务步骤。
       const hasCalls = event.message.content.some(block => block.type === "toolCall");
+      const calls = event.message.content.filter(block => block.type === "toolCall");
+      const conflictingAnswer = calls.length > 1 && calls.some(call => call.name === CONVERSATION_REPLY);
+      if (turnContract && (!hasCalls || conflictingAnswer) && !hasTurnAction(current)
+        && (await lane.getActiveTools(context)).includes(CONVERSATION_REPLY)) {
+        const attempts = receipts.filter(receipt => receipt.toolName === ACTION_REQUIRED).length;
+        if (attempts >= MAX_ACTION_REPAIRS) {
+          return {message: {...event.message, content: [{type: "text" as const,
+            text: "本轮未能发起所需操作，原业务条件保持不变，未执行新的查询。请重试本轮请求。"}],
+            stopReason: "error" as const, errorMessage: "BUSINESS_ACTION_NOT_STARTED"}};
+        }
+        // 网关忽略 required 时仅补协议纠错，不从文字猜工具参数；次数来自原生记录，恢复不归零。
+        const call = {type: "toolCall" as const, id: `action-required-${attempts + 1}`, name: ACTION_REQUIRED, arguments: {}};
+        auditToolCall(request, call.id, call.name, "proposed", call.arguments);
+        return {message: {...event.message, content: [call], stopReason: "toolUse" as const}};
+      }
       // 正常回合在预算边界交付未完成正文；before_tool 同时兜住同一批并行调用。
       if (hasCalls && receipts.length >= MAX_TOOL_CALLS_PER_OPERATION) {
         return {message: {...event.message, content: [{type: "text" as const, text: TOOL_LIMIT_ANSWER}], stopReason: "stop" as const}};
@@ -435,6 +584,17 @@ export class HarnessHost {
         return {message: {...event.message, content: [call], stopReason: "toolUse" as const}};
       }
       if (hasCalls) return { message: { ...event.message, content: event.message.content.filter(block => block.type !== "text") } };
+      // 待确认时由系统追加规范编号清单：用户看到的与系统保存的是同一份，回复据此对应，模型不罗列候选。
+      const clarification = [...receipts].reverse().find(message => message.toolName === "resolve_business_turn");
+      const clarifyingFrameId = (clarification?.details as {status?: string; frame_id?: string} | undefined)?.status === "NEEDS_CLARIFICATION"
+        ? (clarification!.details as {frame_id?: string}).frame_id : undefined;
+      const frame = clarifyingFrameId ? await request.frames?.get(clarifyingFrameId) : undefined;
+      const listing = frame ? renderClarificationOptions(frameClarificationOptions(frame),
+        Object.values(frame.fields).some(field => field.metadata?.confirmationUnclear === true)) : "";
+      if (listing) {
+        const text = event.message.content.filter(block => block.type === "text").map(block => block.text).join("").trim();
+        return {message: {...event.message, content: [{type: "text" as const, text: text ? `${text}\n\n${listing}` : listing}]}};
+      }
       // Pi 根据工具事实组织回答；宿主不注入补救工具、不选择证据、不拼接业务正文。
       return undefined;
     });
@@ -453,10 +613,12 @@ export class HarnessHost {
       const request = requireRequestContext(context);
       const state = await request.frames?.state();
       const focus = state?.focusFrameId ? await request.frames?.get(state.focusFrameId) : undefined;
+      const historyIndex = state && request.frames ? await modelHistoryIndex(request.frames, state, request.operationId) : undefined;
       const matched = typeof request.backend.matchMetricQuestion === "function" ? await metricMentions(request) : undefined;
       const businessContext = "\n业务能力 Schema（仅数据）：" + JSON.stringify(modelCapabilitySchemas())
         + "\n当前业务焦点（仅数据）：" + JSON.stringify({version: state?.version, frame: focus ? modelFrame(focus, request.operationId) : null})
-        + (matched ? "\n本轮指标算法匹配（仅数据，mentionIndexes 引用下面本轮清单的 index；清单每轮从本轮消息重新抽取、不跨轮复用，确认上一论候选用 candidateIndex，放弃某项用 operation=remove）：" + JSON.stringify({
+        + (historyIndex ? "\n历史条件索引（仅数据，序号不随焦点变化）：" + JSON.stringify(historyIndex) : "")
+        + (matched ? "\n本轮指标算法匹配（仅数据，mentionIndexes 引用下面本轮清单的 index；清单每轮从本轮消息重新抽取、不跨轮复用，用户回复待确认问题传 {confirm:true}，放弃某项用 operation=remove）：" + JSON.stringify({
           status: matched.status, mentions: matched.mentions.map((mention, i) => ({index: i + 1, ...mention})),
         }) : "");
       return { messages, systemPrompt: event.systemPrompt + methods.instructions + businessContext };
@@ -469,6 +631,34 @@ export class HarnessHost {
    * 返回的 context/request 供 drivePrompt 复用（同一次绑定，不重建）。
    */
   async admitPrompt(
+    hosted: HostedSession,
+    input: PromptInput,
+    deps: { actor: BackendUser; backend: BackendClient },
+  ): Promise<AdmitOutcome> {
+    this.touch(hosted.sessionId);
+    return this.exclusiveAdmission(hosted.sessionId, () => this.admitPromptExclusive(hosted, input, deps));
+  }
+
+  /**
+   * 单写实例内按会话串行接纳（Node 单线程，进程内 Promise 链即可互斥）。
+   * 只覆盖接纳阶段，驱动与观察不在锁内，不阻塞同会话的读取和停止。
+   */
+  private async exclusiveAdmission<T>(sessionId: string, run: () => Promise<T>): Promise<T> {
+    const previous = this.admissions.get(sessionId) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>(resolve => { release = resolve; });
+    const tail = previous.then(() => current);
+    this.admissions.set(sessionId, tail);
+    await previous;
+    try {
+      return await run();
+    } finally {
+      release();
+      if (this.admissions.get(sessionId) === tail) this.admissions.delete(sessionId);
+    }
+  }
+
+  private async admitPromptExclusive(
     hosted: HostedSession,
     input: PromptInput,
     deps: { actor: BackendUser; backend: BackendClient },
@@ -498,8 +688,15 @@ export class HarnessHost {
       timings: { startedAt: performance.now(), model_ms: [], tool_ms: [] },
       ...(input.clarification_target ? { clarificationTarget: input.clarification_target } : {}),
       ...(input.selected_answers ? { selectedAnswers: input.selected_answers } : {}),
+      ...(input.clarification_selection ? { clarificationSelection: input.clarification_selection } : {}),
     };
     const context = withRequestContext(requestContext, BACKGROUND_CONTEXT);
+    if (existing) {
+      // 原生接纳只拒绝“当前有活动操作”，不识别已结束的同一 operation；
+      // 结束后再重试若继续 accept，会追加第二条相同的用户消息并重跑模型与取数。
+      const completed = await hosted.lane.getResult(operationId, context);
+      if (completed) return { ok: true, operationId, context, request: requestContext, completed };
+    }
     if (!existing) {
       await hosted.session.setValue(
         requestValue(input.request_id),
@@ -546,10 +743,13 @@ export class HarnessHost {
 
   /** 驱动已接纳的 operation；原生结果提交后调用方才允许发送终态 */
   async drivePrompt(hosted: HostedSession, admitted: Extract<AdmitOutcome, { ok: true }>): Promise<DriveOutcomeResult> {
+    if (admitted.completed) {
+      return { ok: true, operationId: admitted.operationId, outcome: { kind: "settled", outcome: admitted.completed } };
+    }
     const driven = await hosted.lane.drive(
       { operationId: admitted.operationId, waitForRetry: true, pollDeferred: false },
       admitted.context,
-    );
+    ).finally(() => this.touch(hosted.sessionId));
     const timings = admitted.request.timings;
     if (timings) {
       const stored = await hosted.session.getValue(requestValue(admitted.request.requestId), BACKGROUND_CONTEXT);
@@ -653,6 +853,7 @@ export class HarnessHost {
         originalMessage: association.value.originalMessage,
         ...(association.value.input?.clarification_target ? { clarificationTarget: association.value.input.clarification_target } : {}),
         ...(association.value.input?.selected_answers ? { selectedAnswers: association.value.input.selected_answers } : {}),
+        ...(association.value.input?.clarification_selection ? { clarificationSelection: association.value.input.clarification_selection } : {}),
         promptFingerprint: association.value.fingerprint,
         sessionId: hosted.sessionId,
         requestId: requestRef.value,
@@ -706,6 +907,7 @@ export class HarnessHost {
   async closeSession(sessionId: string): Promise<void> {
     const pending = this.live.get(sessionId);
     this.live.delete(sessionId);
+    this.lastUsed.delete(sessionId);
     this.authorization.delete(sessionId);
     if (!pending) return;
     const hosted = await pending.catch(() => undefined);
@@ -715,9 +917,39 @@ export class HarnessHost {
   }
 
   async close(): Promise<void> {
+    clearInterval(this.sweeper);
     const ids = [...this.live.keys()];
     await Promise.all(ids.map((id) => this.closeSession(id)));
   }
+}
+
+/**
+ * 就地落地后的回执：业务回执保持单个 JSON 块（历史投影、证据和续跑都按 content[0] 解析），
+ * 下一步说明与原 READY frameId 写入同一 JSON，不再追加第二个文本块。
+ * 说明随执行结果变化：失败时不能告诉模型“查询已执行、不要重复取数”。
+ */
+export function landedReceipt(content: Array<TextContent | ImageContent>, actionName: string, readyFrameId: string,
+  rawDetails: unknown): Array<TextContent | ImageContent> {
+  const details = (rawDetails ?? {}) as {status?: unknown; error_code?: unknown; retryable?: unknown};
+  const executed = actionName === "execute_business_frame";
+  const succeeded = String(details.status ?? "").toLowerCase() === "succeeded";
+  const errorCode = typeof details.error_code === "string" ? details.error_code : undefined;
+  const nextStep = succeeded
+    ? `${executed ? "条件已全部确定，查询已执行" : "历史结果已回读"}。请直接依据本回执组织回答，不要再向用户确认，也不要重复取数。`
+    : details.retryable === true
+      ? `${executed ? "查询" : "历史结果回读"}未完成${errorCode ? `（${errorCode}）` : ""}。可再次调用 ${actionName}（frameId: ${readyFrameId}）重试，同一条件不会重复取数；不要改用其他工具绕过。`
+      : `${executed ? "查询" : "历史结果回读"}未成功${errorCode ? `（${errorCode}）` : ""}。请依据回执如实告知用户，不要声称已取得数据；如需重试，应重新解析条件后发起新查询。`;
+  const [first, ...rest] = content;
+  let receipt: Record<string, unknown>;
+  try {
+    const parsed: unknown = first?.type === "text" ? JSON.parse(first.text) : undefined;
+    receipt = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown>
+      : {message: first?.type === "text" ? first.text : undefined};
+  } catch {
+    receipt = {message: first?.type === "text" ? first.text : undefined};
+  }
+  return [{type: "text", text: JSON.stringify({...receipt, ready_frame_id: readyFrameId, next_step: nextStep})},
+    ...rest.filter(block => block.type !== "text")];
 }
 
 /** 同一逻辑工具调用的稳定身份：就地落地复用外层 toolCallId，不产生第二次调用记录 */

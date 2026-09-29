@@ -21,15 +21,26 @@ NEEDS_CLARIFICATION 不调用业务数据查询，由 Pi 只针对 issues 和 ca
 
 | 工具 | 契约 |
 | --- | --- |
-| resolve_business_turn | capabilityHint、baseReference、fieldChanges、executionMode；身份和会话标识由宿主绑定 |
+| resolve_business_turn | capabilityHint、baseReference、fieldChanges、executionMode；模型须显式选择 null/current/历史对象；身份和会话标识由宿主绑定 |
 | business_context_read | 读取 Schema、焦点、分页历史和单个 Frame，不读取整张历史结果表 |
 | execute_business_frame | 仅接受本轮 READY 的 frameId，服务端从 Frame 构造标准参数 |
-| read_business_result | frameId、offset、limit；复查当前权限后读取已有快照，不重新执行指标查询 |
+| read_business_result | frameId、offset、limit、setFocus；复查当前权限后读取已有快照，默认回到该业务焦点，不重新执行指标查询 |
 | catalog / read | 目录浏览、旧任务结果兼容读取与 Pi 原生历史查阅 |
+| respond_without_business_action | 仅普通对话/通用解释；无业务副作用，不创建 Frame 或业务成功凭据 |
 | Pi 最终回答 | 依据工具事实直接组织正文；不额外调用 answer_present |
 
 三个 Capability：`metric_query`（取值、区间序列、排名）、`data_availability`（指标/日期覆盖）、`metric_calculate`（受控表达式）。
 知识读取和能力边界说明仍由原工具提供，知识不改变工具权限。
+
+### 首次动作契约
+
+新操作尚未取得本轮业务回执时，宿主通过模型请求的 `tool_choice=required` 要求 Pi 实际选择业务工具，或明确选择 `respond_without_business_action`。该约束不依赖原文是否重复提到指标，不解析“第一笔”“换机构”等关键词；语义与来源选择仍归 Pi。单纯技能读取、协议纠错和参数校验错误不能解除该约束。
+
+网关忽略 `required`、模型只返回文字，或同条响应混用普通回答和业务调用时，宿主将该无效响应转为内部 `business_action_required` 工具回执，继续同一个原生 Pi 循环。内部工具不在发给模型的可调用列表中，不访问后端、不决定业务参数、不追加用户消息。最多两次纠错，次数来自本轮原生记录；仍未形成有效动作则以 `BUSINESS_ACTION_NOT_STARTED` 结束为失败，既有条件和焦点不变。运行接口的 `ok` 只表示驱动调用成功，原生 operation 的 `outcome.status=failed` 才表示此次操作失败，不能将两者混用。
+
+普通回答选择成功后不再允许业务动作：请求关闭工具，宿主也阻止网关额外生成的查询，交付该工具保存的回答。已有业务回执后不能再改报“本轮无需动作”；后续正文仍按业务事实生成。缺项澄清、READY 执行接续、取消、传输错误和原生压缩保持原有边界。旧在途操作只有自身活跃工具包含此契约时才启用，新请求使用新工具集。
+
+该契约保证纯文字不被当作已执行动作；任意自然语言的理解仍依赖模型，稳定性须结合实际调用、来源/条件、取数次数和最终状态做重复验证，不能仅检查回答文本或 HTTP 成功。
 
 通用算法位于 `agent-service/src/business-context/core.ts`；能力字段及交叉约束位于 `capabilities.ts`，
 字段解析位于 `resolvers.ts`，参数映射位于 `adapters.ts`。新增字段注册 Schema/Resolver；新增业务工具注册适配器，
@@ -41,12 +52,15 @@ NEEDS_CLARIFICATION 不调用业务数据查询，由 Pi 只针对 issues 和 ca
 
 此轮提示词调整后，223 项自动测试、类型检查与构建通过。基础提示词及加载正式业务知识目录的两组真实模型四轮回归均通过：各轮一次解析后执行/回读，没有重填历史日期的参数错误；取数各一次，历史回读不重查。测试使用合成后端，加载目录不代表模型逐项读取了业务知识正文。详见 [提示词与上下文验证记录](verification/prompt-context-2026-09-22.json)。
 
-- 指标由后端 `/api/v1/business-context/metric-mentions` 直接匹配宿主绑定的完整用户原文，每轮只解析一次。Pi 新指标传 `{fromQuestion:true}`；涉及排除或替换时用从 1 开始的 `mentionIndexes` 引用算法片段，不自行切分或纠正名称。`mentionIndexes` 只引用本轮注入清单的 index：清单每轮从本轮消息重新抽取，不跨轮复用；确认上一论候选用 `{candidateIndex}`；用户明确放弃某项指标用 `operation=remove`。机构仍提交原文名称；候选确认通过 `resolve-field` 重新核对目录。
-- 指标唯一完整名称/别名命中，或完整片段算法相似度的唯一最高分达到 95%，返回 resolved 并直接采用。低分、不同编码并列最高、同名/同别名多项仍需澄清，不能截断后当唯一命中；机构沿用原精确匹配与候选确认规则。
+- 指标由后端 `/api/v1/business-context/metric-mentions` 直接匹配宿主绑定的完整用户原文，每轮只解析一次。Pi 新指标传 `{fromQuestion:true}`；涉及排除或替换时用从 1 开始的 `mentionIndexes` 引用算法片段，不自行切分或纠正名称。`mentionIndexes` 只引用本轮注入清单的 index：清单每轮从本轮消息重新抽取，不跨轮复用；用户回复待确认问题时传 `{confirm:true}`（见下文候选确认）；用户明确放弃某项指标用 `operation=remove`。机构仍提交原文名称；候选确认通过 `resolve-field` 重新核对目录。
+- 指标按“基础指标 + 口径”结构识别：完整名称/别名、基础指标加口径的精确组合或同音错字唯一命中时 resolved；缺口径、口径没说完、口径不存在、基础指标不确定时澄清，不替用户默认口径。同一基础指标下多个口径共用组号，候选只展示一次，确认一次即按同一源指标确定整组；只确认了基础指标时，Agent 按目录重新解析该基础指标并继续追问口径。机构沿用原精确匹配与候选确认规则。
 - 指标字段按 mention 逐条持久化解析快照（`metadata.mentionResolutions` + `questionText`）。跨轮候选确认直接拼装快照：已 resolved 的 mention 沿用可信编码，被确认条目取候选编码，不再对已确定项重跑目录复核；仍有未决项时保持澄清且候选只暴露未决项。旧 Frame 无快照时回退 pendingRawValues 复核路径。模型视图的 `lockedMentions` 列出已锁定项名称。
 - `operation=remove` 是用户明确放弃某项指标的显式通道：`rawValue` 传 `{mentionIndexes:[...]}`（引用上一论 Frame 的 mention 序号，从 1 开始），剩余项按快照合成 resolved/澄清，被放弃片段记入 `metadata.removedMentions`。只有指标字段支持 remove；其他字段收到 remove 报 `FIELD_REMOVE_NOT_SUPPORTED` 参数错误，不会静默退化为继承。放弃全部指标用 clear。
 - 覆盖率复核贯通续查轮：凡带 mention 快照的指标 Frame，执行时按 span 把已确定片段替换为最终名称、被 remove 片段整段删除，构造归一化原句作为 `source_question` 提交；后端重跑原文匹配，指标集合不一致即 409 `METRIC_TARGETS_INCOMPLETE`/`METRIC_TARGETS_UNRESOLVED`。首轮行为不变（原句即原句）；续查轮的静默丢项（mentionIndexes 部分选择）在解析层仍合法，在执行期被该复核拦下——这是有意的收紧。
-- 确认上轮候选使用 `{candidateIndex}`。序号仅选择当前父 Frame 的候选，确认原文由宿主绑定且必须来自新回合；重新查询目录后才接受业务值。旧 `sourceText` 参数兼容读取但不参与校验，防止模型误填上一轮名称导致确认失败。
+- 候选确认由系统完成，模型不罗列、不挑选候选（2026-09-28 起）：
+  - 待确认候选的唯一清单由 `business-context/clarificationOptions.ts` 生成：按能力字段顺序、候选保存顺序全局连续编号，指标同组只列一次。宿主在澄清消息末尾追加该清单，工具回执 details 同时给出 `options`/`listing`，前端展示为可点选项；模型视图只有候选数量（`pendingChoices`）。
+  - 用户回复由系统在同一份清单中对应：前端点选（`clarification_selection`，仅对同一待确认 Frame 有效）、本轮原文的目录识别编码、原文包含的候选全名/基础名/口径（每项取最长且唯一）、明确的序号表达（“第2个”“选2”“2和5”；日期等普通数字不算）。同一项依据矛盾或没有依据时保持待确认并重新展示清单，不猜；每项只有一个候选时，用户同意即为该项。
+  - 模型只需判断本轮在回答待确认问题并传 `{confirm:true}`；旧 `{candidateIndex}` 仍接受但序号不作依据；模型漏传该字段而原文已明确选定时同样按确认处理。确认必须来自新回合，指标、机构候选统一适用。
 - 日期直接复用后端 `parse_time_expression`，业务日期按 Asia/Shanghai 取得。省略年份的日历表达继承同年历史标准日期的年份；明确相对今天的表达仍以当前业务日期计算。已有季度、半年、近期等规则继续有效；latest 等无确定起止日期的状态保持 invalid，不猜测数据日期。
 - 日期、指标或机构表达必须来自本轮原文，继承则使用服务端已保存的字段。Pi 不能自行换算最终日期或提交伪造编码。
 - 所有已提供但未确定的字段均阻止执行，包括可选筛选条件；不以丢弃条件扩大查询范围。
@@ -56,13 +70,13 @@ NEEDS_CLARIFICATION 不调用业务数据查询，由 Pi 只针对 issues 和 ca
 - 枚举值拼写等工具参数错误返回 `ARGUMENT_ERROR`，不落盘为待澄清焦点；Pi 同轮修正。真实业务缺项/歧义继续澄清，不向用户展示内部枚举。
 - 已有指标字段时，新 `set` 必须有本轮算法片段；无片段返回 `METRIC_MENTION_NOT_FOUND` 并保留焦点/候选。它不自动执行旧指标：模型须区分继续查询与未匹配的新目标。新问题无片段仍保存 `not_found`；有低分候选的替换正常保存并澄清。旧名称参数必须来自本轮原文，历史名称不能伪装成新输入。所有调用契约错误均在保存新 Frame 前拒绝，机构和日期的原文校验同样保留。
 
-指标算法采用 HanLP 独立 Trie、拼音倒排和 RapidFuzz，完整名称优先，近似匹配按上述 95% 规则确定或返回候选。
+指标算法采用 HanLP 独立 Trie、拼音倒排和 RapidFuzz，完整名称优先，结构化规则确定或返回候选，召回分数不决定采用。
 算法、基准与离线部署边界见 [指标匹配方案](metric-matching.md)。
 
 ## 查询意图与授权机构集合（v2）
 
 `metric_query` 的 `selection` 仅表示 `exact/latest_in_range/all_in_range`。操作独立为
-`{kind:"value"}` 或 `{kind:"ranking",order:"desc"|"asc",top_n:1..100}`；指定日和排名可以同时成立。
+`{kind:"value"}` 或 `{kind:"ranking",position:"top"|"bottom",top_n:1..100}`；指定日和排名可以同时成立。实际升降序由后端按指标目录单位决定，名次类指标名次越小越靠前。
 整段区间逐日排名暂不支持，返回可识别的 `UNSUPPORTED`，不丢弃排名或偷偷改日期。
 
 具体机构仍逐项匹配并校验；“各家农商行”由 Pi 提交有原文依据的 `authorized_cohort`，
@@ -90,11 +104,21 @@ NEEDS_CLARIFICATION 不调用业务数据查询，由 Pi 只针对 issues 和 ca
 Frame 包含 sessionId、turnId、requestId、capability、字段状态及来源、parentFrameId、operationFrameId、issues、resultRef、摘要。
 字段为字典，记录 explicit/inherited/confirmed、resolver 和 sourceFrameId。
 ready、executing、success、failed 分别追加新快照。一次用户业务操作的根 ID 稳定，执行状态快照不占用历史操作序号。
+同一用户回合同能力、条件未改变的 READY 准备阶段转入 execute 时，继续使用原 `operationFrameId`，只追加快照；模型拆成“先保存条件、再执行”不能把一次提问计为两笔。原准备快照和字段来源仍可按 frameId 读取；已经完成后的新分支、跨轮操作或实际字段修改保持独立操作身份。
 
-`baseReference=null` 表示独立问题；省略表示当前焦点；对象表示明确历史选择。
-selector 支持 frameId、从 1 开始的 ordinal、0 为最新的 relativePosition、capability、businessConstraints、resultRequired。
+模型工具调用中 `baseReference` 必填：`null` 表示独立问题，`"current"` 表示当前讨论焦点，对象表示明确历史选择。漏传会被工具 Schema 拒绝，不能静默选中最近一笔。服务内部仍兼容原有省略语义；模型新调用必须使用显式选择。`current` 保留为稳定的幂等输入，由服务读取真实焦点；不能在工具层先展开为会随执行推进的快照 ID，否则相同调用可能因来源快照变化而重复建操作。空焦点时选择 current 返回 `CURRENT_FOCUS_MISSING`，已选来源的参数错误返回确切 `retry_reference`。
+selector 支持 frameId、从 1 开始的 ordinal、0 为最新的 relativePosition、capability、businessConstraints、resultRequired。历史索引、分页和历史 Selector 共用本轮开始前的操作集合：按服务端 turnId 排除本轮新操作，不因本轮解析/执行追加 Frame 而改变相对引用基准。本轮 Frame 仍可通过 frameId 精确引用或当前焦点续接，下一用户回合再进入历史索引。
 条件取交集，无法唯一确定必须澄清。结果引用允许从同一次操作的 READY/executing 快照定位其 SUCCESS 快照，不跨操作猜测，也不修改原 Frame。constraints 比较已保存的原始值、标准值或编码，不做自然语言相似猜测。
-failed/executing 不自动继承，不从失败操作静默回退到旧成功条件。跨能力只继承 Schema 明确许可的字段。
+焦点表示用户当前讨论的业务状态，不等同于最新操作。模型上下文同时提供当前焦点和最多十项历史条件索引（稳定序号、Frame 引用、能力、字段状态，不含结果行），分别标明 `focusOrdinal` 与 `latestOrdinal`；读取单个 Frame 的回执也返回其稳定序号和最新操作序号。相对位置始终以最新历史操作为基准，不随焦点切换重新计算。更早记录按需分页或用 Selector 定位，不把聊天文本重新拼装成历史字段。
+
+`business_context_read` 分页浏览不改变焦点。提供 `selector`（或兼容的 `frameId`）选中唯一历史业务后，默认通过原有 CAS 将其设为焦点；仅检查候选、不转移讨论目标时显式传 `setFocus=false`。这使“引用业务状态 → 当前焦点 → 普通续接”成为同一条通用链路，不依赖模型额外声明一次切换。歧义、无匹配、非法状态或并发冲突均不切换。切焦点不创建 Frame、不增加业务操作序号、不执行查询；之后传 `baseReference="current"` 的普通续接继承该焦点，重启后保持一致。直接引用历史并替换字段仍可一次调用 `resolve_business_turn`，无需先切焦点。
+
+用户转回某个历史业务时，即使只问条件、暂不取数且索引已经展示条件，Pi 仍须先调用业务上下文工具保存焦点再回答；纯文字回答不改变服务端焦点。仅浏览列表无需切换。
+
+成功重显历史结果后，`read_business_result` 与 `read(kind=result)`（含兼容入口 `metric_read`）维护一致的焦点行为。通用结果入口用本会话已保存的 task/result 引用定位唯一成功执行操作；无关联或歧义时保留焦点，不猜测来源。`setFocus=false` 用于检查或辅助读取；内部执行恢复读取由外层维护焦点，禁止内层重复切换。任务状态、历史列表和正文读取不切焦点；权限失败、结果引用不符不切焦点。读取前保存会话版本，读取期间发生并发修改时返回 `BUSINESS_CONTEXT_CONFLICT`，不覆盖更新后的焦点。
+
+字段参数错误不更新焦点。已显式定位历史来源时，字段解析、字段结构和组合校验的错误回执统一附 `retry_reference` 指向所选的不可变 Frame，供 Pi 纠错后继续继承；仅省略来源时不把当前焦点标成已确认的历史引用。语义引用仍由 Pi 产生 Selector，核心流程不按自然语言关键词或具体业务字段选择来源。
+failed/executing 不自动继承，不从失败操作静默回退到旧成功条件；例外是执行未发生或被中断的失败（`SCOPE_CHANGED`、`NOT_SUBMITTED`、`EXECUTION_INTERRUPTED`、`QUERY_EXECUTION_INTERRUPTED`），条件本身有效，可直接继承重跑。跨能力只继承 Schema 明确许可的字段。
 
 ## 持久化、并发及结果
 
@@ -103,8 +127,13 @@ failed/executing 不自动继承，不从失败操作静默回退到旧成功条
 CAS 冲突返回可识别错误；同一次请求的等价 Delta（包括字段顺序变化）复用原 Frame。
 完成较旧执行只追加快照，不覆盖已切换的新焦点。
 
-后端查询/计算继续使用稳定幂等键。超时或 5xx 无法证明业务失败，保留 executing；原 Frame 重试沿用原键。
-后端明确失败创建 failed Frame。部署仍要求一个数据根只有一个写实例，不能把本实现视为多主节点共享文件方案。
+后端查询/计算继续使用稳定幂等键。超时、5xx、令牌过期（401/403）或 `QUERY_ALREADY_RUNNING` 无法证明业务失败，
+保留 executing；同轮原 Frame 重试沿用原键。取数在发送前把幂等键和后端会话登记到 `link/{frameId}`。
+下一轮解析若焦点（或所引用操作）停在上一轮的 executing，先按登记的键调用
+`GET /api/v1/basic-queries/{key}` 只读回查并补写终态：成功补结果引用，失败/中断记 failed，
+从未收到记 `NOT_SUBMITTED`；仍在执行或回查不可用时保持 executing，并在 `$base` 问题中提示上一次查询仍在执行。
+回查不重发请求，避免在用户未再提问时补跑查询；登记后 60 秒内视为可能在途，不据 404 判定。
+非取数能力以是否已保存结果快照判定，未保存记 `EXECUTION_INTERRUPTED`。后端明确失败创建 failed Frame。部署仍要求一个数据根只有一个写实例，不能把本实现视为多主节点共享文件方案。
 
 取值结果引用后端不可变快照；覆盖/计算完整回执单独保存在 Pi result values，不放入 Frame。
 结果引用组件进行 URL 编码，允许现有 `result:task-id` 格式。历史查询支持分页。
@@ -149,6 +178,10 @@ CAS 冲突返回可识别错误；同一次请求的等价 Delta（包括字段�
 
 - Agent：`npm run typecheck`、`npm test`、`npm run build`。
 - 多轮单测：`npm test -- src/business-context/context.spec.ts`，使用临时 JSONL 与合成后端。
+- 历史引用与焦点：`npm test -- src/business-context/historyReference.spec.ts`；配置模型验收使用 `node --env-file=.env --import tsx scripts/check-history-focus-model.ts --live`（不加 `--live` 只列出用例，不执行验证；`--case=名称` 仅运行指定用例）。该脚本仅使用隔离合成目录/结果，验证序号、相对位置、业务条件引用、焦点切换后续接和普通续接；`fresh` 从空白会话经真实模型建立三次查询，再验证历史替换、分支续接、列表浏览、仅切焦点和重开后续接，共八轮。不访问业务数据库，每轮检查实际取数次数、提交参数及持久化焦点。
+  `replay` 验证只重显第一笔已有结果（必须回读后端且不重新取数），重开会话后只改机构继续继承该笔的全部指标及日期。
+  2026-09-28 完成 351 项 Agent 测试及六组 14 回合真实配置模型验证，见 [历史引用与焦点验收](verification/history-focus-2026-09-28.md)；业务后端为隔离合成实现，不代表真实数据库或浏览器验收。
+  同日进一步补齐通用结果读取的焦点行为，360 项测试通过；最新七组真实模型回归六组通过、一组因模型只输出计划而没有调用工具失败，整体尚未通过，见 [原有焦点能力核对与读取入口回归](verification/history-focus-replay-2026-09-28.md)。
 - 后端：`.venv/bin/python -m pytest -q verification/test_business_context.py tests`。
 - 连续多轮真实模型：`node --env-file=.env --import tsx scripts/check-multiturn-model.ts --live`。使用合成目录与结果、真实 Python 日期解析；覆盖换机构、无年份月份、必要口径澄清、历史复用、重开分支及缺项补充。
 - 候选确认：`node --env-file=.env --import tsx scripts/check-confirmation-model.ts --live`。

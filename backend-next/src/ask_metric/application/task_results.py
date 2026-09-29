@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,20 @@ class TaskCommandResult(BaseModel):
     timings_ms: dict[str, int] = Field(default_factory=dict)
     debug: dict[str, Any] = Field(default_factory=dict)
     result: dict[str, Any] | None = None
+
+
+class BasicQueryStatus(BaseModel):
+    """按幂等键只读回查基础查询的真实状态，供调用方对账；不创建任务、不执行 SQL。
+
+    interrupted 表示执行登记后超时未结束，原执行不会再成功发布结果。
+    """
+
+    task_id: str
+    version: int
+    status: Literal["running", "succeeded", "failed", "interrupted"]
+    result_id: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
 
 
 class TaskResultPage(BaseModel):

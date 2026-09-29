@@ -26,18 +26,36 @@ class OrganizationCatalogRepository(Protocol):
 
 class SqlAlchemyMetricCatalogRepository:
     _cache_lock = Lock()
-    _cache_key: tuple[str, object, object, bool] | None = None
+    _cache_key: tuple | None = None
     _cache_value: list[MetricCatalogItem] = []
+    # 已确认具备来源字段的库；迁移只增不减，确认后不再每次请求查询 information_schema。
+    _source_structure_binds: set[str] = set()
 
     def __init__(self, session: Session) -> None:
         self.session = session
 
     def _has_source_structure(self) -> bool:
-        inspector = inspect(self.session.get_bind())
+        bind_key = str(self.session.get_bind().url)
+        with self._cache_lock:
+            if bind_key in self._source_structure_binds:
+                return True
+        # 走当前 Session 的连接：inspect(engine) 会另从连接池取连接，执行链持有任务行锁时
+        # 并发请求可能互相等待连接直到超时。
+        inspector = inspect(self.session.connection())
         columns = {
             column["name"] for column in inspector.get_columns("metric_terms")
         }
-        return {"source_metric_code", "base_name", "value_basis"} <= columns
+        available = {"source_metric_code", "base_name", "value_basis"} <= columns
+        if available:
+            with self._cache_lock:
+                self._source_structure_binds.add(bind_key)
+        return available
+
+    def _table_version(self, model: type) -> tuple[object, int]:
+        # 计数与最新更新时间一起作为版本：硬删除不会推进 updated_at。
+        return tuple(self.session.execute(
+            select(func.max(model.updated_at), func.count()).select_from(model)
+        ).one())
 
     @staticmethod
     def _source_fields(term: MetricTerm, available: bool) -> dict[str, str | None]:
@@ -57,14 +75,9 @@ class SqlAlchemyMetricCatalogRepository:
 
     def list_enabled(self) -> list[MetricCatalogItem]:
         source_available = self._has_source_structure()
-        term_version = self.session.execute(
-            select(func.max(MetricTerm.updated_at))
-        ).scalar_one_or_none()
-        synonym_version = self.session.execute(
-            select(func.max(MetricSynonym.updated_at))
-        ).scalar_one_or_none()
         cache_key = (
-            str(self.session.get_bind().url), term_version, synonym_version, source_available
+            str(self.session.get_bind().url), self._table_version(MetricTerm),
+            self._table_version(MetricSynonym), source_available,
         )
         with self._cache_lock:
             if self._cache_key == cache_key:

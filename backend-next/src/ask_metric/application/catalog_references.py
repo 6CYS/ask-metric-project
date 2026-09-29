@@ -1,6 +1,7 @@
 """原文明示且无歧义的目录实体识别；供历史结果回读等场景核对原文引用。"""
 
-from ask_metric.domain.metric_matching import MetricMatcher
+from ask_metric.application.metric_candidates import metric_candidate_index
+from ask_metric.domain.metric_matching import normalize_semantic_text
 from ask_metric.domain.semantics import (
     MetricCatalogItem,
     MetricMatch,
@@ -15,17 +16,31 @@ def explicit_catalog_references(
     organizations: list[OrganizationCatalogItem],
     organization_aliases: dict[str, list[str]],
 ) -> dict[str, set[str]]:
-    """只返回原文明示且无歧义的目录实体；与语义解析共用最长名称保护规则。"""
-    resolution = MetricMatcher(metrics).resolve(question)
+    """只返回原文明示且无歧义的目录实体；与指标识别共用同一识别器，同音采用不算明示。"""
+    index = metric_candidate_index(metrics)
+    matches = []
+    for mention in index.mentions(question):
+        resolution = mention["resolution"]
+        codes = resolution.get("value", {}).get("codes", [])
+        if (resolution["status"] != "resolved" or len(codes) != 1
+                or resolution.get("metadata", {}).get("match") == "homophone"):
+            continue
+        item = index.items[codes[0]]
+        exact = normalize_semantic_text(mention["text"]) == normalize_semantic_text(item.name)
+        matches.append(MetricMatch(
+            code=item.code, name=item.name, matched_text=mention["text"],
+            start=mention["start"], end=mention["end"],
+            source="standard_name" if exact else "alias", exact=exact,
+        ))
     org_codes: list[str] = []
     _protect_resolved_entities(
         question,
-        metric_matches=resolution.matches,
+        metric_matches=matches,
         organizations=organizations,
         organization_aliases=organization_aliases,
         resolved_org_codes=org_codes,
     )
-    return {"orgs": set(org_codes), "metrics": {match.code for match in resolution.matches}}
+    return {"orgs": set(org_codes), "metrics": {match.code for match in matches}}
 
 
 def _protect_resolved_entities(

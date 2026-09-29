@@ -44,7 +44,7 @@ const structuredQueryParameters = Type.Object({
   }),
   operation: Type.Optional(Type.Union([
     Type.Object({kind: Type.Literal("value")}, {additionalProperties: false}),
-    Type.Object({kind: Type.Literal("ranking"), order: StringEnum(["asc", "desc"]), top_n: Type.Integer({minimum: 1, maximum: 100})}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("ranking"), position: StringEnum(["top", "bottom"]), top_n: Type.Integer({minimum: 1, maximum: 100})}, {additionalProperties: false}),
   ])),
 }, {additionalProperties: false});
 
@@ -118,6 +118,11 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
           action: "structured",
           spec,
         });
+        if (request.businessExecutionFrame) {
+          // 发送前登记幂等键：响应丢失后下一轮凭它只读回查，不靠重发请求确认结果。
+          await request.businessResults?.linkExecution(request.businessExecutionFrame,
+            {tool: "metric_query_structured", idempotencyKey: key, conversationId});
+        }
         const { result } = await request.backend.basicQueries(spec, key, { signal: context.abortSignal });
         // 正式任务回执提供结果引用和版本，供后续回读/追问；不能从编码拼造任务 ID。
         const task = result.status === "succeeded"
@@ -168,7 +173,10 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
           },
         };
       } catch (error) {
-        if (request.businessExecutionFrame && (!(error instanceof BackendApiError) || error.status >= 500)) throw error;
+        // 结果未知时交给执行 Frame 保持 executing，下一轮按幂等键回查收敛，不能记成业务失败：
+        // 网络/5xx、仍在执行，以及查询成功后读取任务时令牌过期（401/403）都属于此类。
+        if (request.businessExecutionFrame && (!(error instanceof BackendApiError) || error.status >= 500
+          || error.status === 401 || error.status === 403 || error.code === "QUERY_ALREADY_RUNNING")) throw error;
         if (error instanceof BackendApiError && error.code === "SCOPE_CHANGED") return {
           content: [{type: "text", text: JSON.stringify({status: "error", error_code: error.code,
             message: "机构范围已变化，使用原Frame条件重新解析以校验当前权限和范围，不沿用过期指纹。"})}],

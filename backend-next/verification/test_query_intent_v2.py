@@ -80,7 +80,7 @@ def query(**changes):
 
 def test_date_and_ranking_are_independent_and_codes_are_actual_targets():
     actor, execution, uow, _ = fixture()
-    spec = query(org_codes=["A", "B"], operation={"kind": "ranking", "order": "desc", "top_n": 3})
+    spec = query(org_codes=["A", "B"], operation={"kind": "ranking", "position": "top", "top_n": 3})
     dsl, plan, sql = execution._build_governed_plan(
         uow=uow, actor=actor, logical_dsl=spec.to_logical_dsl().model_dump(mode="json"),
         query_shape=spec.query_shape, strict_codes=True,
@@ -102,10 +102,10 @@ def test_date_and_ranking_are_independent_and_codes_are_actual_targets():
 @pytest.mark.parametrize("change", [
     {"selection": "ranking"}, {"top_n": 3}, {"order": "desc"}, {"org_codes": []},
     {"operation": {"kind": "value", "top_n": 3}},
-    {"operation": {"kind": "ranking", "order": "desc", "top_n": True}},
+    {"operation": {"kind": "ranking", "position": "top", "top_n": True}},
     {"operation": {"kind": "ranking"}},
     {"operation": {"kind": "ranking", "top_n": 3}},
-    {"selection": "all_in_range", "operation": {"kind": "ranking", "order": "desc", "top_n": 5}},
+    {"selection": "all_in_range", "operation": {"kind": "ranking", "position": "top", "top_n": 5}},
     {"organization_scope": COHORT, "scope_fingerprint": "a" * 64},
     {"org_codes": [], "organization_scope": COHORT},
     {"scope_fingerprint": "a" * 64},
@@ -120,7 +120,7 @@ def test_authorized_cohort_is_resolved_once_not_expanded_to_branches(org, expect
     actor, execution, uow, scope = fixture(org)
     spec = query(org_codes=[], organization_scope=COHORT,
                  scope_fingerprint=scope["scope_fingerprint"],
-                 operation={"kind": "ranking", "order": "desc", "top_n": 3})
+                 operation={"kind": "ranking", "position": "top", "top_n": 3})
     dsl, plan, _ = execution._build_governed_plan(
         uow=uow, actor=actor, logical_dsl=spec.to_logical_dsl().model_dump(mode="json"),
         query_shape=spec.query_shape, strict_codes=True,
@@ -133,7 +133,7 @@ def test_scope_change_is_rejected_before_query_and_before_publication():
     actor, execution, uow, scope = fixture()
     spec = query(org_codes=[], organization_scope=COHORT,
                  scope_fingerprint=scope["scope_fingerprint"],
-                 operation={"kind": "ranking", "order": "desc", "top_n": 3})
+                 operation={"kind": "ranking", "position": "top", "top_n": 3})
     _, plan, sql = execution._build_governed_plan(
         uow=uow, actor=actor, logical_dsl=spec.to_logical_dsl().model_dump(mode="json"),
         query_shape=spec.query_shape, strict_codes=True,
@@ -180,7 +180,8 @@ def test_history_permission_revocation_rejects_entire_ranking_snapshot():
 @pytest.mark.parametrize("conflict", [False, True])
 def test_ranking_population_is_not_top_n_length_and_conflicts_do_not_publish(conflict):
     actor, execution, uow, _ = fixture()
-    spec = query(org_codes=["A", "B"], operation={"kind": "ranking", "order": "desc", "top_n": 1})
+    spec = query(org_codes=["A", "B"],
+                 operation={"kind": "ranking", "position": "top", "top_n": 1})
     _, plan, sql = execution._build_governed_plan(
         uow=uow, actor=actor, logical_dsl=spec.to_logical_dsl().model_dump(mode="json"),
         query_shape=spec.query_shape, strict_codes=True,
@@ -203,13 +204,14 @@ def test_ranking_population_is_not_top_n_length_and_conflicts_do_not_publish(con
         assert result.evidence["ranking"][0]["with_data"] == 2
         assert result.evidence["ranking"][0]["without_data"] == 0
         assert result.evidence["ranking"][0]["returned"] == 1
+        assert result.evidence["ranking"][0]["sort"] == "value_desc"
         assert "rank_population" not in result.rows[0]
         assert "rank_data_conflict" not in result.rows[0]
 
 
 def test_account_revoked_during_sql_prevents_result_publication():
     actor, execution, uow, _ = fixture()
-    spec = query(operation={"kind": "ranking", "order": "desc", "top_n": 3})
+    spec = query(operation={"kind": "ranking", "position": "top", "top_n": 3})
     _, plan, sql = execution._build_governed_plan(
         uow=uow, actor=actor, logical_dsl=spec.to_logical_dsl().model_dump(mode="json"),
         query_shape=spec.query_shape, strict_codes=True,
@@ -234,7 +236,7 @@ def test_account_revoked_during_sql_prevents_result_publication():
 
 def test_empty_exact_ranking_keeps_requested_date_in_evidence():
     actor, execution, uow, _ = fixture()
-    spec = query(operation={"kind": "ranking", "order": "desc", "top_n": 3})
+    spec = query(operation={"kind": "ranking", "position": "top", "top_n": 3})
     _, plan, sql = execution._build_governed_plan(
         uow=uow, actor=actor, logical_dsl=spec.to_logical_dsl().model_dump(mode="json"),
         query_shape=spec.query_shape, strict_codes=True,
@@ -274,3 +276,42 @@ def test_year_boundaries_are_single_days_and_relative_year_ignores_history(raw, 
     result = resolve_date_field(raw, date(2026, 9, 22), reference_year=2024)
     assert result["status"] == "resolved"
     assert result["value"] == {"start": expected, "end": expected}
+
+
+@pytest.mark.parametrize("position,template,sort", [
+    ("top", "metric_ranking_exact_desc", "rank_asc"),
+    ("bottom", "metric_ranking_exact_asc", "rank_desc"),
+])
+def test_rank_position_metric_is_detected_from_catalog_unit(position, template, sort):
+    actor, execution, uow, _ = fixture()
+    uow.metric_catalog = SimpleNamespace(list_enabled=lambda: [
+        MetricCatalogItem(code="M", name="合成客户数", unit="户"),
+        # 名称不含“排名”也按单位判断：名次类只看目录单位。
+        MetricCatalogItem(code="P", name="合成位次", unit="名"),
+    ])
+    spec = query(metric_codes=["M", "P"], org_codes=["A", "B"],
+                 operation={"kind": "ranking", "position": position, "top_n": 1})
+    _, plan, sql = execution._build_governed_plan(
+        uow=uow, actor=actor, logical_dsl=spec.to_logical_dsl().model_dump(mode="json"),
+        query_shape=spec.query_shape, strict_codes=True,
+    )
+    assert plan.template.value == template
+    assert plan.parameters["ordinal_metric_codes"] == ["P"]
+    assert ":ordinal_metric_codes" in sql
+    execution.data_source.execute_readonly.return_value = SimpleNamespace(rows=[
+        {"metric_code": code, "org_code": "A", "metric_value": 1, "stat_date": "2026-04-30",
+         "rank": 1, "rank_population": 2, "rank_data_conflict": 0} for code in ["M", "P"]
+    ], latency_ms=1)
+    execution._prepare = Mock(return_value=(1, plan, sql, 1, {}))
+    execution._finish_success = Mock()
+    execution._finish_failure = Mock()
+    result = execution.execute(ExecuteQueryCommand(task_id="test", expected_version=0,
+                                                    actor=actor, request_id="test"))
+    assert {item["metric_code"]: item["sort"] for item in result.evidence["ranking"]} == {
+        "M": "value_desc" if position == "top" else "value_asc", "P": sort,
+    }
+
+
+def test_legacy_ranking_order_field_is_rejected():
+    with pytest.raises(ValidationError):
+        query(operation={"kind": "ranking", "order": "desc", "top_n": 3})

@@ -8,10 +8,8 @@ import sys
 from pathlib import Path
 from time import perf_counter
 
-from ask_metric.application.metric_candidates import (
-    _lexical_metric_candidates,
-    metric_candidate_index,
-)
+from ask_metric.application.catalog_search import _lexical_metric_candidates
+from ask_metric.application.metric_candidates import metric_candidate_index
 from ask_metric.domain.semantics import MetricCatalogItem
 
 CASES = [
@@ -75,7 +73,9 @@ def run(size=10000):
             candidate.item.code for candidate in _lexical_metric_candidates(q, items, limit=5)
         ],
         "hanlp_trie_exact_only": lambda q: [
-            code for match in index.exact(q) for code in match["codes"]
+            code for mention in index.mentions(q)
+            if mention["resolution"].get("metadata", {}).get("match") == "exact"
+            for code in mention["resolution"]["value"]["codes"]
         ],
         "hanlp_trie_pinyin_rapidfuzz_description": lambda q: list(
             dict.fromkeys(

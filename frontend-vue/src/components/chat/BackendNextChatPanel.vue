@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { availabilityReply, type AvailabilityDetails } from "@/lib/dataAvailability"
-import { replyText, governedReply, catalogOverviewReply, type CatalogOverviewDetails } from "@/lib/replyPresentation"
+import { governedReply, catalogOverviewReply, type CatalogOverviewDetails } from "@/lib/replyPresentation"
 import { AlertTriangle, Bot, Check, Copy, Ellipsis, LoaderCircle, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Trash2 } from "@lucide/vue"
 import { computed, nextTick, onActivated, onMounted, onBeforeUnmount, ref, watch } from "vue"
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from "reka-ui"
 
 import CatalogQuestionComposer from "@/components/chat/CatalogQuestionComposer.vue"
 import AgentMessageDiagnostics from "@/components/chat/AgentMessageDiagnostics.vue"
+import ChatMarkdown from "@/components/chat/ChatMarkdown.vue"
 import ChatResultContent from "@/components/chat/ChatResultContent.vue"
 import CalculationResult from "@/components/chat/CalculationResult.vue"
 import StructuredClarificationForm from "@/components/chat/StructuredClarificationForm.vue"
+import ClarificationChoices from "@/components/chat/ClarificationChoices.vue"
+import { asChoiceSet, withoutListing } from "@/lib/clarificationChoices"
 import BaseAlert from "@/components/ui/BaseAlert.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton.vue"
@@ -32,6 +35,8 @@ import {
   type AgentStreamEvent,
   type MetricAskDetails,
   type CalculationDetails,
+  type ClarificationChoice,
+  type ClarificationChoiceSet,
 } from "@/lib/agentApi"
 import { getBackendTaskResult } from "@/lib/api"
 import type { BackendNextClarification, ChatResponse } from "@/types/api"
@@ -40,7 +45,7 @@ import { useQueryReadiness } from "@/composables/useQueryReadiness"
 import { copyText } from "@/lib/clipboard"
 import { archiveClarificationResponse } from "@/lib/conversationMessages"
 import { composeQuestion, selectedClarificationAnswer, type ComposerEntity } from "@/lib/composerEntities"
-import { friendlyQueryError } from "@/lib/queryErrors"
+import { friendlyQueryError, withFailureNotice } from "@/lib/queryErrors"
 
 /**
  * 指标问数面板：问答数据链路走 agent-service（pi harness）的 SSE 事件流，
@@ -58,6 +63,8 @@ type DisplayMessage = {
   id: string
   role: "user" | "assistant"
   content: string
+  /** 本轮已展示的失败说明，快照和收尾事件不得重复追加。 */
+  failureNotice?: string
   response?: ChatResponse
   status?: "pending" | "done" | "error"
   toolCalls?: ToolCallDisplay[]
@@ -81,6 +88,8 @@ type DisplayMessage = {
   metricAskClarificationPrompt?: string
   /** 待补充澄清的业务目标：回答卡片时随请求回传，由后端精确命中原任务 */
   clarificationTarget?: { task_id: string; version: number; clarification_id: string }
+  /** 系统给出的待确认清单（指标/机构候选），可点选 */
+  choiceSet?: ClarificationChoiceSet
 }
 
 type DisplayConversation = {
@@ -180,6 +189,30 @@ function formatMessageTime(value?: string) {
 
 const activeConversation = computed(() => conversations.value.find((item) => item.id === activeConversationId.value) ?? conversations.value[0])
 const activeConversationIsSending = computed(() => Boolean(activeConversation.value && sendingConversationIds.value.has(activeConversation.value.id)))
+/** 正文末尾的清单改为可点选展示，避免同一份清单显示两遍。 */
+function visibleContent(message: DisplayMessage): string {
+  return withoutListing(message.content, message.choiceSet)
+}
+
+/** 只有会话中最新、已完成的待确认消息可以点选。 */
+function isActiveChoice(message: DisplayMessage): boolean {
+  const conversation = activeConversation.value
+  const messages = conversation?.messages ?? []
+  return Boolean(message.choiceSet) && messages[messages.length - 1]?.id === message.id
+    && message.status === "done" && !conversation?.running && !activeConversationIsSending.value && queryReady.value
+}
+
+function chooseClarificationOption(message: DisplayMessage, choice: ClarificationChoice) {
+  const conversation = activeConversation.value
+  if (!conversation || !message.choiceSet || !isActiveChoice(message) || conversation.legacy) return
+  const input: AgentPromptInput = {
+    request_id: createId(),
+    message: choice.label,
+    clarification_selection: { frame_id: message.choiceSet.frame_id, option_ids: [choice.id] },
+  }
+  void runQuestion(conversation.id, choice.label, "clarification_answer", input)
+}
+
 const activeClarificationMessage = computed(() => {
   const messages = activeConversation.value?.messages ?? []
   const latest = messages[messages.length - 1]
@@ -270,10 +303,10 @@ function executionStatus(chatMessage: DisplayMessage) {
       titleClass: "text-muted-foreground",
     }
   }
-  if (chatMessage.clarification && chatMessage.status === "done") {
+  if ((chatMessage.clarification || isActiveChoice(chatMessage)) && chatMessage.status === "done") {
     return {
       kind: "waiting",
-      title: "待补充条件",
+      title: chatMessage.clarification ? "待补充条件" : "待确认",
       titleClass: "text-muted-foreground",
     }
   }
@@ -445,7 +478,8 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
     if (item.role === "assistant") {
       const failure = "error" in item ? item.error : undefined
       const body = "text" in item ? item.text ?? "" : ""
-      const text = failure ? [body.trim(), failure].filter(Boolean).join("\n") : body
+      const projected = withFailureNotice({ content: body }, failure ?? "")
+      const text = projected.content
       const tools = "tools" in item ? item.tools ?? [] : []
       const savedCalls = "tool_calls" in item ? item.tool_calls : undefined
       const calls: ToolCallDisplay[] = (savedCalls ?? tools.map(tool => ({ tool }))).map(call => ({
@@ -454,7 +488,10 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
       const last = messages[messages.length - 1]
       if (last?.role === "assistant") {
         // 跨轮次合并助手片段：两侧都有内容时补段落分隔，避免首尾粘连
-        if (text.trim()) last.content = text
+        if (text.trim()) {
+          last.content = text
+          last.failureNotice = projected.failureNotice
+        }
         if ("business_protocol" in item && item.business_protocol === "frame_v1") last.nativeAnswer = true
         last.toolCalls = [...(last.toolCalls ?? []), ...calls]
         if (failure) {
@@ -468,6 +505,7 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
           role: "assistant",
           nativeAnswer: "business_protocol" in item && item.business_protocol === "frame_v1",
           content: text,
+          failureNotice: projected.failureNotice,
           toolCalls: calls,
           status: failure ? "error" : "done",
           createdAt: historyTimestamp(item.timestamp),
@@ -519,6 +557,12 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
           last.calculations = [...(last.calculations ?? []).filter(previous =>
             !(calculation.status === "succeeded" && previous.retryable)), calculation]
         }
+        continue
+      }
+      const choices = asChoiceSet(item.details)
+      if (choices) {
+        const last = messages[messages.length - 1]
+        if (last?.role === "assistant") last.choiceSet = choices
         continue
       }
       const details = asMetricAskDetails(item.details)
@@ -657,6 +701,12 @@ function showMoreConversations() {
     historyVisibleCount.value += HISTORY_PAGE_SIZE
     isHistoryLoadingMore.value = false
   }, 150)
+}
+
+/** 历史会话滚动到底部附近时自动加载下一批，替代手动点击“显示更多”。 */
+function onHistoryScroll(event: Event) {
+  const container = event.currentTarget as HTMLElement
+  if (container.scrollTop + container.clientHeight >= container.scrollHeight - 48) showMoreConversations()
 }
 
 function openRenameConversation(conversation: DisplayConversation) {
@@ -894,20 +944,10 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
   if (event.type === "run_terminal") {
     const failed = !["ok", "idle"].includes(event.answer_status)
     updateAssistantMessage(conversationId, assistantId, (item) => {
-      const finalized = finalizeAssistantMessage({ ...item, status: failed ? "error" : "done" })
-      const existing = finalized.content.trim()
-      // 投影层在模型失败时已写入通用说明；只有它能给出不同的具体原因时才追加，
-      // 与服务端摘要相同就不再重复，避免同一句话在气泡里出现两遍。
+      let finalized = finalizeAssistantMessage({ ...item, status: failed || item.failureNotice ? "error" : "done" })
+      // 快照中的失败说明已是本轮正式展示内容，终态事件只补充缺失的提示。
       if (failed) {
-        // error_message 是服务端原因摘要（非错误码），按 message 参数传入。
-        const friendly = friendlyQueryError(event.error_message ?? null, event.error_code ?? null)
-        if (friendly && friendly !== existing) {
-          finalized.content = existing ? `${existing}\n${friendly}` : friendly
-        } else if (!existing) {
-          finalized.content = event.error_code === "assistant_error"
-            ? "模型服务暂时不可用，请稍后重试；若持续失败请联系管理员检查模型网关。"
-            : "本次提问处理失败，请稍后重试。"
-        }
+        finalized = withFailureNotice(finalized, friendlyQueryError(event.error_message ?? null, event.error_code ?? null))
       }
       return {
         ...finalized,
@@ -961,6 +1001,8 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
       return { ...item, toolCalls, taskIds, calculations: [...(item.calculations ?? []).filter(previous =>
         !(calculation.status === "succeeded" && previous.retryable)), calculation] }
     }
+    const choices = asChoiceSet(event.details)
+    if (choices) return { ...item, toolCalls, choiceSet: choices }
     const details = asMetricAskDetails(event.details)
     if (!details) return { ...item, toolCalls }
     const taskIds = details.task_id ? [...new Set([...(item.taskIds ?? []), details.task_id])] : item.taskIds
@@ -993,7 +1035,16 @@ function applyAgentSnapshot(conversationId: string, snapshot: AgentSnapshot, ass
     const detail: AgentSessionDetail = { session_id: item.serverId ?? item.id, created_at: item.createdAt ?? "", ...snapshot }
     const restored = conversationFromDetail(detail).messages
     const last = restored[restored.length - 1]
-    if (snapshot.running && last?.role !== "assistant") restored.push({ id: assistantId ?? createId(), role: "assistant", content: "", status: "pending", toolCalls: [] })
+    if (snapshot.running && last?.role !== "assistant") {
+      // accepted 快照整体替换消息列表，重建待答气泡时必须保留本地协议标记：
+      // 丢失 nativeAnswer 会让工具回执的确定性答案提前填进气泡，与模型最终正文形成“两次回答”。
+      const localPending = assistantId ? item.messages.find(message => message.id === assistantId) : undefined
+      restored.push({
+        id: assistantId ?? createId(), role: "assistant", content: "", status: "pending", toolCalls: [],
+        nativeAnswer: localPending?.nativeAnswer ?? true,
+        ...(localPending?.createdAt ? { createdAt: localPending.createdAt } : {}),
+      })
+    }
     const assistant = restored[restored.length - 1]
     if (assistant?.role === "assistant" && assistantId) assistant.id = assistantId
     for (const message of restored) {
@@ -1047,8 +1098,9 @@ function failMessage(conversationId: string, messageId: string, error: unknown) 
     ? "已停止生成。"
     : friendlyQueryError(error instanceof Error ? error.message : null)
   updateAssistantMessage(conversationId, messageId, (item) => {
-    const finalized = finalizeAssistantMessage({ ...item, status: aborted ? "done" : "error" })
-    const answer = aborted ? (finalized.content || content) : (finalized.content ? `${finalized.content}\n${content}` : content)
+    let finalized = finalizeAssistantMessage({ ...item, status: aborted ? "done" : "error" })
+    if (!aborted) finalized = withFailureNotice(finalized, content)
+    const answer = finalized.content || content
     return {
       ...finalized,
       content: answer,
@@ -1120,14 +1172,11 @@ async function scrollToBottom() {
 <template>
   <section class="grid min-h-0 flex-1 overflow-hidden border-x border-b bg-background" :class="isHistoryCollapsed ? 'grid-cols-[44px_minmax(0,1fr)] grid-rows-1' : 'grid-rows-[minmax(0,15rem)_minmax(0,1fr)] sm:grid-cols-[240px_minmax(0,1fr)] sm:grid-rows-1 lg:grid-cols-[300px_minmax(0,1fr)]'">
     <aside v-if="!isHistoryCollapsed" class="flex min-h-0 flex-col border-b bg-muted/30 sm:border-r sm:border-b-0">
-      <div class="flex h-[var(--workspace-header-height)] shrink-0 items-center border-b px-3">
-        <BaseButton variant="outline" class="w-full justify-start border-border/70 bg-background/70 text-foreground shadow-none hover:bg-muted/70" @click="handleNewConversation"><Plus />新建对话</BaseButton>
+      <div class="flex h-[var(--workspace-header-height)] shrink-0 items-center gap-2 border-b px-3">
+        <BaseButton variant="outline" class="min-w-0 flex-1 justify-start border-border/70 bg-background/70 text-foreground shadow-none hover:bg-muted/70" @click="handleNewConversation"><Plus />新建对话</BaseButton>
+        <BaseButton variant="ghost" size="icon" class="shrink-0 text-muted-foreground" title="收起历史对话" aria-label="收起历史对话" @click="isHistoryCollapsed = true"><PanelLeftClose /></BaseButton>
       </div>
-      <div class="flex items-center gap-2 border-b px-3 py-2.5">
-        <p class="min-w-0 flex-1 text-sm font-semibold">历史对话</p>
-        <BaseButton variant="ghost" size="icon" class="text-muted-foreground" title="收起历史对话" aria-label="收起历史对话" @click="isHistoryCollapsed = true"><PanelLeftClose /></BaseButton>
-      </div>
-      <div class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-2.5 py-2 [scrollbar-gutter:stable]">
+      <div class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-2.5 py-2 [scrollbar-gutter:stable]" @scroll="onHistoryScroll">
         <LoadingSkeleton v-if="isHistoryLoading" :rows="3" row-class="h-14" />
         <div v-else class="flex flex-col gap-1.5">
           <div v-for="conversation in visibleConversations" :key="conversation.id" class="group/history flex h-[82px] w-full min-w-0 shrink-0 items-start gap-1.5 rounded-xl border border-border/70 bg-background px-2.5 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:border-muted-foreground/35 hover:bg-background" :class="conversation.id === activeConversation?.id && 'border-primary/35 bg-primary/[0.025] ring-1 ring-primary/10'">
@@ -1148,10 +1197,7 @@ async function scrollToBottom() {
               </PopoverPortal>
             </PopoverRoot>
           </div>
-          <BaseButton v-if="hasMoreConversations" variant="outline" size="sm" class="mt-2 w-full text-muted-foreground" :disabled="isHistoryLoadingMore" @click="showMoreConversations">
-            <LoaderCircle v-if="isHistoryLoadingMore" class="size-3.5 animate-spin" />
-            {{ isHistoryLoadingMore ? "正在加载下一批..." : "显示更多会话" }}
-          </BaseButton>
+          <p v-if="isHistoryLoadingMore" class="flex items-center justify-center gap-1.5 py-2 text-xs text-muted-foreground"><LoaderCircle class="size-3.5 animate-spin" />正在加载更多会话…</p>
         </div>
       </div>
     </aside>
@@ -1194,9 +1240,10 @@ async function scrollToBottom() {
                   </template>
                 </div>
                 <AgentMessageDiagnostics :question="questionForMessage(chatMessage)" :task-ids="chatMessage.taskIds ?? []" :pending="chatMessage.status === 'pending'" :has-answer="Boolean(chatMessage.answerStreaming)" :started-at="chatMessage.createdAt" :elapsed-ms="chatMessage.elapsedMs" :tools="chatMessage.toolCalls ?? []" :run-timings="chatMessage.runTimings" />
-                <p v-if="chatMessage.status === 'pending' && chatMessage.content && (!chatMessage.availability?.length || chatMessage.metricAskDetails)" class="whitespace-pre-wrap break-words leading-7">{{ replyText(chatMessage.nativeAnswer ? chatMessage.content : chatMessage.metricAskClarificationPrompt ?? chatMessage.metricAskClarification?.prompt ?? governedReply(chatMessage.metricAskDetails) ?? chatMessage.content) }}<span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></p>
+                <div v-if="chatMessage.status === 'pending' && chatMessage.content && (!chatMessage.availability?.length || chatMessage.metricAskDetails)" class="leading-7"><ChatMarkdown :source="chatMessage.nativeAnswer ? chatMessage.content : chatMessage.metricAskClarificationPrompt ?? chatMessage.metricAskClarification?.prompt ?? governedReply(chatMessage.metricAskDetails) ?? chatMessage.content" /><span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></div>
                 <ChatResultContent v-else-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :show-data-details="!chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
-                <p v-else-if="chatMessage.status !== 'pending'" class="whitespace-pre-wrap break-words leading-6">{{ replyText(chatMessage.content) }}</p>
+                <ChatMarkdown v-else-if="chatMessage.status !== 'pending'" class="leading-6" :source="visibleContent(chatMessage)" />
+                <ClarificationChoices v-if="chatMessage.status !== 'pending' && chatMessage.choiceSet" :choices="chatMessage.choiceSet" :active="isActiveChoice(chatMessage)" @choose="(choice) => chooseClarificationOption(chatMessage, choice)" />
                 <div v-if="chatMessage.status === 'pending' && chatMessage.response?.result" class="mt-2">
                   <p class="mb-2 text-xs text-muted-foreground">已取得步骤结果，正在继续处理本轮问题…</p>
                   <ChatResultContent :response="{ ...chatMessage.response, answer: '', answer_blocks: undefined }" :question="questionForMessage(chatMessage)" />

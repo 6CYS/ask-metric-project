@@ -161,7 +161,6 @@ class Settings(BaseSettings):
     model_max_concurrency: int = Field(default=8, gt=0)
     model_concurrency_wait_seconds: float = Field(default=30, gt=0)
     metric_catalog_cache_ttl_seconds: float = Field(default=60, gt=0)
-    max_conversations_per_user: int = Field(default=500, gt=0, le=1000)
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_DIR / ".env",

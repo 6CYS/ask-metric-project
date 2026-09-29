@@ -1,23 +1,26 @@
 <script setup lang="ts">
 import { stripInternalDisplayHints } from "@/lib/replyPresentation"
 import { Bug, ChartColumn, Check, Copy, Download, LoaderCircle, Search, Table2 } from "@lucide/vue"
-import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from "vue"
+import { computed, defineAsyncComponent, onBeforeUnmount, ref, useId, watch } from "vue"
 
 import BaseBadge from "@/components/ui/BaseBadge.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import ListPagination from "@/components/ListPagination.vue"
-import ChatAnswerSegments from "@/components/chat/ChatAnswerSegments.vue"
+import ChatMarkdown from "@/components/chat/ChatMarkdown.vue"
 import type { ChatResponse } from "@/types/api"
 import { exportBackendNextTaskResult } from "@/lib/api"
 import { clarificationTranscript } from "@/lib/conversationMessages"
 import { copyText } from "@/lib/clipboard"
-import { flattenAssistantBlocks, parseAssistantBlocks, type AssistantBlock, type AssistantTableAlign } from "@/lib/assistantText"
+import { flattenAssistantBlocks } from "@/lib/assistantText"
+import { blocksToMarkdown } from "@/lib/assistantMarkdown"
 import { paginateResultRows, RESULT_PAGE_SIZE_OPTIONS, resultTotalPages } from "@/lib/resultPagination"
 import {
   formatResultTableValue,
   getResultCellValue,
+  getResultColumnAlignClass,
   getResultColumnClass,
   getResultColumnLabel,
+  getSharedResultValue,
   getVisibleResultColumns,
   shouldTruncateResultColumn,
 } from "@/lib/resultColumns"
@@ -34,11 +37,9 @@ const resultPage = ref(1)
 const resultPageSize = ref<number>(RESULT_PAGE_SIZE_OPTIONS[0])
 const isDownloading = ref(false)
 const downloadError = ref("")
-const isDataDetailsOpen = ref(Boolean(props.response.result?.table?.rows.length))
-// Agent 先交付回执再异步读取结果；首批行到达时展开，后续更新不覆盖用户的折叠选择。
-watch(() => Boolean(props.response.result?.table?.rows.length), (hasRows, hadRows) => {
-  if (hasRows && !hadRows) isDataDetailsOpen.value = true
-})
+// 正文已给出结论，数据明细作为核对入口默认收起；生成中、结果异步回填后都不自动展开，避免重复与布局跳动。
+const isDataDetailsOpen = ref(false)
+const dataDetailsId = useId()
 const isAnswerCopied = ref(false)
 const answerCopyError = ref("")
 const statusLabels: Record<string, string> = {
@@ -70,7 +71,7 @@ const rawDisplayAnswer = computed(() => {
 const answerSource = computed(() => stripInternalDisplayHints(rawDisplayAnswer.value))
 // 服务端给出的结构化回答块；非空时渲染与复制都优先使用它
 const responseBlocks = computed(() => props.response.answer_blocks?.length ? props.response.answer_blocks : null)
-const displayAnswer = computed(() => flattenAssistantBlocks(responseBlocks.value ?? parseAssistantBlocks(answerSource.value)))
+const displayAnswer = computed(() => responseBlocks.value ? flattenAssistantBlocks(responseBlocks.value) : answerSource.value)
 const renderedAnswer = ref("")
 const answerStreamComplete = ref(true)
 let answerFrame = 0
@@ -109,36 +110,24 @@ function renderAnswer(answer: string) {
 watch(answerSource, renderAnswer, { immediate: true })
 onBeforeUnmount(stopAnswerStream)
 
-/** 沿用原有阅读习惯：单段无加粗的纯文本按句末标点拆成多段，两路块来源统一套用 */
-function splitSingleParagraph(blocks: AssistantBlock[]): AssistantBlock[] {
-  if (blocks.length !== 1) return blocks
-  const only = blocks[0]!
-  if (only.type !== "paragraph" || only.segments.some((segment) => segment.bold)) return blocks
-  const text = only.segments.map((segment) => segment.text).join("").trim()
-  if (!text) return []
-  const sentences = text.match(/[^。！？!?]+[。！？!?]?/g)?.map((item) => item.trim()).filter(Boolean) ?? []
-  if (sentences.length <= 1) return [{ type: "paragraph", segments: [{ text, bold: false }] }]
-  return sentences.map((item) => ({ type: "paragraph" as const, segments: [{ text: item, bold: false }] }))
-}
-
-const answerBlocks = computed<AssistantBlock[]>(() => {
-  // 流式结束后优先使用服务端结构化块；流式进行中及无块时按 markdown 解析回退
-  const blocks = answerStreamComplete.value && responseBlocks.value
-    ? responseBlocks.value
-    : parseAssistantBlocks(renderedAnswer.value.trim())
-  return splitSingleParagraph(blocks)
-})
-
-function answerAlignClass(align: AssistantTableAlign | undefined) {
-  return align === "center" ? "text-center" : align === "right" ? "text-right" : "text-left"
-}
+// 流式结束后优先使用服务端结构化块；统一转成 markdown 交给同一渲染管线
+const answerMarkdown = computed(() => answerStreamComplete.value && responseBlocks.value
+  ? blocksToMarkdown(responseBlocks.value)
+  : renderedAnswer.value.trim())
 const resultRowCount = computed(() => props.response.result?.table?.rows.length ?? 0)
 const hasResultRows = computed(() => resultRowCount.value > 0)
 const resultRows = computed(() => props.response.result?.table?.rows ?? [])
-const resultColumns = computed(() => getVisibleResultColumns(
+const visibleResultColumns = computed(() => getVisibleResultColumns(
   props.response.result?.table?.columns ?? [],
   resultRows.value,
 ))
+// 单指标结果把指标名称提到表头说明，表格只保留有区分度的列
+const sharedMetricName = computed(() => visibleResultColumns.value.includes("metric_name")
+  ? getSharedResultValue(resultRows.value, "metric_name")
+  : null)
+const resultColumns = computed(() => sharedMetricName.value
+  ? visibleResultColumns.value.filter((column) => column !== "metric_name")
+  : visibleResultColumns.value)
 const resultPageCount = computed(() => resultTotalPages(resultRowCount.value, resultPageSize.value))
 const paginatedResultRows = computed(() => paginateResultRows(resultRows.value, resultPage.value, resultPageSize.value))
 const chartViews = computed(() => visualization.value.allowedViews.filter((view): view is Exclude<ResultView, "table"> => view !== "table"))
@@ -204,19 +193,9 @@ async function copyAnswer() {
 <template>
   <div class="flex min-w-0 flex-col gap-3">
     <div v-if="showAnswer" class="group/answer relative space-y-1.5 break-words pr-9 leading-7" aria-live="polite">
-      <template v-for="(block, index) in answerBlocks" :key="index">
-        <p v-if="block.type === 'paragraph'"><ChatAnswerSegments :segments="block.segments" /></p>
-        <ul v-else-if="block.type === 'list' && !block.ordered" class="list-disc space-y-1 ps-6"><li v-for="(item, itemIndex) in block.items" :key="itemIndex"><ChatAnswerSegments :segments="item" /></li></ul>
-        <ol v-else-if="block.type === 'list'" class="list-decimal space-y-1 ps-6"><li v-for="(item, itemIndex) in block.items" :key="itemIndex"><ChatAnswerSegments :segments="item" /></li></ol>
-        <div v-else class="max-w-full overflow-x-auto rounded-md border border-border/70">
-          <table class="w-full min-w-max text-sm">
-            <thead v-if="block.header.length"><tr class="border-b bg-muted/50"><th v-for="(cell, cellIndex) in block.header" :key="cellIndex" class="h-9 px-3 text-left font-medium whitespace-nowrap" :class="answerAlignClass(block.aligns[cellIndex])"><ChatAnswerSegments :segments="cell" /></th></tr></thead>
-            <tbody><tr v-for="(row, rowIndex) in block.rows" :key="rowIndex" class="border-b last:border-b-0 hover:bg-muted/40"><td v-for="(cell, cellIndex) in row" :key="cellIndex" class="px-3 py-2 whitespace-nowrap" :class="answerAlignClass(block.aligns[cellIndex])"><ChatAnswerSegments :segments="cell" /></td></tr></tbody>
-          </table>
-        </div>
-      </template>
+      <ChatMarkdown :source="answerMarkdown" />
       <span v-if="!answerStreamComplete" class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" />
-      <button v-if="answerStreamComplete && answerBlocks.length" type="button" class="absolute -top-1 right-0 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :title="isAnswerCopied ? '已复制' : '复制回答'" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button>
+      <button v-if="answerStreamComplete && answerMarkdown" type="button" class="absolute -top-1 right-0 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :title="isAnswerCopied ? '已复制' : '复制回答'" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button>
     </div>
     <p v-if="answerCopyError" class="text-xs text-[#78663E]">{{ answerCopyError }}</p>
 
@@ -227,23 +206,26 @@ async function copyAnswer() {
 
     <div v-if="showDataDetails && answerStreamComplete && response.result?.table" class="flex min-w-0 flex-col gap-2">
       <div v-if="hasResultRows" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/70 pt-2 text-xs text-muted-foreground">
-        <button type="button" class="inline-flex items-center gap-1 text-muted-foreground/75 underline-offset-4 transition-colors hover:text-muted-foreground hover:underline" @click="isDataDetailsOpen = !isDataDetailsOpen">
-          <Table2 class="size-3.5" />{{ isDataDetailsOpen ? "收起数据明细" : `查看 ${resultRowCount} 条数据明细` }}
+        <button type="button" class="inline-flex items-center gap-1 rounded-sm text-muted-foreground/75 underline-offset-4 transition-colors hover:text-muted-foreground hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :aria-expanded="isDataDetailsOpen" :aria-controls="dataDetailsId" @click="isDataDetailsOpen = !isDataDetailsOpen">
+          <Table2 class="size-3.5" />{{ isDataDetailsOpen ? "收起数据明细" : `查看 ${resultRowCount} 条数据明细` }}<span v-if="!isDataDetailsOpen && hasChartView" class="text-muted-foreground/60">· 可切换图表</span>
         </button>
       </div>
       <div v-else class="flex items-start gap-2 border-y border-[#DCE3EF] py-2.5 text-xs text-[#66759B]" role="status">
         <Search class="mt-0.5 size-3.5 shrink-0" />
         <span><strong class="font-medium text-[#52638F]">当前条件下暂未查询到数据。</strong> 可以确认统计日期或机构名称，也可以扩大时间范围重新查询。</span>
       </div>
-      <div v-if="isDataDetailsOpen" class="w-full min-w-0 max-w-full overflow-hidden border-y border-border/70">
-        <div v-if="hasChartView" class="flex flex-wrap justify-end gap-1 border-b border-border/70 px-2 py-1.5">
-          <BaseButton size="sm" :variant="resultMode === 'table' ? 'secondary' : 'ghost'" class="h-7" @click="resultMode = 'table'"><Table2 />表格</BaseButton>
-          <BaseButton v-for="view in chartViews" :key="view" size="sm" :variant="resultMode === view ? 'secondary' : 'ghost'" class="h-7" @click="resultMode = view"><ChartColumn />{{ resultViewLabel(view) }}</BaseButton>
+      <div v-if="isDataDetailsOpen" :id="dataDetailsId" class="w-full min-w-0 max-w-full overflow-hidden border-y border-border/70">
+        <div v-if="sharedMetricName || hasChartView" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/70 px-2 py-1.5">
+          <span v-if="sharedMetricName" class="min-w-0 truncate px-1 text-xs text-muted-foreground" :title="sharedMetricName">指标：{{ sharedMetricName }}</span>
+          <div v-if="hasChartView" class="ml-auto flex flex-wrap justify-end gap-1">
+            <BaseButton size="sm" :variant="resultMode === 'table' ? 'secondary' : 'ghost'" class="h-7" @click="resultMode = 'table'"><Table2 />表格</BaseButton>
+            <BaseButton v-for="view in chartViews" :key="view" size="sm" :variant="resultMode === view ? 'secondary' : 'ghost'" class="h-7" @click="resultMode = view"><ChartColumn />{{ resultViewLabel(view) }}</BaseButton>
+          </div>
         </div>
         <ChatResultChart v-if="activeChartView" :decision="visualization" :view="activeChartView" />
         <div v-else class="min-w-0 max-w-full">
           <div class="max-h-[30rem] w-full min-w-0 max-w-full overflow-auto overscroll-x-contain">
-            <table class="w-full min-w-max text-sm"><thead><tr class="border-b bg-muted/50"><th v-for="column in resultColumns" :key="column" class="sticky top-0 z-10 h-9 bg-muted/95 px-3 text-left font-medium whitespace-nowrap backdrop-blur-sm" :class="getResultColumnClass(column)">{{ getResultColumnLabel(column) }}</th></tr></thead><tbody><tr v-for="(row, rowIndex) in paginatedResultRows" :key="(resultPage - 1) * resultPageSize + rowIndex" class="border-b last:border-b-0 hover:bg-muted/40"><td v-for="column in resultColumns" :key="column" class="px-3 py-2.5 whitespace-nowrap" :class="getResultColumnClass(column)"><BaseBadge v-if="column === 'status' && getResultCellValue(row, column)" variant="outline" class="max-w-full"><span class="block truncate" :title="String(formatCell(getResultCellValue(row, column), column, row))">{{ formatCell(getResultCellValue(row, column), column, row) }}</span></BaseBadge><span v-else class="block" :class="shouldTruncateResultColumn(column) && 'truncate'" :title="shouldTruncateResultColumn(column) ? String(formatCell(getResultCellValue(row, column), column, row)) : undefined">{{ formatCell(getResultCellValue(row, column), column, row) }}</span></td></tr></tbody></table>
+            <table class="w-full min-w-max text-sm"><thead><tr class="border-b bg-muted/50"><th v-for="column in resultColumns" :key="column" class="sticky top-0 z-10 h-9 bg-muted/95 px-3 font-medium whitespace-nowrap backdrop-blur-sm" :class="[getResultColumnClass(column), getResultColumnAlignClass(column)]">{{ getResultColumnLabel(column) }}</th></tr></thead><tbody><tr v-for="(row, rowIndex) in paginatedResultRows" :key="(resultPage - 1) * resultPageSize + rowIndex" class="border-b last:border-b-0 hover:bg-muted/40"><td v-for="column in resultColumns" :key="column" class="px-3 py-2.5 whitespace-nowrap" :class="[getResultColumnClass(column), getResultColumnAlignClass(column)]"><BaseBadge v-if="column === 'status' && getResultCellValue(row, column)" variant="outline" class="max-w-full"><span class="block truncate" :title="String(formatCell(getResultCellValue(row, column), column, row))">{{ formatCell(getResultCellValue(row, column), column, row) }}</span></BaseBadge><span v-else class="block" :class="shouldTruncateResultColumn(column) && 'truncate'" :title="shouldTruncateResultColumn(column) ? String(formatCell(getResultCellValue(row, column), column, row)) : undefined">{{ formatCell(getResultCellValue(row, column), column, row) }}</span></td></tr></tbody></table>
           </div>
           <div v-if="resultRowCount > RESULT_PAGE_SIZE_OPTIONS[0]" class="border-t border-border/70">
             <div class="flex justify-end px-3 pt-2">

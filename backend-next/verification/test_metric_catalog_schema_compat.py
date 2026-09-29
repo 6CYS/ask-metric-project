@@ -1,6 +1,6 @@
 """旧目录表读取与新源字段读取的兼容回归，不连接实际应用库。"""
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import Session
 
 from ask_metric.application.metric_candidates import metric_candidate_index
@@ -68,3 +68,21 @@ def test_migrated_metric_table_loads_source_structure():
         assert (metric.source_metric_code, metric.base_name, metric.value_basis) == (
             "SOURCE1", "收单客户数量", "当日数"
         )
+
+
+def test_synonym_hard_delete_invalidates_catalog_cache(monkeypatch):
+    # 类级缓存按连接地址与表版本记忆；隔离本用例，避免影响其他 sqlite:// 用例。
+    monkeypatch.setattr(SqlAlchemyMetricCatalogRepository, "_source_structure_binds", set())
+    monkeypatch.setattr(SqlAlchemyMetricCatalogRepository, "_cache_key", None)
+    engine = _engine(source_columns=True)
+    with Session(engine) as session:
+        session.add(MetricSynonym(metric_code="M1", synonym="收单客户当日值"))
+        session.commit()
+        repository = SqlAlchemyMetricCatalogRepository(session)
+        metric = next(item for item in repository.list_enabled() if item.code == "M1")
+        assert metric.aliases == ["收单客户当日值"]
+        # 硬删除不推进最新更新时间，缓存须按行数变化失效，推导的别名随之更新。
+        session.execute(delete(MetricSynonym))
+        session.commit()
+        metric = next(item for item in repository.list_enabled() if item.code == "M1")
+        assert metric.aliases == []

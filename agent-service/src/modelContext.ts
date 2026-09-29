@@ -12,7 +12,17 @@ export function projectHistoricalResults(messages: readonly AgentMessage[]): Age
   let hasHistoricalResult = false;
   let question = "";
   let frameTurn = false;
-  return messages.map((message, index) => {
+  return messages.map((original, index) => {
+    const landed = landedAsExecution(original);
+    const projected = project(landed, index);
+    if (landed === original || original.role !== "toolResult" || projected.role !== "toolResult") return projected;
+    // 分类用的工具名不能进入发送副本：须与助手 toolCall 的名称保持一致。
+    if (projected !== landed) return {...projected, toolName: original.toolName};
+    // 未裁剪的落地回执仍去掉旧版追加的说明块（失败时它会误导“查询已执行”）。
+    return landed.content.length === original.content.length ? original : {...original, content: landed.content};
+  });
+
+  function project(message: AgentMessage, index: number): AgentMessage {
     if (message.role === "user") {
       hasHistoricalResult = false;
       frameTurn = (message as {businessProtocol?: string}).businessProtocol === "frame_v1";
@@ -22,11 +32,11 @@ export function projectHistoricalResults(messages: readonly AgentMessage[]): Age
     if (message.role === "toolResult" && ["resolve_business_turn", "business_context_read", "execute_business_frame", "read_business_result"].includes(message.toolName)) frameTurn = true;
     if (message.role === "toolResult" && message.toolName === "resolve_business_turn") {
       let receipt: unknown;
-      try { receipt = JSON.parse(message.content.filter(block => block.type === "text").map(block => block.text).join("")); } catch { return message; }
+      try { receipt = JSON.parse(firstText(message)); } catch { return message; }
       if (record(receipt) && record(receipt.fields)) {
         const fields = Object.fromEntries(Object.entries(receipt.fields).filter(([, field]) => record(field) && field.resolutionStatus !== "missing")
           .map(([name, field]) => [name, record(field) ? {rawValue: field.rawValue, resolvedValue: field.resolvedValue,
-            resolutionStatus: field.resolutionStatus, candidates: field.candidates} : field]));
+            resolutionStatus: field.resolutionStatus, ...(field.pendingChoices ? {pendingChoices: field.pendingChoices} : {})} : field]));
         // 历史解析动作已过期，只保留状态/条件/引用；本轮回执的下一动作保持完整。
         const {next_action, arguments: nextArguments, message: instruction, ...historical} = receipt;
         const projected = index < currentTurn ? {...historical, historical: true} : receipt;
@@ -47,7 +57,7 @@ export function projectHistoricalResults(messages: readonly AgentMessage[]): Age
     if (index < currentTurn && message.role === "toolResult" && !message.isError
       && ["execute_business_frame", "read_business_result"].includes(message.toolName)) {
       let receipt: unknown;
-      try { receipt = JSON.parse(message.content.filter(block => block.type === "text").map(block => block.text).join("")); } catch { receipt = undefined; }
+      try { receipt = JSON.parse(firstText(message)); } catch { receipt = undefined; }
       if (record(receipt) && receipt.status === "succeeded") {
         hasHistoricalResult = true;
         const details = record(message.details) ? message.details : {};
@@ -86,5 +96,23 @@ export function projectHistoricalResults(messages: readonly AgentMessage[]): Age
     return { ...message, content: [{ type: "text", text: JSON.stringify({
       ...retained, historical_rows_omitted: true,
     }) }] };
-  });
+  }
+}
+
+function firstText(message: Extract<AgentMessage, {role: "toolResult"}>): string {
+  const block = message.content[0];
+  return block?.type === "text" ? block.text : "";
+}
+
+/**
+ * 解析回执就地落地执行后，原生记录的工具名仍是 resolve_business_turn，内容却是查询/回读结果；
+ * 投影时按 execute_business_frame 处理，才能与普通执行回执一样裁剪历史行值。
+ * 旧版本落地回执另追加过一段说明文本（第二块），只取首块 JSON。
+ */
+function landedAsExecution(message: AgentMessage): AgentMessage {
+  if (message.role !== "toolResult" || message.toolName !== "resolve_business_turn") return message;
+  let receipt: unknown;
+  try { receipt = JSON.parse(firstText(message)); } catch { return message; }
+  if (!record(receipt) || record(receipt.fields)) return message;
+  return {...message, toolName: "execute_business_frame", content: message.content.slice(0, 1)};
 }

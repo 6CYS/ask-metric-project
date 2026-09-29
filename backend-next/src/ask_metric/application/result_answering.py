@@ -155,7 +155,7 @@ def render_fact_answer(
     if len(selected) > _MAX_FACTS_IN_ANSWER:
         message = (
             f"查询完成，共返回 {len(selected)} 行，"
-            "具体结果请查看下方表格或下载明细。"
+            "具体结果请查看下方数据明细。"
         )
         return RenderedFactAnswer(
             message=message,

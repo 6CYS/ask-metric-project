@@ -9,6 +9,8 @@ children_of/root_code 仍供在用渠道的旧语义链路调用，保留历史�
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -33,8 +35,7 @@ class SqlAlchemyOrgHierarchyProvider:
 
     def strict_snapshot(self) -> OrganizationHierarchySnapshot:
         """新集合查询仅采用完整正式层级；旧入口的回退逻辑不参与此调用。"""
-        session_factory = self.session_factory or _default_session_factory()
-        with session_factory() as session:
+        with _read_session(self.session_factory) as session:
             rows = session.execute(select(
                 OrgTerm.org_code, OrgTerm.org_name, OrgTerm.parent_org_code,
                 OrgTerm.hierarchy_level,
@@ -80,8 +81,7 @@ class SqlAlchemyOrgHierarchyProvider:
         return summaries[0] if len(summaries) == 1 else None
 
     def _enabled_rows(self) -> list[tuple[str, str, str | None]]:
-        session_factory = self.session_factory or _default_session_factory()
-        with session_factory() as session:
+        with _read_session(self.session_factory) as session:
             return list(
                 session.execute(
                     select(
@@ -96,8 +96,13 @@ def _hierarchy_mode(parents: dict[str, str]) -> bool:
     return sum(1 for parent in parents.values() if not parent) == 1
 
 
-def _default_session_factory() -> sessionmaker[Session]:
-    # 惰性导入：默认工厂依赖应用 settings，离线脚本注入自有 factory 时无需加载。
-    from ask_metric.infrastructure.db.session import get_app_session_factory
+def _read_session(
+    session_factory: sessionmaker[Session] | None,
+) -> AbstractContextManager[Session]:
+    # 惰性导入：默认会话依赖应用 settings，离线脚本注入自有 factory 时无需加载。
+    # 未注入时复用当前工作单元的 Session，避免持有任务行锁时再占一个连接。
+    if session_factory is not None:
+        return session_factory()
+    from ask_metric.infrastructure.db.session import app_read_session
 
-    return get_app_session_factory()
+    return app_read_session()

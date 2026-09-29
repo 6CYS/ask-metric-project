@@ -99,6 +99,24 @@ export interface AgentPromptInput {
   message: string
   clarification_target?: { task_id: string; version: number; clarification_id: string }
   selected_answers?: Record<string, unknown>
+  /** 点选系统待确认清单的选项；仅对该待确认 Frame 生效 */
+  clarification_selection?: { frame_id: string; option_ids: string[] }
+}
+
+/** 系统待确认清单中的一项；编号与服务端保存的清单一致 */
+export interface ClarificationChoice {
+  no: number
+  id: string
+  label: string
+}
+
+/** resolve_business_turn 待确认回执中的规范清单 */
+export interface ClarificationChoiceSet {
+  frame_id: string
+  options: Array<{ title: string; options: ClarificationChoice[] }>
+  /** 与助手正文末尾追加的清单逐字一致 */
+  listing: string
+  confirmation_unclear?: boolean
 }
 
 export type AgentSnapshot = Pick<AgentSessionDetail, "messages" | "running" | "operation_id">

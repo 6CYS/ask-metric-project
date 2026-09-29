@@ -9,7 +9,7 @@ from typing import Annotated
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, Path, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from ask_metric.api.dependencies import (
@@ -27,7 +27,11 @@ from ask_metric.application.requests import (
     ActorContext,
     IncomingRequest,
 )
-from ask_metric.application.task_results import TaskCommandResult, TaskResultPage
+from ask_metric.application.task_results import (
+    BasicQueryStatus,
+    TaskCommandResult,
+    TaskResultPage,
+)
 from ask_metric.application.task_service import QueryTaskApplicationService
 from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.basic_query import BasicQuerySpec
@@ -97,6 +101,22 @@ def execute_basic_query(
     return BasicQueryResponse(query=spec, result=result)
 
 
+@router.get(
+    "/basic-queries/{idempotency_key}", response_model=BasicQueryStatus,
+    dependencies=[Depends(require_actor)],
+)
+def get_basic_query_status(
+    idempotency_key: Annotated[str, Path(min_length=1, max_length=128)],
+    actor: Annotated[ActorContext, Depends(require_actor)],
+    task_service: Annotated[QueryTaskApplicationService, Depends(get_query_task_service)],
+    conversation_id: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+) -> BasicQueryStatus:
+    """按幂等键只读回查本人基础查询的状态，供请求结果丢失后对账；不执行查询。"""
+    return task_service.find_basic_query(
+        idempotency_key, actor, conversation_id=conversation_id,
+    )
+
+
 def _verify_metric_coverage(
     question: str, requested: list[str], catalog: list[MetricCatalogItem]
 ) -> None:
@@ -133,10 +153,7 @@ def create_agent_query_context(
             if existing.owner_user_id != actor.user_id:
                 raise ApplicationError("CONVERSATION_NOT_FOUND", "会话不存在。", status_code=404)
         else:
-            if (uow.conversations.count_owned(actor.user_id or "")
-                    >= service.max_conversations_per_user):
-                raise ApplicationError("CONVERSATION_LIMIT", "会话数量已达上限，请清理历史会话。",
-                                       status_code=409)
+            # 会话数量不设上限；资源占用由存储与运维容量管理，不在用户侧截断。
             uow.conversations.add(ChatConversation(
                 id=conversation_id, owner_user_id=actor.user_id, title="智能助手",
                 preview="", created_at=datetime.now(UTC), updated_at=datetime.now(UTC),

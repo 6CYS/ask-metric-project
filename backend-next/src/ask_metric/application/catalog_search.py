@@ -11,8 +11,8 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 
-from ask_metric.application.metric_candidates import _lexical_metric_candidates
 from ask_metric.application.ports import ModelService
 from ask_metric.domain.metric_matching import normalize_semantic_text
 from ask_metric.domain.semantics import MetricCatalogItem, OrganizationCatalogItem
@@ -55,6 +55,46 @@ class MetricSearchResult:
 class OrgSearchResult:
     total: int
     items: list[CatalogSearchHit]
+
+
+@dataclass(frozen=True)
+class _ScoredMetricCandidate:
+    item: MetricCatalogItem
+    score: float
+
+
+def _lexical_metric_candidates(
+    question: str,
+    metrics: list[MetricCatalogItem],
+    *,
+    limit: int,
+) -> list[_ScoredMetricCandidate]:
+    """整句相似度只用于目录搜索排序，不参与指标识别与采用。"""
+    normalized_question = normalize_semantic_text(question)
+    if not normalized_question:
+        return []
+    scored: list[tuple[float, str, MetricCatalogItem]] = []
+    for item in metrics:
+        terms = [item.name, *item.aliases]
+        score = max(
+            (
+                SequenceMatcher(
+                    None,
+                    normalized_question,
+                    normalize_semantic_text(term),
+                ).ratio()
+                for term in terms
+                if normalize_semantic_text(term)
+            ),
+            default=0.0,
+        )
+        if score >= 0.55:
+            scored.append((score, item.code, item))
+    scored.sort(key=lambda value: (-value[0], value[1]))
+    return [
+        _ScoredMetricCandidate(item=item, score=score)
+        for score, _, item in scored[:limit]
+    ]
 
 
 def _contains_score(keyword: str, term: str, base: float) -> float | None:

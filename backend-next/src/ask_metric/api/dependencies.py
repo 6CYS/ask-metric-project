@@ -4,6 +4,7 @@
 身份来自认证依赖，模型连接和目录缓存则复用 app.state 中的进程级资源。
 """
 
+from datetime import timedelta
 from typing import Annotated
 
 from fastapi import Depends, Request
@@ -11,6 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from ask_metric.application.actor_provider import ActorProvider, ContextActorProvider
 from ask_metric.application.auth_service import AuthenticationService
+from ask_metric.application.metric_candidates import metric_candidate_index
 from ask_metric.application.ports import ScopedOrganizationPermissionService
 from ask_metric.application.query_execution_service import QueryExecutionApplicationService
 from ask_metric.application.requests import ActorContext
@@ -19,6 +21,7 @@ from ask_metric.application.task_service import QueryTaskApplicationService
 from ask_metric.core.config import PROJECT_DIR, Settings
 from ask_metric.core.security import AuthenticationError, decode_access_token
 from ask_metric.domain.query_execution import QueryPlanner
+from ask_metric.domain.semantics import MetricCatalogItem
 from ask_metric.infrastructure.db.org_hierarchy import SqlAlchemyOrgHierarchyProvider
 from ask_metric.infrastructure.db.organization_scope import SqlAlchemyOrganizationScopeProvider
 from ask_metric.infrastructure.db.session import get_app_session_factory, get_query_engine
@@ -40,10 +43,21 @@ from ask_metric.infrastructure.semantic.configuration import SemanticConfigRepos
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+def warm_metric_index() -> list[MetricCatalogItem]:
+    """按当前启用目录建好指标识别索引（含由同义词推导的别名）；目录未变化时直接命中缓存。"""
+    with SqlAlchemyUnitOfWork() as uow:
+        items = uow.metric_catalog.list_enabled()
+    # 先读目录再释放数据库会话；建索引是纯内存计算，不占用数据库连接。
+    metric_candidate_index(items)
+    return items
+
+
 def initialize_query_catalog(request: Request) -> None:
     """复用在线问数的模型配置、目录文本与缓存，避免预热和实际检索使用不同输入。"""
     initialization = request.app.state.query_initialization
     initialization.progress(0, 0)
+    # 指标识别索引与向量共用同一份目录，首个提问不再现场建索引。
+    items = warm_metric_index()
     model = get_model_service(request)
     if not model.is_enabled("embedding"):
         return
@@ -51,9 +65,8 @@ def initialize_query_catalog(request: Request) -> None:
     config = SemanticConfigRepository(
         resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
     ).load().metric_matching
-    with SqlAlchemyUnitOfWork() as uow:
-        corpus = catalog_embedding_texts(uow.metric_catalog.list_enabled())
-    # 先读目录再释放数据库会话；后面的分批模型请求不占用此处的数据库连接。
+    corpus = catalog_embedding_texts(items)
+    # 后面的分批模型请求不占用数据库连接。
     if not corpus:
         raise ValueError("Enabled metric catalog is empty")
     request.app.state.catalog_vector_cache.warmup(
@@ -116,10 +129,16 @@ def get_actor_provider(actor: Annotated[ActorContext, Depends(require_actor)]) -
     return ContextActorProvider(actor)
 
 
+def _running_stale_after(settings: Settings) -> timedelta:
+    # 查询受语句超时约束；再留 5 分钟给结果处理和应用库落库，超过即视为执行中断。
+    # 执行回收与只读回查共用该时限，两处判定不能不一致。
+    return timedelta(milliseconds=settings.query_statement_timeout_ms) + timedelta(minutes=5)
+
+
 def get_query_task_service(request: Request) -> QueryTaskApplicationService:
     settings: Settings = request.app.state.settings
     return QueryTaskApplicationService(
-        max_conversations_per_user=settings.max_conversations_per_user,
+        running_stale_after=_running_stale_after(settings),
         semantic_config_repository=SemanticConfigRepository(
             resolve_config_path(PROJECT_DIR, settings.semantic_config_path)
         ),
@@ -170,6 +189,7 @@ def get_query_execution_service(request: Request) -> QueryExecutionApplicationSe
         ),
         sql_builder=sql_builder_from_settings(settings),
         actor_validator=validate_current_actor,
+        running_stale_after=_running_stale_after(settings),
         data_source=create_data_source_adapter(
             settings.query_database_dialect,
             get_query_engine(),

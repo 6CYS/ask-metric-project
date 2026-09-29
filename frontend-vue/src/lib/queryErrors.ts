@@ -1,3 +1,24 @@
+import type { ChatResponse } from "@/types/api"
+
+/** 快照、执行终态和请求异常共用一个失败提示；重复收尾不能继续追加正文。 */
+export function withFailureNotice<T extends { content: string; failureNotice?: string; response?: ChatResponse }>(
+  message: T,
+  notice: string,
+): T & { failureNotice?: string } {
+  const failureNotice = message.failureNotice || notice.trim()
+  if (!failureNotice) return message
+  const body = message.content.trimEnd()
+  // 兼容服务端同时在 text 和 error 中返回提示，或正文已包含末尾失败说明。
+  const content = body.trim() === failureNotice || body.endsWith(`\n${failureNotice}`)
+    ? body : [body, failureNotice].filter(Boolean).join("\n")
+  return {
+    ...message,
+    content,
+    failureNotice,
+    ...(message.response ? { response: { ...message.response, answer: content, answer_blocks: undefined } } : {}),
+  }
+}
+
 /** 将基础设施和第三方服务错误转换为面向业务用户的简短提示，技术细节仍保留在调试信息中。 */
 export function friendlyQueryError(message?: string | null, errorCode?: string | null) {
   const modelMessages: Record<string, string> = {

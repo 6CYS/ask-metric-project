@@ -7,6 +7,7 @@ import type { AgentHarnessTool, AgentToolResult } from "@earendil-works/pi-agent
 import { resultAnswer, resultAnswerBlocks } from "../answerEvidence.js";
 import { BackendApiError, type AnswerBlock } from "../backendClient.js";
 import type { AskMetricRequestContext } from "../requestContext.js";
+import { ContextConflict } from "../business-context/store.js";
 
 /* ------------------------------- metric_read ------------------------------ */
 
@@ -21,6 +22,7 @@ const metricReadParameters = Type.Union([
     result_id: Type.String({ minLength: 1, maxLength: 128 }),
     offset: Type.Optional(Type.Integer({ minimum: 0 })),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+    setFocus: Type.Optional(Type.Boolean({description: "成功重显本会话唯一关联的历史结果时默认切换焦点；仅检查或辅助读取时设 false。"})),
   }, { description: "分页读取不可变查询结果；默认 20 行、最多 100 行" }),
 ]);
 
@@ -66,6 +68,8 @@ export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext
             },
           );
         }
+        // 读取前记录版本；鉴权成功后才切焦点，慢请求不能覆盖期间的新讨论目标。
+        const state = params.setFocus !== false ? await request.frames?.state() : undefined;
         const page = await request.backend.getTaskResult(
           params.task_id,
           params.offset ?? 0,
@@ -81,6 +85,16 @@ export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext
             },
             { kind: "metric_read", task_id: params.task_id, status: "error" },
           );
+        }
+        if (state && request.frames && page.status === "succeeded") {
+          const ref = `query:${encodeURIComponent(params.task_id)}:${encodeURIComponent(params.result_id)}`;
+          const frames = await Promise.all(Object.values(state.operations).map(id => request.frames!.get(id)));
+          // 复用回执可能引用相同结果，回到原执行操作；缺失或歧义时不猜来源。
+          const matches = frames.filter(frame => frame?.status === "success" && frame.resultRef === ref
+            && frame.delta.executionMode !== "reuse_result");
+          if (matches.length === 1 && state.focusFrameId !== matches[0]!.frameId) {
+            await request.frames.setFocus(matches[0]!.frameId, state.version);
+          }
         }
         const blocks = resultAnswerBlocks(page);
         return json<MetricReadDetails>(
@@ -114,6 +128,11 @@ export function createMetricReadTool(): AgentHarnessTool<AskMetricRequestContext
           },
         );
       } catch (error) {
+        if (error instanceof ContextConflict) {
+          return json<MetricReadDetails>({status: "error", error: {code: "BUSINESS_CONTEXT_CONFLICT",
+            message: "读取期间业务上下文已变化，请核对当前焦点后重试。"}},
+          {kind: "metric_read", task_id: params.task_id, status: "error", error_code: "BUSINESS_CONTEXT_CONFLICT"});
+        }
         if (error instanceof BackendApiError) {
           const code = error.code ?? "BACKEND_ERROR";
           if (code === "RESULT_REFERENCE_CONFLICT") {

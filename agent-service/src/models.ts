@@ -15,6 +15,25 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import type { AgentServiceConfig } from "./config.js";
 
 export const ASK_METRIC_PROVIDER_ID = "ask-metric";
+/** 模型在首次响应时限内未返回任何内容；错误文本含 timeout，由原生重试策略自动重试一次。 */
+export const MODEL_FIRST_RESPONSE_TIMEOUT = "MODEL_FIRST_RESPONSE_TIMEOUT";
+/** 模型整次调用超出本地总时限；刻意不含 timeout 字样，属确定性失败不重试。 */
+export const MODEL_DEADLINE_EXCEEDED = "MODEL_DEADLINE_EXCEEDED";
+
+interface FirstResponseWatch {
+  signal: AbortSignal;
+  /** 收到模型第一段输出（或流结束）时停止计时。 */
+  received(): void;
+  expired(): boolean;
+}
+
+/** 首次响应计时：从发出请求到收到第一段模型输出；服务商排队或卡住时尽早放弃并重试。 */
+function watchFirstResponse(timeoutMs: number | undefined): FirstResponseWatch | undefined {
+  if (!timeoutMs) return undefined;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return {signal: controller.signal, received: () => clearTimeout(timer), expired: () => controller.signal.aborted};
+}
 
 export interface ModelBundle {
   models: MutableModels;
@@ -30,14 +49,19 @@ export function wrapStreamsWithAuthorization(
   inner: ProviderStreams,
   authorize: () => boolean,
   timeoutMs?: number,
+  firstResponseTimeoutMs?: number,
 ): ProviderStreams {
-  const timed = <T extends {signal?: AbortSignal; timeoutMs?: number}>(options: T | undefined): T | undefined => {
-    if (!timeoutMs) return options;
-    // SDK 请求超时不一定覆盖已开始的流；组合总时限与用户取消信号，避免流式参数永久挂起。
-    const deadline = AbortSignal.timeout(timeoutMs);
-    return {...options, timeoutMs, signal: options?.signal
-      ? AbortSignal.any([options.signal, deadline]) : deadline} as T;
+  const timed = <T extends {signal?: AbortSignal; timeoutMs?: number}>(options: T | undefined, firstResponse?: FirstResponseWatch): T | undefined => {
+    // SDK 请求超时不一定覆盖已开始的流；组合总时限、首次响应时限与用户取消信号，避免流式参数永久挂起。
+    const signals = [options?.signal, timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined, firstResponse?.signal]
+      .filter((signal): signal is AbortSignal => !!signal);
+    if (!timeoutMs && !firstResponse) return options;
+    return {...options, ...(timeoutMs ? {timeoutMs} : {}),
+      signal: signals.length === 1 ? signals[0] : AbortSignal.any(signals)} as T;
   };
+  // 首次响应时限不短于总时限时没有意义，只保留总时限。
+  const firstResponseMs = firstResponseTimeoutMs && (!timeoutMs || firstResponseTimeoutMs < timeoutMs)
+    ? firstResponseTimeoutMs : undefined;
   const denied = (model: Model<"openai-completions">): ReturnType<ProviderStreams["streamSimple"]> => {
     const stream = createAssistantMessageEventStream();
     const message: AssistantMessage = {
@@ -67,11 +91,15 @@ export function wrapStreamsWithAuthorization(
   const guarded: ProviderStreams = {
     stream: (model, context, options) => {
       if (!authorize()) return denied(model as Model<"openai-completions">);
-      return normalizeProviderResponse(inner.stream(model, context, timed(options)), model as Model<"openai-completions">, options?.signal);
+      const firstResponse = watchFirstResponse(firstResponseMs);
+      return normalizeProviderResponse(inner.stream(model, context, timed(options, firstResponse)),
+        model as Model<"openai-completions">, options?.signal, firstResponse);
     },
     streamSimple: (model, context, options) => {
       if (!authorize()) return denied(model as Model<"openai-completions">);
-      return normalizeProviderResponse(inner.streamSimple(model, context, timed(options)), model as Model<"openai-completions">, options?.signal);
+      const firstResponse = watchFirstResponse(firstResponseMs);
+      return normalizeProviderResponse(inner.streamSimple(model, context, timed(options, firstResponse)),
+        model as Model<"openai-completions">, options?.signal, firstResponse);
     },
   };
   if (inner.fetchDeferred) {
@@ -90,13 +118,18 @@ export function wrapStreamsWithAuthorization(
 /** 传输协议失败不能作为业务回答；本地超时也不等于用户主动取消。 */
 function normalizeProviderResponse(
   source: ReturnType<ProviderStreams["streamSimple"]>, model: Model<"openai-completions">, callerSignal?: AbortSignal,
+  firstResponse?: FirstResponseWatch,
 ): ReturnType<ProviderStreams["streamSimple"]> {
   const output = createAssistantMessageEventStream();
+  // 本地中断的原因：首次响应超时可重试；总时限超出不重试；用户取消保持 aborted。
+  const localAbort = (): string => firstResponse?.expired()
+    // 含 timeout 字样：SDK 的 isRetryableAssistantError 按此判定可重试，服务商偶发卡住时换一次请求。
+    ? `${MODEL_FIRST_RESPONSE_TIMEOUT}: 模型服务未在时限内开始返回内容（first response timeout）。`
+    // 刻意不含 "timeout" 字样：已开始返回却超出总时限是确定性失败，重试只会把单次预算花两遍且全程无反馈。
+    : `${MODEL_DEADLINE_EXCEEDED}: 模型请求超出本地时限，本轮未正常完成。`;
   const normalize = (message: AssistantMessage): AssistantMessage => {
-    // 错误码刻意不含 "timeout" 字样：SDK 的 isRetryableAssistantError 按字符串匹配
-    // "timeout" 判定可重试，超时是确定性失败，重试只会把单次预算花两遍且全程无反馈。
     if (message.stopReason === "aborted" && !callerSignal?.aborted) return {...message, stopReason: "error",
-      errorMessage: "MODEL_DEADLINE_EXCEEDED: 模型请求超出本地时限，本轮未正常完成。"};
+      errorMessage: localAbort()};
     // 网关偶发把工具协议标签作为正文返回；禁止展示或把文本伪调用解析成可执行工具。
     const text = message.content.filter(block => block.type === "text").map(block => block.text).join("").trim();
     if (/<(?:[｜|]DSML[｜|]|tool_call(?:s)?[>\s])/u.test(text)) return {...message, content: [], stopReason: "error",
@@ -105,6 +138,8 @@ function normalizeProviderResponse(
   };
   void (async () => {
     for await (const event of source) {
+      // start 只表示收到响应头；收到第一段输出（或结束事件）才算模型开始响应。
+      if (event.type !== "start") firstResponse?.received();
       if (event.type === "error") {
         const error = normalize(event.error);
         output.push({...event, error, reason: error.stopReason === "aborted" ? "aborted" : "error"});
@@ -114,12 +149,13 @@ function normalizeProviderResponse(
         else output.push(event);
       } else output.push(event);
     }
+    firstResponse?.received();
     output.end(normalize(await source.result()));
   })().catch(() => {
     const error: AssistantMessage = {
       role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
       timestamp: Date.now(), stopReason: callerSignal?.aborted ? "aborted" : "error",
-      errorMessage: "MODEL_STREAM_FAILED: 模型响应流未完成。",
+      errorMessage: firstResponse?.expired() && !callerSignal?.aborted ? localAbort() : "MODEL_STREAM_FAILED: 模型响应流未完成。",
       usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
         cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0}},
     };
@@ -165,7 +201,8 @@ export function createAskMetricModels(
       },
     },
     models: [model],
-    api: wrapStreamsWithAuthorization(openAICompletionsApi(), authorize, config.modelTimeoutMs),
+    api: wrapStreamsWithAuthorization(openAICompletionsApi(), authorize, config.modelTimeoutMs,
+      config.modelFirstResponseTimeoutMs),
   });
 
   const models = createModels();

@@ -1,5 +1,6 @@
 import { Type, validateToolArguments } from "@earendil-works/pi-ai";
 import { BusinessInputError } from "./inputError.js";
+import { clarificationOptions, selectOptions } from "./clarificationOptions.js";
 import type { BusinessFrame, BusinessSessionState, CapabilitySchema, ContextDelta, FieldResolver, FieldSchema, FrameResolution, FrameSelector, ResolvedField, ResolverContext, ValidationIssue } from "./types.js";
 
 export class CapabilityRegistry {
@@ -28,7 +29,9 @@ export class FieldResolverRegistry {
   }
 }
 /** 范围失效只允许重解析原条件；其他失败仍不自动继承。 */
-export const inheritableFrame = (frame: BusinessFrame) => frame.status !== "failed" || frame.errorCode === "SCOPE_CHANGED";
+/** 执行未发生或被中断的失败不否定条件本身，用户说“再查一次”可直接继承重跑。 */
+export const TRANSIENT_EXECUTION_FAILURES = new Set(["SCOPE_CHANGED", "NOT_SUBMITTED", "EXECUTION_INTERRUPTED", "QUERY_EXECUTION_INTERRUPTED"]);
+export const inheritableFrame = (frame: BusinessFrame) => frame.status !== "failed" || TRANSIENT_EXECUTION_FAILURES.has(frame.errorCode ?? "");
 export const missingField = (): ResolvedField => ({source: "explicit", resolutionStatus: "missing"});
 
 function matchesConstraint(value: unknown, constraint: unknown): boolean {
@@ -43,9 +46,16 @@ function matchesConstraint(value: unknown, constraint: unknown): boolean {
   return value === constraint;
 }
 
+/** 本轮新操作只更新焦点，不进入本轮的历史引用基准；下一用户回合才成为历史。 */
+export function historicalOperations(state: BusinessSessionState, frames: BusinessFrame[], currentTurnId?: string): string[] {
+  const byId = new Map(frames.map(frame => [frame.frameId, frame]));
+  return state.frameOrder.filter(id => state.operations[id]
+    && (!currentTurnId || byId.get(id)?.turnId !== currentTurnId)).map(id => state.operations[id]!);
+}
+
 /** 多条件求交，绝不按相似度选来源；序号只计算业务操作，不计算执行状态快照。 */
-export function resolveFrame(selector: FrameSelector, state: BusinessSessionState, frames: BusinessFrame[]): FrameResolution {
-  const operations = state.frameOrder.filter(id => state.operations[id]).map(id => state.operations[id]!);
+export function resolveFrame(selector: FrameSelector, state: BusinessSessionState, frames: BusinessFrame[], currentTurnId?: string): FrameResolution {
+  const operations = historicalOperations(state, frames, currentTurnId);
   const byId = new Map(frames.map(frame => [frame.frameId, frame]));
   let candidates = selector.frameId ? frames.filter(frame => frame.frameId === selector.frameId)
     : operations.map(id => byId.get(id)).filter((frame): frame is BusinessFrame => !!frame);
@@ -72,6 +82,11 @@ export function resolveFrame(selector: FrameSelector, state: BusinessSessionStat
   return candidates.length ? {status: "ambiguous", candidates: candidates.map(frame => frame.frameId)} : {status: "not_found"};
 }
 
+/** 能力字段的展示名称，按字段声明顺序；候选清单据此编号与分组。 */
+export function fieldLabels(schema: CapabilitySchema): Record<string, string> {
+  return Object.fromEntries(Object.entries(schema.fields).map(([name, field]) => [name, field.label]));
+}
+
 /** 主循环不认识指标/机构/日期；跨能力继承必须由目标字段显式许可。 */
 export async function mergeFields(schema: CapabilitySchema, base: BusinessFrame | undefined, delta: ContextDelta,
   registry: FieldResolverRegistry, context: ResolverContext): Promise<{fields: Record<string, ResolvedField>; issues: ValidationIssue[]}> {
@@ -84,8 +99,18 @@ export async function mergeFields(schema: CapabilitySchema, base: BusinessFrame 
       issues.push({field: change.fieldHint, reason: "invalid", message: "字段未声明或被重复修改"});
     } else changes.set(change.fieldHint, change);
   }
+  // 待确认候选由系统按用户回复对应：清单与展示同源，模型只判断本轮在回答确认问题，不挑选候选。
+  // 只对候选产生于更早回合的字段对应回复；同轮不能自造确认。
+  const pending = base ? clarificationOptions(base, fieldLabels(schema)).filter(group =>
+    (base.fields[group.field]?.metadata?.candidateTurnId ?? base.turnId) !== context.turnId) : [];
+  const selected = pending.length ? selectOptions(pending, context.replyEvidence
+    ? await context.replyEvidence(base!.frameId) : {reply: context.originalMessage}) : [];
   for (const [name, definition] of Object.entries(schema.fields)) {
-    const change = changes.get(name);
+    const chosen = selected.filter(option => option.field === name);
+    const explicit = changes.get(name);
+    // 用户已明确选定候选而模型漏传该字段时，同样按确认处理。
+    const change = chosen.length && (!explicit || explicit.operation === "retain")
+      ? {fieldHint: name, operation: "set" as const, rawValue: {confirm: true}} : explicit;
     const previous = base?.fields[name];
     const canInherit = !!base && inheritableFrame(base) && definition.inheritable
       && (base.capability === schema.capability || !!definition.allowedSourceCapabilities?.includes(base.capability));
@@ -116,7 +141,9 @@ export async function mergeFields(schema: CapabilitySchema, base: BusinessFrame 
       let resolution;
       try {
         resolution = await resolver.resolve(rawValue, definition,
-          {...context, inputSource: retryInherited ? "inherited" : "explicit", ...(change ? {fieldOperation: change.operation} : {}), ...(previous ? {previous,
+          {...context, inputSource: retryInherited ? "inherited" : "explicit", ...(change ? {fieldOperation: change.operation} : {}),
+            ...(pending.some(group => group.field === name) ? {confirmation: {selected: chosen,
+              options: pending.filter(group => group.field === name).flatMap(group => group.options)}} : {}), ...(previous ? {previous,
             previousTurnId: typeof previous.metadata?.candidateTurnId === "string" ? previous.metadata.candidateTurnId : base!.turnId} : {})});
       } catch (error) {
         if (!(error instanceof BusinessInputError)) throw error;

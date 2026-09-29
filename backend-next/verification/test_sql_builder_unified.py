@@ -115,7 +115,7 @@ def all_parameters():
         "metric_codes": ["M1"], "org_codes": ["O1"], "filter_orgs": True, "limit": 11,
         "filter_metrics": True, "filter_dates": True, "grain": "month", "selection": "all",
         "start_date": "2026-04-01", "end_date": "2026-04-30", "stat_date": "2026-04-30",
-        "stat_dates": ["2026-04-01", "2026-04-30"],
+        "stat_dates": ["2026-04-01", "2026-04-30"], "ordinal_metric_codes": ["M1"],
         "period_starts": ["2026-04-01"], "period_ends": ["2026-04-30"], "period_count": 1,
         "current_date": "2026-04-30", "base_date": "2026-04-01",
         "require_all": True, "combination_count": 1, "offset": 0, "page_end": 10,

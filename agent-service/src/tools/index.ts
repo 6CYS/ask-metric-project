@@ -14,6 +14,7 @@ import { withFocusedArgumentErrors } from "./shared.js";
 import { createCatalogTool } from "./catalog.js";
 import { createReadTool } from "./readTools.js";
 import { createResolveBusinessTurnTool, createExecuteBusinessFrameTool, createReadBusinessResultTool, createBusinessContextReadTool } from "./businessContext.js";
+import { createConversationReplyTool, createActionRequiredTool } from "./turnContract.js";
 
 export { createMetricCatalogSearchTool } from "./metricCatalogSearch.js";
 export { createOrgCatalogSearchTool } from "./orgCatalogSearch.js";
@@ -32,6 +33,8 @@ export function createAskMetricTools(): AgentHarnessTool<AskMetricRequestContext
 
     createReadTool(),
     deliverable(createCatalogTool()),
+    createConversationReplyTool(),
+    createActionRequiredTool(),
   ] as AgentHarnessTool<AskMetricRequestContext>[];
   return tools.map(withFocusedArgumentErrors);
 }

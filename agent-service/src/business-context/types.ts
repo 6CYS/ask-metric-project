@@ -25,6 +25,8 @@ export interface MentionResolution {
   status: string;
   value?: {codes: string[]; names: string[]};
   candidates?: unknown[];
+  /** 同一基础指标下的各口径片段共用组号：确认一次基础指标即确定整组。 */
+  group?: {id: string};
 }
 export interface FrameSelector {
   frameId?: string;
@@ -41,7 +43,7 @@ export interface ContextDelta {
   goal?: {capability: string; sourceText: string};
   purpose?: "goal" | "supporting";
   /** null 明确新建；省略使用焦点；对象必须唯一定位，禁止回退。 */
-  baseReference?: FrameSelector | null;
+  baseReference?: FrameSelector | "current" | null;
   fieldChanges: FieldChange[];
   executionMode: "execute" | "resolve_more" | "reuse_result";
 }
@@ -100,10 +102,12 @@ export interface CapabilitySchema {
   completeFields?: (fields: Record<string, ResolvedField>, delta: ContextDelta) => void;
   validate?: (fields: Record<string, ResolvedField>) => ValidationIssue[];
 }
-export type QueryOperation = {kind: "value"} | {kind: "ranking"; order: "asc" | "desc"; top_n: number};
+/** 排名只表达前 N / 后 N；名次类指标的实际排序方向由后端按目录属性决定。 */
+export type QueryOperation = {kind: "value"} | {kind: "ranking"; position: "top" | "bottom"; top_n: number};
 export type OrganizationScope = {kind: "authorized_cohort"; cohort: "rural_commercial_banks"} | {kind: "children_of"; parent_code: string};
 export type OrganizationScopeInput = {kind: "authorized_cohort"; cohort: "rural_commercial_banks"; sourceText: string} | {kind: "children_of"; parentName: string; sourceText: string};
 export interface ResolvedOrganizations {codes: string[]; names: string[]; scope?: OrganizationScope; scope_fingerprint?: string}
+export type ExecutionSettlement = Pick<BusinessFrame, "status" | "resultRef" | "resultSummary" | "errorCode">;
 export interface ResolverContext {
   originalMessage: string;
   currentDate: string;
@@ -113,9 +117,24 @@ export interface ResolverContext {
   inputSource?: "explicit" | "inherited";
   /** 本轮字段操作；remove 只路由给声明支持的 Resolver，用于按 mention 放弃部分项。 */
   fieldOperation?: FieldChange["operation"];
+  /** 本字段待确认的规范清单与系统按用户回复确定的所选项（主循环计算，模型不参与）。 */
+  confirmation?: {options: import("./clarificationOptions.js").ClarificationOption[]; selected: import("./clarificationOptions.js").ClarificationOption[]};
+  /** 用户回复的依据：原文、目录识别编码、前端点选（仅对指定待确认 Frame 有效）。 */
+  replyEvidence?(frameId: string): Promise<import("./clarificationOptions.js").ReplyEvidence>;
   resolveFactBindings?(bindings: Record<string, {fact_id: string}>): Promise<FieldResolution>;
-  resolveMetricMentions?(): Promise<import("./metricMentions.js").MetricMentions>;
+  /** 默认匹配本轮原文；继承重试上次临时失败的指标时传入当时的原句。 */
+  resolveMetricMentions?(question?: string): Promise<import("./metricMentions.js").MetricMentions>;
+  /**
+   * 机构话语指代（“上述三家”“那两家”等本轮原文）：按会话历史中最近讨论的去重机构解析。
+   * 原文不是指代时返回 undefined（走目录匹配）；指代但无法唯一确定（无数量、历史不足）返回 not_found 交用户澄清。
+   */
+  resolveOrganizationReference?(raw: string): Promise<FieldResolution | undefined>;
   resolveOrganizationScope?(scope: OrganizationScopeInput): Promise<FieldResolution>;
+  /**
+   * 上一轮遗留的执行中 Frame：按发送前登记的幂等键只读回查真实终态，不重发查询。
+   * 仍在执行或暂时无法确认时返回 undefined，Frame 保持 executing。
+   */
+  reconcileExecution?(frame: BusinessFrame): Promise<ExecutionSettlement | undefined>;
   resolveCatalog(entity: string, raw: string[], referenceYear?: number): Promise<FieldResolution>;
 }
 export interface FieldResolver {

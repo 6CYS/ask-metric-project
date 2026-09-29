@@ -157,7 +157,7 @@ function syntheticBackend(test: AcceptanceCase) {
     basicQueries: async (spec: BasicQuerySpec) => {
       trace.push({method: "basicQueries", input: spec});
       assert.equal(spec.schema_version, 2);
-      assert(!("order" in spec) && !("top_n" in spec));
+      assert(!("order" in spec) && !("top_n" in spec) && !(spec.operation && "order" in spec.operation));
       assert(["exact", "latest_in_range", "all_in_range"].includes(spec.selection));
       let targets: string[];
       if (spec.organization_scope) {
@@ -181,8 +181,9 @@ function syntheticBackend(test: AcceptanceCase) {
         metric_value: String(731 - index * 37), unit: metrics.find(metric => metric.code === metricCode)!.unit,
         data_date: spec.time.end})));
       if (spec.operation?.kind === "ranking") {
-        const order = spec.operation.order;
-        rows.sort((a, b) => (Number(a.metric_value) - Number(b.metric_value)) * (order === "asc" ? 1 : -1));
+        // 合成桩只有普通指标：top 为数值降序；名次类方向由真实后端按目录单位决定。
+        const position = spec.operation.position;
+        rows.sort((a, b) => (Number(a.metric_value) - Number(b.metric_value)) * (position === "bottom" ? 1 : -1));
         rows = rows.slice(0, spec.operation.top_n);
       }
       const snapshot = {task_id: taskId, result_id: `result:${taskId}`, status: "succeeded", rows,
@@ -240,7 +241,7 @@ if (!args.includes("--live")) {
 } else {
   const dir = await mkdtemp(join(tmpdir(), "query-intent-v2-"));
   // 每次模型流限时，避免单个坏网关请求拖住整批；不使用不能取消请求的 Promise.race。
-  const config = {...loadConfig(), modelTimeoutMs: 60_000, dataDir: dir, maxSessionsPerUser: Math.max(cases.length * repeat, 100)};
+  const config = {...loadConfig(), modelTimeoutMs: 60_000, dataDir: dir};
   const store = new NativeSessionStore(dir);
   const skills = await loadBusinessSkills();
   const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store,

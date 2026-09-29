@@ -68,10 +68,12 @@ export interface AskMetricRequestContext {
   clarificationTarget?: { task_id: string; version: number; clarification_id: string };
   /** 结构化澄清的显式选择（前端 composer 已校验输出） */
   selectedAnswers?: Record<string, unknown>;
+  /** 用户点选待确认清单的选项；仅对同一待确认 Frame 生效，由系统而非模型应用。 */
+  clarificationSelection?: { frame_id: string; option_ids: string[] };
   /** 从本轮用户消息之前的原生业务回执投影；目录工具不能改变来源。 */
   queryCandidate?: { task_id: string; version: number } | undefined;
   frames?: import("./business-context/types.js").FrameStore;
-  businessResults?: Pick<import("./business-context/store.js").NativeBusinessResultStore, "get" | "save">;
+  businessResults?: Pick<import("./business-context/store.js").NativeBusinessResultStore, "get" | "save" | "linkExecution" | "executionLink">;
   /** 仅服务端执行适配器绑定，绝不从模型参数读取。 */
   businessExecutionFrame?: string;
   commands: CommandBridge;

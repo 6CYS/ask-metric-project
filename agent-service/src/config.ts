@@ -15,6 +15,8 @@ export interface AgentServiceConfig {
   backendBaseUrl: string;
   backendTimeoutMs: number;
   modelTimeoutMs?: number;
+  /** 从发出请求到收到第一段模型输出的时限；超出后按重试策略自动重试。 */
+  modelFirstResponseTimeoutMs?: number;
   /** 模型重试策略：默认只重试一次，避免超时按指数退避静默拖满两分钟 */
   modelRetry: { enabled: boolean; maxRetries: number; baseDelayMs: number };
   model: {
@@ -33,7 +35,6 @@ export interface AgentServiceConfig {
   };
   /** 会话持久化目录（原生 JSONL 存储，重启后恢复；生产指向持久状态目录） */
   dataDir: string;
-  maxSessionsPerUser: number;
   /** 原生压缩配置：仅映射 pi 原生 CompactionSettings 字段，不实现第二套阈值算法 */
   compaction: {
     enabled: boolean;
@@ -115,6 +116,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceCo
     backendBaseUrl: (env.BACKEND_BASE_URL ?? "http://127.0.0.1:8010").replace(/\/+$/, ""),
     backendTimeoutMs: parsePositiveInt(env.BACKEND_TIMEOUT_MS, 120_000, "BACKEND_TIMEOUT_MS"),
     modelTimeoutMs: parsePositiveInt(env.AGENT_MODEL_TIMEOUT_MS, 30_000, "AGENT_MODEL_TIMEOUT_MS"),
+    modelFirstResponseTimeoutMs: parsePositiveInt(env.AGENT_MODEL_FIRST_RESPONSE_TIMEOUT_MS, 30_000,
+      "AGENT_MODEL_FIRST_RESPONSE_TIMEOUT_MS"),
     modelRetry,
     model: {
       baseUrl: requireEnv(env, "AGENT_MODEL_BASE_URL").replace(/\/+$/, ""),
@@ -129,7 +132,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceCo
       maxTokens,
     },
     dataDir: (env.AGENT_DATA_DIR ?? "./data").trim() || "./data",
-    maxSessionsPerUser: parsePositiveInt(env.AGENT_MAX_SESSIONS_PER_USER, 20, "AGENT_MAX_SESSIONS_PER_USER"),
     compaction,
   };
 }

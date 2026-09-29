@@ -1,3 +1,4 @@
+from contextvars import Token
 from types import TracebackType
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -9,7 +10,11 @@ from ask_metric.infrastructure.db.repositories import (
     SqlAlchemyQueryRunRepository,
     SqlAlchemyQueryTaskRepository,
 )
-from ask_metric.infrastructure.db.session import get_app_session_factory
+from ask_metric.infrastructure.db.session import (
+    bind_active_app_session,
+    get_app_session_factory,
+    reset_active_app_session,
+)
 from ask_metric.infrastructure.semantic.catalogs import (
     SqlAlchemyMetricCatalogRepository,
     SqlAlchemyOrganizationCatalogRepository,
@@ -25,10 +30,13 @@ class SqlAlchemyUnitOfWork:
     def __init__(self, session_factory: sessionmaker[Session] | None = None) -> None:
         self.session_factory = session_factory or get_app_session_factory()
         self.session: Session | None = None
+        self._active_token: Token[Session | None] | None = None
 
     def __enter__(self) -> "SqlAlchemyUnitOfWork":
         # with 进入时调用；返回 self 后，调用方通过 uow.tasks 等访问各仓库。
         self.session = self.session_factory()
+        # 工作单元期间的机构层级/权限只读查询复用本 Session，见 app_read_session。
+        self._active_token = bind_active_app_session(self.session)
         self.conversations = SqlAlchemyConversationRepository(self.session)
         self.users = SqlAlchemyAppUserRepository(self.session)
         self.messages = SqlAlchemyChatMessageRepository(self.session)
@@ -44,6 +52,9 @@ class SqlAlchemyUnitOfWork:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
+        if self._active_token is not None:
+            reset_active_app_session(self._active_token)
+            self._active_token = None
         if self.session is None:
             return
         try:

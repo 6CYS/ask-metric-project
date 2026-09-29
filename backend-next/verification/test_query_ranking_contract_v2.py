@@ -14,12 +14,13 @@ DIALECTS = ["mysql", "inceptor"]
 
 
 def execute_ranking(rows, dialect, *, mode="exact", direction="desc", limit=3,
-                    organizations=("A", "B", "C", "D", "E"), stat_date="2026-04-30"):
+                    organizations=("A", "B", "C", "D", "E"), stat_date="2026-04-30",
+                    ordinal=()):
     template = QueryTemplateId(f"metric_ranking_{mode}_{direction}")
     parameters = {
         "metric_codes": ["M", "N"], "org_codes": list(organizations), "filter_orgs": True,
         "limit": limit, "stat_date": stat_date, "start_date": "2026-04-01",
-        "end_date": "2026-04-30",
+        "end_date": "2026-04-30", "ordinal_metric_codes": list(ordinal) or [None],
     }
     plan = QueryExecutionPlan(
         shape="metric_ranking", template=template, dialect=dialect, dsl={}, parameters=parameters,
@@ -64,6 +65,7 @@ def execute_ranking(rows, dialect, *, mode="exact", direction="desc", limit=3,
                 )
             statement = text(sqlite_sql).bindparams(
                 bindparam("metric_codes", expanding=True), bindparam("org_codes", expanding=True),
+                bindparam("ordinal_metric_codes", expanding=True),
             )
             return [dict(row) for row in connection.execute(statement, parameters).mappings()]
     finally:
@@ -137,3 +139,24 @@ def test_inceptor_keeps_latest_batch_dedup_and_invalid_latest_does_not_revive_ol
     assert [(row["org_code"], row["metric_value"], row["rank_population"]) for row in rows] == [
         ("C", 5, 2), ("A", 2, 2),
     ]
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+@pytest.mark.parametrize("direction,expected_m,expected_n", [
+    # desc 是“前 N”：普通指标数值最大，名次类指标名次数字最小。
+    ("desc", ["A", "B", "C"], ["D", "C", "B"]),
+    ("asc", ["D", "C", "B"], ["A", "B", "C"]),
+])
+def test_ordinal_metric_reverses_direction_within_the_same_query(
+    dialect, direction, expected_m, expected_n,
+):
+    rows = execute_ranking([
+        ("M", "A", "2026-04-30", 40), ("M", "B", "2026-04-30", 30),
+        ("M", "C", "2026-04-30", 20), ("M", "D", "2026-04-30", 10),
+        # N 是名次：数值越小越靠前。
+        ("N", "A", "2026-04-30", 4), ("N", "B", "2026-04-30", 3),
+        ("N", "C", "2026-04-30", 2), ("N", "D", "2026-04-30", 1),
+    ], dialect, direction=direction, ordinal=["N"])
+    by_metric = {metric: [row["org_code"] for row in rows if row["metric_code"] == metric]
+                 for metric in ["M", "N"]}
+    assert by_metric == {"M": expected_m, "N": expected_n}

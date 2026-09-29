@@ -42,7 +42,7 @@ async function fixture() {
     {fieldHint: "organizations", operation: "set", rawValue: scopeInput},
     {fieldHint: "time", operation: "set", rawValue: "2026年4月末"},
     {fieldHint: "selection", operation: "set", rawValue: "exact"},
-    {fieldHint: "operation", operation: "set", rawValue: {kind: "ranking", order: "desc", top_n: 3}},
+    {fieldHint: "operation", operation: "set", rawValue: {kind: "ranking", position: "top", top_n: 3}},
   ]};
   const context: ResolverContext = {originalMessage: question, currentDate: "2026-09-22", turnId: identity.turnId,
     resolveCatalog: backend.resolveBusinessField as ResolverContext["resolveCatalog"],
@@ -60,7 +60,7 @@ it("指定日和排名正交，集合只传范围与指纹，不二次展开或�
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
   const spec = (f.backend.basicQueries.mock.calls as unknown[][])[0]![0];
   expect(spec).toMatchObject({schema_version: 2, selection: "exact", time: {start: "2026-04-30", end: "2026-04-30"},
-    organization_scope: scope, scope_fingerprint: "a".repeat(64), operation: {kind: "ranking", order: "desc", top_n: 3}});
+    organization_scope: scope, scope_fingerprint: "a".repeat(64), operation: {kind: "ranking", position: "top", top_n: 3}});
   expect(spec).not.toHaveProperty("org_codes"); expect(spec).not.toHaveProperty("top_n");
 });
 it("多个明确月末按离散日期直接执行，不要求重复确认机构和指标", async () => {
@@ -115,14 +115,14 @@ it.each([
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
   const spec = (f.backend.basicQueries.mock.calls as unknown[][])[0]![0];
   expect(spec).toMatchObject({selection: expected, time: {start, end: "2026-04-30"},
-    operation: ranking ? {kind: "ranking", order: "desc", top_n: 3} : {kind: "value"}});
+    operation: ranking ? {kind: "ranking", position: "top", top_n: 3} : {kind: "value"}});
   expect((await f.store.get(String(receipt.frameId)))!.fields.selection?.resolvedValue).toBe(selection);
 });
 it("换月份继承集合与排名，取消排名只需value，新问题不继承旧排名", async () => {
   const f = await fixture(); await f.service.resolve(f.delta, f.identity, f.context);
   const next = await f.service.resolve({executionMode: "execute", fieldChanges: [{fieldHint: "time", operation: "set", rawValue: "5月末"}]},
     {...f.identity, turnId: "t2", requestId: "r2"}, {...f.context, turnId: "t2", originalMessage: "改成5月末"});
-  expect(next.fields.operation?.resolvedValue).toEqual({kind: "ranking", order: "desc", top_n: 3});
+  expect(next.fields.operation?.resolvedValue).toEqual({kind: "ranking", position: "top", top_n: 3});
   expect(next.fields.organizations?.source).toBe("inherited");
   const plain = await f.service.resolve({executionMode: "execute", fieldChanges: [{fieldHint: "operation", operation: "set", rawValue: {kind: "value"}}]},
     {...f.identity, turnId: "t3", requestId: "r3"}, {...f.context, turnId: "t3", originalMessage: "不排名全部列出"});
@@ -134,6 +134,8 @@ it("换月份继承集合与排名，取消排名只需value，新问题不继�
 it.each([
   {fieldHint: "organizations", operation: "set" as const, rawValue: {...scopeInput, sourceText: "所有支行"}},
   {fieldHint: "operation", operation: "set" as const, rawValue: {kind: "value", top_n: 3}},
+  // 旧契约的数值方向 order 已被 position 取代：名次类指标方向由服务端决定。
+  {fieldHint: "operation", operation: "set" as const, rawValue: {kind: "ranking", order: "desc", top_n: 3}},
   {fieldHint: "selection", operation: "set" as const, rawValue: "ranking"},
   {fieldHint: "top_n", operation: "set" as const, rawValue: 3},
 ])("非法或旧协议参数不覆盖焦点：$fieldHint", async change => {
@@ -244,7 +246,7 @@ it("执行前范围失效后重建Frame并刷新指纹，不死循环复用过�
   await runTool(createExecuteBusinessFrameTool(), {frameId: refreshed.frameId}, {...f.request, requestId: "scope-retry", operationId: "scope-retry"});
   const specs = (f.backend.basicQueries.mock.calls as unknown[][]).map(call => call[0]);
   expect(specs[0]).toMatchObject({scope_fingerprint: "a".repeat(64)});
-  expect(specs[1]).toMatchObject({scope_fingerprint: "b".repeat(64), operation: {kind: "ranking", order: "desc", top_n: 3}});
+  expect(specs[1]).toMatchObject({scope_fingerprint: "b".repeat(64), operation: {kind: "ranking", position: "top", top_n: 3}});
 });
 it("范围解析器返回无效指纹时拒绝执行且不存伪READY", async () => {
   const f = await fixture();
@@ -280,7 +282,7 @@ it.each(["execute", "resolve_more"] as const)("真实日期缺失时暂缓内部
   expect(saved.status).toBe("clarifying");
   expect(saved.fields.metrics?.resolvedValue).toMatchObject({codes: ["metric-1"]});
   expect(saved.fields.organizations?.resolvedValue).toMatchObject({scope});
-  expect(saved.fields.operation?.resolvedValue).toEqual({kind: "ranking", order: "desc", top_n: 3});
+  expect(saved.fields.operation?.resolvedValue).toEqual({kind: "ranking", position: "top", top_n: 3});
   expect(saved.fields.selection?.resolutionStatus).toBe("missing");
   expect((await f.store.state()).focusFrameId).toBe(first.frameId);
   await expect(f.service.beginExecution(String(first.frameId), f.identity)).rejects.toThrow("FRAME_NOT_EXECUTABLE");

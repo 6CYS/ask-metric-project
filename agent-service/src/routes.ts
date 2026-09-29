@@ -65,10 +65,9 @@ export function createApp(
     const user = c.get("user");
     const items: Array<Record<string, unknown>> = [];
     for (const metadata of await store.list(user.id)) {
-      // 标题存在原生会话 name 里；列表面只读打开 Session（不挂载 harness），
+      // 标题存在原生会话 name 里；未打开的会话临时读取后即释放，不因浏览列表常驻内存。
       // 运行状态只可能来自本宿主已打开的会话
-      const session = await store.open(user.id, metadata).catch(() => undefined);
-      const title = session ? await session.getName(BACKGROUND_CONTEXT) : undefined;
+      const title = await host.sessionTitle(user.id, metadata).catch(() => undefined);
       items.push({
         session_id: metadata.id,
         title: title ?? "问数会话",
@@ -310,7 +309,7 @@ function parsePromptInput(body: Record<string, unknown>): PromptInput | null {
     return null;
   }
   const input: PromptInput = { protocol_version: 3, request_id: requestId, message };
-  const allowed = new Set(["protocol_version", "request_id", "message", "clarification_target", "selected_answers"]);
+  const allowed = new Set(["protocol_version", "request_id", "message", "clarification_target", "selected_answers", "clarification_selection"]);
   if (Object.keys(body).some(key => !allowed.has(key))) return null;
   const target = body.clarification_target;
   if (target !== undefined) {
@@ -334,6 +333,15 @@ function parsePromptInput(body: Record<string, unknown>): PromptInput | null {
     if (!body.selected_answers || typeof body.selected_answers !== "object" || Array.isArray(body.selected_answers)) return null;
     if (!input.clarification_target) return null;
     input.selected_answers = body.selected_answers as Record<string, unknown>;
+  }
+  const selection = body.clarification_selection;
+  if (selection !== undefined) {
+    if (!selection || typeof selection !== "object" || Array.isArray(selection)) return null;
+    const {frame_id: frameId, option_ids: optionIds, ...extra} = selection as Record<string, unknown>;
+    if (Object.keys(extra).length || typeof frameId !== "string" || !frameId.trim() || frameId.length > 128
+      || !Array.isArray(optionIds) || !optionIds.length || optionIds.length > 20
+      || !optionIds.every(id => typeof id === "string" && id.length > 0 && id.length <= 300)) return null;
+    input.clarification_selection = {frame_id: frameId, option_ids: [...new Set(optionIds as string[])]};
   }
   return input;
 }
