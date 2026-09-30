@@ -26,7 +26,8 @@ import {
 import type { AgentServiceConfig } from "./config.js";
 import { createMetricReadTool } from "./tools/readTools.js";
 import { BackendApiError } from "./backendClient.js";
-import { HarnessHost } from "./harnessHost.js";
+import { HarnessHost, type HostedSession } from "./harnessHost.js";
+import {requireRequestContext} from "./requestContext.js";
 import { wrapStreamsWithAuthorization } from "./models.js";
 import { NativeSessionStore } from "./nativeSessions.js";
 import type { AskMetricRequestContext } from "./requestContext.js";
@@ -205,6 +206,78 @@ function testConfig(dataDir: string, compaction?: AgentServiceConfig["compaction
   };
 }
 
+
+function captureStreamModes(session: HostedSession) {
+  const modes: Array<{mode?: string; callSeq?: number; step?: string}> = [];
+  session.harness.hooks.on("before_payload", (_event, context) => {
+    const request = requireRequestContext(context);
+    modes.push({...request.answerStream, ...(request.modelCall ? {step: request.modelCall.step} : {})});
+    return undefined;
+  });
+  return modes;
+}
+
+it.each(["frame", "legacy", "existing_reply"])("流式模式遵守本轮协议与已交付普通回答（%s）", async kind => {
+  const dir = tempDir();
+  const faux = createFauxModel([{kind: "text", text: "模型正文"}]);
+  const store = new NativeSessionStore(dir);
+  const host = new HarnessHost(testConfig(dir), () => ({models: faux.models, model: faux.model}), store,
+    kind === "existing_reply" ? createAskMetricTools() : []);
+  try {
+    const session = await host.createSession(ACTOR);
+    const modes = captureStreamModes(session);
+    const admitted = await host.admitPrompt(session, {protocol_version: 3, request_id: kind, message: "你好"}, {actor: ACTOR, backend: {} as BackendClient});
+    expect(admitted.ok).toBe(true); if (!admitted.ok) return;
+    // 临时原生测试目录中模拟旧回合/升级前已写入普通回答回执的恢复点。
+    if (kind === "legacy") await session.lane.appendMessage({role: "user", content: "旧协议回合", timestamp: Date.now()}, admitted.context);
+    if (kind === "existing_reply") await session.lane.appendMessage({role: "toolResult", toolCallId: "reply-previous", toolName: CONVERSATION_REPLY,
+      content: [{type: "text", text: "原普通回答"}], details: {answer: "原普通回答"}, isError: false, timestamp: Date.now()}, admitted.context);
+    await host.drivePrompt(session, admitted);
+    expect(modes.map(item => item.mode)).toEqual([kind === "frame" ? "text" : "none"]);
+    expect(modes[0]?.callSeq).toBe(1);
+    if (kind === "existing_reply") expect(faux.payloads[0]).toMatchObject({tool_choice: "none"});
+  } finally {await host.close(); await store.close();}
+});
+
+it("已解析但未就地落地的 Frame 强制执行时不流式，执行后允许正文", async () => {
+  const dir = tempDir();
+  const faux = createFauxModel([
+    {kind: "toolCall", name: "resolve_business_turn", args: {capabilityHint: "data_availability", baseReference: null, executionMode: "execute",
+      fieldChanges: [{fieldHint: "organizations", operation: "set", rawValue: "合成机构"}, {fieldHint: "dimension", operation: "set", rawValue: "metrics"}]}},
+    {kind: "toolCall", name: "execute_business_frame", args: {frameId: "__LATEST_FRAME__"}},
+    {kind: "text", text: "覆盖查询已完成。"},
+  ]);
+  const backend = {resolveBusinessField: async () => ({status: "resolved", value: {codes: ["O"], names: ["合成机构"]}}),
+    dataAvailability: async () => ({status: "succeeded", org_codes: ["O"], items: [], total: 0})} as unknown as BackendClient;
+  const store = new NativeSessionStore(dir);
+  const host = new HarnessHost(testConfig(dir), () => ({models: faux.models, model: faux.model}), store, createAskMetricTools());
+  // 模拟升级前的恢复点：解析成功后尚未进入就地执行，原生循环接续执行工具。
+  vi.spyOn(host as unknown as {landValidatedAction: () => Promise<undefined>}, "landValidatedAction").mockResolvedValue(undefined);
+  try {
+    const session = await host.createSession(ACTOR); const modes = captureStreamModes(session);
+    await host.runPrompt(session, {protocol_version: 3, request_id: "pending-stream", message: "合成机构有哪些指标"}, {actor: ACTOR, backend});
+    expect(modes.map(item => item.mode)).toEqual(["reply", "none", "text"]);
+    expect(modes.map(item => item.callSeq)).toEqual([1, 2, 3]);
+  } finally {await host.close(); await store.close();}
+});
+
+it.each(["compaction", "branch_summary"] as const)("摘要步骤 %s 不流式且 payload 保持原样", async step => {
+  const dir = tempDir(); const faux = createFauxModel([{kind: "text", text: "合成摘要"}]);
+  const store = new NativeSessionStore(dir);
+  const host = new HarnessHost(testConfig(dir), () => ({models: faux.models, model: faux.model}), store, []);
+  try {
+    const session = await host.createSession(ACTOR);
+    // 应用层摘要隔离测试；完整原生 compaction 流程另有集成用例。
+    session.harness.hooks.on("before_request", (_event, context) => {
+      requireRequestContext(context).modelCall!.step = step;
+      return undefined;
+    });
+    const modes = captureStreamModes(session);
+    await host.runPrompt(session, {protocol_version: 3, request_id: step, message: "摘要步骤"}, {actor: ACTOR, backend: {} as BackendClient});
+    expect(modes).toEqual([{mode: "none", callSeq: 1, step}]);
+    expect(faux.payloads[0]).not.toHaveProperty("tool_choice");
+  } finally {await host.close(); await store.close();}
+});
 
 function entryTexts(entries: Entry[]): string[] {
   return entries
@@ -431,15 +504,17 @@ describe("业务知识与原生工具循环、回答职责", () => {
   it("Pi 的普通解释原样持久化，宿主不强制补查或插入第二条用户消息", async () => {
     const dir = tempDir();
     const answer = "2024年与2026年是不同统计期间；需要先明确时间口径。";
-    const faux = createFauxModel([{kind: "toolCall", name: CONVERSATION_REPLY, args: {answer}}, {kind: "text", text: answer}]);
+    const faux = createFauxModel([{kind: "toolCall", name: CONVERSATION_REPLY, args: {answer}}]);
     const store = new NativeSessionStore(dir);
     const host = new HarnessHost(testConfig(dir), () => ({models: faux.models, model: faux.model}), store, createAskMetricTools());
     try {
       const session = await host.createSession(ACTOR);
-      await host.runPrompt(session, {protocol_version: 3, request_id: "explanation", message: "解释统计期间"}, {actor: ACTOR, backend: {} as BackendClient});
+      const result = await host.runPrompt(session, {protocol_version: 3, request_id: "explanation", message: "解释统计期间"}, {actor: ACTOR, backend: {} as BackendClient});
       const {projectEntries} = await import("./sessionProjection.js");
       const projected = projectEntries(await session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT));
-      expect(faux.providerCalls).toBe(2);
+      // 回答已在工具参数中完整给出：回执即结束本轮，不再为一次被原文替换的模型往返等待。
+      expect(faux.providerCalls).toBe(1);
+      expect(result).toMatchObject({ok: true, outcome: {kind: "settled", outcome: {status: "completed"}}});
       expect(projected.filter(message => message.role === "user")).toHaveLength(1);
       expect(projected.filter(message => message.role === "tool").map(message => message.tool)).toEqual([CONVERSATION_REPLY]);
       expect(projected.at(-1)).toMatchObject({role: "assistant", text: answer, business_protocol: "frame_v1"});
@@ -450,8 +525,7 @@ describe("业务知识与原生工具循环、回答职责", () => {
   });
   it("新操作不激活回答交付及补救工具", async () => {
     const dir = tempDir();
-    const faux = createFauxModel([{kind: "toolCall", name: CONVERSATION_REPLY, args: {answer: "请说明需要了解的业务口径。"}},
-      {kind: "text", text: "请说明需要了解的业务口径。"}]);
+    const faux = createFauxModel([{kind: "toolCall", name: CONVERSATION_REPLY, args: {answer: "请说明需要了解的业务口径。"}}]);
     const store = new NativeSessionStore(dir);
     const host = new HarnessHost(testConfig(dir), () => ({models: faux.models, model: faux.model}), store, createAskMetricTools());
     try {
@@ -459,7 +533,7 @@ describe("业务知识与原生工具循环、回答职责", () => {
       await host.runPrompt(session, {protocol_version: 3, request_id: "active-tools", message: "你好"}, {actor: ACTOR, backend: {} as BackendClient});
       const active = await session.lane.getActiveTools(BACKGROUND_CONTEXT);
       expect(active).not.toContain("answer_present"); expect(active).not.toContain(EVIDENCE_REPAIR_TOOL);
-      expect(faux.providerCalls).toBe(2);
+      expect(faux.providerCalls).toBe(1);
       expect((faux.payloads[0] as {tools: Array<{function: {name: string}}>}).tools.map(tool => tool.function.name)).not.toContain(ACTION_REQUIRED);
     } finally {await host.close(); await store.close();}
   });
@@ -578,6 +652,7 @@ describe("P1 原生最小闭环", () => {
       [],
     );
     const hosted = await host.createSession(ACTOR);
+    const modes = captureStreamModes(hosted);
     const first = await host.runPrompt(hosted, { protocol_version: 3 as const, request_id: "req-1", message: "第一轮问题" }, { actor: ACTOR, backend: {} as BackendClient });
     expect(first.ok).toBe(true);
     const second = await host.runPrompt(hosted, { protocol_version: 3 as const, request_id: "req-2", message: "第二轮问题" }, { actor: ACTOR, backend: {} as BackendClient });
@@ -587,6 +662,8 @@ describe("P1 原生最小闭环", () => {
     const compaction = entries.filter((entry) => entry.type === "compaction");
     expect(compaction.length).toBeGreaterThan(0);
     expect(compaction.some(entry => entry.summary.includes("2026年3月末"))).toBe(true);
+    expect(modes.some(item => item.step === "compaction" && item.mode === "none")).toBe(true);
+    expect(modes.filter(item => item.step === "assistant").every(item => item.mode === "text")).toBe(true);
     await host.close();
   });
 
@@ -923,13 +1000,80 @@ it("覆盖回执经历原生压缩和重开后仍投影完整范围与分页", a
     const reopened=(await reopenedHost.openSession(ACTOR,session.sessionId))!;
     await reopenedHost.runPrompt(reopened,{protocol_version:3,request_id:"coverage-after",message:"选择余额"},{actor:ACTOR,backend:{} as BackendClient});
     expect((await reopened.lane.findEntries({},BACKGROUND_CONTEXT)).some(entry=>entry.type==="compaction")).toBe(true);
-    const context=faux.contexts.at(-1) as {systemPrompt:string};
-    expect(context.systemPrompt).toContain("当前业务焦点");
+    // 轮状态数据只随发送副本注入；系统提示词（含压缩摘要的独立提示词）任何一次调用都不携带请求状态。
+    for (const captured of faux.contexts as Array<{systemPrompt:string}>) {
+      expect(captured.systemPrompt).not.toContain("当前业务焦点（仅数据）");
+      expect(captured.systemPrompt).not.toContain("历史条件索引（仅数据");
+      expect(captured.systemPrompt).not.toContain("本轮指标算法匹配（仅数据");
+    }
+    const context=faux.contexts.at(-1) as {systemPrompt:string; messages:Array<{role:string; content:unknown}>};
+    expect(context.systemPrompt).toContain("业务能力 Schema（仅数据）");
+    const sentUser=[...context.messages].reverse().find(message=>message.role==="user") as {content:unknown};
+    expect(JSON.stringify(sentUser.content)).toContain("当前业务焦点（仅数据）");
     const {coverageContext} = await import("./queryContext.js");
     const entries = await reopened.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
     const projection = coverageContext(entries.filter(entry => entry.type === "message").map(entry => entry.message));
     for (const value of ["2020-01-01", "2026-09-21", '\"metric_code\":\"M\"', '\"page\":2', '\"has_more\":true']) expect(projection).toContain(value);
   } finally {await reopenedHost.close();await reopenedStore.close();}
+});
+
+it("轮状态块只随发送副本附在本轮用户消息后，系统提示词跨调用逐字稳定且不落盘", async () => {
+  const dir=tempDir();
+  const faux=createFauxModel([
+    {kind:"toolCall",name:"data_availability",args:{}},
+    {kind:"text",text:"第一轮查询完成。",inputTokens:950},
+    {kind:"text",text:"第二轮回答。"},
+  ]);
+  const receipt={status:"succeeded",request:{dimension:"metrics",org_codes:["O"],start:"2020-01-01",end:"2026-09-21"},
+    org_names:["测试行"],items:[{metric_code:"M",metric_name:"余额"}],page:1,page_size:5,has_more:false};
+  const tool:AgentHarnessTool<AskMetricRequestContext>={name:"data_availability",label:"覆盖",description:"测试",parameters:Type.Object({}),
+    execute:async()=>({content:[{type:"text",text:JSON.stringify(receipt)}],details:{kind:"data_availability",...receipt,public_answer:"第一轮查询完成。"}})};
+  const base=testConfig(dir,{enabled:true,reserveTokens:100,keepRecentTokens:50});
+  const config={...base,model:{...base.model,userMessageSuffix:"\n/no_think"}};
+  const store=new NativeSessionStore(dir);
+  const host=new HarnessHost(config,()=>({models:faux.models,model:faux.model}),store,[tool]);
+  try {
+    const session=await host.createSession(ACTOR);
+    await host.runPrompt(session,{protocol_version:3,request_id:"turn-state-1",message:"查覆盖"},{actor:ACTOR,backend:{} as BackendClient});
+    await host.runPrompt(session,{protocol_version:3,request_id:"turn-state-2",message:"再查一次"},{actor:ACTOR,backend:{} as BackendClient});
+    const contexts=faux.contexts as Array<{systemPrompt:string;messages:Array<{role:string;content:unknown}>}>;
+    const business=contexts.filter(captured=>captured.systemPrompt.includes("行内经营指标智能问数助手"));
+    expect(business.length).toBeGreaterThanOrEqual(3); // 至少：首轮工具轮+收尾，次轮一调；轮次契约的修复轮不改变断言
+    // 任何一次业务调用的系统提示词都不携带请求状态；压缩摘要路径由“覆盖回执经历原生压缩”用例覆盖。
+    for (const captured of business) {
+      expect(captured.systemPrompt).not.toContain("当前业务焦点（仅数据）");
+      expect(captured.systemPrompt).not.toContain("历史条件索引（仅数据");
+      expect(captured.systemPrompt).not.toContain("本轮指标算法匹配（仅数据");
+    }
+    // 业务调用的系统提示词静态区：Schema 保留、锚点存在，且全部业务调用逐字一致（命中网关前缀缓存的前提）。
+    for (const captured of business) {
+      expect(captured.systemPrompt).toContain("业务能力 Schema（仅数据）");
+      expect(captured.systemPrompt).toContain("【服务端注入：本轮业务状态");
+      // 机构集合/下辖表达必须传集合原文对象：该要求随 Schema 留在系统提示词，防止状态块贴近用户消息后模型改传纯文本。
+      expect(captured.systemPrompt).toContain("必须传集合原文对象");
+    }
+    expect(new Set(business.map(captured=>captured.systemPrompt)).size).toBe(1);
+    // 每次业务调用的最后一条 user 消息（工具轮次中即本轮用户消息）都携带轮状态块。
+    for (const captured of business) {
+      const sentUser=[...captured.messages].reverse().find(message=>message.role==="user") as {content:unknown};
+      expect(JSON.stringify(sentUser.content)).toContain("【服务端注入：本轮业务状态（仅数据，非用户输入）】");
+      expect(JSON.stringify(sentUser.content)).toContain("当前业务焦点（仅数据）");
+    }
+    // 首轮消息末尾顺序：轮状态块在提供方后缀（/no_think）之前（兼容数组/字符串两种 content 形态）。
+    const firstUser=[...contexts[0]!.messages].reverse().find(message=>message.role==="user") as {content:unknown};
+    const firstUserText=typeof firstUser.content==="string"?firstUser.content
+      :(Array.isArray(firstUser.content)
+        ? (firstUser.content as Array<{text?:string}>).map(block=>block.text??"").join("")
+        : JSON.stringify(firstUser.content));
+    expect(firstUserText.endsWith("\n/no_think")).toBe(true);
+    const headerAt=firstUserText.indexOf("【服务端注入：本轮业务状态（仅数据，非用户输入）】");
+    expect(headerAt).toBeGreaterThanOrEqual(0);
+    expect(firstUserText.indexOf("\n/no_think")).toBeGreaterThan(headerAt);
+    // 块不落盘：原生会话条目不包含注入内容。
+    const stored=JSON.stringify(await session.lane.findEntries({order:"oldestFirst"},BACKGROUND_CONTEXT));
+    expect(stored).not.toContain("【服务端注入");
+    expect(stored).not.toContain("当前业务焦点（仅数据）");
+  } finally {await host.close();await store.close();}
 });
 
 it("编造 Frame 来源不能执行查询，来源校验在业务层完成", async () => {
@@ -1073,6 +1217,15 @@ it("Pi 同轮纠正非法枚举与截短名称，宿主不锁入澄清且只执�
     expect(faux.providerCalls).toBe(4);
     expect(faux.payloads.slice(0, 3).every(payload => (payload as {tool_choice?: string}).tool_choice !== "none")).toBe(true);
     expect(JSON.stringify(faux.contexts[1])).toContain("ARGUMENT_ERROR");
+    // 就地执行后回执换成查询结果，仍保留解析出的条件供页面执行过程展示；条件不进入模型上下文。
+    const {projectEntries} = await import("./sessionProjection.js");
+    const resolves = projectEntries(await session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT))
+      .flatMap(message => message.role === "tool" && message.tool === "resolve_business_turn" ? [message.details] : []);
+    expect(resolves[0]).not.toHaveProperty("display_conditions");
+    expect(resolves.at(-1)).toMatchObject({display_conditions: [
+      {label: "指标", value: "合成余额本期数"}, {label: "机构", value: "合成机构"}, {label: "日期", value: "2026-05-18"},
+    ]});
+    expect(JSON.stringify(faux.payloads)).not.toContain("display_conditions");
   } finally {await host.close(); await store.close();}
 });
 
@@ -1191,8 +1344,10 @@ it("待确认只生成澄清，模型忽略 tool_choice 也不能重复检索", 
   const host = new HarnessHost(testConfig(dir), () => ({models: faux.models, model: faux.model}), store, createAskMetricTools());
   try {
     const session = await host.createSession(ACTOR);
+    const modes = captureStreamModes(session);
     await host.runPrompt(session, {protocol_version: 3, request_id: "wait-user", message: "合成简称 合成指标 2026年2月末"}, {actor: ACTOR, backend});
     expect(faux.providerCalls).toBe(3);
+    expect(modes.map(item => item.mode)).toEqual(["reply", "text", "text"]);
     expect(faux.payloads.at(-1)).toMatchObject({tool_choice: "none"});
     expect(faux.payloads.at(-1)).not.toHaveProperty("tools");
     expect(searchOrganizations).not.toHaveBeenCalled(); expect(basicQueries).not.toHaveBeenCalled();
@@ -1336,12 +1491,12 @@ it.each(["resolve_more", "failure", "error"])("执行接续尊重只解析、执
 });
 
 it.each([
-  {replies: 1, calls: 3, text: "你好。"},
+  {replies: 1, calls: 2, text: "你好。"},
   {replies: 6, calls: 2, text: "模型服务响应超时，请稍后重试。已确认的查询条件仍保留，无需重复输入。"},
 ])("模型首次响应超时自动重试一次，仍超时则明确提示（超时次数=$replies）", async ({replies, calls, text}) => {
   const dir = tempDir();
   const timeout = {kind: "error" as const, message: "MODEL_FIRST_RESPONSE_TIMEOUT: 模型服务未在时限内开始返回内容（first response timeout）。"};
-  const faux = createFauxModel([...Array.from({length: replies}, () => timeout), {kind: "toolCall", name: CONVERSATION_REPLY, args: {answer: "你好。"}}, {kind: "text", text: "你好。"}]);
+  const faux = createFauxModel([...Array.from({length: replies}, () => timeout), {kind: "toolCall", name: CONVERSATION_REPLY, args: {answer: "你好。"}}]);
   const store = new NativeSessionStore(dir);
   const host = new HarnessHost(testConfig(dir), () => ({models: faux.models, model: faux.model}), store, createAskMetricTools(),
     {retry: {enabled: true, maxRetries: 1, baseDelayMs: 1}});
@@ -1403,7 +1558,6 @@ it("普通问候走明确无业务动作分支，未建Frame且不访问后端",
   const dir = tempDir();
   const faux = createFauxModel([
     {kind: "toolCall", name: CONVERSATION_REPLY, args: {answer: "你好，请问有什么可以帮助你？"}},
-    {kind: "text", text: "你好，请问有什么可以帮助你？"},
   ]);
   const store = new NativeSessionStore(dir);
   const host = new HarnessHost(testConfig(dir), () => ({models: faux.models, model: faux.model}), store, createAskMetricTools());
@@ -1411,7 +1565,7 @@ it("普通问候走明确无业务动作分支，未建Frame且不访问后端",
     const session = await host.createSession(ACTOR);
     expect((await host.runPrompt(session, {protocol_version: 3, request_id: "hello", message: "你好"},
       {actor: ACTOR, backend: {} as BackendClient})).ok).toBe(true);
-    expect(faux.providerCalls).toBe(2);
+    expect(faux.providerCalls).toBe(1);
     const {NativeFrameStore} = await import("./business-context/store.js");
     expect(await new NativeFrameStore(session.session).list()).toEqual([]);
     const entries = await session.lane.findEntries(undefined, BACKGROUND_CONTEXT);
@@ -1451,8 +1605,8 @@ it("普通回答后即使网关忽略 none 又提议查询，也只交付原回�
     const session = await host.createSession(ACTOR);
     await host.runPrompt(session, {protocol_version: 3, request_id: "no-action-is-final", message: "你好"},
       {actor: ACTOR, backend: {} as BackendClient});
-    expect(faux.providerCalls).toBe(2);
-    expect(faux.payloads[1]).toMatchObject({tool_choice: "none"});
+    // 回执即结束本轮：脚本里第二次“提议查询”的模型响应根本不会被请求。
+    expect(faux.providerCalls).toBe(1);
     const {NativeFrameStore} = await import("./business-context/store.js");
     expect(await new NativeFrameStore(session.session).list()).toEqual([]);
     const {projectEntries} = await import("./sessionProjection.js");
@@ -1464,7 +1618,7 @@ it("普通回答后即使网关忽略 none 又提议查询，也只交付原回�
 it("上轮已有回答不能解除本轮动作约束，纠错不追加用户消息", async () => {
   const dir = tempDir();
   const faux = createFauxModel([
-    {kind: "toolCall", name: CONVERSATION_REPLY, args: {answer: "你好。"}}, {kind: "text", text: "你好。"},
+    {kind: "toolCall", name: CONVERSATION_REPLY, args: {answer: "你好。"}},
     {kind: "text", text: "我会创建查询。"},
     {kind: "toolCall", name: "resolve_business_turn", args: {capabilityHint: "metric_query", baseReference: null,
       executionMode: "execute", fieldChanges: [{fieldHint: "selection", operation: "set", rawValue: "exact"}]}},
@@ -1479,8 +1633,8 @@ it("上轮已有回答不能解除本轮动作约束，纠错不追加用户消�
     await host.closeSession(session.sessionId);
     session = (await host.openSession(ACTOR, session.sessionId))!;
     await host.runPrompt(session, {protocol_version: 3, request_id: "after-reopen", message: "创建一笔查询"}, deps);
-    expect(faux.providerCalls).toBe(5);
-    expect(faux.payloads[2]).toMatchObject({tool_choice: "required"});
+    expect(faux.providerCalls).toBe(4);
+    expect(faux.payloads[1]).toMatchObject({tool_choice: "required"});
     const entries = await session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
     expect(entries.filter(entry => entry.type === "message" && entry.message.role === "user")).toHaveLength(2);
     expect(entries.filter(entry => entry.type === "message" && entry.message.role === "toolResult"
@@ -1518,5 +1672,62 @@ it("相同报错但参数正在变化不提前终止，移除虚构日期后保�
       metrics: {resolvedValue: {names: ["余额"]}}, organizations: {resolvedValue: {names: ["测试机构"]}},
       time: {resolutionStatus: "missing"},
     }});
+  } finally {await host.close(); await store.close();}
+});
+
+it("理解问题阶段向页面播报上下文、指标识别与模型分析，工具回执之后不再播报", async () => {
+  const dir = tempDir();
+  const query = (changes: unknown[], base: unknown): FauxReply => ({kind: "toolCall", name: "resolve_business_turn", args: {
+    capabilityHint: "metric_query", baseReference: base, executionMode: "execute", fieldChanges: changes}});
+  const faux = createFauxModel([
+    query([{fieldHint: "metrics", operation: "set", rawValue: {fromQuestion: true}}, {fieldHint: "organizations", operation: "set", rawValue: "合成机构"},
+      {fieldHint: "time", operation: "set", rawValue: "2026年4月30日"}, {fieldHint: "selection", operation: "set", rawValue: "exact"}], null),
+    {kind: "text", text: "第一轮完成。"},
+    query([{fieldHint: "time", operation: "set", rawValue: "3月末"}], "current"),
+    {kind: "text", text: "第二轮完成。"},
+  ]);
+  const name = "合成余额当日数";
+  const backend = {
+    matchMetricQuestion: async (question: string) => {
+      const start = question.indexOf(name);
+      return {mentions: start < 0 ? [] : [{text: name, start, end: start + name.length, resolution: {status: "resolved", value: {codes: ["M"], names: [name]}}}]};
+    },
+    resolveBusinessField: async (entity: string, raw: string[]) => ({status: "resolved", value: entity === "date"
+      ? {start: raw[0]!.includes("3月") ? "2026-03-31" : "2026-04-30", end: raw[0]!.includes("3月") ? "2026-03-31" : "2026-04-30"} : {codes: ["O"], names: raw}}),
+    createAgentQueryContext: async () => ({conversation_id: "synthetic"}),
+    basicQueries: async () => ({result: {task_id: "t", status: "succeeded", rows: [], columns: [], row_count: 0}}),
+    getTask: async () => ({task_id: "t", status: "SUCCEEDED", version: 1, result: {result_id: "r"}}),
+  } as unknown as BackendClient;
+  const store = new NativeSessionStore(dir);
+  const host = new HarnessHost(testConfig(dir), () => ({models: faux.models, model: faux.model}), store, createAskMetricTools());
+  const {mentionNote} = await import("./harnessHost.js");
+  try {
+    const session = await host.createSession(ACTOR);
+    const ask = async (message: string, request_id: string) => {
+      const reported: Array<Record<string, unknown>> = [];
+      const admitted = await host.admitPrompt(session, {protocol_version: 3, request_id, message}, {actor: ACTOR, backend});
+      if (!admitted.ok) throw new Error(admitted.code);
+      admitted.request.reportActivity = activity => reported.push({...activity});
+      await host.drivePrompt(session, admitted);
+      return reported;
+    };
+    const first = await ask(`合成机构2026年4月30日${name}是多少？`, "activity-1");
+    expect(first.map(item => `${item.activity_id}:${item.status}`)).toEqual([
+      "context:running", "context:done", "mentions:running", "mentions:done", "model:running", "model:done"]);
+    expect(first[1]).toMatchObject({note: "新的话题，没有可沿用的条件"});
+    expect(first[1]).not.toHaveProperty("conditions");
+    expect(first[3]).toMatchObject({note: `识别到：${name}`});
+    const {NativeFrameStore} = await import("./business-context/store.js");
+    const fs = new NativeFrameStore(session.session);
+    const second = await ask("3月末的呢？", "activity-2");
+    expect(second.filter(item => item.status === "done")).toEqual([
+      {activity_id: "context", label: "读取对话上下文", status: "done", note: "沿用当前话题", conditions: [
+        {label: "指标", value: name}, {label: "机构", value: "合成机构"}, {label: "日期", value: "2026-04-30"}]},
+      {activity_id: "mentions", label: "识别问题中的指标", status: "done", note: "未提到新指标，沿用当前话题的指标"},
+      {activity_id: "model", label: "理解问题，确定处理方式", status: "done"},
+    ]);
+    expect(JSON.stringify(faux.payloads)).not.toContain("沿用当前话题");
+    expect(mentionNote({mentions: [], status: "temporary_error"}, false)).toBe("指标目录暂时不可用，解析条件时会再试");
+    expect(mentionNote({mentions: [{text: "余额", start: 0, end: 2, resolution: {status: "ambiguous"}}]}, true)).toBe("“余额”可能对应多个指标，需要确认");
   } finally {await host.close(); await store.close();}
 });

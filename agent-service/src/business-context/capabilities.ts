@@ -69,7 +69,7 @@ export function createCapabilities(): CapabilityRegistry {
           sourceText: {type: "string", description: "旧调用兼容字段；确认原文由服务端绑定，本字段不作为依据"}}, additionalProperties: false},
       ]};
       if (name === "organizations" && capability === "metric_query") {
-        definition.description += " 集合原文用 {kind:'authorized_cohort',cohort:'rural_commercial_banks',sourceText:本轮集合原文}；明确某机构下属用 {kind:'children_of',parentName:本轮上级名称,sourceText:本轮范围原文}。权限和层级由服务端确定，不能自行枚举编码；未知具体名称不能改成集合。";
+        definition.description += " 机构范围二选一，不能混交：具体机构（含“上述三家”等指代）传本轮原文名称或名称数组；机构集合或上下级范围（如“各家农商行”“全部农商行”“某某下辖机构”“某某下属”）必须传集合原文对象——集合用 {kind:'authorized_cohort',cohort:'rural_commercial_banks',sourceText:本轮集合原文}，下辖用 {kind:'children_of',parentName:本轮上级名称,sourceText:本轮范围原文}。集合或范围表达传纯文本无法解析，服务端会退回澄清。权限和层级由服务端确定，不能自行枚举编码；未知具体名称不能改成集合。";
         (definition.inputSchema.anyOf as unknown[]).push(
           {type: "object", required: ["kind", "cohort", "sourceText"], properties: {kind: {const: "authorized_cohort"}, cohort: {const: "rural_commercial_banks"}, sourceText: {type: "string", minLength: 1, maxLength: 200}}, additionalProperties: false},
           {type: "object", required: ["kind", "parentName", "sourceText"], properties: {kind: {const: "children_of"}, parentName: {type: "string", minLength: 1, maxLength: 200}, sourceText: {type: "string", minLength: 1, maxLength: 200}}, additionalProperties: false},

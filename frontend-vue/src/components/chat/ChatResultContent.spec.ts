@@ -20,13 +20,14 @@ const response = {
 
 const render = (props: Record<string, unknown>) => renderToString(createSSRApp(ChatResultContent, props))
 
-describe("数据明细默认收起", () => {
-  it("有结果时只展示带条数的入口，不渲染明细表", async () => {
+describe("数据明细默认展开", () => {
+  it("有结果时直接展示明细表，指标名称提到表头说明", async () => {
     const html = await render({ response })
-    expect(html).toContain("查看 2 条数据明细")
-    expect(html).toContain('aria-expanded="false"')
-    expect(html).not.toContain("<table")
-    expect(html).not.toContain("收起数据明细")
+    expect(html).toContain("收起数据明细")
+    expect(html).toContain('aria-expanded="true"')
+    expect(html).toContain("<table")
+    expect(html).toContain("指标：信贷客户数量当日数")
+    expect(html).toContain("311,312")
   })
 
   it("正文生成中不展示数据明细入口", async () => {

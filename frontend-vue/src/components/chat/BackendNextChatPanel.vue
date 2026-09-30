@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import {applyProvisionalAnswer, clearProvisionalAnswer} from "@/lib/provisionalAnswer"
+import ChatProvisionalAnswer from "./ChatProvisionalAnswer.vue"
 import { availabilityReply, type AvailabilityDetails } from "@/lib/dataAvailability"
 import { governedReply, catalogOverviewReply, type CatalogOverviewDetails } from "@/lib/replyPresentation"
 import { AlertTriangle, Bot, Check, Copy, Ellipsis, LoaderCircle, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Trash2 } from "@lucide/vue"
@@ -46,6 +48,7 @@ import { copyText } from "@/lib/clipboard"
 import { archiveClarificationResponse } from "@/lib/conversationMessages"
 import { composeQuestion, selectedClarificationAnswer, type ComposerEntity } from "@/lib/composerEntities"
 import { friendlyQueryError, withFailureNotice } from "@/lib/queryErrors"
+import { toolCallLabel, toolCallSummary, type ToolCallSummary } from "@/lib/toolCallSummary"
 
 /**
  * 指标问数面板：问答数据链路走 agent-service（pi harness）的 SSE 事件流，
@@ -57,21 +60,42 @@ type ToolCallDisplay = {
   tool: string
   status: "running" | "done" | "error" | "interrupted" | "unknown"
   elapsedMs?: number
+  /** 实时流中的开始时刻，用于在工具结束时计算步骤耗时。 */
+  startedAt?: number
+  /** 步骤结果摘要：已确定条件与一句结果说明。 */
+  summary?: ToolCallSummary
+  /** 回执已换成查询结果时的步骤名称，见 toolCallLabel。 */
+  label?: string
+}
+
+/** 理解问题阶段的非工具步骤；只来自实时流，历史记录不保存。 */
+type ActivityDisplay = {
+  id: string
+  label: string
+  status: "running" | "done"
+  startedAt: number
+  elapsedMs?: number
+  summary?: ToolCallSummary
 }
 
 type DisplayMessage = {
   id: string
   role: "user" | "assistant"
   content: string
+  /** 仅实时展示，不参与正式回答、复制、导出或存档。 */
+  provisionalContent?: string
+  provisionalCallSeq?: number
   /** 本轮已展示的失败说明，快照和收尾事件不得重复追加。 */
   failureNotice?: string
   response?: ChatResponse
   status?: "pending" | "done" | "error"
   toolCalls?: ToolCallDisplay[]
+  activities?: ActivityDisplay[]
   taskIds?: string[]
   elapsedMs?: number
   /** run_terminal 携带的 agent-service 侧耗时：鉴权、各次模型调用与工具处理（重连流无此数据） */
-  runTimings?: { auth_ms?: number; total_ms?: number; model_ms?: number[]; tool_ms?: number[] }
+  runTimings?: { auth_ms?: number; total_ms?: number; model_ms?: number[]; tool_ms?: number[];
+    first_visible_ms?: number | null; model_first_token_ms?: number[] }
   clarification?: BackendNextClarification
   createdAt?: string
   kind?: string
@@ -521,6 +545,7 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
         const call: ToolCallDisplay = {
           id: item.tool_call_id || calls[index]?.id || createId(), tool: item.tool,
           status: item.is_error ? "error" : "done", elapsedMs: item.elapsed_ms,
+          summary: toolCallSummary(item.details, item.is_error), label: toolCallLabel(item.tool, item.details),
         }
         if (index >= 0) calls[index] = call
         else calls.push(call)
@@ -919,6 +944,11 @@ async function streamPrompt(conversationId: string, serverId: string, input: Age
 }
 
 function handleStreamEvent(conversationId: string, assistantId: string, event: AgentStreamEvent) {
+  if (event.type === "answer_delta" || event.type === "answer_reset") {
+    updateAssistantMessage(conversationId, assistantId, item => applyProvisionalAnswer(item, event))
+    void scrollToBottom()
+    return
+  }
   if (event.type === "error") {
     throw new AgentApiError(event.message?.trim() || "智能助手处理失败，请稍后重试。", 0)
   }
@@ -941,10 +971,28 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
     }
     return
   }
+  if (event.type === "activity") {
+    updateAssistantMessage(conversationId, assistantId, (item) => {
+      const activities = [...(item.activities ?? [])]
+      const index = activities.findIndex(activity => activity.id === event.activity_id)
+      const previous = index >= 0 ? activities[index] : undefined
+      const startedAt = previous?.startedAt ?? Date.now()
+      const note = event.note?.trim()
+      const next: ActivityDisplay = {
+        id: event.activity_id, label: event.label, status: event.status, startedAt,
+        ...(event.status === "done" ? { elapsedMs: Date.now() - startedAt } : {}),
+        ...(note || event.conditions?.length ? { summary: { ...(note ? { note } : {}), ...(event.conditions?.length ? { conditions: event.conditions } : {}) } } : {}),
+      }
+      if (index >= 0) activities[index] = next
+      else activities.push(next)
+      return { ...item, activities }
+    })
+    return
+  }
   if (event.type === "run_terminal") {
     const failed = !["ok", "idle"].includes(event.answer_status)
     updateAssistantMessage(conversationId, assistantId, (item) => {
-      let finalized = finalizeAssistantMessage({ ...item, status: failed || item.failureNotice ? "error" : "done" })
+      let finalized = finalizeAssistantMessage({ ...clearProvisionalAnswer(item), status: failed || item.failureNotice ? "error" : "done" })
       // 快照中的失败说明已是本轮正式展示内容，终态事件只补充缺失的提示。
       if (failed) {
         finalized = withFailureNotice(finalized, friendlyQueryError(event.error_message ?? null, event.error_code ?? null))
@@ -953,6 +1001,7 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
         ...finalized,
         runTimings: event.timings_ms ?? item.runTimings,
         toolCalls: item.toolCalls?.map((call) => call.status === "running" ? { ...call, status: "done" } : call),
+        activities: item.activities?.map((activity) => activity.status === "running" ? { ...activity, status: "done" as const } : activity),
       }
     })
     const finished = conversations.value
@@ -974,15 +1023,20 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
     }
     if (event.type === "message_done") return { ...item, answerStreaming: false, content: event.text || item.content }
     if (event.type === "tool_start") {
-      return { ...item, answerStreaming: false, toolCalls: [...(item.toolCalls ?? []), { id: event.tool_call_id || createId(), tool: event.tool, status: "running" as const }] }
+      return { ...item, answerStreaming: false, toolCalls: [...(item.toolCalls ?? []), { id: event.tool_call_id || createId(), tool: event.tool, status: "running" as const, startedAt: Date.now() }] }
     }
     // tool_end：结束对应进度，记录 metric_ask 明细供收尾时构造结果表或澄清卡片。
     const toolCalls = [...(item.toolCalls ?? [])]
     const targetIndex = toolCalls.findIndex(call => event.tool_call_id ? call.id === event.tool_call_id : call.tool === event.tool && call.status === "running")
+    const ended = {
+      status: event.isError ? "error" as const : "done" as const,
+      summary: toolCallSummary(event.details, event.isError), label: toolCallLabel(event.tool, event.details),
+    }
     if (targetIndex >= 0) {
-      toolCalls[targetIndex] = { ...toolCalls[targetIndex]!, status: event.isError ? "error" : "done" }
+      const started = toolCalls[targetIndex]!
+      toolCalls[targetIndex] = { ...started, ...ended, ...(started.startedAt ? { elapsedMs: Date.now() - started.startedAt } : {}) }
     } else {
-      toolCalls.push({ id: event.tool_call_id || createId(), tool: event.tool, status: event.isError ? "error" : "done" })
+      toolCalls.push({ id: event.tool_call_id || createId(), tool: event.tool, ...ended })
     }
     const delivery = asDeliveredAnswer(event.details)
     if (delivery) return { ...item, toolCalls, answerDelivered: true, content: delivery.public_answer }
@@ -1046,7 +1100,12 @@ function applyAgentSnapshot(conversationId: string, snapshot: AgentSnapshot, ass
       })
     }
     const assistant = restored[restored.length - 1]
-    if (assistant?.role === "assistant" && assistantId) assistant.id = assistantId
+    if (assistant?.role === "assistant" && assistantId) {
+      assistant.id = assistantId
+      // 快照不含理解阶段步骤，替换消息时保留本轮已收到的播报。
+      const localActivities = item.messages.find(message => message.id === assistantId)?.activities
+      if (localActivities?.length) assistant.activities = localActivities
+    }
     for (const message of restored) {
       const taskId = message.response?.debug?.task_id
       const cached = item.messages.find(old => taskId && old.response?.debug?.task_id === taskId && old.response?.result)
@@ -1098,7 +1157,7 @@ function failMessage(conversationId: string, messageId: string, error: unknown) 
     ? "已停止生成。"
     : friendlyQueryError(error instanceof Error ? error.message : null)
   updateAssistantMessage(conversationId, messageId, (item) => {
-    let finalized = finalizeAssistantMessage({ ...item, status: aborted ? "done" : "error" })
+    let finalized = finalizeAssistantMessage({ ...clearProvisionalAnswer(item), status: aborted ? "done" : "error" })
     if (!aborted) finalized = withFailureNotice(finalized, content)
     const answer = finalized.content || content
     return {
@@ -1239,17 +1298,17 @@ async function scrollToBottom() {
                     <span class="text-xs" :class="executionStatus(chatMessage).titleClass">{{ executionStatus(chatMessage).title }}</span>
                   </template>
                 </div>
-                <AgentMessageDiagnostics :question="questionForMessage(chatMessage)" :task-ids="chatMessage.taskIds ?? []" :pending="chatMessage.status === 'pending'" :has-answer="Boolean(chatMessage.answerStreaming)" :started-at="chatMessage.createdAt" :elapsed-ms="chatMessage.elapsedMs" :tools="chatMessage.toolCalls ?? []" :run-timings="chatMessage.runTimings" />
-                <div v-if="chatMessage.status === 'pending' && chatMessage.content && (!chatMessage.availability?.length || chatMessage.metricAskDetails)" class="leading-7"><ChatMarkdown :source="chatMessage.nativeAnswer ? chatMessage.content : chatMessage.metricAskClarificationPrompt ?? chatMessage.metricAskClarification?.prompt ?? governedReply(chatMessage.metricAskDetails) ?? chatMessage.content" /><span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></div>
-                <ChatResultContent v-else-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :show-data-details="!chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
-                <ChatMarkdown v-else-if="chatMessage.status !== 'pending'" class="leading-6" :source="visibleContent(chatMessage)" />
-                <ClarificationChoices v-if="chatMessage.status !== 'pending' && chatMessage.choiceSet" :choices="chatMessage.choiceSet" :active="isActiveChoice(chatMessage)" @choose="(choice) => chooseClarificationOption(chatMessage, choice)" />
+                <AgentMessageDiagnostics :question="questionForMessage(chatMessage)" :task-ids="chatMessage.taskIds ?? []" :pending="chatMessage.status === 'pending'" :has-answer="Boolean(chatMessage.provisionalContent || chatMessage.answerStreaming)" :started-at="chatMessage.createdAt" :elapsed-ms="chatMessage.elapsedMs" :tools="chatMessage.toolCalls ?? []" :activities="chatMessage.activities ?? []" :run-timings="chatMessage.runTimings" />
                 <div v-if="chatMessage.status === 'pending' && chatMessage.response?.result" class="mt-2">
                   <p class="mb-2 text-xs text-muted-foreground">已取得步骤结果，正在继续处理本轮问题…</p>
                   <ChatResultContent :response="{ ...chatMessage.response, answer: '', answer_blocks: undefined }" :question="questionForMessage(chatMessage)" />
                 </div>
                 <CalculationResult v-for="(calculation, index) in chatMessage.calculations" :key="calculation.calculation_id ?? index" :calculation="calculation" />
-
+                <ChatProvisionalAnswer v-if="chatMessage.status === 'pending' && chatMessage.provisionalContent" :text="chatMessage.provisionalContent" />
+                <div v-else-if="chatMessage.status === 'pending' && chatMessage.content && (!chatMessage.availability?.length || chatMessage.metricAskDetails)" class="leading-7"><ChatMarkdown :source="chatMessage.nativeAnswer ? chatMessage.content : chatMessage.metricAskClarificationPrompt ?? chatMessage.metricAskClarification?.prompt ?? governedReply(chatMessage.metricAskDetails) ?? chatMessage.content" /><span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></div>
+                <ChatResultContent v-else-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :show-data-details="!chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
+                <ChatMarkdown v-else-if="chatMessage.status !== 'pending'" class="leading-6" :source="visibleContent(chatMessage)" />
+                <ClarificationChoices v-if="chatMessage.status !== 'pending' && chatMessage.choiceSet" :choices="chatMessage.choiceSet" :active="isActiveChoice(chatMessage)" @choose="(choice) => chooseClarificationOption(chatMessage, choice)" />
                 <p v-if="chatMessage.availability?.length && chatMessage.availabilityError" class="text-sm text-muted-foreground">{{ chatMessage.availabilityError }}</p>
                 <div v-if="chatMessage.clarification?.fields?.length" class="mt-1">
                   <StructuredClarificationForm :clarification="chatMessage.clarification" />

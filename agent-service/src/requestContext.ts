@@ -84,7 +84,27 @@ export interface AskMetricRequestContext {
   /** 原生模型步骤，仅用于诊断及隔离摘要请求，不保存业务状态。 */
   modelCall?: { model: string; step: "assistant" | "deferred" | "compaction" | "branch_summary"; attempt: number; startedAt: number; payloadBytes?: number };
   /** 仅本次驱动的诊断耗时，不承载业务状态或模型记忆。 */
-  timings?: { startedAt: number; modelStartedAt?: number; toolStartedAt?: Record<string, number>; model_ms: number[]; tool_ms: number[] };
+  timings?: { startedAt: number; receivedAt?: number; reportAtSnapshot?: boolean; firstVisibleAt?: number; modelStartedAt?: number;
+    modelFirstTokenRecorded?: boolean; modelFirstTokenMs: number[];
+    toolStartedAt?: Record<string, number>; model_ms: number[]; tool_ms: number[] };
+  /** 只用于本次观察；不写入原生业务状态或模型上下文。重试沿用 callSeq。 */
+  answerStream?: {callSeq: number; mode: "none" | "text" | "reply"};
+  reportAnswerRetry?: (callSeq: number) => void;
+  /**
+   * 仅向本次浏览器观察播报“理解问题”阶段的进度；由路由在驱动前绑定，未绑定（恢复执行等）时不播报。
+   * 播报内容只用于页面展示，不写入会话、不进入模型上下文。
+   */
+  reportActivity?: (activity: AgentActivity) => void;
+  activityState?: { contextReported?: boolean; modelRunning?: boolean };
+}
+
+/** 执行过程中的非工具步骤；同一 activity_id 的后续播报覆盖前一次状态。 */
+export interface AgentActivity {
+  activity_id: string;
+  label: string;
+  status: "running" | "done";
+  note?: string;
+  conditions?: Array<{ label: string; value: string }>;
 }
 
 const REQUEST_KEY = createContextKey<AskMetricRequestContext>("askmetric.request");

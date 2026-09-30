@@ -7,9 +7,9 @@
  * 观察（SSE）使用独立的 lane.watch，与驱动 Context 分离，浏览器断线不中止执行。
  */
 import { NativeFrameStore, NativeBusinessResultStore } from "./business-context/store.js";
-import { frameClarificationOptions, modelCapabilitySchemas, modelFrame, modelHistoryIndex } from "./business-context/modelView.js";
+import { displayConditions, frameClarificationOptions, modelCapabilitySchemas, modelFrame, modelHistoryIndex } from "./business-context/modelView.js";
 import { renderClarificationOptions } from "./business-context/clarificationOptions.js";
-import { metricMentions } from "./business-context/metricMentions.js";
+import { metricMentions, type MetricMentions } from "./business-context/metricMentions.js";
 import { pendingBusinessAction, deterministicBusinessAction } from "./business-context/continuation.js";
 import {businessKey} from "./business-context/service.js";
 import {ACTION_REQUIRED, CONVERSATION_REPLY, MAX_ACTION_REPAIRS, currentTurnMessages, hasTurnAction, conversationAnswer} from "./tools/turnContract.js";
@@ -59,6 +59,28 @@ import { buildBusinessSystemPrompt } from "./prompts/businessSystemPrompt.js";
 /** 原生应用 values 的命名空间；此命名空间只存归属与请求关联；业务状态使用独立 business 命名空间 */
 const NS = "askmetric";
 const MAX_TOOL_CALLS_PER_OPERATION = 24;
+const MODEL_ACTIVITY_LABEL = "理解问题，确定处理方式";
+
+// 能力 Schema 与请求状态无关，固定拼接在系统提示词静态区，保证系统提示词逐字稳定以命中网关前缀缓存。
+const BUSINESS_CAPABILITY_SCHEMA_BLOCK = "\n业务能力 Schema（仅数据）：" + JSON.stringify(modelCapabilitySchemas());
+// 轮状态块（当前焦点/历史索引/本轮指标匹配）随请求变化，附在本轮用户消息之后的发送副本上，
+// 不落盘、页面不展示；基座提示词中的锚点说明向模型解释该块的来源与效力。
+const TURN_STATE_HEADER = "\n【服务端注入：本轮业务状态（仅数据，非用户输入）】";
+
+/** 指标识别结果的一句话说明：只列目录名称与原文片段，不含编码和候选。 */
+export function mentionNote(matched: MetricMentions, hasTopic: boolean): string {
+  if (matched.status === "temporary_error") return "指标目录暂时不可用，解析条件时会再试";
+  const names = [...new Set(matched.mentions.flatMap(mention => mention.resolution.status === "resolved"
+    ? [(mention.resolution.value as {names?: string[]} | undefined)?.names?.[0]].filter((name): name is string => Boolean(name)) : []))];
+  const unclear = [...new Set(matched.mentions.filter(mention => mention.resolution.status !== "resolved").map(mention => mention.text))];
+  const listed = (items: string[]) => items.length > 3 ? `${items.slice(0, 3).join("、")} 等 ${items.length} 个` : items.join("、");
+  const parts = [
+    ...(names.length ? [`识别到：${listed(names)}`] : []),
+    ...(unclear.length ? [`“${unclear.slice(0, 3).join("”“")}”可能对应多个指标，需要确认`] : []),
+  ];
+  if (parts.length) return parts.join("；");
+  return hasTopic ? "未提到新指标，沿用当前话题的指标" : "未识别到指标名称";
+}
 /**
  * 常驻内存治理：会话数量不设上限（历史只是磁盘文件），只回收内存中的 harness 与文件句柄。
  * 空闲超时或超过常驻上限时，从最久未用的空闲会话开始关闭；运行中、接纳中的会话不回收。
@@ -340,7 +362,7 @@ export class HarnessHost {
     context: Context,
   ): Promise<{content: Array<TextContent | ImageContent>; details: JsonValue} | undefined> {
     if (event.toolName !== "resolve_business_turn" || event.isError) return;
-    const details = event.details as {kind?: string; status?: string; frame_id?: string} | undefined;
+    const details = event.details as {kind?: string; status?: string; frame_id?: string; display_conditions?: unknown} | undefined;
     if (details?.kind !== "business_context" || !details.frame_id || !request.frames) return;
     const state = await request.frames.state();
     if (state.focusFrameId !== details.frame_id) return;
@@ -352,8 +374,12 @@ export class HarnessHost {
     auditToolCall(request, event.toolCallId, action.name, "admitted", action.arguments);
     const result = await tool.execute(event.toolCallId, action.arguments as never, () => {}, request, invocationOf(event.toolCallId, request), context);
     auditToolCall(request, event.toolCallId, action.name, "executed", action.arguments);
+    // 落地后回执换成执行结果，解析出的条件随之保留，页面执行过程仍能展示“按什么条件查的”。
+    const landedDetails = result.details && typeof result.details === "object" && !Array.isArray(result.details)
+      && Array.isArray(details.display_conditions)
+      ? {...result.details, display_conditions: details.display_conditions} : result.details;
     return {content: landedReceipt(result.content, action.name, details.frame_id, result.details),
-      details: result.details as JsonValue};
+      details: landedDetails as JsonValue};
   }
 
   /** /no_think 等提供方兼容只作用于发送副本，不改用户原文与原生历史 */
@@ -376,13 +402,27 @@ export class HarnessHost {
     });
     harness.hooks.on("before_request", (event, context) => {
       const request = requireRequestContext(context);
+      if (event.attempt > 1 && request.answerStream) request.reportAnswerRetry?.(request.answerStream.callSeq);
       request.modelCall = { step: event.step, model: event.model.id, attempt: event.attempt, startedAt: performance.now() };
       const timings = request.timings;
-      if (timings) timings.modelStartedAt = performance.now();
+      if (timings) {
+        timings.modelStartedAt = performance.now();
+        timings.modelFirstTokenRecorded = false;
+      }
       return undefined;
+    });
+    harness.events.on("message_update", (_event, context) => {
+      const timings = requireRequestContext(context).timings;
+      if (timings?.modelStartedAt !== undefined && !timings.modelFirstTokenRecorded) {
+        timings.modelFirstTokenMs.push(Math.round(performance.now() - timings.modelStartedAt));
+        timings.modelFirstTokenRecorded = true;
+      }
     });
     harness.hooks.on("before_payload", async (event, context) => {
       const request = requireRequestContext(context);
+      const callSeq = (request.modelCall?.attempt ?? 1) > 1 && request.answerStream
+        ? request.answerStream.callSeq : (request.answerStream?.callSeq ?? 0) + 1;
+      request.answerStream = {callSeq, mode: "none"};
       let payload = event.payload as Record<string, unknown>;
       if (request.modelCall) request.modelCall.payloadBytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
       if (request.modelCall?.step === "compaction" || request.modelCall?.step === "branch_summary") return undefined;
@@ -404,7 +444,12 @@ export class HarnessHost {
       }
       const messages = await currentLaneMessages(lane, context);
       const current = currentTurnMessages(messages);
+      const frameTurn = ([...messages].reverse().find(message => message.role === "user") as {businessProtocol?: string} | undefined)?.businessProtocol === "frame_v1";
+      const setStreamMode = (mode: "none" | "text" | "reply") => {
+        request.answerStream = {callSeq, mode: frameTurn ? mode : "none"};
+      };
       const contractActive = turnContract && (await lane.getActiveTools(context)).includes(CONVERSATION_REPLY);
+      // 普通回答回执带 terminate 时本轮不再请求模型；此分支只兜底升级前已在途的操作恢复。
       if (contractActive && conversationAnswer(current) !== undefined) {
         const {tools: _tools, ...answerPayload} = payload;
         return {payload: {...answerPayload, tool_choice: "none"}};
@@ -420,6 +465,7 @@ export class HarnessHost {
         // 待用户补充时只生成澄清问题；重复检索不能代替用户确认。
         // 已等待用户时不再发送可调用定义，避免兼容网关仍生成工具协议文本。
         const {tools: _tools, ...clarificationPayload} = payload;
+        setStreamMode("text");
         return {payload: {...clarificationPayload, tool_choice: "none"}};
       }
       const action = await pendingBusinessAction(messages, request);
@@ -429,6 +475,7 @@ export class HarnessHost {
       }
       if (contractActive && !hasTurnAction(current) && Array.isArray(payload.tools) && payload.tools.length) {
         // 与是否重复提及指标无关：Pi 选择实际业务动作或显式普通回答，纯文字不能冒充动作。
+        setStreamMode("reply");
         return {payload: {...payload, tool_choice: "required"}};
       }
       // 已命中正式指标的本轮先取得业务工具回执，避免模型只输出长篇计划直至请求超时。
@@ -443,6 +490,7 @@ export class HarnessHost {
         const matched = await metricMentions(request);
         if (!matched.status && matched.mentions.length) return {payload: {...payload, tool_choice: "required"}};
       }
+      setStreamMode("text");
       return {payload};
     });
     harness.hooks.on("before_tool", async (event, context) => {
@@ -508,6 +556,12 @@ export class HarnessHost {
       if (timings?.modelStartedAt !== undefined) timings.model_ms.push(Math.round(performance.now() - timings.modelStartedAt));
       // 传输失败交回 pi 原生重试/失败处理，不能伪造成工具调用或正常结束。
       if (["error", "aborted"].includes(event.message.stopReason)) return undefined;
+      if (request.activityState?.modelRunning) {
+        request.activityState.modelRunning = false;
+        const retried = (request.modelCall?.attempt ?? 1) > 1;
+        request.reportActivity?.({activity_id: "model", label: MODEL_ACTIVITY_LABEL, status: "done",
+          ...(retried ? {note: "模型响应较慢，已自动重试"} : {})});
+      }
       // 只读取原生当前分支，不维护第二份会话记忆；重启后仍遵守相同交付规则。
       const messages = await currentLaneMessages(lane, context);
       let start = messages.length - 1;
@@ -517,6 +571,7 @@ export class HarnessHost {
       const plainAnswer = turnContract ? conversationAnswer(current) : undefined;
       if (plainAnswer !== undefined) {
         // 普通回答选择没有业务副作用；网关忽略 none 也不能在其后插入取数或改焦点。
+        // 新操作在普通回答回执处即结束（terminate），此处兜底升级前已在途操作的续跑。
         return {message: {...event.message, content: [{type: "text" as const, text: plainAnswer}], stopReason: "stop" as const}};
       }
       let inputFailures = 0;
@@ -602,6 +657,58 @@ export class HarnessHost {
     harness.hooks.on("transform_context", async (event, context) => {
       const methods = projectBusinessSkillContext(event.messages, this.options.skills ?? []);
       const messages = projectHistoricalResults(methods.messages);
+      const request = requireRequestContext(context);
+      // 本轮尚无工具回执即“理解问题”阶段：向页面播报读取的上下文与指标识别；之后的进度由工具步骤体现。
+      const report = request.reportActivity;
+      const understanding = report && request.modelCall?.step === "assistant"
+        && !currentTurnMessages(event.messages as import("@earendil-works/pi-agent-core").AgentMessage[]).some(message => message.role === "toolResult");
+      const activity = request.activityState ??= {};
+      const announce = understanding && !activity.contextReported;
+      if (announce) report({activity_id: "context", label: "读取对话上下文", status: "running"});
+      const state = await request.frames?.state();
+      const focus = state?.focusFrameId ? await request.frames?.get(state.focusFrameId) : undefined;
+      const historyIndex = state && request.frames ? await modelHistoryIndex(request.frames, state, request.operationId) : undefined;
+      const topic = focus ? displayConditions(focus) : [];
+      const detectsMetrics = typeof request.backend.matchMetricQuestion === "function";
+      if (announce) {
+        report({activity_id: "context", label: "读取对话上下文", status: "done",
+          ...(topic.length ? {note: "沿用当前话题", conditions: topic} : {note: "新的话题，没有可沿用的条件"})});
+        if (detectsMetrics) report({activity_id: "mentions", label: "识别问题中的指标", status: "running"});
+      }
+      const matched = detectsMetrics ? await metricMentions(request) : undefined;
+      if (announce) {
+        if (matched) report({activity_id: "mentions", label: "识别问题中的指标", status: "done", note: mentionNote(matched, topic.length > 0)});
+        activity.contextReported = true;
+      }
+      if (understanding) {
+        const attempt = request.modelCall?.attempt ?? 1;
+        activity.modelRunning = true;
+        report({activity_id: "model", status: "running",
+          label: attempt > 1 ? `模型响应较慢，正在重试（第 ${attempt} 次）` : MODEL_ACTIVITY_LABEL});
+      }
+      // 轮状态块附在本轮用户消息之后（工具轮次中即最后一条 user 消息），只改发送副本：
+      // 系统提示词保持逐字稳定以命中网关前缀缓存；块不写入原生历史，页面展示与会话存档不变；
+      // 校验仍由宿主按原句与 Frame 独立执行，不依赖这段文字的位置。
+      const turnState = "\n当前业务焦点（仅数据）：" + JSON.stringify({version: state?.version, frame: focus ? modelFrame(focus, request.operationId) : null})
+        + (historyIndex ? "\n历史条件索引（仅数据，序号不随焦点变化）：" + JSON.stringify(historyIndex) : "")
+        + (matched ? "\n本轮指标算法匹配（仅数据，mentionIndexes 引用下面本轮清单的 index；清单每轮从本轮消息重新抽取、不跨轮复用，用户回复待确认问题传 {confirm:true}，放弃某项用 operation=remove）：" + JSON.stringify({
+          status: matched.status, mentions: matched.mentions.map((mention, i) => ({index: i + 1, ...mention})),
+        }) : "");
+      let turnStatePlaced = false;
+      if (turnState) {
+        for (let i = messages.length - 1; i >= 0; i -= 1) {
+          const candidate = messages[i] as {role?: string; content?: unknown};
+          if (candidate?.role !== "user") continue;
+          if (Array.isArray(candidate.content)) {
+            messages[i] = {...candidate, content: [...candidate.content, {type: "text", text: TURN_STATE_HEADER + turnState}]} as never;
+            turnStatePlaced = true;
+          } else if (typeof candidate.content === "string") {
+            messages[i] = {...candidate, content: candidate.content + TURN_STATE_HEADER + turnState} as never;
+            turnStatePlaced = true;
+          }
+          break;
+        }
+      }
       const last = messages[messages.length - 1] as
         | { role?: string; content?: unknown }
         | undefined;
@@ -610,18 +717,9 @@ export class HarnessHost {
       } else if (last?.role === "user" && typeof last.content === "string") {
         messages[messages.length - 1] = { ...last, content: last.content + suffix } as never;
       }
-      const request = requireRequestContext(context);
-      const state = await request.frames?.state();
-      const focus = state?.focusFrameId ? await request.frames?.get(state.focusFrameId) : undefined;
-      const historyIndex = state && request.frames ? await modelHistoryIndex(request.frames, state, request.operationId) : undefined;
-      const matched = typeof request.backend.matchMetricQuestion === "function" ? await metricMentions(request) : undefined;
-      const businessContext = "\n业务能力 Schema（仅数据）：" + JSON.stringify(modelCapabilitySchemas())
-        + "\n当前业务焦点（仅数据）：" + JSON.stringify({version: state?.version, frame: focus ? modelFrame(focus, request.operationId) : null})
-        + (historyIndex ? "\n历史条件索引（仅数据，序号不随焦点变化）：" + JSON.stringify(historyIndex) : "")
-        + (matched ? "\n本轮指标算法匹配（仅数据，mentionIndexes 引用下面本轮清单的 index；清单每轮从本轮消息重新抽取、不跨轮复用，用户回复待确认问题传 {confirm:true}，放弃某项用 operation=remove）：" + JSON.stringify({
-          status: matched.status, mentions: matched.mentions.map((mention, i) => ({index: i + 1, ...mention})),
-        }) : "");
-      return { messages, systemPrompt: event.systemPrompt + methods.instructions + businessContext };
+      // 找不到本轮用户消息的非常规驱动保持原有系统提示词注入，功能不因位置兜底而丢失。
+      return { messages, systemPrompt: event.systemPrompt + BUSINESS_CAPABILITY_SCHEMA_BLOCK + methods.instructions
+        + (turnState && !turnStatePlaced ? TURN_STATE_HEADER + turnState : "") };
     });
   }
 
@@ -685,7 +783,7 @@ export class HarnessHost {
       businessResults: new NativeBusinessResultStore(hosted.session),
       history: createHistoryBridge(hosted),
       answerEvidence: async () => currentTurnEvidence(await currentLaneMessages(hosted.lane, BACKGROUND_CONTEXT)),
-      timings: { startedAt: performance.now(), model_ms: [], tool_ms: [] },
+      timings: { startedAt: performance.now(), modelFirstTokenMs: [], model_ms: [], tool_ms: [] },
       ...(input.clarification_target ? { clarificationTarget: input.clarification_target } : {}),
       ...(input.selected_answers ? { selectedAnswers: input.selected_answers } : {}),
       ...(input.clarification_selection ? { clarificationSelection: input.clarification_selection } : {}),
@@ -750,17 +848,26 @@ export class HarnessHost {
       { operationId: admitted.operationId, waitForRetry: true, pollDeferred: false },
       admitted.context,
     ).finally(() => this.touch(hosted.sessionId));
-    const timings = admitted.request.timings;
-    if (timings) {
-      const stored = await hosted.session.getValue(requestValue(admitted.request.requestId), BACKGROUND_CONTEXT);
-      const summary = { model: timings.model_ms, tools: timings.tool_ms, drive_total: Math.round(performance.now() - timings.startedAt) };
-      if (stored) await hosted.session.setValue(requestValue(admitted.request.requestId), { ...stored.value, timings_ms: summary }, BACKGROUND_CONTEXT);
-      console.info(JSON.stringify({ event: "agent_request_timing", session_id: hosted.sessionId, operation_id: admitted.operationId, request_id: admitted.request.requestId, timings_ms: summary }));
-    }
+    if (!admitted.request.timings?.reportAtSnapshot) await this.recordRequestTiming(hosted, admitted.request);
     if (!driven.ok) {
       return { ok: false, code: "SESSION_CLOSED", message: driven.error.message };
     }
     return { ok: true, operationId: admitted.operationId, outcome: driven.value };
+  }
+
+  /** 提问路由在正式快照发送后记录，关闭流式时也能取得首字耗时。 */
+  async recordRequestTiming(hosted: HostedSession, request: AskMetricRequestContext): Promise<void> {
+    const timings = request.timings;
+    if (!timings) return;
+    const stored = await hosted.session.getValue(requestValue(request.requestId), BACKGROUND_CONTEXT);
+    const summary = {model: timings.model_ms, tools: timings.tool_ms,
+      drive_total: Math.round(performance.now() - timings.startedAt),
+      first_visible_ms: timings.firstVisibleAt === undefined ? null
+        : Math.round(timings.firstVisibleAt - (timings.receivedAt ?? timings.startedAt)),
+      model_first_token_ms: timings.modelFirstTokenMs};
+    if (stored) await hosted.session.setValue(requestValue(request.requestId), {...stored.value, timings_ms: summary}, BACKGROUND_CONTEXT);
+    console.info(JSON.stringify({event: "agent_request_timing", session_id: hosted.sessionId,
+      operation_id: request.operationId, request_id: request.requestId, timings_ms: summary}));
   }
 
   /** 一步到位：先接纳后驱动（测试与非流式调用用） */
@@ -863,7 +970,7 @@ export class HarnessHost {
         businessResults: new NativeBusinessResultStore(hosted.session),
         history: createHistoryBridge(hosted),
         answerEvidence: async () => currentTurnEvidence(await currentLaneMessages(hosted.lane, BACKGROUND_CONTEXT)),
-        timings: { startedAt: performance.now(), model_ms: [], tool_ms: [] },
+        timings: { startedAt: performance.now(), modelFirstTokenMs: [], model_ms: [], tool_ms: [] },
       };
       try {
         const result = await hosted.lane.resume(withRequestContext(requestContext, BACKGROUND_CONTEXT));

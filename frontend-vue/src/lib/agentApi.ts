@@ -139,8 +139,12 @@ export type AgentStreamEvent =
   | { type: "tool_start"; tool: string; tool_call_id?: string }
   | { type: "tool_end"; tool: string; tool_call_id?: string; details: unknown; isError: boolean }
   | { type: "message_done"; text: string }
+  | { type: "answer_delta"; call_seq: number; mode: "text" | "reply"; text: string }
+  | { type: "answer_reset"; call_seq: number; reason: "tool_call" | "retry" | "error" | "superseded" }
   /** 执行期心跳：模型重试与工具执行期间没有可投影事件，用于区分“仍在执行”与“卡死”。 */
   | { type: "progress"; elapsed_ms?: number }
+  /** “理解问题”阶段的非工具步骤（读取上下文、识别指标、模型分析）；同一 activity_id 覆盖更新，只在实时流中出现。 */
+  | { type: "activity"; activity_id: string; label: string; status: "running" | "done"; note?: string; conditions?: { label: string; value: string }[] }
   | {
       type: "run_terminal"
       run_status: string
@@ -149,7 +153,8 @@ export type AgentStreamEvent =
       /** 服务端已脱敏的失败原因摘要，error_code 为空时用于给出可读提示。 */
       error_message?: string | null
       business_tasks?: Array<{ task_id: string; status: string; result_id?: string | null; error_code?: string | null }>
-      timings_ms?: { auth_ms: number; total_ms: number; model_ms?: number[]; tool_ms?: number[] }
+      timings_ms?: { auth_ms: number; total_ms: number; model_ms?: number[]; tool_ms?: number[];
+        first_visible_ms?: number | null; model_first_token_ms?: number[] }
     }
   | { type: "error"; message?: string }
 
@@ -248,6 +253,7 @@ async function streamAgentSession(sessionId: string, input: AgentPromptInput | u
       headers: {
         "Content-Type": "application/json",
         Accept: "text/event-stream",
+        ...(input ? { "X-Agent-Answer-Streaming": "v1" } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       ...(input ? { body: JSON.stringify({ protocol_version: 3, ...input }) } : {}),
@@ -312,6 +318,8 @@ function parseSseBlock(block: string): AgentStreamEvent | null {
     else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""))
   }
   if (!eventName || !dataLines.length) return null
+  if (!["accepted", "snapshot", "text_delta", "tool_start", "tool_end", "message_done", "answer_delta", "answer_reset",
+    "progress", "activity", "run_terminal", "error"].includes(eventName)) return null
   let data: Record<string, unknown>
   try {
     data = JSON.parse(dataLines.join("\n")) as Record<string, unknown>

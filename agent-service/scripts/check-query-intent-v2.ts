@@ -9,6 +9,7 @@ import {promisify} from "node:util";
 import {mkdtemp, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
+import {fileURLToPath} from "node:url";
 import {BACKGROUND_CONTEXT} from "@earendil-works/pi-agent-core";
 import {cases, metrics, organizations, defaultVisible, type AcceptanceCase, type Expectation} from "./query-intent-v2-cases.js";
 import {syntheticMetricResolver} from "./syntheticMetricResolver.js";
@@ -22,6 +23,7 @@ import {createBusinessSkillReadTool, loadBusinessSkills} from "../src/businessSk
 import {createCapabilities} from "../src/business-context/capabilities.js";
 import {projectEntries} from "../src/sessionProjection.js";
 import {BackendApiError} from "../src/backendClient.js";
+import {AnswerStreamProjector} from "../src/answerStream.js";
 import type {BackendClient, BackendUser, BasicQuerySpec} from "../src/backendClient.js";
 import type {BusinessFrame, FieldResolution, OrganizationScope, OrganizationScopeInput} from "../src/business-context/types.js";
 
@@ -97,10 +99,11 @@ async function validateFixtures() {
   await assert.rejects(() => resolveScope({kind: "authorized_cohort", cohort: "rural_commercial_banks", sourceText: "合成不存在农商行"}, defaultVisible),
     error => error instanceof BackendApiError && error.code === "SCOPE_SOURCE_INVALID");
 }
-await validateFixtures();
+const directlyInvoked = resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url);
+if (directlyInvoked) await validateFixtures();
 
 interface Trace {method: string; input?: unknown; status?: string}
-function syntheticBackend(test: AcceptanceCase) {
+export function syntheticBackend(test: AcceptanceCase) {
   const visible = test.visible ?? defaultVisible;
   const queries: BasicQuerySpec[] = [];
   const trace: Trace[] = [];
@@ -207,7 +210,7 @@ function syntheticBackend(test: AcceptanceCase) {
   return {backend, queries, trace};
 }
 
-function checkExpectation(expected: Expectation, queries: BasicQuerySpec[], frame: BusinessFrame | undefined, trace: Trace[]) {
+export function checkExpectation(expected: Expectation, queries: BasicQuerySpec[], frame: BusinessFrame | undefined, trace: Trace[]) {
   assert.equal(queries.length, expected.queryCount, "query count");
   if (expected.status) assert.equal(frame?.status, expected.status, "focus frame status");
   if (expected.issueField) assert(frame?.issues.some(issue => issue.field === expected.issueField), `missing issue ${expected.issueField}`);
@@ -234,11 +237,11 @@ function checkExpectation(expected: Expectation, queries: BasicQuerySpec[], fram
   }
 }
 
-if (!args.includes("--live")) {
+if (directlyInvoked && !args.includes("--live")) {
   console.log(JSON.stringify({status: "fixtures_and_protocol_valid", cases: cases.length, selected_cases: selected.length,
     selected_turns: selected.reduce((sum, test) => sum + test.turns.length, 0), repeats: repeat, concurrency, model_called: false,
     backend: "synthetic_only", limitation: "Offline validation does not prove real model intent parsing or SQL execution"}));
-} else {
+} else if (directlyInvoked) {
   const dir = await mkdtemp(join(tmpdir(), "query-intent-v2-"));
   // 每次模型流限时，避免单个坏网关请求拖住整批；不使用不能取消请求的 Promise.race。
   const config = {...loadConfig(), modelTimeoutMs: 60_000, dataDir: dir};
@@ -272,7 +275,13 @@ if (!args.includes("--live")) {
           const requestId = `${test.id}-${iteration}-${turnIndex}`;
           let operationId: string | undefined;
           try {
-            const result = await host.runPrompt(session, {protocol_version: 3, request_id: requestId, message: turn.text}, {actor, backend});
+            const admitted = await host.admitPrompt(session, {protocol_version: 3, request_id: requestId, message: turn.text}, {actor, backend});
+            assert(admitted.ok, "host must admit the prompt");
+            const projector = new AnswerStreamProjector(() => {});
+            const watch = await host.watch(session);
+            if (config.answerStreaming) admitted.request.reportAnswerRetry = callSeq => projector.retry(callSeq);
+            watch.start(event => {if (config.answerStreaming) projector.onWatchEvent(event, admitted.request.answerStream);});
+            const result = await host.drivePrompt(session, admitted).finally(() => {projector.close(); watch.unsubscribe();});
             assert(result.ok, "host must admit and finish the prompt");
             operationId = result.operationId;
           }

@@ -13,11 +13,13 @@ import {
   createProvider,
   type AssistantMessage,
   type Model,
+  type ProviderStreams,
 } from "@earendil-works/pi-ai";
 import type { AgentServiceConfig } from "./config.js";
 import { HarnessHost } from "./harnessHost.js";
 import { NativeSessionStore } from "./nativeSessions.js";
 import { createAskMetricTools } from "./tools/index.js";
+import { CONVERSATION_REPLY } from "./tools/turnContract.js";
 import { createApp } from "./routes.js";
 import { loadBusinessSkills, createBusinessSkillReadTool } from "./businessSkills.js";
 
@@ -33,6 +35,40 @@ const USER = {
   role_code: "USER",
 };
 
+/** 桩也经过真实 payload 钩子与分段输出，防止只验证最终快照而漏测流式路径。 */
+function streamReply(message: AssistantMessage, beforePayload: () => unknown) {
+  const stream = createAssistantMessageEventStream();
+  queueMicrotask(async () => {
+    await beforePayload();
+    const partial = {...message, content: [] as AssistantMessage["content"], stopReason: "pending" as const};
+    stream.push({type: "start", partial});
+    const block = message.content[0]!;
+    if (block.type === "text") {
+      partial.content = [{type: "text", text: ""}];
+      stream.push({type: "text_start", contentIndex: 0, partial});
+      for (const text of [block.text.slice(0, 4), block.text]) {
+        const previous = (partial.content[0] as {text: string}).text;
+        partial.content = [{type: "text", text}];
+        stream.push({type: "text_delta", contentIndex: 0, delta: text.slice(previous.length), partial: structuredClone(partial)});
+        await new Promise(resolve => setTimeout(resolve, 5));
+      }
+    } else if (block.type === "toolCall") {
+      partial.content = [{...block, arguments: {}}];
+      stream.push({type: "toolcall_start", contentIndex: 0, partial: structuredClone(partial)});
+      if (block.name === CONVERSATION_REPLY) {
+        for (const answer of [String(block.arguments.answer).slice(0, 4), String(block.arguments.answer)]) {
+          partial.content = [{...block, arguments: {answer}}];
+          stream.push({type: "toolcall_delta", contentIndex: 0, delta: "", partial: structuredClone(partial)});
+          await new Promise(resolve => setTimeout(resolve, 5));
+        }
+      }
+    }
+    stream.push({type: "done", reason: message.stopReason === "toolUse" ? "toolUse" : "stop", message});
+    stream.end(message);
+  });
+  return stream;
+}
+
 function fauxModel(): { model: Model<"openai-completions">; models: ReturnType<typeof createModels> } {
   const model: Model<"openai-completions"> = {
     id: "faux-1",
@@ -47,7 +83,7 @@ function fauxModel(): { model: Model<"openai-completions">; models: ReturnType<t
     maxTokens: 8192,
   };
   let calls = 0;
-  const respond = (_model: unknown, _context: {messages: unknown[]}): ReturnType<typeof createAssistantMessageEventStream> => {
+  const respond: ProviderStreams["streamSimple"] = (_model, context, options) => {
     calls += 1;
     const message: AssistantMessage =
       calls <= 2
@@ -80,17 +116,7 @@ function fauxModel(): { model: Model<"openai-completions">; models: ReturnType<t
             stopReason: "stop",
             timestamp: Date.now(),
           };
-    const stream = createAssistantMessageEventStream();
-    queueMicrotask(() => {
-      stream.push({ type: "start", partial: message });
-      stream.push({
-        type: "done",
-        reason: message.stopReason === "toolUse" ? "toolUse" : "stop",
-        message,
-      });
-      stream.end(message);
-    });
-    return stream;
+    return streamReply(message, () => options?.onPayload?.({tools: context.tools?.map(tool => ({type: "function", function: tool})) ?? []}, model));
   };
   const models = createModels();
   models.setProvider(
@@ -103,6 +129,25 @@ function fauxModel(): { model: Model<"openai-completions">; models: ReturnType<t
     }),
   );
   return { model, models };
+}
+
+/** 只做普通对话回答的模型桩：回答写在工具参数中，回执即结束本轮。 */
+function replyModel(answer: string): { model: Model<"openai-completions">; models: ReturnType<typeof createModels>; calls: () => number } {
+  const { model } = fauxModel();
+  let calls = 0;
+  const respond: ProviderStreams["streamSimple"] = (_model, context, options) => {
+    calls += 1;
+    const message: AssistantMessage = {
+      role: "assistant", content: [{ type: "toolCall", id: `reply-${calls}`, name: CONVERSATION_REPLY, arguments: { answer } }],
+      api: model.api, provider: model.provider, model: model.id, stopReason: "toolUse", timestamp: Date.now(),
+      usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    };
+    return streamReply(message, () => options?.onPayload?.({tools: context.tools?.map(tool => ({type: "function", function: tool})) ?? []}, model));
+  };
+  const models = createModels();
+  models.setProvider(createProvider({ id: "faux", name: "faux", auth: { apiKey: { name: "faux", resolve: async () => ({ auth: {} }) } },
+    models: [model], api: { stream: respond, streamSimple: respond } }));
+  return { model, models, calls: () => calls };
 }
 
 function stubBackendFetch() {
@@ -213,8 +258,8 @@ describe("路由：协议 V3 与原生投影", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  function buildApp() {
-    const config = testConfig(dir);
+  function buildApp(answerStreaming = false) {
+    const config = {...testConfig(dir), answerStreaming};
     const store = new NativeSessionStore(dir);
     const { model, models } = fauxModel();
     const host = new HarnessHost(config, () => ({ models, model }), store, runtimeTools(), {skills});
@@ -338,8 +383,55 @@ describe("路由：协议 V3 与原生投影", () => {
     expect(vi.mocked(fetch).mock.calls.some(([url])=>String(url).endsWith("/api/v1/questions"))).toBe(false);
   });
 
-  it("完整提问：accepted → 工具事件 → run_terminal，业务任务带 task_id", async () => {
-    const app = buildApp();
+  it.each([false, true])("普通对话一次模型往返即交付，流式开关 %s：快照与历史回答一致", async answerStreaming => {
+    const answer = "你好，我可以帮你查询经营指标、查看历史结果和解释指标口径。";
+    const config = {...testConfig(dir), answerStreaming};
+    const store = new NativeSessionStore(dir);
+    const faux = replyModel(answer);
+    const app = createApp(config, new HarnessHost(config, () => faux, store, runtimeTools(), {skills}), store);
+    const headers = { Authorization: "Bearer token-1", "X-Agent-Answer-Streaming": "v1" };
+    const { session_id: sessionId } = (await (await app.request("/sessions", { method: "POST", headers })).json()) as { session_id: string };
+
+    const response = await app.request(`/sessions/${sessionId}/prompt`, {
+      method: "POST", headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ protocol_version: 3, request_id: "hello", message: "你好" }),
+    });
+    const events = await readSse(response);
+    const terminal = events.at(-1)!;
+    expect(terminal.type).toBe("run_terminal");
+    expect(terminal.data).toMatchObject({ run_status: "completed", answer_status: "ok" });
+    expect(faux.calls()).toBe(1);
+    const snapshot = [...events].reverse().find(event => event.type === "snapshot")!.data as { messages: Array<{ role: string; text?: string }> };
+    expect(snapshot.messages.at(-1)).toMatchObject({ role: "assistant", text: answer });
+    const deltas = events.filter(event => event.type === "answer_delta");
+    if (answerStreaming) {
+      expect(deltas.length).toBeGreaterThan(0);
+      expect(deltas.at(-1)!.data).toMatchObject({mode: "reply", call_seq: 1, text: answer});
+      expect(events.indexOf(deltas.at(-1)!)).toBeLessThan(events.findIndex(event => event.type === "snapshot"));
+    } else expect(events.some(event => event.type.startsWith("answer_"))).toBe(false);
+    expect(terminal.data.timings_ms).toMatchObject({first_visible_ms: expect.any(Number), model_first_token_ms: [expect.any(Number)]});
+    const detail = (await (await app.request(`/sessions/${sessionId}`, { headers })).json()) as { messages: Array<{ role: string; text?: string }> };
+    expect(detail.messages.filter(message => message.role === "assistant" && message.text).map(message => message.text)).toEqual([answer]);
+  });
+
+  it("流式开关开启，旧 V3 页面未声明支持时仍使用原有快照事件序列", async () => {
+    const config = {...testConfig(dir), answerStreaming: true};
+    const store = new NativeSessionStore(dir); const faux = replyModel("你好。");
+    const app = createApp(config, new HarnessHost(config, () => faux, store, runtimeTools(), {skills}), store);
+    const headers = {Authorization: "Bearer token-1"};
+    const created = await app.request("/sessions", {method: "POST", headers});
+    const {session_id: id} = await created.json() as {session_id: string};
+    const response = await app.request(`/sessions/${id}/prompt`, {method: "POST", headers: {...headers, "Content-Type": "application/json"},
+      body: JSON.stringify({protocol_version: 3, request_id: "old-v3", message: "你好"})});
+    const events = await readSse(response);
+    expect(events.map(event => event.type).filter(type => type !== "activity")).toEqual([
+      "accepted", "tool_start", "tool_end", "snapshot", "run_terminal",
+    ]);
+    expect(events.at(-1)!.data.timings_ms).toMatchObject({first_visible_ms: expect.any(Number)});
+  });
+
+  it.each([false, true])("完整提问，流式开关 %s：最终快照在临时回答之后，业务任务带 task_id", async answerStreaming => {
+    const app = buildApp(answerStreaming);
     const created = await app.request("/sessions", {
       method: "POST",
       headers: { Authorization: "Bearer token-1" },
@@ -348,7 +440,7 @@ describe("路由：协议 V3 与原生投影", () => {
 
     const response = await app.request(`/sessions/${sessionId}/prompt`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer token-1" },
+      headers: { "Content-Type": "application/json", Authorization: "Bearer token-1", "X-Agent-Answer-Streaming": "v1" },
       body: JSON.stringify({
         protocol_version: 3,
         request_id: "req-1",
@@ -364,6 +456,13 @@ describe("路由：协议 V3 与原生投影", () => {
     expect(types).toContain("snapshot");
     expect(types).not.toContain("text_delta");
     expect(types[types.length - 1]).toBe("run_terminal");
+    const deltas = events.filter(event => event.type === "answer_delta");
+    if (answerStreaming) {
+      const snapshot = events.find(event => event.type === "snapshot")!.data as {messages: Array<{role: string; text?: string}>};
+      expect(deltas.length).toBeGreaterThan(0);
+      expect(deltas.at(-1)!.data).toMatchObject({mode: "text", call_seq: 3, text: snapshot.messages.at(-1)!.text});
+      expect(events.indexOf(deltas.at(-1)!)).toBeLessThan(events.findIndex(event => event.type === "snapshot"));
+    } else expect(types.some(type => type.startsWith("answer_"))).toBe(false);
 
     const terminal = events[events.length - 1]!.data;
     expect(terminal.run_status).toBe("completed");

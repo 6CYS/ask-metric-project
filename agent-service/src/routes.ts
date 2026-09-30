@@ -12,6 +12,7 @@ import { HarnessHost, type HostedSession, type PromptInput } from "./harnessHost
 import { getLegacySession, listLegacySessions, projectLegacyMessages } from "./legacySessions.js";
 import type { NativeSessionStore } from "./nativeSessions.js";
 import { projectEntries, projectSnapshot, projectWatchEvent, projectBusinessTasks, type ProjectedMessage } from "./sessionProjection.js";
+import {AnswerStreamProjector} from "./answerStream.js";
 
 type Variables = { user: BackendUser; token: string; startedAt: number; authMs: number };
 
@@ -244,6 +245,8 @@ export function createApp(
     }
     const sessionId = hosted.sessionId;
     const operationId = admitted.operationId;
+    // 旧 V3 页面把未知事件误当成 tool_end；支持声明避免灰度期间改变旧页面行为。
+    const answerStreaming = config.answerStreaming && c.req.header("X-Agent-Answer-Streaming") === "v1";
     // 标题派生自首个问题：原生 setName，列表/详情同源读取
     const currentName = await hosted.session.getName(BACKGROUND_CONTEXT);
     if (!currentName || currentName === "问数会话") {
@@ -251,8 +254,15 @@ export function createApp(
     }
 
     return streamSSE(c, async (stream) => {
+      const timings = admitted.request.timings;
+      if (timings) {
+        timings.receivedAt = c.get("startedAt");
+        timings.reportAtSnapshot = true;
+      }
+      const streamedCalls = new Set<number>();
       const send = authorizedSender(authorize, async (type, data) =>
-        stream.writeSSE({
+      {
+        await stream.writeSSE({
           event: type,
           data: JSON.stringify({
             protocol_version: 3,
@@ -261,7 +271,21 @@ export function createApp(
             request_id: input.request_id,
             ...data,
           }),
-        }));
+        });
+        if (timings && timings.firstVisibleAt === undefined && (type === "answer_delta"
+          && typeof data.text === "string" && data.text.trim() || type === "snapshot"
+          && hasCurrentAnswer(data.messages as ProjectedMessage[]))) timings.firstVisibleAt = performance.now();
+        if (type === "answer_reset" || type === "answer_delta" && !streamedCalls.has(Number(data.call_seq))) {
+          streamedCalls.add(Number(data.call_seq));
+          console.info(JSON.stringify({event: type === "answer_reset" ? "answer_stream_reset" : "answer_stream_started",
+            session_id: sessionId, operation_id: operationId, request_id: input.request_id,
+            call_seq: data.call_seq, ...(type === "answer_reset" ? {reason: data.reason} : {mode: data.mode})}));
+        }
+      });
+      const projector = new AnswerStreamProjector((type, data) => {
+        void send(type, data).catch(() => {});
+      });
+      if (answerStreaming) admitted.request.reportAnswerRetry = callSeq => projector.retry(callSeq);
 
       // 观察与驱动分离：浏览器断线只取消观察，不中止执行
       const watch = await host.watch(hosted);
@@ -270,17 +294,27 @@ export function createApp(
       watch.start((event) => {
         const projected = projectWatchEvent(event);
         if (projected) void send(projected.type, projected as unknown as Record<string, unknown>).catch(() => {});
+        if (answerStreaming) projector.onWatchEvent(event, admitted.request.answerStream);
       });
       // 模型重试与工具执行期间没有原生事件可投影；心跳既避免代理按空闲断连，
       // 也让前端能把“仍在执行”和“卡死”区分开。
       const heartbeat = setInterval(() => {
         void send("progress", { elapsed_ms: Math.round(performance.now() - c.get("startedAt")) }).catch(() => {});
       }, 15_000);
+      // “理解问题”阶段没有原生事件：宿主在准备模型上下文时播报读取的话题与指标识别结果。
+      admitted.request.reportActivity = (activity) => {
+        void send("activity", activity as unknown as Record<string, unknown>).catch(() => {});
+      };
       try {
-        const driven = await host.drivePrompt(hosted, admitted);
+        const driven = await host.drivePrompt(hosted, admitted)
+          .catch(() => ({ok: false as const, code: "SESSION_CLOSED", message: "会话服务暂时不可用，请稍后查看最终状态。"}))
+          .finally(() => projector.close());
         const record = driven.ok && driven.outcome.kind === "settled" ? driven.outcome.outcome : undefined;
         const messages = projectEntries(await hosted.lane.findEntries({ order: "oldestFirst" }, BACKGROUND_CONTEXT));
         await send("snapshot", { messages, running: false, operation_id: null }).catch(() => {});
+        await host.recordRequestTiming(hosted, admitted.request).catch(() => {
+          console.warn(JSON.stringify({event: "agent_request_timing_failed", request_id: input.request_id}));
+        });
         await send("run_terminal", {
           run_status: record?.status ?? (driven.ok ? "unknown" : "failed"),
           answer_status: record?.status === "completed" ? "ok" : "failed",
@@ -289,9 +323,14 @@ export function createApp(
           // 错误码无法覆盖所有模型侧失败；带上服务端已脱敏的原因摘要，避免前端只看到“失败了”
           error_message: driven.ok ? null : driven.message,
           business_tasks: projectBusinessTasks(messages),
-          timings_ms: { auth_ms: c.get("authMs"), total_ms: Math.round(performance.now() - c.get("startedAt")), model_ms: admitted.request.timings?.model_ms, tool_ms: admitted.request.timings?.tool_ms },
+          timings_ms: { auth_ms: c.get("authMs"), total_ms: Math.round(performance.now() - c.get("startedAt")),
+            model_ms: timings?.model_ms, tool_ms: timings?.tool_ms,
+            first_visible_ms: timings?.firstVisibleAt === undefined ? null : Math.round(timings.firstVisibleAt - c.get("startedAt")),
+            model_first_token_ms: timings?.modelFirstTokenMs },
         }).catch(() => {});
       } finally {
+        projector.close();
+        delete admitted.request.reportAnswerRetry;
         clearInterval(heartbeat);
         watch.unsubscribe();
       }
@@ -299,6 +338,13 @@ export function createApp(
   });
 
   return app;
+}
+
+function hasCurrentAnswer(messages: ProjectedMessage[]): boolean {
+  if (!Array.isArray(messages)) return false;
+  let start = messages.length - 1;
+  while (start >= 0 && messages[start]?.role !== "user") start -= 1;
+  return messages.slice(start + 1).some(message => message.role === "assistant" && message.text?.trim());
 }
 
 /** 解析并校验协议 V3 输入；非法字段整体拒绝，不猜测补齐 */

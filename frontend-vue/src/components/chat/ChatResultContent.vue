@@ -37,8 +37,12 @@ const resultPage = ref(1)
 const resultPageSize = ref<number>(RESULT_PAGE_SIZE_OPTIONS[0])
 const isDownloading = ref(false)
 const downloadError = ref("")
-// 正文已给出结论，数据明细作为核对入口默认收起；生成中、结果异步回填后都不自动展开，避免重复与布局跳动。
-const isDataDetailsOpen = ref(false)
+// 数据明细默认展开；正文生成中不渲染明细区（见模板 answerStreamComplete 条件）。
+const isDataDetailsOpen = ref(Boolean(props.response.result?.table?.rows.length))
+// Agent 先交付回执再异步读取结果；首批行到达时展开，后续更新不覆盖用户的折叠选择。
+watch(() => Boolean(props.response.result?.table?.rows.length), (hasRows, hadRows) => {
+  if (hasRows && !hadRows) isDataDetailsOpen.value = true
+})
 const dataDetailsId = useId()
 const isAnswerCopied = ref(false)
 const answerCopyError = ref("")
@@ -192,13 +196,6 @@ async function copyAnswer() {
 
 <template>
   <div class="flex min-w-0 flex-col gap-3">
-    <div v-if="showAnswer" class="group/answer relative space-y-1.5 break-words pr-9 leading-7" aria-live="polite">
-      <ChatMarkdown :source="answerMarkdown" />
-      <span v-if="!answerStreamComplete" class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" />
-      <button v-if="answerStreamComplete && answerMarkdown" type="button" class="absolute -top-1 right-0 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :title="isAnswerCopied ? '已复制' : '复制回答'" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button>
-    </div>
-    <p v-if="answerCopyError" class="text-xs text-[#78663E]">{{ answerCopyError }}</p>
-
     <div v-if="answerStreamComplete && response.metric_definition" class="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border/70 pt-2 text-xs text-muted-foreground">
       <span>指标依据：{{ response.metric_definition.metric_name }}</span>
       <span v-if="response.metric_definition.unit">· {{ response.metric_definition.unit }}</span>
@@ -253,6 +250,13 @@ async function copyAnswer() {
       <p v-if="downloadError" class="mt-2 text-sm text-destructive">{{ downloadError }}</p>
     </div>
 
+
+    <div v-if="showAnswer" class="group/answer relative space-y-1.5 break-words pr-9 leading-7" aria-live="polite">
+      <ChatMarkdown :source="answerMarkdown" />
+      <span v-if="!answerStreamComplete" class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" />
+      <button v-if="answerStreamComplete && answerMarkdown" type="button" class="absolute -top-1 right-0 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :title="isAnswerCopied ? '已复制' : '复制回答'" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button>
+    </div>
+    <p v-if="answerCopyError" class="text-xs text-[#78663E]">{{ answerCopyError }}</p>
 
     <div v-if="showDebugButton && response.debug"><BaseButton variant="outline" size="sm" @click="emit('debug')"><Bug />详细调试信息</BaseButton></div>
   </div>

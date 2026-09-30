@@ -10,7 +10,7 @@ import type { BusinessFrame, ContextDelta, ExecutionSettlement, FieldResolution,
 import { createBusinessTools } from "../business-context/adapters.js";
 import { createMetricReadTool } from "./readTools.js";
 import { BusinessInputError } from "../business-context/inputError.js";
-import { frameClarificationOptions, modelFields } from "../business-context/modelView.js";
+import { displayConditions, frameClarificationOptions, modelFields } from "../business-context/modelView.js";
 import { renderClarificationOptions } from "../business-context/clarificationOptions.js";
 import { metricMentions } from "../business-context/metricMentions.js";
 import { historicalOperations, inheritableFrame, resolveFrame } from "../business-context/core.js";
@@ -233,6 +233,8 @@ export function createResolveBusinessTurnTool(): AgentHarnessTool<AskMetricReque
             message: "条件已全部确定（包括继承条件），立即执行此 frameId，不再向用户重复确认。",
           } : {})},
           {kind: "business_context", status, frame_id: frame.frameId, execution_mode: frame.delta.executionMode, issues: frame.issues,
+            // 仅供页面“执行过程”展示已确定条件，不进入模型上下文。
+            display_conditions: displayConditions(frame),
             ...(status === "NEEDS_CLARIFICATION" ? clarificationDetails(frame) : {})});
       } catch (error) { return errorReceipt(error, request.originalMessage); }
     }};

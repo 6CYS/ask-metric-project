@@ -8,6 +8,7 @@ import { businessEvidence, combinedEvidenceAnswer, evidenceAnswer, presentedAnsw
 import { EVIDENCE_BLOCKED_ANSWER, TOOL_LIMIT_ANSWER, mayDeliverWithoutEvidence } from "./replyGuard.js";
 import { MODEL_DEADLINE_EXCEEDED, MODEL_FIRST_RESPONSE_TIMEOUT } from "./models.js";
 import type { MetricAskDetails } from "./tools/shared.js";
+import { CONVERSATION_REPLY } from "./tools/turnContract.js";
 
 /** 历史消息条目（与前端 AgentSessionMessage 对齐） */
 export type ProjectedMessage =
@@ -75,6 +76,8 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
   let question = "";
   let contextClarification = false;
   let frameTurn = false;
+  /** 由普通对话回执投影出的助手回答位置；同轮随后若有真实助手正文（旧会话或兜底路径）则以其替换。 */
+  let conversationAnswerAt: number | undefined;
   for (const entry of entries) {
     if (entry.type !== "message") continue;
     const message = entry.message as {
@@ -92,10 +95,14 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
     if (message.role === "user") {
       evidence = [];
       contextClarification = false;
+      conversationAnswerAt = undefined;
       frameTurn = message.businessProtocol === "frame_v1";
       question = visibleText(message.content);
       messages.push({ role: "user", text: visibleText(message.content), timestamp, entry_id: entry.id });
     } else if (message.role === "assistant") {
+      // 旧会话在普通回答后仍有一次模型往返，其正文已被宿主替换为同一回答；保留原记录，不重复展示。
+      if (conversationAnswerAt === messages.length - 1 && !toolCallNames(message.content).length) messages.pop();
+      conversationAnswerAt = undefined;
       messages.push({
         role: "assistant",
         text: toolCallNames(message.content).length ? "" : frameTurn && message.errorMessage
@@ -130,6 +137,14 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
         timestamp,
         entry_id: entry.id,
       });
+      const reply = conversationReply(message);
+      if (reply !== undefined) {
+        // 普通回答回执带 terminate 结束本轮，不再有后续助手消息；按普通助手回答同一规则投影正文。
+        messages.push({role: "assistant", text: frameTurn ? reply : safeUnverifiedText(reply, question),
+          ...(frameTurn ? {business_protocol: "frame_v1" as const} : {}), tools: [], tool_calls: [],
+          timestamp, entry_id: `${entry.id}:answer`});
+        conversationAnswerAt = messages.length - 1;
+      }
       const delivered = presentedAnswer(message.details);
       if (delivered) {
         // 最终正文和表格使用同一引用选择；执行日志保留所有步骤，重连不复活排查结果。
@@ -156,6 +171,13 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
   return messages;
 }
 
+function conversationReply(message: {toolName?: string; isError?: boolean; details?: unknown}): string | undefined {
+  if (message.toolName !== CONVERSATION_REPLY || message.isError) return undefined;
+  const details = message.details as {kind?: unknown; status?: unknown; answer?: unknown} | undefined;
+  return details?.kind === "conversation_reply" && details.status === "answered" && typeof details.answer === "string"
+    ? details.answer : undefined;
+}
+
 /** 快照投影：重连与进入会话时使用的完整状态 */
 export function projectSnapshot(snapshot: LaneSnapshot): {
   running: boolean;
@@ -180,7 +202,7 @@ export function projectWatchEvent(event: {
   isError?: boolean;
 }): ProjectedEvent | null {
   if (event.type === "message_update") {
-    // 原生帧在 after_response 之前产生，事实正文必须等持久化后统一投影。
+    // 原生帧不作为正式正文；开启一期时由 AnswerStreamProjector 单独投影可撤回的临时文本。
     return null;
   }
   if (event.type === "message_end") return null;

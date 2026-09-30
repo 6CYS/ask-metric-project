@@ -30,6 +30,64 @@ export function frameClarificationOptions(frame: BusinessFrame) {
   return clarificationOptions(frame, fieldLabels(createCapabilities().get(frame.capability)));
 }
 
+function listedNames(names: unknown, unit: string, visible = 3): string | undefined {
+  if (!Array.isArray(names) || !names.length || !names.every(name => typeof name === "string" && name)) return undefined;
+  return names.length > visible ? `${names.slice(0, visible).join("、")} 等 ${names.length} ${unit}` : names.join("、");
+}
+
+/** 机构集合按用户原话展示（如“各家农商行（60 家）”），逐一点名的机构只列前两家，避免长全称铺满一行。 */
+function organizationValue(raw: unknown, value: unknown): string | undefined {
+  const resolved = value as Partial<ResolvedOrganizations> | undefined;
+  if (!Array.isArray(resolved?.names)) return undefined;
+  if (resolved.scope) {
+    const sourceText = (raw as {sourceText?: unknown} | undefined)?.sourceText;
+    const scopeText = typeof sourceText === "string" && sourceText.trim() ? sourceText.trim()
+      : resolved.scope.kind === "authorized_cohort" ? "授权范围内农商行" : "下辖机构";
+    return `${scopeText}（${resolved.names.length} 家）`;
+  }
+  return listedNames(resolved.names, "家", 2);
+}
+
+const selectionLabels: Record<string, string> = {latest_in_range: "范围内最新数据日", all_in_range: "范围内全部日期"};
+
+function condition(resolver: string, raw: unknown, value: unknown): {label: string; value: string} | undefined {
+  let text: string | undefined;
+  let label = "";
+  if (resolver === "metric") [label, text] = ["指标", listedNames((value as {names?: unknown} | undefined)?.names, "个指标")];
+  else if (resolver === "organization") [label, text] = ["机构", organizationValue(raw, value)];
+  else if (resolver === "date") {
+    const range = value as {start?: unknown; end?: unknown; dates?: unknown} | undefined;
+    label = "日期";
+    if (Array.isArray(range?.dates)) text = listedNames(range.dates, "个日期");
+    else if (typeof range?.start === "string" && typeof range.end === "string") {
+      text = range.start === range.end ? range.start : `${range.start} 至 ${range.end}`;
+    }
+  } else if (resolver === "query_operation") {
+    const operation = value as {kind?: unknown; position?: unknown; top_n?: unknown} | undefined;
+    label = "排名";
+    if (operation?.kind === "ranking" && typeof operation.top_n === "number") text = `${operation.position === "bottom" ? "后" : "前"} ${operation.top_n} 名`;
+  } else if (resolver === "enum" && typeof value === "string") {
+    // 单日精确取值不必说明；其余内部枚举、分页和计算引用不面向用户展示。
+    [label, text] = ["取数方式", selectionLabels[value]];
+  }
+  return text ? {label, value: text} : undefined;
+}
+
+/**
+ * 执行过程展示用的已确定条件：只列已解析字段的业务名称（指标、机构、日期、排名、取数方式），
+ * 不含编码、候选或内部控制字段；名称均来自服务端按当前用户权限解析的结果。
+ */
+export function displayConditions(frame: BusinessFrame): Array<{label: string; value: string}> {
+  // 展示信息不能影响解析回执，未知能力直接不展示条件。
+  const schema = createCapabilities().list().find(item => item.capability === frame.capability);
+  return Object.entries(frame.fields).flatMap(([name, field]) => {
+    const definition = schema?.fields[name];
+    if (!definition || field.resolutionStatus !== "resolved") return [];
+    const item = condition(definition.resolver, field.rawValue, field.resolvedValue);
+    return item ? [item] : [];
+  });
+}
+
 /** 已 resolved 的 mention 名称；让模型在回执和焦点注入里看到哪些项已锁定，不用再澄清。 */
 function lockedMentions(field: ResolvedField): string[] {
   const resolutions = field.metadata?.mentionResolutions;
@@ -94,7 +152,7 @@ export function modelCapabilitySchemas() {
       ...(field.description ? {description: field.description} : {}),
       ...(field.validation ? {validation: field.validation} : {}),
       ...(field.resolver === "date" ? {input: "未改变则省略或 retain；改变时传本轮完整日期原文，省略年份由解析器处理"} : {}),
-      ...(field.resolver === "organization" ? {input: "未改变则省略或 retain；改变时传本轮原文名称或集合原文对象；“上述三家”“那两家”等指代原样直传，由服务端按会话历史解析，不要展开为历史机构名；用户回复待确认问题传 {confirm:true}"} : {}),
+      ...(field.resolver === "organization" ? {input: "未改变则省略或 retain；具体机构与其指代（“上述三家”“那两家”等）传本轮原文名称或名称数组，原样直传、不展开为历史机构名，由服务端按会话历史解析；机构集合或上下级范围（“各家农商行”“某某下辖”等）必须传集合原文对象（形式见 description），传纯文本无法解析；用户回复待确认问题传 {confirm:true}"} : {}),
       ...(field.resolver === "metric" ? {input: "未改变则省略或 retain；新指标用 {fromQuestion:true, mentionIndexes?:number[]}（index 属于本轮算法清单，每轮重新抽取、不跨轮）；用户回复待确认问题传 {confirm:true}；放弃某项用 operation=remove"} : {}),
       ...(field.inputSchema ? {inputSchema: field.inputSchema} : {}),
     }]))}));

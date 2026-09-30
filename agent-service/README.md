@@ -39,7 +39,26 @@ SSE 事件：`accepted`（含快照）、`snapshot`、`tool_start`、`tool_end`�
 模型原始 `text_delta` 不直接交付。Pi 根据工具事实组织最终说明和澄清，最终快照同步到页面。
 宿主不拼接业务正文或多条证据、不注入回答补救或强制交付工具。已校验的 `READY + execute` 和 `REUSE_RESULT` 必须接续原生执行/回读工具；模型在此处的提前确认响应会转换为该 Frame 的确定下一动作，工具结果后再组织回答。失败不自动重试。步骤结果可提前展示，不能把中间成功当成整轮完成。
 新用户消息持久化 `businessProtocol=frame_v1`，投影返回 `business_protocol`，历史、重连与实时正文保持一致；旧历史按原协议只读兼容。
-`run_terminal.timings_ms` 在提问流中记录鉴权、外层模型、工具和总耗时；这些不等于页面可见耗时。
+`run_terminal.timings_ms` 在提问流中记录鉴权、外层模型、工具和总耗时，另有
+`first_visible_ms`（首次发送回答正文）与 `model_first_token_ms`（各次调用首次输出）。
+首字指标在服务端发送 SSE 时记录，不含网络和浏览器渲染耗时；同名字段写入 `agent_request_timing` 日志。
+
+一期回答流式开关 `AGENT_ANSWER_STREAMING` 默认 `false`。开启时，提问流增加
+`answer_delta`（`call_seq`、`mode: text/reply`、累计 `text`）与 `answer_reset`（同调用撤回）；
+仅向请求头声明 `X-Agent-Answer-Streaming: v1` 的新前端发送，旧页面继续原事件序列。
+80ms 合并发送，模型结束补齐。工具调用、重试或失败可撤回临时正文，最终快照整体替换。
+临时文本不参与存档、复制或导出；GET 重连流保持快照投影。关闭开关并重启 agent-service 即回退。
+`answer_stream_started` / `answer_stream_reset` 日志只记录请求、调用编号和撤回原因，供统计撤回率。
+
+真实模型开关对照（业务后端为隔离合成桩，不验证真实数据库）：
+
+```bash
+node --env-file=.env --import tsx scripts/check-answer-streaming.ts --live --report /tmp/answer-streaming.json
+AGENT_ANSWER_STREAMING=true node --env-file=.env --import tsx scripts/check-query-intent-v2.ts --live --report /tmp/query-streaming.json
+```
+
+对照脚本默认各测 10 轮普通对话与 10 轮业务请求，两侧相邻交替；`--samples greeting-1,original`
+可用于小范围复测。延迟统计排除未通过语义或完成检查的轮次，原始失败与撤回仍保留在报告中。
 
 刷新或传输中断后，前端通过 GET 观察原会话，不重新 POST 问题。已认证 GET 会接管原生未完成
 operation；是否存在 `current` 不能用来判断当前进程是否已有执行器。恢复仍使用原 request 和

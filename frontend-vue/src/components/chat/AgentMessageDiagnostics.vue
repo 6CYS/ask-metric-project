@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { Bug, Clock3, ChevronRight, CircleAlert, LoaderCircle } from "@lucide/vue"
-import { computed, onUnmounted, ref, watch } from "vue"
+import { Bug, Check, Clock3, ChevronRight, CircleAlert, LoaderCircle } from "@lucide/vue"
+import { computed, onMounted, onUnmounted, ref, useId, watch } from "vue"
 import BackendNextDebugPanel from "@/components/chat/BackendNextDebugPanel.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import { getBackendNextTask } from "@/lib/api"
+import { toolCallLabel, type ToolCallSummary } from "@/lib/toolCallSummary"
 import type { BackendNextTaskResult } from "@/types/api"
 
 const props = defineProps<{
@@ -13,33 +14,27 @@ const props = defineProps<{
   hasAnswer?: boolean
   startedAt?: string
   elapsedMs?: number
-  tools: { id?: string; tool: string; status: string; elapsedMs?: number }[]
+  tools: { id?: string; tool: string; status: string; elapsedMs?: number; summary?: ToolCallSummary; label?: string }[]
+  /** 理解问题阶段的非工具步骤（读取上下文、识别指标、模型分析），总在工具步骤之前 */
+  activities?: { id: string; label: string; status: string; elapsedMs?: number; summary?: ToolCallSummary }[]
   /** run_terminal 携带的 agent-service 侧耗时（鉴权、各次模型调用、工具处理）；重连流或旧记录无此数据 */
-  runTimings?: { auth_ms?: number; total_ms?: number; model_ms?: number[]; tool_ms?: number[] }
+  runTimings?: { auth_ms?: number; total_ms?: number; model_ms?: number[]; tool_ms?: number[];
+    first_visible_ms?: number | null; model_first_token_ms?: number[] }
 }>()
-const expanded = ref(false)
-const toolLabels: Record<string, string> = {
-  resolve_business_turn: "解析查询条件",
-  business_context_read: "读取查询历史",
-  execute_business_frame: "执行指标查询",
-  read_business_result: "读取历史结果",
-  data_availability: "查看数据可用范围",
-  catalog_overview: "查看目录概览",
-  catalog: "目录查询",
-  read: "读取任务、结果与历史",
-  metric_catalog_search: "检索指标目录",
-  org_catalog_search: "检索机构目录",
-  metric_ask: "解析问题并查询指标",
-  metric_query_structured: "按指标、机构和日期查询",
-  metric_calculate: "调用可靠计算工具",
-}
+// 执行中展开过程，便于看到每一步在做什么；本轮结束后自动收起，只保留摘要行，用户可再展开。
+const expanded = ref(props.pending)
 // 状态栏复用真实工具状态；没有运行中的工具时显示模型处理阶段。
 const currentStage = computed(() => {
   if (!props.pending) return "执行过程"
   const running = props.tools.find(call => call.status === "running")
-  if (!running) return props.hasAnswer ? "正在生成回答" : "正在处理"
+  const activity = props.activities?.find(item => item.status === "running")
+  if (!running && activity && !props.tools.length) return activity.label.includes("正在") ? activity.label : `正在${activity.label}`
+  if (!running) return props.hasAnswer ? "正在生成回答" : props.tools.length ? "正在整理结果" : "正在理解问题"
   const stages: Record<string, string> = {
     resolve_business_turn: "正在解析查询条件",
+    business_skill_read: "正在确认查询方法",
+    answer_evidence_check: "正在核验回答依据",
+    answer_present: "正在生成回答",
     business_context_read: "正在读取查询历史",
     execute_business_frame: "正在执行指标查询",
     read_business_result: "正在读取历史结果",
@@ -55,6 +50,46 @@ const currentStage = computed(() => {
   }
   return stages[running.tool] ?? "正在执行查询步骤"
 })
+// 标题是唯一的实时进度；时间线只列已结束的步骤，进行中的步骤由标题说明，避免同一阶段出现两次。
+// 理解阶段步骤的耗时仅在明显时显示，避免“12 毫秒”一类噪声。
+const allSteps = computed(() => [
+  ...(props.activities ?? []).map(item => ({ ...item, tool: "", elapsedMs: (item.elapsedMs ?? 0) >= 500 ? item.elapsedMs : undefined })),
+  ...props.tools,
+])
+const finishedSteps = computed(() => allSteps.value.filter(call => call.status !== "running"))
+const hasDetails = computed(() => !props.pending || finishedSteps.value.length > 0)
+// 渐进式揭示：后端会在极短时间内连续报出多个已结束步骤（读取上下文、识别指标等），
+// 逐事件即时渲染会让几个阶段在同一次渲染里一齐弹出。执行中按固定节奏逐行展现，
+// 本轮结束或组件卸载时立即补齐；服务端渲染与历史消息不走挂载流程，始终完整呈现。
+const REVEAL_INTERVAL_MS = 600
+const revealedCount = ref(Number.POSITIVE_INFINITY)
+let revealTimer: ReturnType<typeof setInterval> | undefined
+function stopReveal() {
+  if (revealTimer !== undefined) {
+    clearInterval(revealTimer)
+    revealTimer = undefined
+  }
+}
+function startReveal() {
+  stopReveal()
+  revealedCount.value = finishedSteps.value.length
+  revealTimer = setInterval(() => {
+    revealedCount.value = Math.min(revealedCount.value + 1, finishedSteps.value.length)
+  }, REVEAL_INTERVAL_MS)
+}
+const visibleSteps = computed(() => finishedSteps.value.slice(0, revealedCount.value))
+watch(() => props.pending, (pending, wasPending) => {
+  if (pending) {
+    expanded.value = true
+    startReveal()
+  } else if (wasPending) {
+    expanded.value = false
+    stopReveal()
+    revealedCount.value = Number.POSITIVE_INFINITY
+  }
+})
+onMounted(() => { if (props.pending) startReveal() })
+const stepsId = useId()
 const statusLabels: Record<string, string> = {
   running: "执行中", done: "已完成", error: "执行失败", interrupted: "已中断", unknown: "未记录执行结果",
 }
@@ -81,7 +116,7 @@ watch(() => props.pending, (pending) => {
   now.value = Date.now()
   if (pending) timer = setInterval(() => { now.value = Date.now() }, 1000)
 }, { immediate: true })
-onUnmounted(() => { clearInterval(timer); requestVersion += 1 })
+onUnmounted(() => { clearInterval(timer); stopReveal(); requestVersion += 1 })
 watch(() => props.taskIds, (ids) => {
   if (!ids.includes(selectedId.value)) selectedId.value = ids[0] ?? ""
 }, { immediate: true })
@@ -167,6 +202,13 @@ const runTimingRows = computed<RunTimingRow[]>(() => {
   if (typeof source.auth_ms === "number") {
     push("auth", "请求鉴权", source.auth_ms, false, "agent-service 校验登录态与历史结果权限。")
   }
+  if (typeof source.first_visible_ms === "number") {
+    push("first-visible", "首字展示", source.first_visible_ms, false,
+      "从接收提问到服务端首次发送回答正文，不含网络传输与浏览器渲染时间。")
+  }
+  source.model_first_token_ms?.forEach((value, index) => {
+    if (typeof value === "number") push(`first-token-${index}`, `模型首个输出 · 第 ${index + 1} 次`, value)
+  })
   const modelMs = (source.model_ms ?? []).filter((value): value is number => typeof value === "number")
   modelMs.forEach((value, index) => push(`model-${index}`, `大模型调用 · 第 ${index + 1} 次`, value))
   if (modelMs.length) {
@@ -185,28 +227,36 @@ function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? n
 
 <template>
   <div class="mb-3 text-xs text-muted-foreground">
-    <button type="button" class="inline-flex items-center gap-1.5 rounded-sm py-1 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" aria-label="执行过程" :aria-expanded="expanded" @click="expanded = !expanded">
-      <ChevronRight class="size-3.5 shrink-0 transition-transform" :class="expanded && 'rotate-90'" />
+    <button type="button" class="inline-flex items-center gap-1.5 rounded-sm py-1 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-default disabled:hover:text-muted-foreground" aria-label="执行过程" :aria-expanded="hasDetails ? expanded : undefined" :aria-controls="hasDetails ? stepsId : undefined" :disabled="!hasDetails" @click="expanded = !expanded">
+      <ChevronRight class="size-3.5 shrink-0 transition-transform" :class="[expanded && 'rotate-90', !hasDetails && 'invisible']" aria-hidden="true" />
+      <LoaderCircle v-if="pending" class="size-3 shrink-0 animate-spin" aria-hidden="true" />
       <span aria-live="polite">{{ currentStage }}</span>
-      <span v-if="elapsed !== undefined">· {{ pending ? '' : '用时 ' }} {{ readableDuration(elapsed) }}</span>
-      <span v-else-if="tools.length">· {{ tools.length }} 次工具调用</span>
-
+      <span v-if="!pending && allSteps.length">· {{ allSteps.length }} 个步骤</span>
+      <span v-if="elapsed !== undefined" class="tabular-nums">· {{ pending ? '' : '用时 ' }}{{ readableDuration(elapsed) }}</span>
     </button>
-    <div v-if="expanded" class="pt-2">
-      <ol v-if="tools.length" class="ml-1.5 list-none border-l border-border/60 pl-4">
-        <li v-for="(call, index) in tools" :key="call.id ?? index" class="relative flex min-h-7 flex-wrap items-center gap-x-2 gap-y-0.5 py-1">
-          <span class="absolute -left-4 top-1/2 flex size-3 -translate-x-1/2 -translate-y-1/2 items-center justify-center bg-background" aria-hidden="true">
-            <LoaderCircle v-if="call.status === 'running'" class="size-3 animate-spin" />
-            <CircleAlert v-else-if="call.status === 'error'" class="size-3" />
+    <div v-if="expanded && hasDetails" :id="stepsId" class="pt-1">
+      <ol class="ml-1.5 list-none border-l border-border/60 pl-4">
+        <li v-for="(call, index) in visibleSteps" :key="call.id ?? index" class="relative py-1">
+          <span class="absolute -left-4 top-3 flex size-3 -translate-x-1/2 -translate-y-1/2 items-center justify-center bg-background" aria-hidden="true">
+            <CircleAlert v-if="call.status === 'error'" class="size-3" />
+            <Check v-else-if="call.status === 'done'" class="size-3 text-muted-foreground/70" />
             <span v-else class="size-1 rounded-full bg-muted-foreground/45" />
           </span>
-          <span>{{ toolLabels[call.tool] ?? '执行查询步骤' }}</span>
-          <span :class="call.status === 'done' ? 'sr-only' : ''">{{ statusLabels[call.status] ?? '状态未知' }}</span>
-          <span v-if="call.elapsedMs !== undefined" class="text-muted-foreground/60 tabular-nums">· {{ call.elapsedMs >= 1000 ? (call.elapsedMs / 1000).toFixed(2) + ' 秒' : call.elapsedMs + ' 毫秒' }}</span>
+          <div class="flex min-h-5 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <span>{{ call.label ?? toolCallLabel(call.tool) }}</span>
+            <span :class="call.status === 'done' || call.summary?.note ? 'sr-only' : ''">{{ statusLabels[call.status] ?? '状态未知' }}</span>
+            <span v-if="call.summary?.note">· {{ call.summary.note }}</span>
+            <span v-if="call.elapsedMs !== undefined" class="text-muted-foreground/60 tabular-nums">· {{ call.elapsedMs >= 1000 ? (call.elapsedMs / 1000).toFixed(1) + ' 秒' : call.elapsedMs + ' 毫秒' }}</span>
+          </div>
+          <ul v-if="call.summary?.conditions?.length" class="mt-1 flex list-none flex-wrap gap-1.5" aria-label="查询条件">
+            <li v-for="condition in call.summary.conditions" :key="condition.label" class="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md bg-muted/60 px-1.5 py-0.5" :title="`${condition.label}：${condition.value}`">
+              <span class="shrink-0 text-muted-foreground/70">{{ condition.label }}</span>
+              <span class="min-w-0 truncate text-foreground/80">{{ condition.value }}</span>
+            </li>
+          </ul>
         </li>
+        <li v-if="!pending && !allSteps.length" class="py-1">本轮没有执行步骤记录。</li>
       </ol>
-      <p v-else>{{ pending ? '正在处理问题，等待工具调用。' : '本轮没有工具调用记录。' }}</p>
-      <p v-if="pending && tools.length && !tools.some(call => call.status === 'running')" class="mt-2">正在处理工具结果，等待后续回复。</p>
     </div>
   </div>
   <div class="absolute right-1 top-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/assistant:opacity-100 group-focus-within/assistant:opacity-100">
