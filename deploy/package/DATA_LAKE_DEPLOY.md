@@ -69,35 +69,12 @@ SIT_LATEST_PARTITION_LOOKBACK_DAYS=1095
 
 ## 后续顺序
 
-`<release>` 替换为解压后的真实目录名，尖括号不能保留。
+映射检查通过后，使用 [主数据、可选别名和模型验收](CATALOG_AND_MODELS.md) 的新流程：
 
-```bash
-cd /home/appuser/<release>
-/home/appuser/ask-metric-venv/bin/python -m pip install --no-index --find-links backend/wheels --upgrade ask-metric-backend-next==0.1.5
-/home/appuser/ask-metric-venv/bin/python ops/intranet_deploy.py init-config --config-root /home/appuser/ask-metric-config --state-root /home/appuser/ask-metric-state --backend-port 8010
-vi /home/appuser/ask-metric-config/backend.env
-chmod 600 /home/appuser/ask-metric-config/backend.env
-/home/appuser/ask-metric-venv/bin/python ops/intranet_deploy.py validate-config --config /home/appuser/ask-metric-config/backend.env
-/home/appuser/ask-metric-venv/bin/python ops/intranet_deploy.py database-check --config /home/appuser/ask-metric-config/backend.env
-/home/appuser/ask-metric-venv/bin/python ops/intranet_deploy.py catalog-mapping-check --config /home/appuser/ask-metric-config/backend.env
-/home/appuser/ask-metric-venv/bin/python ops/intranet_deploy.py sync-catalogs --config /home/appuser/ask-metric-config/backend.env --catalog all --dry-run
-/home/appuser/ask-metric-venv/bin/python ops/intranet_deploy.py sync-catalogs --config /home/appuser/ask-metric-config/backend.env --catalog all
-```
+1. 校验应用配置及实际模型协议，确认 JSON 输出约束与关闭思考参数已发送。
+2. `sync_catalog_data.py organizations` 预览及同步审核快照中的 61 家机构。
+3. `sync_catalog_data.py metrics` 预览及同步完整历史正式指标编码、名称、启用状态及审核单位。
+4. 等待目录向量就绪，用正式机构和指标名称验收。没有别名不阻断启动，但模型或主数据错误仍须处理。
+5. 指标、机构别名使用 `sync_catalog_aliases.py` 分别作为可选步骤审核和补录。
 
-预演需确认指标、机构 `selected_rows > 0` 且 `errors = 0`。正式同步是 upsert，不清模拟数据、不覆盖已有别名。
-
-在 DBeaver 检查：
-
-```sql
-SELECT metric_code, metric_name, enabled FROM znws.metric_terms ORDER BY updated_at DESC LIMIT 50;
-SELECT org_code, org_name, aliases, enabled FROM znws.org_terms ORDER BY updated_at DESC LIMIT 50;
-```
-
-选择一个真实 `org_code` 给当前模拟用户使用。先由 DBA 备份 `znws`，再一次性清理模拟目录：
-
-```bash
-/home/appuser/ask-metric-venv/bin/python ops/intranet_deploy.py initialize-synchronized-catalogs --config /home/appuser/ask-metric-config/backend.env --user-org-code <真实org_no> --apply --confirm INITIALIZE_SYNCHRONIZED_CATALOGS
-/home/appuser/ask-metric-venv/bin/python ops/intranet_deploy.py health --host 127.0.0.1 --port 8010
-```
-
-清理命令保留 `app_users`，重绑无效用户机构码，删除模拟 `metric_values`、非本次数据湖目录及孤立指标别名。必须先备份，且不得设为定时任务。日常目录同步采用安全 upsert，不自动删除人工数据。
+两个主数据阶段分别提交；正式同步前备份应用目录表，报告采用新文件名保留。主流程不覆盖已有别名、不删除未同步目录、不修改事实值。不得以初始化或修复启动为由执行清库；历史模拟数据治理必须单独确认范围、引用、备份和授权。

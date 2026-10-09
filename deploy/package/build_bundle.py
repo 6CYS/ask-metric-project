@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import zipfile
 from copy import copy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,6 +25,15 @@ SAFE_VERSION = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$")
 FORBIDDEN_FRONTEND_BACKEND_URL = re.compile(
     rb"https?://(?:127\.0\.0\.1|localhost)(?::\d+)?",
     re.IGNORECASE,
+)
+PURE_PYTHON_SDISTS = (
+    "alibabacloud-darabonba-string==0.0.4",
+    "alibabacloud_darabonba_array==0.1.0",
+    "alibabacloud_darabonba_map==0.0.1",
+    "alibabacloud_darabonba_signature_util==0.0.4",
+    "alibabacloud_endpoint_util==0.0.4",
+    "alibabacloud-tea==0.4.3",
+    "alibabacloud_tea_xml==0.0.3",
 )
 
 
@@ -70,9 +80,7 @@ def _linux_tar_metadata(info: tarfile.TarInfo) -> tarfile.TarInfo:
     info.gid = 0
     info.uname = "root"
     info.gname = "root"
-    if info.isdir():
-        info.mode = 0o755
-    elif info.name.endswith(".sh") or info.mode & 0o111:
+    if info.isdir() or info.name.endswith(".sh") or info.mode & 0o111:
         info.mode = 0o755
     else:
         info.mode = 0o644
@@ -158,6 +166,24 @@ def _build_backend_wheelhouse(
         shutil.copy2(project_wheels[0], target / project_wheels[0].name)
         return
     py_tag = python_version.replace(".", "")
+    # A few Alibaba/Nacos transitive dependencies publish only pure-Python
+    # sdists. Build portable wheels first so pip's cross-platform resolver can
+    # keep --only-binary enabled for all target-specific dependencies.
+    pure_wheels = build_root / "pure-python-wheels"
+    pure_wheels.mkdir()
+    _run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "--wheel-dir",
+            str(pure_wheels),
+            *PURE_PYTHON_SDISTS,
+        ],
+        cwd=PROJECT_ROOT,
+    )
     _run(
         [
             sys.executable,
@@ -170,6 +196,8 @@ def _build_backend_wheelhouse(
             "uvloop==0.22.1",
             "--dest",
             str(target),
+            "--find-links",
+            str(pure_wheels),
             "--only-binary=:all:",
             "--platform",
             PLATFORMS[platform],
@@ -188,8 +216,11 @@ def _build_backend_wheelhouse(
 
 def _copy_backend_runtime(target: Path) -> None:
     backend = PROJECT_ROOT / "backend-next"
-    for directory in ("config", "resources", "alembic_goldendb", "scripts"):
+    # 运行时业务配置由 Nacos 提供，发布包只携带迁移和运维脚本。
+    for directory in ("alembic_goldendb", "scripts"):
         _copy_tree(backend / directory, target / directory)
+    # 测试基线是只读测试数据，不属于可变运行配置。
+    _copy_tree(backend / "resources" / "testing", target / "resources" / "testing")
     for filename in ("alembic-goldendb.ini", "README.md"):
         shutil.copy2(backend / filename, target / filename)
 
@@ -277,22 +308,30 @@ def _append_python_runtime(
             target.addfile(member, stream)
 
 
-def _copy_operations(target: Path, *, payload_only: bool = False) -> None:
+def _copy_operations(
+    target: Path, *, payload_only: bool = False, backend_only: bool = False,
+) -> None:
     runtime = PACKAGE_DIR / "runtime"
-    if payload_only:
+    if payload_only or backend_only:
         target.mkdir(parents=True)
-        for filename in ("backend.env.example", "nginx.conf.template"):
+        filenames = ("backend.env.example",) if backend_only else (
+            "backend.env.example", "nginx.conf.template",
+        )
+        for filename in filenames:
             shutil.copy2(runtime / filename, target / filename)
-        shutil.copy2(PACKAGE_DIR / "intranet_deploy.py", target / "intranet_deploy.py")
-        shutil.copy2(PACKAGE_DIR / "constraints.txt", target / "constraints.txt")
-        shutil.copy2(PACKAGE_DIR / "site_upgrade.py", target / "site_upgrade.py")
-        return
-    _copy_tree(runtime, target)
-    for script in target.glob("*.sh"):
-        script.chmod(0o755)
-    shutil.copy2(PACKAGE_DIR / "intranet_deploy.py", target / "intranet_deploy.py")
-    shutil.copy2(PACKAGE_DIR / "constraints.txt", target / "constraints.txt")
-    shutil.copy2(PACKAGE_DIR / "site_upgrade.py", target / "site_upgrade.py")
+    else:
+        _copy_tree(runtime, target)
+        for script in target.glob("*.sh"):
+            script.chmod(0o755)
+    for filename in ("intranet_deploy.py", "constraints.txt", "site_upgrade.py",
+                     "deployment_common.py", "check_models.py", "check_nacos.py",
+                     "sync_catalog_data.py",
+                     "sync_catalog_aliases.py", "sync_metric_aliases.py", "sync_org_aliases.py",
+                     "CATALOG_AND_MODELS.md"):
+        if backend_only and filename == "site_upgrade.py":
+            continue
+        shutil.copy2(PACKAGE_DIR / filename, target / filename)
+    _copy_tree(PACKAGE_DIR / "catalog-data", target / "catalog-data")
 
 
 def build_bundle(args: argparse.Namespace) -> Path:
@@ -311,12 +350,15 @@ def build_bundle(args: argparse.Namespace) -> Path:
         shutil.rmtree(build_root)
     build_root.mkdir(parents=True)
 
-    bundle_name = f"ask-metric-{args.version}-{args.platform}-py{args.python_version}"
+    backend_only = getattr(args, "backend_only", False)
+    prefix = "sznsznws-backend" if backend_only else "ask-metric"
+    bundle_name = f"{prefix}-{args.version}-{args.platform}-py{args.python_version}"
     # Keep the physical staging path short for Windows builders. The archive
     # still exposes the descriptive bundle name through arcname below.
     bundle_root = build_root / "bundle"
     bundle_root.mkdir()
-    _build_frontend(bundle_root / "frontend", skip_build=args.skip_frontend_build)
+    if not backend_only:
+        _build_frontend(bundle_root / "frontend", skip_build=args.skip_frontend_build)
     _build_backend_wheelhouse(
         bundle_root / "backend" / "wheels",
         build_root,
@@ -361,10 +403,13 @@ def build_bundle(args: argparse.Namespace) -> Path:
             "dependencies_preinstalled": True,
         }
     _copy_backend_runtime(bundle_root / "backend" / "runtime")
-    _copy_operations(bundle_root / "ops", payload_only=args.payload_only)
+    _copy_operations(
+        bundle_root / "ops", payload_only=args.payload_only, backend_only=backend_only,
+    )
     manifest = {
         "format_version": 2,
         "application": "ask-metric",
+        "components": ["backend"] if backend_only else ["backend", "frontend"],
         "release": args.version,
         "target_platform": args.platform,
         "target_python": args.python_version,
@@ -409,6 +454,15 @@ def build_bundle(args: argparse.Namespace) -> Path:
         encoding="utf-8",
         newline="\n",
     )
+    # 配置模板单独交付，不放入应用 tar 包或不可变程序目录。
+    config_archive = output_dir / f"sznsznws-config-templates-{args.version}.zip"
+    with zipfile.ZipFile(config_archive, "w", zipfile.ZIP_DEFLATED) as config_zip:
+        for path in sorted((PROJECT_ROOT / "configuration" / "nacos-templates").glob("*")):
+            if path.is_file():
+                config_zip.write(path, path.name)
+    config_archive.with_suffix(".zip.sha256").write_text(
+        f"{_sha256(config_archive)}  {config_archive.name}\n", encoding="ascii", newline="\n",
+    )
     if args.keep_staging:
         print(f"Staging directory: {bundle_root}")
     else:
@@ -425,6 +479,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--python-version", default="3.12", choices=["3.11", "3.12", "3.13"])
     parser.add_argument("--output-dir", type=Path, default=DEPLOY_DIR / "artifacts")
     parser.add_argument("--skip-frontend-build", action="store_true")
+    parser.add_argument(
+        "--backend-only", action="store_true", help="Build backend without frontend",
+    )
     parser.add_argument(
         "--payload-only",
         action="store_true",

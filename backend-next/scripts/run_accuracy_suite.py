@@ -10,7 +10,6 @@ from pathlib import Path
 from threading import BoundedSemaphore
 
 import httpx
-
 from ask_metric.application.query_execution_service import (
     _resolve_org_names,
     _resolve_source_org_codes,
@@ -130,16 +129,19 @@ def main() -> None:
         selected_ids = {int(value.strip()) for value in args.ids.split(",") if value.strip()}
         cases = [case for case in cases if int(case["id"]) in selected_ids]
     semantic_config = SemanticConfigRepository(
-        resolve_config_path(PROJECT_DIR, settings.semantic_config_path)
+        resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
+        store=settings._config_center,
     ).load()
     with SqlAlchemyUnitOfWork() as uow:
         metrics = uow.metric_catalog.list_enabled()
         organizations = uow.organization_catalog.list_enabled()
     model_configs = ModelConfigRepository(
-        resolve_config_path(PROJECT_DIR, settings.model_config_path)
+        resolve_config_path(PROJECT_DIR, settings.model_config_path),
+        store=settings._config_center,
     )
     prompt_configs = PromptConfigRepository(
-        resolve_config_path(PROJECT_DIR, settings.prompt_config_path)
+        resolve_config_path(PROJECT_DIR, settings.prompt_config_path),
+        store=settings._config_center,
     )
     limits = httpx.Limits(
         max_connections=settings.model_max_connections,
@@ -150,7 +152,8 @@ def main() -> None:
             model_config_repository=model_configs,
             prompt_config_repository=prompt_configs,
             credential_resolver=credential_resolver_from_env_file(
-                resolve_config_path(PROJECT_DIR, settings.model_secret_env_path)
+                resolve_config_path(PROJECT_DIR, settings.model_secret_env_path),
+                config_store=settings._config_center,
             ),
             client=client,
             max_concurrency=settings.model_max_concurrency,
@@ -165,6 +168,7 @@ def main() -> None:
         templates = QueryTemplateRepository(
             resolve_config_path(PROJECT_DIR, settings.query_template_config_path),
             resolve_config_path(PROJECT_DIR, settings.sql_resource_dir),
+            store=settings._config_center,
         )
         data_source = create_data_source_adapter(
             settings.query_database_dialect,

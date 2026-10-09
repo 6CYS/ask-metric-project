@@ -1,5 +1,7 @@
 # Ask Metric GoldenDB 智能问数系统
 
+当前 Nacos 配置中心版本的配置分类、命名、批量加密和升级流程见 [Nacos 配置迁移说明](docs/Nacos配置中心迁移与批量加密.md)。旧环境文件路径说明仅用于本地兼容或迁移前版本。
+
 Ask Metric 是面向行内 GoldenDB/MySQL 应用库与只读数据湖的智能问数系统。系统把自然语言问题解析为受治理的语义结构，再通过已登记的 SQL 模板执行查询；模型不直接生成或执行 SQL。前端、后端、模型配置、目录同步、权限控制、审计与原生离线部署均包含在本仓库中。
 
 ## 系统组成
@@ -35,7 +37,7 @@ Ask Metric 是面向行内 GoldenDB/MySQL 应用库与只读数据湖的智能�
 → 结果整理、自然语言总结与全过程审计
 ```
 
-日期表达以及“各家、各个、全省农商行”等泛化表达由模型负责理解。规则只保护用户问题中已明确出现的指标和机构，模型输出必须经过目录、权限、查询形态和参数合法性校验。机构范围只能展开到目录中的有效机构，并按当前用户授权范围裁剪；模型不能自由生成机构编号。所有业务 SQL 来自 `backend-next/resources/sql/`，注册信息位于 `backend-next/config/query-templates.json`。
+日期表达以及“各家、各个、全省农商行”等泛化表达由模型负责理解。规则只保护用户问题中已明确出现的指标和机构，模型输出必须经过目录、权限、查询形态和参数合法性校验。机构范围只能展开到目录中的有效机构，并按当前用户授权范围裁剪；模型不能自由生成机构编号。生产环境的业务 SQL 从 Nacos Data ID `sznsznws_backend_sql_mysql.json` 或 `sznsznws_backend_sql_inceptor.json` 读取，注册信息位于 `sznsznws_backend_query_templates.json`。
 
 ## 环境要求
 
@@ -151,7 +153,7 @@ NACOS_FAIL_FAST=false
 
 ### 模型、提示词与 SQL 模板
 
-模型基础配置位于 `backend-next/config/model-config.json`。Chat、Embedding、Reranker 可分别设置 API 路径、模型名、认证方式、密钥环境变量、超时和厂商扩展参数；服务地址分别由 `MODEL_CHAT_BASE_URL`、`MODEL_EMBEDDING_BASE_URL`、`MODEL_RERANK_BASE_URL` 从外置环境读取。模型地址和密钥均不写入源码配置、日志或查询响应。
+模型基础配置生产环境位于 Nacos Data ID `sznsznws_backend_model.json`。Chat、Embedding、Reranker 可分别设置 API 路径、模型名、认证方式、密钥环境变量、超时和厂商扩展参数；服务地址和密钥由 Nacos 运行/安全配置读取。模型地址和密钥均不写入源码配置、日志或查询响应。
 
 管理员页面需要写入配置时设置：
 
@@ -161,7 +163,7 @@ MODEL_ADMIN_TOKEN_REQUIRED=true
 MODEL_ADMIN_TOKEN=ENC[SM4:v1:...]
 ```
 
-提示词位于 `backend-next/config/prompts.json`，语义配置位于 `backend-next/config/semantic-config.json`，SQL 注册表位于 `backend-next/config/query-templates.json`。生产安装会把这些文件初始化到持久状态目录，升级只补充缺失项，不覆盖管理员已发布的版本。
+生产启用 `NACOS_CONFIG_ENABLED=true` 后，模型、提示词、语义、查询模板和 SQL 模板从 Nacos 配置中心读取，不再复制到固定运行目录。Data ID 及批量加密命令见 `backend-next/README.md`；本地关闭该开关时仍兼容仓库中的 JSON/SQL 文件。
 
 ### 数字农商统一单点登录
 

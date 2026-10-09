@@ -1,5 +1,7 @@
 # Ask Metric GoldenDB 后端
 
+当前 Nacos 配置中心版本的配置分类、命名、批量加密和升级流程见 [Nacos 配置迁移说明](../docs/Nacos配置中心迁移与批量加密.md)。旧环境文件路径说明仅用于本地兼容或迁移前版本。
+
 行内 GoldenDB + 只读 SIT 数据湖的配置、同步与待确认规则见
 [`docs/sit-data-lake.md`](docs/sit-data-lake.md)。
 
@@ -18,12 +20,38 @@ FastAPI 后端负责账号与机构权限、指标目录、会话任务、语义
 合法但不支持的查询返回 `QUERY_UNSUPPORTED`，不会调用业务查询数据库；旧的
 `INITIAL_SCOPE_UNSUPPORTED` 和“一期单指标”拒绝文案不再由新查询返回。
 
+槽位提示词 `1.4.2` 使用本次请求的临时实体编号 `M1/O1`；正式编码、名称及机构候选
+不再发送给槽位模型，避免编码中的 `RNKN` 等缩写重新泄漏操作含义。未覆盖的实体文字
+仍由模型提取，后端目录负责消歧；已确认的多个指标不会重新拼接成一个待匹配短语。
+`ops` 只能表达实体之外的请求语义（例如“谁最高”“逐月变化”），不能从指标或机构
+推断操作。非空 `ops` 必须在 `options.operation_evidence` 中按顺序提供对应的连续原文，
+后端检查原文位于实体之外；依据缺失、指标短语含实体标签或包含复合操作时最多复核一次，
+真实复合请求仍保留给能力校验，操作依据仍不合规则澄清 `ops`，
+不会清空操作再执行取值。重复抽取仅传本次问题及校验反馈，不引入历史问数条件。
+原文出处校验不等于语义准确率保证，仍需真实模型回归。
+`1.4.1` 合并重复约束，保留整月、独立月份窗口及比较依据示例；指定区间内最新
+仍保留该区间，只有未限定日期的最新请求使用 `latest`。列出多个日期的值不自动构成趋势。
+
+意图路由提示词 `1.3.0` 只要求 `{"intent":"metric_query"}`，不再要求模型自报
+`confidence`；该数值没有参与路由或查询判断。后端兼容旧模板返回的额外字段，
+新诊断记录只保存校验后的意图，不记录自报分数；历史诊断不改写。
+部署时同步 Nacos Data ID `sznsznws_backend_prompts.json` 的 `intent_routing.system` 和版本号，
+持久配置未更新时虽可兼容解析，但旧模型请求仍会要求输出该分数。
+多个显式日期或窗口由模型选择，后端校验其合法性并统一 `time` 包络，避免冗余字段矛盾；
+有原文依据的全目录范围不会因为同时返回 `missing=orgs` 再要求用户逐个列举机构。
+
+升级须同时合并 Nacos Data ID `sznsznws_backend_prompts.json` 中 `slot_extraction.system`、`user_template`
+及版本号；两份仓库模板的槽位契约相同，部署仍保留管理员其他自定义配置。旧持久提示词
+不会自动覆盖，不更新可能导致带操作的请求要求澄清。历史已保存的结果不重算。
+
 槽位模型必须显式返回 `ops` 数组，纯取值返回 `[]`。缺失或格式错误的操作，以及错误的
 筛选、维度、参数或任务类型会使语义解析失败，返回 `SLOT_FRAME_VALIDATION_FAILED`；
 不得删除错误条件后继续执行。这里收紧的是外部模型输出，历史 SlotFrame 的读取默认值保持兼容。
 
 此契约通过现有 `slot_frame_schema_json` 注入槽位提示词，不新增模型调用、不改变模型 HTTP 接口或认证方式，
 也不覆盖持久提示词。升级时确认 `PROMPT_CONFIG_PATH` 实际文件中的 `slot_extraction.user_template`
+此契约通过现有 `slot_frame_schema_json` 注入槽位提示词，不改变模型 HTTP 接口或认证方式，
+也不覆盖持久提示词。升级时确认 `sznsznws_backend_prompts.json` 内容中的 `slot_extraction.user_template`
 保留 `{slot_frame_schema_json}`；若现场自定义模板曾移除它，应按当前模板补回并联调。
 字段完整性校验不能证明模型语义理解一定正确：模型明确返回 `ops: []` 但实际漏理解操作的情况，
 仍需使用行内模型准确率用例验证，不能视为静态检查已解决。
@@ -35,7 +63,7 @@ FastAPI 后端负责账号与机构权限、指标目录、会话任务、语义
 “2026年4月末”解析为 `2026-04-30`；指标名称中的“当日数”等字样不能把整月缩成月末。
 普通区间取值仍返回范围内最新一期，并在回复中说明查询范围及实际数据日期；
 不等同于整月合计或每天明细，实际返回日期也不回写为用户查询范围。
-升级时备份后合并实际 `PROMPT_CONFIG_PATH` 中该提示词的 `system` 和 `user_template`；
+升级时备份后合并 Nacos Data ID `sznsznws_backend_prompts.json` 中该提示词的 `system` 和 `user_template`；
 协议、占位符和模型鉴权不变，不整份覆盖其他自定义配置。失败历史不会自动重算，使用新问题验证。
 
 后续上层 harness 可以复用相同的可信执行边界；目录、权限、日期、操作和模板校验仍由后端执行。
@@ -63,14 +91,14 @@ FastAPI 后端负责账号与机构权限、指标目录、会话任务、语义
 查询同时输出 `options.organization_scope=synchronized_catalog` 和原文依据
 `options.organization_scope_text`；依据不得来自已保护的指标或机构名称。若缺少依据、同时
 要求补充机构，或同时返回具体/未知机构，后端停止展开并要求选择机构，已确认的指标和日期保留。
-这项修复需同时更新后端与实际 `PROMPT_CONFIG_PATH` 中的 `slot_extraction`，并重启后端；
+这项修复需同时更新后端与 Nacos Data ID `sznsznws_backend_prompts.json` 中的 `slot_extraction`，并重启后端；
 仅更新仓库默认提示词不会替换生产持久配置。旧提示词返回无依据范围时会进入澄清，旧结果不改写。
 
 历史会话及结果可查看、下载，不会重新查询业务库。自然语言历史指代、结果裁剪和基于历史结果
 继续查询已退出；旧跨任务追问或指代任务尝试分析、澄清、执行时返回 `CROSS_TASK_CONTEXT_RETIRED`（409）。
 已保存的结果和消息不改写，不提前接入 harness。
 
-升级时同步部署前后端，并备份后合并实际 `PROMPT_CONFIG_PATH` 指向的持久配置：
+升级时同步部署前后端，并备份后合并 Nacos Data ID `sznsznws_backend_prompts.json` 对应的配置中心内容：
 
 - 删除 `conversation_contextualization`、`multiturn_context_patch`、`result_reference_selection` 提示词；
   合并默认 `intent_routing` 和 `slot_extraction` 中独立问题、缺失条件不猜测的要求，保留自定义模型协议。
@@ -90,7 +118,7 @@ FastAPI 后端负责账号与机构权限、指标目录、会话任务、语义
 升级原试验环境时：
 
 1. 停止旧服务并备份持久配置。移除旧 `ANALYSIS_*` 环境项；无需为普通问数安装 LangGraph。
-2. 合并仓库 `config/prompts.json` 到实际 `PROMPT_CONFIG_PATH` 指向的文件：更新
+2. 合并仓库 `config/prompts.json` 到 Nacos Data ID `sznsznws_backend_prompts.json`：更新
    `intent_routing`、`slot_extraction` 的独立查询协议，删除 `analysis_target` 和 `analysis_action`，
    并按上节移除跨任务提示词。
    保留已经维护的目录保护、澄清文案和其他自定义配置，不整份覆盖生产持久配置。
@@ -158,8 +186,8 @@ NACOS_FAIL_FAST=false
 
 `NACOS_INSTANCE_IP` 必须是 Gateway 可访问的后端内网地址，跨容器或跨主机时不能填写
 `127.0.0.1`。各后端实例应使用不同的 IP/端口组合和 `NACOS_INSTANCE_ID`。SDK 维护临时实例
-连接、心跳及重连，应用正常退出时主动注销。Nacos 暂时不可用默认不阻止后端启动；如果要求
-注册失败即终止启动，设置 `NACOS_FAIL_FAST=true`。
+连接、心跳及重连，应用正常退出时主动注销。仅使用服务发现时，注册失败是否阻止启动由 `NACOS_FAIL_FAST` 控制。启用
+`NACOS_CONFIG_ENABLED=true` 后，配置中心不可用或配置缺失均会阻止启动。
 
 Gateway 必须使用完全相同的 namespace、group 和 cluster，并将后端 URI 设置为
 `lb://ask-metric-python`。Nacos 集群节点地址使用英文逗号分隔。网络策略除允许客户端访问
@@ -168,25 +196,19 @@ Nacos HTTP 端口（通常为 `8848`）外，还需允许 Nacos 客户端 gRPC �
 ### SM4 加密运行配置
 
 生产环境的 Nacos 密码、数据库 URL、模型 API Key、JWT/管理令牌和 SM2 私钥支持使用
-`ENC[SM4:v1:...]` 密文保存。先生成独立的 16 字节主密钥（32 位 hex），将其放入仅运行
-用户可读的文件；主密钥文件不得提交到 Git，也不得与密文写在同一个配置文件中：
+`ENC[SM4:v1:...]` 密文保存。已有环境迁移、增量升级和同环境扩容均复用原 SM4 主密钥，
+只有新建独立环境首次初始化才生成密钥。主密钥存于受保护文件，不进入 Nacos 或 Git。
+
+先填写完整配置，再由执行人员通过批量命令加密并解密回验，无需逐项加密和复制：
 
 ```bash
-umask 077
-openssl rand -hex 16 > /etc/ask-metric/config-sm4.key
-chown root:askmetric /etc/ask-metric/config-sm4.key
-chmod 0640 /etc/ask-metric/config-sm4.key
-python -m ask_metric encrypt-config --key-file /etc/ask-metric/config-sm4.key
+python -m ask_metric encrypt-nacos-config --input-dir /受保护目录/nacos-filled \
+  --output-dir /受保护目录/nacos-encrypted --key-file /原密钥路径/config-sm4.key
 ```
 
-命令会隐藏读取一个明文配置值并输出密文。将输出写入 `backend.env`，并配置：
-
-```dotenv
-ASK_METRIC_CONFIG_SM4_KEY_FILE=/etc/ask-metric/config-sm4.key
-NACOS_PASSWORD=ENC[SM4:v1:...]
-APP_DATABASE_URL=ENC[SM4:v1:...]
-QUERY_DATABASE_URL=ENC[SM4:v1:...]
-```
+输出的 YAML/JSON 内容按同名 Data ID 复制到 Nacos；节点引导文件中的
+`ASK_METRIC_CONFIG_SM4_KEY_FILE` 指向原密钥文件。旧 `encrypt-config` 单值命令仅保留兼容，
+迁移使用整批命令，详见 [配置迁移与批量加密](../docs/Nacos配置中心迁移与批量加密.md)。
 
 应用在配置校验前完成解密，数据库、Nacos、迁移及目录同步共用同一入口。密文使用随机 IV
 的 SM4-CBC，并以 SM3-HMAC 校验完整性；缺少密钥、格式错误或密文被篡改时启动会失败。
@@ -248,12 +270,34 @@ SSO_SOURCE_SYSTEM=jsrcb
 - 三类模型均支持受校验的 `extra_body` JSON，可透传 `top_p`、`seed` 和厂商扩展参数，
   无需修改请求代码。系统管理的核心字段和鉴权字段不能由 `extra_body` 覆盖。
 
-提示词位于 `config/prompts.json`，SQL 注册表位于 `config/query-templates.json`，MySQL 与
-Inceptor 模板分别位于 `resources/sql/mysql/` 和 `resources/sql/inceptor/`。MySQL 模板保留给
-外网/本地模式；行内设置 `QUERY_DATABASE_DIALECT=inceptor` 后只选择 Inceptor 模板。Inceptor
-模板中的事实表及核心字段均由 `SIT_*` 环境变量渲染，当前行内测试表名只是默认值。生产安装会
-把这些可编辑文件初始化到持久状态目录，使管理员界面
-可以发布、试跑和回滚且不受版本升级覆盖。
+生产环境启用 `NACOS_CONFIG_ENABLED=true` 后，模型、提示词、语义、查询模板和 SQL 模板均从
+Nacos 配置中心读取，运行时不再从固定目录加载或由安装包复制配置文件。配置中心使用独立的
+`NACOS_CONFIG_GROUP`（默认 `ASK_METRIC_CONFIG`），不要与服务发现的 `NACOS_GROUP` 混用。
+本地开发关闭该开关时仍兼容仓库中的 JSON/SQL 文件。MySQL 与 Inceptor 模板分别发布为
+`sznsznws_backend_sql_mysql.json` 和 `sznsznws_backend_sql_inceptor.json`，其中键为模板名、值为
+完整 SQL 文本。
+
+运行环境、数据源和安全配置分别使用 `sznsznws_backend_runtime.yaml`、
+`sznsznws_backend_datasource.yaml`、`sznsznws_backend_security.yaml`。Nacos 地址、命名空间、
+配置分组和 SM4 主密钥文件路径属于启动引导参数，仍由进程环境提供，不能放进依赖自身发现的配置项。
+
+0.1.6 起配置客户端复用 HTTP 连接及有效令牌。模型定义、地址和凭据采用进程内短期快照，
+节点引导项 `NACOS_CONFIG_REFRESH_INTERVAL_SECONDS` 默认 5 秒（>0 且 <=60），访问时按需刷新。
+过期读取失败不使用旧快照；向量预热完成前强制核对配置变化，不能只凭缓存宣布就绪。
+其他配置的生效范围保持原有约定。部署及回滚见
+[Nacos 预热优化部署命令](../deploy/Nacos预热优化部署命令-20260930-r3.md)。
+
+可使用以下命令生成 Data ID 文件。填写环境文件后，再用第二条命令批量加密敏感字段；输入目录
+不会被覆盖，输出目录中的 YAML/JSON 文件内容可以直接复制到 Nacos，引导 `.env` 留在节点：
+
+```powershell
+python -m ask_metric export-nacos-config --output-dir .runtime/nacos-plain --env-file .env
+python -m ask_metric encrypt-nacos-config --input-dir .runtime/nacos-plain `
+  --output-dir .runtime/nacos-encrypted --key-file <SM4密钥文件>
+```
+
+命令会加密数据库 URL、密码、API Key、JWT/管理员/代理令牌和 SM2 私钥等白名单字段，已经是
+`ENC[SM4:v1:...]` 的值不会重复加密。
 
 配置读取要求系统管理员。要允许写入和连通性测试，还必须设置：
 
@@ -279,6 +323,17 @@ Reranker 只发送 `query` 与 `texts`。上述请求参数差异由 `model-conf
 可在管理员页面修改。真实 accessKey 只填写到 `MODEL_CHAT_API_KEY`，不得
 提交到 Git。
 
+升级会保留已有模型配置。调整默认请求参数后，现有环境须同步修改 `sznsznws_backend_model.json`
+对应的 Nacos 配置；例如 `models.chat.chat_template_kwargs` 应为
+`{"enable_thinking": false}` 才会发送该参数，空对象不会发送。仅替换发布包不会覆盖此文件。
+
+问数链的 Chat 配置使用 `response_format=json_object` 解析意图及槽位 JSON。内网 UAT 使用
+`send_response_format=false`，请求不发送 `response_format` 参数，部署检查接受此配置；
+`chat_template_kwargs.enable_thinking=false` 继续发送。配置为 `text` 会把回复包装成
+`{"text": "..."}`，无法通过意图分类校验。部署时运行 `ops/check_models.py --config <环境文件> --live`
+核对实际正文 JSON 和意图字段，不能仅凭 HTTP 200 通过。现场文件即使名为 `model.json`，
+也应修改 `sznsznws_backend_model.json` 实际对应的 Data ID 内容；升级不会覆盖持久配置。
+
 重排响应兼容两种格式：标准 `results: [{index, relevance_score}]`，以及行内
 `scores: [分数, ...]` 与 `texts: [候选文本, ...]` 并列数组。行内格式要求两个数组
 与请求候选数量一致，`texts` 与请求文本顺序、内容完全一致，分数必须是有限数值；
@@ -294,7 +349,7 @@ Reranker 只发送 `query` 与 `texts`。上述请求参数差异由 `model-conf
 后续请求只向 Embedding 发送当前查询文本，在内存中计算相似度，再按配置调用 Reranker。
 在线精确匹配不调用 Embedding；配置中关闭 Embedding 时跳过启动向量预热，沿用词面匹配。
 
-配置位于实际 `SEMANTIC_CONFIG_PATH` 文件中的 `metric_matching`：
+配置位于 Nacos Data ID `sznsznws_backend_semantic.json` 内容中的 `metric_matching`：
 
 ```json
 {
@@ -305,7 +360,7 @@ Reranker 只发送 `query` 与 `texts`。上述请求参数差异由 `model-conf
 
 每批默认 16 条（允许 1～128），等待其他请求加载目录的上限默认 60 秒（允许大于 0、
 不超过 600）。旧持久配置缺少这两项时自动使用默认值，无需覆盖原配置。
-这两个参数不改变模型 HTTP 超时；HTTP 超时仍由实际 `MODEL_CONFIG_PATH` 中 Embedding 的
+这两个参数不改变模型 HTTP 超时；HTTP 超时仍由 Nacos Data ID `sznsznws_backend_model.json` 中 Embedding 的
 `timeout_seconds` 控制。分批降低单次请求负载，但不能保证模型服务本身永不超时。
 
 目录名称、别名或描述变化后，仅补算变化的文本，并淘汰已删除文本；目录顺序变化不重算。
@@ -377,8 +432,7 @@ python -m unittest discover -s tests -v
   `{organization}`、`{options}`。未配置的非指标场景沿用内置文案。
 
 模板中的字面花括号使用 `{{` 和 `}}`；不支持的占位符、格式化选项或不完整花括号会在
-配置加载时拒绝。请修改运行环境实际使用的 `SEMANTIC_CONFIG_PATH` 文件；生产环境可能
-使用持久状态目录中的副本，而不是仓库中的默认文件。固定的开场与回复示例仍由程序生成。
+配置加载时拒绝。请修改运行环境 Nacos Data ID `sznsznws_backend_semantic.json` 内容。启用 Nacos 时不读取本地持久配置副本。固定的开场与回复示例仍由程序生成。
 
 ```powershell
 python -m ruff check src scripts

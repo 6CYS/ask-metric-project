@@ -21,6 +21,14 @@ from ask_metric.core.config_crypto import (
     load_config_sm4_key,
 )
 from ask_metric.core.request_context import outbound_subtransaction
+from ask_metric.infrastructure.config_center.nacos import (
+    MODEL_DATA_ID,
+    RUNTIME_DATA_ID,
+    SECURITY_DATA_ID,
+    ConfigCenterError,
+    DocumentSnapshot,
+    NacosConfigStore,
+)
 from ask_metric.infrastructure.model.configuration import (
     ModelConfigRepository,
     ModelEndpointConfig,
@@ -69,10 +77,25 @@ logger = logging.getLogger(__name__)
 ModelRole = Literal["chat", "embedding", "reranker"]
 
 
-def credential_resolver_from_env_file(path: Path) -> Callable[[str], str | None]:
+def credential_resolver_from_env_file(
+    path: Path, *, config_store: Any | None = None
+) -> Callable[[str], str | None]:
     """Resolve secrets from the process first, then the configured external env file."""
 
     def resolve(name: str) -> str | None:
+        if config_store is not None:
+            for data_id in (SECURITY_DATA_ID, RUNTIME_DATA_ID):
+                values = config_store.read_json(data_id)
+                value = values.get(name.casefold(), values.get(name))
+                if value:
+                    key_file = config_store.settings.ask_metric_config_sm4_key_file
+                    key = (
+                        load_config_sm4_key(environ={}, key_file=key_file)
+                        if key_file
+                        else None
+                    )
+                    return decrypt_config_value(str(value), key)
+            return None
         process_value = os.getenv(name)
         if process_value:
             return decrypt_config_value(process_value)
@@ -100,6 +123,7 @@ class ConfigurableModelService:
         max_concurrency: int = 8,
         concurrency_wait_seconds: float = 30,
         semaphore: Semaphore | None = None,
+        config_store: NacosConfigStore | None = None,
     ) -> None:
         self.model_configs = model_config_repository
         self.prompts = prompt_config_repository
@@ -107,12 +131,49 @@ class ConfigurableModelService:
         self._client = client
         self._semaphore = semaphore or BoundedSemaphore(max_concurrency)
         self._concurrency_wait_seconds = concurrency_wait_seconds
+        self._config_store = config_store
+
+    @staticmethod
+    def _validate_snapshot(snapshot: DocumentSnapshot) -> None:
+        model = ModelConfigRepository(Path("unused"), store=snapshot).load()
+        # 地址/密钥引用只接受字符串，防止把错误结构转换成可执行地址或凭据。
+        references = {
+            name for endpoint in (model.models.chat, model.models.embedding, model.models.reranker)
+            for name in (endpoint.base_url_env, endpoint.api_key_env) if name
+        }
+        for data_id in (SECURITY_DATA_ID, RUNTIME_DATA_ID):
+            values = snapshot.read_json(data_id)
+            for name in references:
+                value = values.get(name.casefold(), values.get(name))
+                if value is not None and not isinstance(value, str):
+                    raise ConfigCenterError("模型地址或凭据配置必须为字符串")
+
+    def _snapshot_service(self, *, force: bool = False) -> ConfigurableModelService:
+        assert self._config_store is not None
+        snapshot = self._config_store.read_snapshot(
+            (MODEL_DATA_ID, SECURITY_DATA_ID, RUNTIME_DATA_ID),
+            force=force, validate=self._validate_snapshot,
+        )
+        # 子服务在一次调用内固定模型、地址和凭据；网络客户端及并发边界保持共用。
+        return ConfigurableModelService(
+            model_config_repository=ModelConfigRepository(Path("unused"), store=snapshot),
+            prompt_config_repository=self.prompts,
+            credential_resolver=credential_resolver_from_env_file(
+                Path("unused"), config_store=snapshot,
+            ),
+            client=self._client, semaphore=self._semaphore,
+            concurrency_wait_seconds=self._concurrency_wait_seconds,
+        )
 
     def is_enabled(self, role: ModelRole) -> bool:
+        if self._config_store is not None:
+            return self._snapshot_service().is_enabled(role)
         return bool(getattr(self.model_configs.load().models, role).enabled)
 
     def embedding_cache_key(self) -> str:
         """Fingerprint effective embedding configuration without retaining raw secrets."""
+        if self._config_store is not None:
+            return self._snapshot_service().embedding_cache_key()
         endpoint = self.model_configs.load().models.embedding
         config = endpoint.model_dump(mode="json")
         if endpoint.base_url_env:
@@ -124,7 +185,21 @@ class ConfigurableModelService:
             json.dumps(config, sort_keys=True, ensure_ascii=False).encode("utf-8")
         ).hexdigest()
 
+    def refresh_embedding_cache_key(self) -> str:
+        """预热宣布完成前强制读取中心；文件模式保留原有即时读取行为。"""
+        if self._config_store is not None:
+            return self._snapshot_service(force=True).embedding_cache_key()
+        return self.embedding_cache_key()
+
+    def catalog_embedding_model(self) -> ConfigurableModelService:
+        """目录计算固定模型快照，调用方仍用原服务逐批检查中心是否变化。"""
+        if self._config_store is not None:
+            return self._snapshot_service()
+        return self
+
     def analyze(self, *, prompt: str, context: dict[str, Any]) -> dict[str, Any]:
+        if self._config_store is not None:
+            return self._snapshot_service().analyze(prompt=prompt, context=context)
         chat = self.model_configs.load().models.chat
         self._require_enabled("chat", chat)
         messages = self.prompts.render(prompt, context)
@@ -174,6 +249,8 @@ class ConfigurableModelService:
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
+        if self._config_store is not None:
+            return self._snapshot_service().embed(texts)
         embedding = self.model_configs.load().models.embedding
         self._require_enabled("embedding", embedding)
         payload: dict[str, Any] = {"input": texts}
@@ -210,6 +287,8 @@ class ConfigurableModelService:
     ) -> list[dict[str, Any]]:
         if not documents:
             return []
+        if self._config_store is not None:
+            return self._snapshot_service().rerank(query=query, documents=documents, top_n=top_n)
         reranker = self.model_configs.load().models.reranker
         self._require_enabled("reranker", reranker)
         payload: dict[str, Any] = {

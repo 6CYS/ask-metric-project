@@ -1,5 +1,9 @@
 # 无 Docker 离线打包部署
 
+仅构建后端时使用 `build_bundle.py --backend-only`，不要求 Node.js 或前端构建产物；其他版本、平台和 Python 参数保持不变。该模式只打包后端 wheel、离线依赖、迁移/运维资源，不附带前端、Nginx 或历史专用启停脚本。配置模板仍作为独立 ZIP 输出。当前交付步骤见 [后端全量与增量部署](../后端全量与增量部署-Nacos-20260929.md)。
+
+当前 Nacos 配置中心版本的配置分类、命名、批量加密和升级流程见 [Nacos 配置迁移说明](../../docs/Nacos配置中心迁移与批量加密.md)。旧环境文件路径说明仅用于本地兼容或迁移前版本。
+
 部署说明由发布人员与压缩包、校验文件并列交付。本页面向 Linux 原生离线安装；源码本地启动见 [本地部署指南](../../docs/本地部署指南.md)。现有库按已审核的 GoldenDB 迁移版本升级，不能仅沿用历史“无需迁移”的结论；数据湖映射见 [DATA_LAKE_DEPLOY.md](DATA_LAKE_DEPLOY.md)。
 
 这一套部署方式面向不能安装 Docker、但可运行 Linux、Python、systemd 和 Nginx 的行内环境。
@@ -87,7 +91,7 @@ cd ask-metric-20260824.1-linux-x86_64-py3.12
 /opt/ask-metric/releases/<version>/   不可变版本目录
 /opt/ask-metric/current               当前版本软链接
 /etc/ask-metric/backend.env           跨版本保留的配置
-/var/lib/ask-metric/runtime-config/    模型、提示词和 SQL 模板（跨版本保留）
+/var/lib/ask-metric/config-history/    配置发布历史（只读审计与回滚记录）
 /var/lib/ask-metric/                   其他跨版本运行数据和配置历史
 /home/appuser/log/                     行内规范日志目录（物理目录，禁止软链接）
 ```
@@ -97,7 +101,7 @@ cd ask-metric-20260824.1-linux-x86_64-py3.12
 ```bash
 sudo ./ops/install.sh
 sudo vi /etc/ask-metric/backend.env
-# 完成下文的密钥、配置路径、权限核对后，再执行：
+# 完成下文的 Nacos 引导参数、密钥和权限核对后，再执行：
 sudo ./ops/install.sh
 ```
 
@@ -156,18 +160,26 @@ chmod 0640 /etc/ask-metric/config-sm4.key
   --key-file /etc/ask-metric/config-sm4.key
 ```
 
-加密命令通过隐藏输入读取一个值，重复执行以加密数据库 URL、JWT、追问签名密钥、SM2 私钥及模型凭据；两个签名密钥须各自随机生成，不使用示例常量。可在上述 `umask 077` 环境中用 `openssl rand -hex 48 > /etc/ask-metric/jwt-initial.secret` 生成临时签名文件，并用另一个新文件生成追问签名值；不得覆盖已有密钥。SM2 私钥取新生成文件中的值；导入验证后按现场流程清理临时明文文件。已有部署不要再运行私钥生成命令。
+配置中心配置不再逐项手工加密。先将待发布的 JSON Data ID 内容放入一个明文目录，再执行：
+
+```bash
+python -m ask_metric encrypt-nacos-config \
+  --input-dir /etc/ask-metric/nacos-plain \
+  --output-dir /etc/ask-metric/nacos-encrypted \
+  --key-file /etc/ask-metric/config-sm4.key
+```
+
+命令会按白名单批量加密数据库 URL、JWT、追问签名密钥、SM2 私钥、Nacos 密码、模型凭据和管理令牌，
+已加密值不会重复处理；明文目录不会被覆盖。两个签名密钥须各自随机生成，不使用示例常量。导入
+Nacos 后按现场流程清理临时明文文件。已有部署不要重新生成原有密钥。
 
 环境模板必须补齐 `ASK_METRIC_CONFIG_SM4_KEY_FILE`、所有启用服务的配置和日志标识；不用 Nacos/SSO 时关闭相应开关，并移除未启用项残留的 `<...>` 占位值。Shell 运维脚本会 source 环境文件，含空格的值（如 `APP_NAME`）应加引号，不能把未经转义的真实密码写成 Shell 语句。
 
 **目录区别：**解压包是 `backend/runtime/`，`install.sh` 安装后是 `current/backend/`。模板还被载荷部署共用，编辑 `/etc/ask-metric/backend.env` 时需按当前安装方式显式校正以下路径，不能机械照抄 `current/backend/runtime/`：
 
 ```dotenv
-MODEL_CONFIG_PATH=/var/lib/ask-metric/runtime-config/model-config.json
-PROMPT_CONFIG_PATH=/var/lib/ask-metric/runtime-config/prompts.json
-SEMANTIC_CONFIG_PATH=/opt/ask-metric/current/backend/config/semantic-config.json
-QUERY_TEMPLATE_CONFIG_PATH=/var/lib/ask-metric/runtime-config/query-templates.json
-SQL_RESOURCE_DIR=/var/lib/ask-metric/runtime-config/sql
+NACOS_CONFIG_ENABLED=true
+NACOS_CONFIG_GROUP=ASK_METRIC_CONFIG
 MODEL_SECRET_ENV_PATH=/etc/ask-metric/backend.env
 CONFIG_HISTORY_DIR=/var/lib/ask-metric/config-history
 TEST_CENTER_DATA_DIR=/var/lib/ask-metric/test-center
@@ -215,35 +227,13 @@ sudo /opt/ask-metric/current/ops/migrate.sh --apply
 
 脚本只使用 `alembic-goldendb.ini` 与 `alembic_goldendb/`。
 
-迁移完成后，受限环境可通过 Python 运维入口检查三类数据源并同步目录：
+迁移完成后，按 [主数据、可选别名和模型验收](CATALOG_AND_MODELS.md) 执行新的部署入口：
 
-```bash
-python /opt/ask-metric/current/ops/intranet_deploy.py database-check \
-  --config /etc/ask-metric/backend.env
-python /opt/ask-metric/current/ops/intranet_deploy.py sync-catalogs \
-  --config /etc/ask-metric/backend.env --dry-run
-python /opt/ask-metric/current/ops/intranet_deploy.py sync-catalogs \
-  --config /etc/ask-metric/backend.env
-```
+- `check_models.py --config ...` 检查实际模型配置，追加 `--live` 验证实际 JSON 分类、Embedding 批量和 Reranker 响应。
+- `sync_catalog_data.py organizations|metrics` 分别同步机构和指标主数据，默认预览，审核后追加 `--apply`，不要求别名文件。
+- `sync_catalog_aliases.py metrics|organizations` 为独立可选别名补录；失败不撤销主数据，也不作为启动前置条件。
 
-When replacing external-test catalogs for the first time, back up the GoldenDB
-application schema and run the guarded replacement command. It first synchronizes
-both authoritative lake catalogs and refuses cleanup when either result is empty or
-has errors. It deletes application `metric_values`, removes unsynchronized metric and
-organization terms, retains aliases for synchronized metric codes, and preserves
-users/conversations/tasks/audit data. Test users on obsolete organization codes are
-reassigned to the synchronized head-office code (default `000`):
-
-```bash
-python /opt/ask-metric/current/ops/intranet_deploy.py initialize-synchronized-catalogs \
-  --config /etc/ask-metric/backend.env \
-  --user-org-code 000 \
-  --apply --confirm INITIALIZE_SYNCHRONIZED_CATALOGS
-```
-
-Use a different `--user-org-code` only after confirming that code exists in the
-synchronized organization catalog. This command is for the one-time test-data
-replacement, not the recurring catalog synchronization job.
+每次执行都保留新报告；使用正式名称验收主流程。旧 `sync-catalogs` 保留为兼容入口，新部署采用上述严格单位和机构快照检查。`initialize-synchronized-catalogs` 属于独立破坏性数据治理命令，不是常规部署步骤，不要为解决启动失败而清库。
 
 升级时会合并缺失的查询模板和 SQL 文件，不覆盖已有人工模板。已有 `backend.env` 不会自动
 改写，切换 SIT 数据湖前必须人工补齐并复核 `QUERY_DATABASE_DIALECT=inceptor`、目录连接和

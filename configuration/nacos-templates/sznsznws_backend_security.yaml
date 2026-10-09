@@ -1,0 +1,20 @@
+# 先填写明文，再运行 encrypt-nacos-config；不要逐项手工加密。
+continuation_token_secret: <填写本环境已有值，新环境按部署流程初始化>
+model_chat_api_key: ''
+model_embedding_api_key: ''
+model_rerank_api_key: ''
+model_admin_token: <填写本环境已有值，新环境按部署流程初始化>
+trusted_proxy_token: ''
+sso_enabled: 'false'
+sso_user_info_url: https://your-digital-rural-platform.example/yusp-app-oca/api/ssoconfig/userInfo
+sso_timeout_seconds: '10'
+sso_source_system: jsrcb
+jwt_secret: <填写本环境已有值，新环境按部署流程初始化>
+jwt_algorithm: HS256
+jwt_expire_minutes: '480'
+jwt_issuer: ask-metric
+jwt_audience: ask-metric-web
+sm2_private_key: <填写本环境已有值，新环境按部署流程初始化>
+province_query_org_codes: []
+sso_org_code_mapping: {}
+sso_portal_url: ''

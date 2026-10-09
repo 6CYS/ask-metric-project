@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -53,9 +54,18 @@ class QueryTemplateRepository:
         resource_root: Path,
         *,
         template_variables: dict[str, str] | None = None,
+        store: Any | None = None,
+        config_data_id: str = "sznsznws_backend_query_templates.json",
+        sql_data_ids: dict[str, str] | None = None,
     ) -> None:
         self.config_path = config_path.resolve()
         self.resource_root = resource_root.resolve()
+        self.store = store
+        self.config_data_id = config_data_id
+        self.sql_data_ids = sql_data_ids or {
+            "mysql": "sznsznws_backend_sql_mysql.json",
+            "inceptor": "sznsznws_backend_sql_inceptor.json",
+        }
         self.template_variables = {
             "fact_table": "ads_lake.adm_rmt_pub_gnrl_drv_indcr_tab",
             "fact_metric_code_field": "indcr_no",
@@ -73,6 +83,13 @@ class QueryTemplateRepository:
         _validate_template_variables(self.template_variables)
 
     def load_config(self) -> QueryTemplateConfig:
+        if self.store:
+            try:
+                return QueryTemplateConfig.model_validate(
+                    self.store.read_json(self.config_data_id)
+                )
+            except (ValueError, TypeError, AttributeError):
+                raise ValueError("配置中心 SQL 注册配置未通过校验") from None
         with self.config_path.open("r", encoding="utf-8") as file:
             return QueryTemplateConfig.model_validate(json.load(file))
 
@@ -80,7 +97,7 @@ class QueryTemplateRepository:
         registration = self.registration(dialect=dialect, template=template)
         if not registration.enabled:
             raise ValueError(f"Template {dialect}/{template.value} is disabled")
-        raw = self._template_path(dialect, registration).read_text(encoding="utf-8").strip()
+        raw = self._load_sql(dialect, template, registration)
         return self._render(raw)
 
     def registration(self, *, dialect: str, template: QueryTemplateId) -> QueryTemplateRegistration:
@@ -94,9 +111,7 @@ class QueryTemplateRepository:
         values: list[QueryTemplateRead] = []
         for dialect, registrations in config.dialects.items():
             for template, registration in registrations.items():
-                sql = self._render(
-                    self._template_path(dialect, registration).read_text(encoding="utf-8").strip()
-                )
+                sql = self._render(self._load_sql(dialect, template, registration))
                 values.append(
                     QueryTemplateRead(
                         dialect=dialect,
@@ -121,18 +136,24 @@ class QueryTemplateRepository:
         if not registration.editable:
             raise ValueError(f"Template {dialect}/{template.value} is protected")
         validate_readonly_sql(sql)
-        path = self._template_path(dialect, registration)
-        temporary_path = path.with_suffix(path.suffix + ".tmp")
-        temporary_path.write_text(sql.strip() + "\n", encoding="utf-8")
-        temporary_path.replace(path)
         config = self.load_config()
         config.dialects[dialect][template].enabled = enabled
-        temporary_config = self.config_path.with_suffix(self.config_path.suffix + ".tmp")
-        temporary_config.write_text(
-            json.dumps(config.model_dump(mode="json"), ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        temporary_config.replace(self.config_path)
+        if self.store:
+            sql_map = self.store.read_json(self.sql_data_ids[dialect])
+            sql_map[template.value] = sql.strip()
+            self.store.publish_json(self.sql_data_ids[dialect], sql_map)
+            self.store.publish_json(self.config_data_id, config.model_dump(mode="json"))
+        else:
+            path = self._template_path(dialect, registration)
+            temporary_path = path.with_suffix(path.suffix + ".tmp")
+            temporary_path.write_text(sql.strip() + "\n", encoding="utf-8")
+            temporary_path.replace(path)
+            temporary_config = self.config_path.with_suffix(self.config_path.suffix + ".tmp")
+            temporary_config.write_text(
+                json.dumps(config.model_dump(mode="json"), ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            temporary_config.replace(self.config_path)
         return next(
             item
             for item in self.list_templates()
@@ -142,6 +163,22 @@ class QueryTemplateRepository:
     def validate_template(self, sql: str) -> list[str]:
         validate_readonly_sql(sql)
         return sorted(set(re.findall(r":([a-zA-Z_][a-zA-Z0-9_]*)", sql)))
+
+    def _load_sql(
+        self, dialect: str, template: QueryTemplateId, registration: QueryTemplateRegistration
+    ) -> str:
+        if self.store:
+            try:
+                sql_map = self.store.read_json(self.sql_data_ids[dialect])
+            except KeyError as exc:
+                raise KeyError(f"SQL data ID is not registered for dialect {dialect}") from exc
+            value = sql_map.get(template.value)
+            if not isinstance(value, str) or not value.strip():
+                raise FileNotFoundError(
+                    f"SQL template is missing from Nacos: {dialect}/{template.value}"
+                )
+            return value.strip()
+        return self._template_path(dialect, registration).read_text(encoding="utf-8").strip()
 
     def _template_path(self, dialect: str, registration: QueryTemplateRegistration) -> Path:
         relative = PurePosixPath(registration.path)

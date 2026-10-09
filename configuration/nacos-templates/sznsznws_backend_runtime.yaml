@@ -1,0 +1,27 @@
+# 后端运行参数；修改后重启后端使连接池、日志和权限参数一致生效。
+app_name: Ask Metric Backend Next
+app_env: production
+log_level: INFO
+log_file_enabled: true
+log_console_enabled: false
+log_data_center_id: '-'
+log_zone_id: '-'
+log_max_bytes: '52428800'
+log_retention_days: '3'
+log_max_line_bytes: '204800'
+cors_origins: https://<应用访问域名>
+sql_echo: 'false'
+continuation_token_ttl_seconds: '86400'
+model_chat_base_url: ''
+model_embedding_base_url: ''
+model_rerank_base_url: ''
+query_result_limit: '1000'
+query_statement_timeout_ms: '30000'
+model_admin_write_enabled: 'true'
+model_admin_token_required: true
+model_max_connections: '20'
+model_max_keepalive_connections: '10'
+model_max_concurrency: '8'
+model_concurrency_wait_seconds: '30'
+metric_catalog_cache_ttl_seconds: '60'
+max_conversations_per_user: '500'

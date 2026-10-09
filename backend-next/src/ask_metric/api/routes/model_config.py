@@ -74,9 +74,12 @@ class ModelOnlyUpdate(BaseModel):
     )
 
 
-def _credential_status(settings: Settings, config: ModelRuntimeConfig) -> dict[str, bool]:
+def _credential_status(
+    settings: Settings, config: ModelRuntimeConfig, *, config_store: object | None = None
+) -> dict[str, bool]:
     resolve_credential = credential_resolver_from_env_file(
-        resolve_config_path(PROJECT_DIR, settings.model_secret_env_path)
+        resolve_config_path(PROJECT_DIR, settings.model_secret_env_path),
+        config_store=config_store,
     )
     return {
         role: endpoint.authentication.type == "none"
@@ -93,6 +96,8 @@ def _update_model_credentials(
     settings: Settings,
     config: ModelRuntimeConfig,
     api_keys: dict[str, str],
+    *,
+    config_store: object | None = None,
 ) -> None:
     endpoints = {
         "chat": config.models.chat,
@@ -138,10 +143,15 @@ def _update_model_credentials(
         name: encrypt_config_value(secret, key) if key is not None else secret
         for name, secret in updates.items()
     }
-    update_env_file(
-        resolve_config_path(PROJECT_DIR, settings.model_secret_env_path), stored_updates
-    )
-    os.environ.update(updates)
+    if config_store is not None:
+        security = config_store.read_json("sznsznws_backend_security.yaml")
+        security.update({name.lower(): value for name, value in stored_updates.items()})
+        config_store.publish_json("sznsznws_backend_security.yaml", security)
+    else:
+        update_env_file(
+            resolve_config_path(PROJECT_DIR, settings.model_secret_env_path), stored_updates
+        )
+        os.environ.update(updates)
 
 
 class SqlTemplateUpdate(BaseModel):
@@ -191,7 +201,8 @@ def _draft_model_service(
         if secret.strip() and endpoints[role].api_key_env
     }
     persisted_credential = credential_resolver_from_env_file(
-        resolve_config_path(PROJECT_DIR, settings.model_secret_env_path)
+        resolve_config_path(PROJECT_DIR, settings.model_secret_env_path),
+        config_store=getattr(request.app.state, "config_center", None),
     )
 
     def resolve_credential(name: str) -> str | None:
@@ -200,7 +211,8 @@ def _draft_model_service(
     return ConfigurableModelService(
         model_config_repository=_InlineModelConfigRepository(payload.config),  # type: ignore[arg-type]
         prompt_config_repository=PromptConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.prompt_config_path)
+            resolve_config_path(PROJECT_DIR, settings.prompt_config_path),
+            store=getattr(request.app.state, "config_center", None),
         ),
         credential_resolver=resolve_credential,
         client=request.app.state.model_http_client,
@@ -215,8 +227,14 @@ def get_model_config_repositories(
 ) -> tuple[ModelConfigRepository, PromptConfigRepository]:
     settings: Settings = request.app.state.settings
     return (
-        ModelConfigRepository(resolve_config_path(PROJECT_DIR, settings.model_config_path)),
-        PromptConfigRepository(resolve_config_path(PROJECT_DIR, settings.prompt_config_path)),
+        ModelConfigRepository(
+            resolve_config_path(PROJECT_DIR, settings.model_config_path),
+            store=getattr(request.app.state, "config_center", None),
+        ),
+        PromptConfigRepository(
+            resolve_config_path(PROJECT_DIR, settings.prompt_config_path),
+            store=getattr(request.app.state, "config_center", None),
+        ),
     )
 
 
@@ -228,6 +246,7 @@ def get_config_management_repositories(
         QueryTemplateRepository(
             resolve_config_path(PROJECT_DIR, settings.query_template_config_path),
             resolve_config_path(PROJECT_DIR, settings.sql_resource_dir),
+            store=getattr(request.app.state, "config_center", None),
         ),
         ConfigHistoryRepository(
             resolve_config_path(PROJECT_DIR, settings.config_history_dir)
@@ -296,7 +315,11 @@ def get_model_config(
     return ModelConfigResponse(
         config=model_repository.load(),
         prompts=prompt_repository.load(),
-        api_key_configured=_credential_status(settings, model_repository.load()),
+        api_key_configured=_credential_status(
+            settings,
+            model_repository.load(),
+            config_store=getattr(request.app.state, "config_center", None),
+        ),
         write_enabled=bool(settings.model_admin_write_enabled),
         write_token_required=bool(settings.model_admin_token_required),
     )
@@ -325,11 +348,16 @@ def update_model_config(
             status_code=409,
         )
     model_repository.save(payload.config)
-    _update_model_credentials(settings, payload.config, payload.api_keys)
+    _update_model_credentials(
+        settings, payload.config, payload.api_keys,
+        config_store=getattr(request.app.state, "config_center", None),
+    )
     return ModelConfigResponse(
         config=payload.config,
         prompts=current_prompts,
-        api_key_configured=_credential_status(settings, payload.config),
+        api_key_configured=_credential_status(
+            settings, payload.config, config_store=getattr(request.app.state, "config_center", None)
+        ),
         write_enabled=True,
         write_token_required=bool(settings.model_admin_token_required),
     )
@@ -350,11 +378,16 @@ def update_model_only(
     _require_config_write(settings, actor, admin_token)
     model_repository, prompt_repository = repositories
     model_repository.save(payload.config)
-    _update_model_credentials(settings, payload.config, payload.api_keys)
+    _update_model_credentials(
+        settings, payload.config, payload.api_keys,
+        config_store=getattr(request.app.state, "config_center", None),
+    )
     return ModelConfigResponse(
         config=payload.config,
         prompts=prompt_repository.load(),
-        api_key_configured=_credential_status(settings, payload.config),
+        api_key_configured=_credential_status(
+            settings, payload.config, config_store=getattr(request.app.state, "config_center", None)
+        ),
         write_enabled=True,
         write_token_required=bool(settings.model_admin_token_required),
     )
