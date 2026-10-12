@@ -34,7 +34,7 @@ import {
 } from "@/lib/authSession"
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(message: string, readonly status: number, readonly code?: string) {
     super(message)
     this.name = "ApiError"
   }
@@ -81,6 +81,7 @@ async function request<T>(path: string, init?: RequestInit, authenticated = true
   })
 
   if (!response.ok) {
+    const body = await response.clone().json().catch(() => null) as { code?: string } | null
     const message = await getRequestErrorMessage(response)
     // A request started by the previous login can finish after the user has
     // already signed in again. Only invalidate the token that actually sent
@@ -89,7 +90,7 @@ async function request<T>(path: string, init?: RequestInit, authenticated = true
       setAuthFailureReason(message)
       window.dispatchEvent(new CustomEvent("ask-metric:auth-invalid", { detail: message }))
     }
-    throw new ApiError(message, response.status)
+    throw new ApiError(message, response.status, body?.code)
   }
   if (response.status === 204 || response.headers.get("content-length") === "0") return undefined as T
   return response.json() as Promise<T>

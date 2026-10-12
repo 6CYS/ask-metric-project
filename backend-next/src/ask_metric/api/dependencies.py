@@ -131,6 +131,7 @@ def get_actor_provider(actor: Annotated[ActorContext, Depends(require_actor)]) -
 def get_query_task_service(request: Request) -> QueryTaskApplicationService:
     settings: Settings = request.app.state.settings
     return QueryTaskApplicationService(
+        semantic_engine=SemanticEngine(get_model_service(request)),
         max_conversations_per_user=settings.max_conversations_per_user,
         continuation_token_codec=ContinuationTokenCodec(
             settings.continuation_token_secret,

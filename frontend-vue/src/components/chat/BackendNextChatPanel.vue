@@ -13,6 +13,7 @@ import LoadingSkeleton from "@/components/ui/LoadingSkeleton.vue"
 import BaseModal from "@/components/ui/BaseModal.vue"
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue"
 import {
+  ApiError,
   analyzeBackendNextTask,
   cancelBackendNextClarification,
   cleanupBackendNextConversations,
@@ -1139,6 +1140,11 @@ async function resumeClarificationWithAnswers(conversationId: string, target: Di
     }
     persistActiveConversation()
   } catch (error) {
+    if (error instanceof ApiError && error.code === "CLARIFICATION_UNRELATED") {
+      autoOpenClarificationId.value = ""
+      await runQuestion(conversationId, answerLabel)
+      return
+    }
     historyError.value = error instanceof Error ? error.message : "澄清提交失败。"
     if (executionMessageId) failMessage(conversationId, executionMessageId, error)
   } finally {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from time import perf_counter
@@ -23,6 +24,7 @@ from ask_metric.application.continuation_tokens import (
 from ask_metric.application.legacy_analysis import require_query_task
 from ask_metric.application.ports import NoopPermissionService, PermissionService
 from ask_metric.application.requests import ActorContext
+from ask_metric.application.semantic_clarification import review_clarification
 from ask_metric.application.semantic_workflow import (
     advance_slot_frame,
     apply_clarification_answers,
@@ -37,6 +39,9 @@ from ask_metric.application.task_results import (
     TaskCommandResult,
 )
 from ask_metric.core.errors import ApplicationError
+from ask_metric.domain.intent_routing import InvalidIntentClassification
+from ask_metric.domain.semantic_engine import InvalidSlotFrameError, SemanticEngine
+from ask_metric.domain.semantics import SlotFrame
 from ask_metric.domain.task import (
     QueryTaskStage,
     QueryTaskState,
@@ -47,6 +52,7 @@ from ask_metric.domain.task_state_machine import InvalidTaskTransition, QueryTas
 from ask_metric.infrastructure.db.models import ChatConversation, ChatMessage, QueryTask
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
 from ask_metric.infrastructure.export.xlsx import build_xlsx
+from ask_metric.infrastructure.model.provider import InvalidModelResponse, ModelServiceUnavailable
 from ask_metric.infrastructure.semantic.configuration import SemanticConfigRepository
 
 _RESULT_COLUMN_LABELS = {
@@ -82,6 +88,7 @@ def _result_column_label(column: object) -> str:
 # Callable[[], T] 表示“无参数、返回 T 的函数”；每次调用工厂才创建新的数据库单元。
 UnitOfWorkFactory = Callable[[], SqlAlchemyUnitOfWork]
 _PROCESSED_REQUEST_LIMIT = 50
+logger = logging.getLogger(__name__)
 
 
 class TaskNotFoundError(ApplicationError):
@@ -123,15 +130,15 @@ class QueryTaskApplicationService:
         today_provider: Callable[[], date] = date.today,
         max_conversations_per_user: int = 500,
         candidate_permission_service: PermissionService | None = None,
+        semantic_engine: SemanticEngine | None = None,
     ) -> None:
         self.uow_factory = uow_factory or SqlAlchemyUnitOfWork
         self.continuation_token_codec = continuation_token_codec
         self.semantic_config_repository = semantic_config_repository
+        self.semantic_engine = semantic_engine
         self.today_provider = today_provider
         self.max_conversations_per_user = max_conversations_per_user
-        self.candidate_permission_service = (
-            candidate_permission_service or NoopPermissionService()
-        )
+        self.candidate_permission_service = candidate_permission_service or NoopPermissionService()
 
     def submit_question(self, command: SubmitQuestionCommand) -> TaskCommandResult:
         """在会话归属范围内创建任务；相同幂等键及内容的重试复用已有任务。"""
@@ -426,6 +433,56 @@ class QueryTaskApplicationService:
                 "channel": command.channel,
             }
         )
+        reviewed_frame = None
+        if self.semantic_engine is not None and self.semantic_config_repository is not None:
+            # 先核对当前版本和幂等请求，再离开事务调用模型；写回前再次核对版本。
+            with self.uow_factory() as uow:
+                task = _get_owned_task(uow, command.task_id, command.actor.user_id or "")
+                if task is None:
+                    raise TaskNotFoundError(command.task_id)
+                state = _load_state(task)
+                replay = _processed_replay(state, command.request_id, fingerprint, task)
+                if replay is not None:
+                    return replay
+                _require_version(task, command.expected_version)
+                clarification = state.clarification or {}
+                require_query_task(task.state_json or {}, task.query_shape)
+                if clarification.get("id") != command.clarification_id:
+                    raise TaskConflictError("CLARIFICATION_MISMATCH", "澄清已更新，请刷新后重试。")
+                metrics = uow.metric_catalog.list_enabled()
+                organizations = uow.organization_catalog.list_enabled()
+                before = SlotFrame.model_validate(state.slots or state.slot_frame or {})
+            if clarification.get("type") == "semantic_slots":
+                after = apply_clarification_answers(
+                    before, command.answers, metrics=metrics, organizations=organizations
+                )
+                text = (
+                    command.answers
+                    if isinstance(command.answers, str)
+                    else command.answers.get("text", "")
+                )
+                try:
+                    reviewed_frame, unrelated = review_clarification(
+                        before, after, text, engine=self.semantic_engine, metrics=metrics,
+                        organizations=organizations, config=self.semantic_config_repository.load(),
+                        today=self.today_provider(),
+                    )
+                except (ModelServiceUnavailable, InvalidModelResponse,
+                        InvalidSlotFrameError, InvalidIntentClassification) as exc:
+                    reference = uuid4().hex
+                    logger.warning(
+                        "clarification_review_failed task_id=%s stage=clarification_review "
+                        "exception_type=%s error_reference=%s",
+                        command.task_id, type(exc).__name__, reference,
+                    )
+                    raise ApplicationError(
+                        "CLARIFICATION_REVIEW_FAILED", "澄清语义复核暂未成功，请稍后重试。",
+                        status_code=503, details={"error_reference": reference},
+                    ) from None
+                if unrelated:
+                    raise TaskConflictError(
+                        "CLARIFICATION_UNRELATED", "这条消息属于新问题，请独立提问。"
+                    )
         with self.uow_factory() as uow:
             task = _get_owned_task(uow, command.task_id, command.actor.user_id or "")
             if task is None:
@@ -501,7 +558,7 @@ class QueryTaskApplicationService:
                 organizations = uow.organization_catalog.list_enabled()
                 config = self.semantic_config_repository.load()
                 raw_frame = state.slots or state.slot_frame or {}
-                frame = apply_clarification_answers(
+                frame = reviewed_frame or apply_clarification_answers(
                     raw_frame,
                     command.answers,
                     metrics=metrics,

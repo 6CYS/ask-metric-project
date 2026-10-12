@@ -486,6 +486,13 @@ POST /api/v1/clarifications
 优先保存并回传`continuation_token`，不要只依赖“最近一条待澄清任务”。
 
 澄清后可能再次`WAITING_USER`，调用方必须循环处理，直到出现`logical_dsl`或终态。
+确认正式指标时可能进行一次当前任务语义复核，保留已确认实体、日期以及请求的筛选和维度。
+模型调用不占用数据库事务，落库前再次校验任务版本。
+
+补充内容被识别为无关新问题时返回HTTP 409、`CLARIFICATION_UNRELATED`，原任务与版本不变。
+调用方可将这条消息通过`POST /api/v1/questions`独立创建新任务；不能把旧任务条件带入新任务。
+语义复核遇到模型服务或格式故障时返回HTTP 503、`CLARIFICATION_REVIEW_FAILED`，
+`details.error_reference`可供管理员定位；原澄清未消费，可稍后用相同版本和请求标识重试。
 
 用户取消当前澄清时调用：
 
