@@ -6,7 +6,6 @@ import os
 import platform
 import re
 import secrets
-import shutil
 import stat
 import sys
 import urllib.request
@@ -32,56 +31,6 @@ SENSITIVE_CONFIG_KEYS = {
 }
 
 
-def _copy_once(source: Path, target: Path) -> str:
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists():
-        return "kept"
-    shutil.copy2(source, target)
-    return "created"
-
-
-def _merge_query_template_config(source: Path, target: Path) -> str:
-    if not target.exists():
-        return _copy_once(source, target)
-    bundled = json.loads(source.read_text(encoding="utf-8"))
-    installed = json.loads(target.read_text(encoding="utf-8"))
-    changed = False
-    installed_dialects = installed.setdefault("dialects", {})
-    for dialect, registrations in bundled.get("dialects", {}).items():
-        installed_registrations = installed_dialects.setdefault(dialect, {})
-        for template, registration in registrations.items():
-            if template not in installed_registrations:
-                installed_registrations[template] = registration
-                changed = True
-    if installed.get("version") != bundled.get("version"):
-        installed["version"] = bundled.get("version")
-        changed = True
-    if not changed:
-        return "kept"
-    target.write_text(
-        json.dumps(installed, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
-    return "merged"
-
-
-def _copy_missing_tree(source: Path, target: Path) -> tuple[int, int]:
-    created = 0
-    kept = 0
-    target.mkdir(parents=True, exist_ok=True)
-    for source_file in sorted(path for path in source.rglob("*") if path.is_file()):
-        relative = source_file.relative_to(source)
-        target_file = target / relative
-        if target_file.exists():
-            kept += 1
-            continue
-        target_file.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_file, target_file)
-        created += 1
-    return created, kept
-
-
 def _load_runtime_environment(config_file: Path) -> None:
     from dotenv import dotenv_values
 
@@ -93,38 +42,24 @@ def _load_runtime_environment(config_file: Path) -> None:
 def init_config(args: argparse.Namespace) -> None:
     config_file = args.config_root.resolve() / "backend.env"
     state_root = args.state_root.resolve()
-    runtime_config = state_root / "runtime-config"
     for directory in (
-        runtime_config,
         state_root / "config-history",
         state_root / "test-center",
     ):
         directory.mkdir(parents=True, exist_ok=True)
-
-    mappings = {
-        BUNDLE_ROOT / "backend/runtime/config/model-config.json": runtime_config
-        / "model-config.json",
-        BUNDLE_ROOT / "backend/runtime/config/prompts.json": runtime_config / "prompts.json",
-    }
-    for source, target in mappings.items():
-        print(f"{_copy_once(source, target)}: {target}")
-    query_template_source = BUNDLE_ROOT / "backend/runtime/config/query-templates.json"
-    query_template_target = runtime_config / "query-templates.json"
     print(
-        f"{_merge_query_template_config(query_template_source, query_template_target)}: "
-        f"{query_template_target}"
+        "Nacos configuration center is enabled; runtime business configuration "
+        "is not copied locally."
     )
-    sql_target = runtime_config / "sql"
-    sql_created, sql_kept = _copy_missing_tree(
-        BUNDLE_ROOT / "backend/runtime/resources/sql", sql_target
-    )
-    print(f"merged: {sql_target} ({sql_created} created, {sql_kept} kept)")
 
     if config_file.exists():
         print(f"kept: {config_file}")
     else:
         template = (BUNDLE_ROOT / "ops/backend.env.example").read_text(encoding="utf-8")
         replacements = {
+            "@INSTALL_ROOT@/current/backend/resources": str(
+                BUNDLE_ROOT / "backend/runtime/resources"
+            ),
             "@INSTALL_ROOT@/current": str(BUNDLE_ROOT),
             "@STATE_ROOT@": str(state_root),
             "@CONFIG_FILE@": str(config_file),
@@ -150,23 +85,23 @@ def validate_config(args: argparse.Namespace) -> None:
     matches = sorted(set(PLACEHOLDER.findall(text)))
     if matches:
         raise SystemExit("Unresolved configuration placeholders: " + ", ".join(matches))
+    values = dotenv_values(config_file)
+    nacos_config_enabled = str(values.get("NACOS_CONFIG_ENABLED") or "").lower() in {
+        "true", "1", "yes"
+    }
     required = {
         line.split("=", 1)[0]
         for line in text.splitlines()
         if line and not line.startswith("#") and "=" in line
     }
-    missing = sorted(
-        {
-            "APP_DATABASE_URL",
-            "QUERY_DATABASE_URL",
-            "CONTINUATION_TOKEN_SECRET",
-            "JWT_SECRET",
-        }
-        - required
+    required_names = (
+        {"NACOS_SERVER_ADDR", "NACOS_CONFIG_GROUP", "NACOS_USERNAME", "NACOS_PASSWORD"}
+        if nacos_config_enabled
+        else {"APP_DATABASE_URL", "QUERY_DATABASE_URL", "CONTINUATION_TOKEN_SECRET", "JWT_SECRET"}
     )
+    missing = sorted(required_names - required)
     if missing:
         raise SystemExit("Missing required configuration keys: " + ", ".join(missing))
-    values = dotenv_values(config_file)
     plaintext = sorted(
         name
         for name in SENSITIVE_CONFIG_KEYS
@@ -196,15 +131,28 @@ def validate_config(args: argparse.Namespace) -> None:
     mode = stat.S_IMODE(config_file.stat().st_mode)
     if mode & (stat.S_IWGRP | stat.S_IXGRP | stat.S_IRWXO):
         raise SystemExit(f"Unsafe configuration permissions {mode:o}; expected 600 or 640")
+    # 连接参数和模型配置都检查，通过不代表真实模型或数据库联调已完成。
+    try:
+        from check_models import validate_models
+        from deployment_common import load_environment
+
+        load_environment(config_file)
+        validate_models(config_file)
+    except Exception as exc:
+        from ask_metric.infrastructure.config_center.nacos import ConfigCenterError
+        from check_models import ConfigurationIssue
+
+        safe_types = (ConfigurationIssue, ConfigCenterError)
+        detail = str(exc) if isinstance(exc, safe_types) else type(exc).__name__
+        raise SystemExit(f"Runtime configuration validation failed: {detail}") from None
     print(f"Configuration validation passed: {config_file}")
 
 
 def verify_runtime(_: argparse.Namespace) -> None:
+    import ask_metric.main  # noqa: F401
     import pymysql
     import sqlalchemy
     import uvicorn
-
-    import ask_metric.main  # noqa: F401
 
     manifest = json.loads((BUNDLE_ROOT / "manifest.json").read_text(encoding="utf-8"))
     print(f"Python: {sys.version.split()[0]}")

@@ -17,9 +17,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install --timeout 300 "setuptools>=75" \
     && python -m pip install --no-build-isolation .
 
-# Runtime query and model configuration must travel with the image.
-COPY config ./config
-COPY resources ./resources
+# 可变配置通过 Nacos 注入；镜像只携带只读测试基线。
+COPY resources/testing ./resources/testing
 COPY alembic-goldendb.ini ./alembic-goldendb.ini
 COPY alembic_goldendb ./alembic_goldendb
 COPY scripts ./scripts

@@ -86,16 +86,22 @@ def create_app(
             yield
         finally:
             logger.info("application_stopping")
-            initialization.stop()
-            if warmup is not None:
-                # 取消 asyncio 任务不会终止线程中的 HTTP 请求，因此先通知停止，
-                # 等后台线程退出后再关闭它仍可能使用的共享客户端。
-                await warmup
-            await nacos_registry.stop()
-            app.state.model_http_client.close()
+            try:
+                initialization.stop()
+                if warmup is not None:
+                    # 先结束使用共用连接的预热线程，再依次释放模型和配置连接。
+                    await warmup
+            finally:
+                try:
+                    await nacos_registry.stop()
+                finally:
+                    app.state.model_http_client.close()
+                    if resolved_settings._config_center is not None:
+                        await asyncio.to_thread(resolved_settings._config_center.close)
 
     app = FastAPI(title=resolved_settings.app_name, version="0.1.3", lifespan=lifespan)
     app.state.settings = resolved_settings
+    app.state.config_center = resolved_settings._config_center
     app.state.query_initialization = QueryInitialization(enabled=initialize_catalog)
     app.add_middleware(
         RequestIdMiddleware,

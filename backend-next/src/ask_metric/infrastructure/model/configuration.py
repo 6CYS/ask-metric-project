@@ -5,7 +5,7 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 from string import Formatter
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -13,6 +13,14 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 _MAX_EXTRA_BODY_BYTES = 32_768
 _MAX_EXTRA_BODY_DEPTH = 8
 _SENSITIVE_BODY_FIELDS = {"accesskey", "access_key", "api_key", "apikey", "authorization"}
+
+
+class ConfigContentStore(Protocol):
+    """最小配置中心协议，避免领域配置模型依赖 Nacos SDK。"""
+
+    def read_json(self, data_id: str) -> dict[str, Any]: ...
+
+    def publish_json(self, data_id: str, value: dict[str, Any]) -> None: ...
 
 
 def _validate_json_object(value: dict[str, Any], *, field_name: str) -> dict[str, Any]:
@@ -212,25 +220,51 @@ class PromptRuntimeConfig(BaseModel):
 
 
 class ModelConfigRepository:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, store: ConfigContentStore | None = None,
+                 data_id: str = "sznsznws_backend_model.json") -> None:
         self.path = path
+        self.store = store
+        self.data_id = data_id
 
     def load(self) -> ModelRuntimeConfig:
-        return ModelRuntimeConfig.model_validate(_read_json(self.path))
+        raw = self.store.read_json(self.data_id) if self.store else _read_json(self.path)
+        try:
+            return ModelRuntimeConfig.model_validate(raw)
+        except ValueError:
+            if self.store:
+                raise ValueError("配置中心文档未通过校验：" + self.data_id) from None
+            raise
 
     def save(self, config: ModelRuntimeConfig) -> None:
-        _write_json(self.path, config.model_dump(mode="json"))
+        payload = config.model_dump(mode="json")
+        if self.store:
+            self.store.publish_json(self.data_id, payload)
+        else:
+            _write_json(self.path, payload)
 
 
 class PromptConfigRepository:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, store: ConfigContentStore | None = None,
+                 data_id: str = "sznsznws_backend_prompts.json") -> None:
         self.path = path
+        self.store = store
+        self.data_id = data_id
 
     def load(self) -> PromptRuntimeConfig:
-        return PromptRuntimeConfig.model_validate(_read_json(self.path))
+        raw = self.store.read_json(self.data_id) if self.store else _read_json(self.path)
+        try:
+            return PromptRuntimeConfig.model_validate(raw)
+        except ValueError:
+            if self.store:
+                raise ValueError("配置中心文档未通过校验：" + self.data_id) from None
+            raise
 
     def save(self, config: PromptRuntimeConfig) -> None:
-        _write_json(self.path, config.model_dump(mode="json"))
+        payload = config.model_dump(mode="json")
+        if self.store:
+            self.store.publish_json(self.data_id, payload)
+        else:
+            _write_json(self.path, payload)
 
     def validate_update(self, updated: PromptRuntimeConfig) -> None:
         current = self.load()

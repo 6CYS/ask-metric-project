@@ -4,6 +4,8 @@
 身份来自认证依赖，模型连接和目录缓存则复用 app.state 中的进程级资源。
 """
 
+import logging
+from time import perf_counter
 from typing import Annotated
 
 from fastapi import Depends, Request
@@ -41,6 +43,7 @@ from ask_metric.infrastructure.query.templates import QueryTemplateRepository
 from ask_metric.infrastructure.semantic.configuration import SemanticConfigRepository
 
 bearer_scheme = HTTPBearer(auto_error=False)
+logger = logging.getLogger(__name__)
 
 
 def initialize_query_catalog(request: Request) -> None:
@@ -53,9 +56,15 @@ def initialize_query_catalog(request: Request) -> None:
     settings = request.app.state.settings
     config = SemanticConfigRepository(
         resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
+        store=getattr(request.app.state, "config_center", None),
     ).load().metric_matching
+    started = perf_counter()
     with SqlAlchemyUnitOfWork() as uow:
         corpus = catalog_embedding_texts(uow.metric_catalog.list_enabled())
+    logger.info(
+        "query_catalog_loaded documents=%s duration_ms=%s",
+        len(corpus), round((perf_counter() - started) * 1000),
+    )
     # 先读目录再释放数据库会话；后面的分批模型请求不占用此处的数据库连接。
     if not corpus:
         raise ValueError("Enabled metric catalog is empty")
@@ -128,7 +137,8 @@ def get_query_task_service(request: Request) -> QueryTaskApplicationService:
             ttl_seconds=settings.continuation_token_ttl_seconds,
         ),
         semantic_config_repository=SemanticConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.semantic_config_path)
+            resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
+            store=getattr(request.app.state, "config_center", None),
         ),
         candidate_permission_service=ScopedOrganizationPermissionService(
             organization_scope_provider=SqlAlchemyOrganizationScopeProvider(
@@ -153,18 +163,22 @@ def get_model_service(request: Request) -> ConfigurableModelService:
     settings: Settings = request.app.state.settings
     return ConfigurableModelService(
         model_config_repository=ModelConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.model_config_path)
+            resolve_config_path(PROJECT_DIR, settings.model_config_path),
+            store=getattr(request.app.state, "config_center", None),
         ),
         prompt_config_repository=PromptConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.prompt_config_path)
+            resolve_config_path(PROJECT_DIR, settings.prompt_config_path),
+            store=getattr(request.app.state, "config_center", None),
         ),
         credential_resolver=credential_resolver_from_env_file(
-            resolve_config_path(PROJECT_DIR, settings.model_secret_env_path)
+            resolve_config_path(PROJECT_DIR, settings.model_secret_env_path),
+            config_store=getattr(request.app.state, "config_center", None),
         ),
         client=request.app.state.model_http_client,
         max_concurrency=settings.model_max_concurrency,
         concurrency_wait_seconds=settings.model_concurrency_wait_seconds,
         semaphore=request.app.state.model_semaphore,
+        config_store=getattr(request.app.state, "config_center", None),
     )
 
 
@@ -180,7 +194,8 @@ def get_semantic_task_service(request: Request) -> SemanticTaskApplicationServic
             model_service, catalog_vector_cache=request.app.state.catalog_vector_cache,
         ),
         config_repository=SemanticConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.semantic_config_path)
+            resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
+            store=getattr(request.app.state, "config_center", None),
         ),
         continuation_token_codec=token_codec,
     )
@@ -196,6 +211,7 @@ def get_query_execution_service(request: Request) -> QueryExecutionApplicationSe
         templates=QueryTemplateRepository(
             resolve_config_path(PROJECT_DIR, settings.query_template_config_path),
             resolve_config_path(PROJECT_DIR, settings.sql_resource_dir),
+            store=getattr(request.app.state, "config_center", None),
             template_variables={
                 "fact_table": settings.sit_fact_table,
                 "fact_metric_code_field": settings.sit_fact_metric_code_field,

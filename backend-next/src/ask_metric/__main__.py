@@ -36,6 +36,20 @@ def main(argv: list[str] | None = None) -> None:
         type=Path,
         help="Read the 32-hex-character SM4 master key from this protected file",
     )
+    export_nacos = subcommands.add_parser(
+        "export-nacos-config", help="分类导出 Nacos 配置与节点引导文件"
+    )
+    export_nacos.add_argument("--output-dir", type=Path, required=True)
+    export_nacos.add_argument("--source-root", type=Path, help="原后端资源目录，迁移旧部署时指定")
+    export_nacos.add_argument(
+        "--env-file", type=Path, help="可选：把已填写的 dotenv 配置拆分为运行/数据源/安全 Data ID"
+    )
+    encrypt_nacos = subcommands.add_parser(
+        "encrypt-nacos-config", help="批量加密 Nacos YAML/JSON 与引导配置中的敏感字段"
+    )
+    encrypt_nacos.add_argument("--input-dir", type=Path, required=True)
+    encrypt_nacos.add_argument("--output-dir", type=Path, required=True)
+    encrypt_nacos.add_argument("--key-file", type=Path, required=True)
     args = parser.parse_args(argv)
 
     if args.command == "encrypt-config":
@@ -47,6 +61,34 @@ def main(argv: list[str] | None = None) -> None:
         if not plaintext:
             raise SystemExit("Configuration value must not be empty")
         print(encrypt_config_value(plaintext, key))
+        return
+
+    if args.command in {"export-nacos-config", "encrypt-nacos-config"}:
+        from ask_metric.core.config_crypto import load_config_sm4_key
+        from ask_metric.infrastructure.config_center.exporter import (
+            encrypt_directory,
+            export_builtin_configs,
+        )
+
+        try:
+            if args.command == "export-nacos-config":
+                generated = export_builtin_configs(
+                    args.source_root.resolve() if args.source_root else
+                    Path(__file__).resolve().parents[2], args.output_dir,
+                    env_file=args.env_file.resolve() if args.env_file else None,
+                )
+                result = {"files": [p.name for p in generated]}
+            else:
+                key = load_config_sm4_key(environ={}, key_file=args.key_file.resolve())
+                result = {"files": encrypt_directory(args.input_dir, args.output_dir, key)}
+        except Exception as exc:
+            # 不打印 YAML/JSON 原文、解析器异常或包含凭据的输入值。
+            from ask_metric.infrastructure.config_center.nacos import ConfigCenterError
+
+            message = str(exc) if isinstance(exc, ConfigCenterError) else type(exc).__name__
+            raise SystemExit("配置处理失败：" + message) from None
+        result["output_dir"] = str(args.output_dir.resolve())
+        print(json.dumps(result, ensure_ascii=False))
         return
 
     from ask_metric.application.catalog_sync import SitCatalogSyncService, verify_data_lake_readonly

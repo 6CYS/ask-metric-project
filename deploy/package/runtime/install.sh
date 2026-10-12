@@ -140,9 +140,8 @@ fi
 RELEASES_DIR="$INSTALL_ROOT/releases"
 FINAL_RELEASE="$RELEASES_DIR/$RELEASE"
 STAGING_RELEASE="$RELEASES_DIR/.${RELEASE}.installing.$$"
-RUNTIME_CONFIG_ROOT="$STATE_ROOT/runtime-config"
 mkdir -p "$RELEASES_DIR" "$STATE_ROOT/config-history" "$STATE_ROOT/test-center" \
-  "$RUNTIME_CONFIG_ROOT"
+  "$STATE_ROOT"
 
 cleanup() {
   if [[ -d "$STAGING_RELEASE" ]]; then
@@ -174,31 +173,6 @@ if [[ ! -d "$FINAL_RELEASE" ]]; then
   mv "$STAGING_RELEASE" "$FINAL_RELEASE"
 fi
 
-# Runtime-editable configuration must live outside the immutable release. Seed
-# it once, then preserve administrator changes across upgrades and rollbacks.
-if [[ ! -f "$RUNTIME_CONFIG_ROOT/model-config.json" ]]; then
-  cp "$FINAL_RELEASE/backend/config/model-config.json" \
-    "$RUNTIME_CONFIG_ROOT/model-config.json"
-fi
-if [[ ! -f "$RUNTIME_CONFIG_ROOT/prompts.json" ]]; then
-  cp "$FINAL_RELEASE/backend/config/prompts.json" "$RUNTIME_CONFIG_ROOT/prompts.json"
-else
-  "$FINAL_RELEASE/venv/bin/python" \
-    "$FINAL_RELEASE/backend/scripts/merge_runtime_prompt_defaults.py" \
-    "$RUNTIME_CONFIG_ROOT/prompts.json" \
-    "$FINAL_RELEASE/backend/config/prompts.json"
-fi
-if [[ ! -f "$RUNTIME_CONFIG_ROOT/query-templates.json" ]]; then
-  cp "$FINAL_RELEASE/backend/config/query-templates.json" \
-    "$RUNTIME_CONFIG_ROOT/query-templates.json"
-fi
-if [[ ! -d "$RUNTIME_CONFIG_ROOT/sql" ]]; then
-  cp -a "$FINAL_RELEASE/backend/resources/sql" "$RUNTIME_CONFIG_ROOT/sql"
-fi
-
-# Existing r3 installations already have query-templates.json and sql/, so the
-# seed-once rules above intentionally keep them. Merge only newly registered
-# dialects/templates and missing SQL files without overwriting operator edits.
 if [[ -f "$CONFIG_FILE" ]]; then
   "$FINAL_RELEASE/venv/bin/python" "$BUNDLE_ROOT/ops/intranet_deploy.py" \
     init-config \
@@ -206,7 +180,6 @@ if [[ -f "$CONFIG_FILE" ]]; then
     --state-root "$STATE_ROOT" \
     --backend-port "$BACKEND_PORT"
 fi
-chmod -R u=rwX,go=rX "$RUNTIME_CONFIG_ROOT"
 
 if [[ "$(id -u)" -eq 0 ]]; then
   chown -R "$SERVICE_USER:$SERVICE_GROUP" "$STATE_ROOT"
@@ -227,36 +200,14 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
   exit 2
 fi
 
-# r3 and earlier pointed administrator-editable files into the immutable
-# current release. Migrate only those exact legacy defaults; never rewrite
-# database URLs, credentials, tokens, or custom configuration paths.
-migrate_legacy_runtime_path() {
-  local key="$1"
-  local old_value="$2"
-  local new_value="$3"
-  if grep -Fqx "$key=$old_value" "$CONFIG_FILE"; then
-    sed -i "s|^$key=$old_value\$|$key=$new_value|" "$CONFIG_FILE"
-    echo "Migrated $key to persistent runtime configuration."
-  fi
-}
-migrate_legacy_runtime_path "MODEL_CONFIG_PATH" \
-  "$INSTALL_ROOT/current/backend/config/model-config.json" \
-  "$RUNTIME_CONFIG_ROOT/model-config.json"
-migrate_legacy_runtime_path "PROMPT_CONFIG_PATH" \
-  "$INSTALL_ROOT/current/backend/config/prompts.json" \
-  "$RUNTIME_CONFIG_ROOT/prompts.json"
-migrate_legacy_runtime_path "QUERY_TEMPLATE_CONFIG_PATH" \
-  "$INSTALL_ROOT/current/backend/config/query-templates.json" \
-  "$RUNTIME_CONFIG_ROOT/query-templates.json"
-migrate_legacy_runtime_path "SQL_RESOURCE_DIR" \
-  "$INSTALL_ROOT/current/backend/resources/sql" \
-  "$RUNTIME_CONFIG_ROOT/sql"
-
 if grep -Eq '<[^>]+>|development-only-change-me' "$CONFIG_FILE"; then
   echo "ERROR: unresolved placeholders or development secrets remain in $CONFIG_FILE" >&2
   echo "The release was staged but not activated." >&2
   exit 2
 fi
+
+# 激活前读取实际配置并校验模型协议；不调用真实模型或数据库。
+"$FINAL_RELEASE/venv/bin/python" "$FINAL_RELEASE/ops/check_models.py" --config "$CONFIG_FILE"
 
 LINK_TMP="$INSTALL_ROOT/.current.$$.tmp"
 ln -s "$FINAL_RELEASE" "$LINK_TMP"

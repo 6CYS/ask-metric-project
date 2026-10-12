@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Annotated
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     nacos_ephemeral: bool = True
     nacos_request_timeout_ms: int = Field(default=5_000, gt=0)
     nacos_fail_fast: bool = False
+    _config_center: object | None = PrivateAttr(default=None)
+    # 配置中心与服务发现共用地址，但使用独立分组。
+    nacos_config_enabled: bool = False
+    nacos_config_group: str = "ASK_METRIC_CONFIG"
+    nacos_config_refresh_interval_seconds: float = Field(default=5, gt=0, le=60)
+    nacos_prompt_data_id: str = "sznsznws_backend_prompts.json"
     nacos_cache_dir: Path = PROJECT_DIR / ".runtime" / "nacos" / "cache"
     nacos_log_dir: Path = PROJECT_DIR / ".runtime" / "nacos" / "logs"
     app_database_url: str = DEFAULT_APP_DATABASE_URL
@@ -422,7 +428,10 @@ class Settings(BaseSettings):
             )
         ):
             raise ValueError("JWT_SECRET must be changed outside development")
-        if self.app_env.lower() not in {"development", "test"} and not self.sm2_private_key.strip():
+        if (
+            self.app_env.lower() not in {"development", "test"}
+            and not self.sm2_private_key.strip()
+        ):
             raise ValueError("SM2_PRIVATE_KEY must be configured outside development")
         if self.model_max_keepalive_connections > self.model_max_connections:
             raise ValueError("MODEL_MAX_KEEPALIVE_CONNECTIONS cannot exceed MODEL_MAX_CONNECTIONS")
@@ -443,9 +452,21 @@ class Settings(BaseSettings):
             missing = [name for name, value in required_nacos_settings.items() if not value.strip()]
             if missing:
                 raise ValueError(f"{', '.join(missing)} must be set when NACOS_ENABLED=true")
+        if self.nacos_config_enabled:
+            required_config_settings = {
+                "NACOS_SERVER_ADDR": self.nacos_server_addr,
+                "NACOS_CONFIG_GROUP": self.nacos_config_group,
+            }
+            missing = [
+                name for name, value in required_config_settings.items() if not value.strip()
+            ]
+            if missing:
+                raise ValueError(f"{', '.join(missing)} must be set when NACOS_CONFIG_ENABLED=true")
         return self
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()
+    from ask_metric.infrastructure.config_center.bootstrap import load_settings
+
+    return load_settings()

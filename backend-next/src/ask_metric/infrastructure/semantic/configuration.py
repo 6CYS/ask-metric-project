@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from string import Formatter
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -63,9 +64,17 @@ class SemanticConfig(BaseModel):
 
 
 class SemanticConfigRepository:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, store: Any | None = None,
+                 data_id: str = "sznsznws_backend_semantic.json") -> None:
         self.path = path
+        self.store = store
+        self.data_id = data_id
 
     def load(self) -> SemanticConfig:
+        if self.store:
+            try:
+                return SemanticConfig.model_validate(self.store.read_json(self.data_id))
+            except ValueError:
+                raise ValueError("配置中心语义配置未通过校验") from None
         with self.path.open("r", encoding="utf-8") as file:
             return SemanticConfig.model_validate(json.load(file))

@@ -63,11 +63,12 @@ class CatalogVectorCache:
     ) -> None:
         """仅预热目录；progress(completed, total) 是逐批回报进度的可选回调。"""
         self._load(model, corpus, batch_size=batch_size, wait_seconds=wait_seconds,
-                   progress=progress)
+                   progress=progress, force_final_refresh=True)
 
     def _load(
         self, model: ModelService, corpus: list[str], *, batch_size: int,
         wait_seconds: float, progress: Callable[[int, int], None] | None = None,
+        force_final_refresh: bool = False,
     ) -> tuple[object, int | None, list[memoryview]]:
         if batch_size < 1:
             raise ValueError("Catalog embedding batch size must be positive")
@@ -78,7 +79,12 @@ class CatalogVectorCache:
                 endpoint="/v1/embeddings",
             )
         try:
-            key = self._key(model)
+            started = perf_counter()
+            snapshot = getattr(model, "catalog_embedding_model", None)
+            embedding_model = snapshot() if callable(snapshot) else model
+            key = self._key(embedding_model)
+            config_seconds = perf_counter() - started
+            model_seconds = 0.0
             if key != self._model_key:
                 self._vectors = {}
                 self._matrix = array("f")
@@ -104,13 +110,17 @@ class CatalogVectorCache:
                 if not retained:
                     self._dimensions = None
             missing = [text for text in documents if text not in self._vectors]
-            started = perf_counter()
             if progress:
                 progress(len(self._vectors), len(documents))
             for offset in range(0, len(missing), batch_size):
                 batch = missing[offset:offset + batch_size]
-                vectors = self._validate(model.embed(batch), len(batch), self._dimensions)
+                model_started = perf_counter()
+                # 整次目录计算固定快照；即使中心出现 A→B→A，也不会把 B 向量记到 A 下。
+                vectors = self._validate(embedding_model.embed(batch), len(batch), self._dimensions)
+                model_seconds += perf_counter() - model_started
+                check_started = perf_counter()
                 self._ensure_current(model, key)
+                config_seconds += perf_counter() - check_started
                 self._dimensions = len(vectors[0])
                 if not self._matrix:
                     self._matrix = array("f", [0]) * (len(documents) * self._dimensions)
@@ -123,7 +133,9 @@ class CatalogVectorCache:
                     self._vectors[text] = row
                 if progress:
                     progress(len(self._vectors), len(documents))
-            self._ensure_current(model, key)
+            check_started = perf_counter()
+            self._ensure_current(model, key, force_refresh=force_final_refresh)
+            config_seconds += perf_counter() - check_started
             dimensions = self._dimensions
             # memoryview 是原数组的只读窗口，切出一行不会复制 1024 个浮点数。
             view = memoryview(self._matrix).toreadonly()
@@ -131,16 +143,22 @@ class CatalogVectorCache:
             catalog = [view[self._vectors[text] * width:(self._vectors[text] + 1) * width]
                        for text in corpus]
             logger.info(
-                "catalog_vectors documents=%s embedded=%s reused=%s duration_ms=%s",
+                "catalog_vectors documents=%s embedded=%s reused=%s duration_ms=%s "
+                "model_duration_ms=%s config_check_duration_ms=%s",
                 len(documents), len(missing), len(documents) - len(missing),
                 round((perf_counter() - started) * 1000),
+                round(model_seconds * 1000), round(config_seconds * 1000),
             )
         finally:
             self._lock.release()
         return key, dimensions, catalog
 
-    def _ensure_current(self, model: ModelService, key: object) -> None:
-        if self._key(model) != key:
+    def _ensure_current(
+        self, model: ModelService, key: object, *, force_refresh: bool = False,
+    ) -> None:
+        refresh = getattr(model, "refresh_embedding_cache_key", None)
+        current = refresh() if force_refresh and callable(refresh) else self._key(model)
+        if current != key:
             raise ModelServiceUnavailable(
                 "Embedding configuration changed during catalog lookup; retry",
                 category="configuration", endpoint="/v1/embeddings",

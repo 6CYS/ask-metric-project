@@ -63,27 +63,10 @@ APP 表，则不得直接运行基线迁移。
 行内必须保持 `QUERY_DATABASE_DIALECT=inceptor`；配置文件中同时存在的 MySQL 模板只用于
 外网/本地回退，不会被该运行模式选中。
 
-应用库迁移审批并执行后，先进行只读连接检查和目录同步预演：
+应用库迁移审批并执行后，按 [主数据、可选别名和模型验收](CATALOG_AND_MODELS.md) 先检查模型与数据源，再独立同步主数据。该流程的 `PY` 必须使用自带 Python 的绝对路径。
 
-```text
-python intranet_deploy.py database-check --config /etc/ask-metric/backend.env
-python intranet_deploy.py sync-catalogs --config /etc/ask-metric/backend.env --dry-run
-```
+`sync_catalog_data.py` 默认预览，机构须显式指定审核快照日期，指标使用已确认单位映射；正式同步须追加 `--apply`。指标和机构别名通过 `sync_catalog_aliases.py` 单独预览与补录，不是启动前置条件。普通部署不得执行 `initialize-synchronized-catalogs` 清理主数据。
 
-确认指标、机构数量及错误数后再正式同步：
-
-```text
-python intranet_deploy.py sync-catalogs --config /etc/ask-metric/backend.env
-```
-
-测试库首次切换时，如需清除外网模拟指标值、模拟指标目录和模拟机构目录，应先完成 GoldenDB
-备份，再执行以下受保护命令。命令会先同步真实目录，任一目录为空或存在错误时拒绝清理；测试
-用户、会话、任务和审计数据会保留，模拟机构下的测试用户统一调整到已同步的 `000` 机构：
-
-```text
-python intranet_deploy.py initialize-synchronized-catalogs --config /etc/ask-metric/backend.env --user-org-code 000 --apply --confirm INITIALIZE_SYNCHRONIZED_CATALOGS
-```
-
-该命令只在首次替换模拟数据时执行一次；后续定时任务继续使用 `sync-catalogs`。
+内网模型配置使用 `response_format="json_object"`、`send_response_format=false`，请求不发送 `response_format`，仍携带 `chat_template_kwargs: {"enable_thinking":false}`。检查不得因发送开关为 false 失败；`check_models.py --live` 校验正文 JSON 和意图结构通过后，再验收正式名称问数。
 
 机构同步范围由当前 `SIT_ORG_CORPORATION_CODE_*`、`SIT_ORG_*_HIER_CODE` 与 `SIT_ORG_EXPECTED_COUNT` 配置控制，具体字段以 `backend-next/.env.example` 和数据湖映射说明为准。数据湖连接账号必须保持只读，目录同步只写应用库。
