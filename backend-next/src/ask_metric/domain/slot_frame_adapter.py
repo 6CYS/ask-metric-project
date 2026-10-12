@@ -55,7 +55,7 @@ def adapt_model_slot_frame(raw: Any) -> SlotFrameAdaptation:
     return SlotFrameAdaptation(raw=raw, adapted=adapted, field_errors=errors)
 
 
-def slot_frame_json_schema() -> dict[str, Any]:
+def slot_frame_json_schema(*, organization_scope_keys: list[str] | None = None) -> dict[str, Any]:
     schema = SlotFrame.model_json_schema()
     # 标题和默认值是框架展示信息，不是用户请求。省略它们既缩短模型输入，
     # 也避免默认sum/month/asc暗示模型主动添加操作；类型、枚举和约束均保留。
@@ -86,8 +86,10 @@ def slot_frame_json_schema() -> dict[str, Any]:
             "type": "string", "minLength": 1, "pattern": "^[^<>]+$"},
             "description": ("按ops同序引用标签外最短的连续操作短语，"
                             "如从高到低、变化趋势、对比；不得包含标签")},
-        "organization_scope": {"const": "synchronized_catalog"},
+        "organization_scope": {"enum": organization_scope_keys or ["synchronized_catalog"]},
         "organization_scope_text": {"type": "string"},
+        "time_evidence": {"type": ["string", "null"],
+                          "description": "逐字引用实体标签之外的日期原文；没有日期时为null"},
         "target_dates": {"type": "array", "minItems": 2,
                          "description": "仅多个独立日期使用；单日只写time，不输出本字段",
                          "items": {"type": "string", "format": "date"}},
@@ -100,6 +102,13 @@ def slot_frame_json_schema() -> dict[str, Any]:
         "current_date": {"type": "string"},
         "base_date": {"type": "string"},
     }
+    schema["properties"]["raw_metric_text"]["description"] = (
+        "仅未覆盖指标的连续原文；已保护METRIC不要再抽取，不能含临时编号或日期操作。"
+        "没有未覆盖指标为null。"
+    )
+    schema["properties"]["raw_metric_texts"]["description"] = (
+        "标签之外尚未覆盖的指标短语，每项逐字来自连续原文；没有则[]，不含筛选或业务维度。"
+    )
     return schema
 
 

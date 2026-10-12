@@ -6,7 +6,7 @@ import unicodedata
 from datetime import date, timedelta
 from typing import Any
 
-from ask_metric.domain.metric_matching import normalize_semantic_text
+from ask_metric.domain.organization_matching import exact_organization
 from ask_metric.domain.semantics import (
     LogicalDSL,
     LogicalFilter,
@@ -52,19 +52,14 @@ def normalize_slot_frame(
         if "metrics" not in frame.missing:
             frame.missing.append("metrics")
 
-    known_org_names = {item.name for item in organizations}
-    aliases = {
-        normalize_semantic_text(value): item.name
-        for item in organizations
-        for value in [item.name, *item.aliases]
-    }
     normalized_orgs: list[str] = []
     for org in frame.orgs:
-        standard_name = aliases.get(normalize_semantic_text(org))
-        if standard_name and standard_name not in normalized_orgs:
-            normalized_orgs.append(standard_name)
-        elif org in known_org_names and org not in normalized_orgs:
-            normalized_orgs.append(org)
+        item = exact_organization(org, organizations)
+        if item is not None:
+            if item.name not in normalized_orgs:
+                normalized_orgs.append(item.name)
+        elif "orgs" not in frame.missing:
+            frame.missing.append("orgs")
     frame.orgs = normalized_orgs
     return frame
 

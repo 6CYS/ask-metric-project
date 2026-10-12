@@ -18,6 +18,7 @@ from ask_metric.domain.metric_matching import (
     deduplicate_metrics,
     normalize_semantic_text,
 )
+from ask_metric.domain.organization_matching import resolve_organizations
 from ask_metric.domain.query_execution import QueryPlanError, explicit_selection_range
 from ask_metric.domain.semantic_normalization import (
     SemanticValidationError,
@@ -68,9 +69,10 @@ class _MetricDecision:
 
 
 class InvalidSlotFrameError(ValueError):
-    def __init__(self, errors: list[dict[str, Any]]) -> None:
+    def __init__(self, errors: list[dict[str, Any]], *, retry_count: int = 0) -> None:
         super().__init__("Model output is not a valid SlotFrame")
         self.errors = errors
+        self.retry_count = retry_count
 
 
 class MetricCandidateSearch(Protocol):
@@ -131,9 +133,22 @@ class SemanticEngine:
             organizations=organizations,
             organization_aliases=config.organization_aliases,
         )
+        protected_question, organization_scope = _protect_organization_scope(
+            protected_question, config
+        )
         # 编码本身也可能包含 RNKN/CMPRLATMO 等业务含义。模型只见本次请求的
         # 临时编号；正式编号映射只留在后端，不通过候选目录再次泄漏实体文字。
         protected_question, entity_codes = _opaque_model_entities(protected_question)
+        metric_by_code = {item.code: item for item in metrics}
+        extraction_hints = {
+            "organization_scopes": {
+                key: {"terms": scope.terms} for key, scope in config.organization_scopes.items()
+            },
+            "metric_value_units": {
+                alias: metric_by_code[code].unit for alias, code in entity_codes.items()
+                if alias.startswith("M") and code in metric_by_code
+            },
+        }
         timings_ms["catalog_match_ms"] = _elapsed_ms(catalog_started)
         model_context = {
             # Catalog-confirmed entity text must not be sent through a second,
@@ -155,31 +170,79 @@ class SemanticEngine:
                 "organization_candidates_json": _json(
                     model_context["organization_candidates"]
                 ),
-                "existing_slot_frame_json": _json(model_context["existing_slot_frame"]),
-                "slot_frame_schema_json": _json(slot_frame_json_schema()),
+                "existing_slot_frame_json": _json(extraction_hints),
+                "slot_frame_schema_json": _json(slot_frame_json_schema(
+                    organization_scope_keys=list(config.organization_scopes),
+                )),
             }
         raw = self.model_service.analyze(prompt="slot_extraction", context=extraction_context)
+        raw = _remove_redundant_entity_references(raw, entity_codes)
         # 对出处/实体引用错误及复合操作最多复核一次，不凭词表改写操作。
         # 第二次仍失败则由下方校验澄清；修复响应同样接受完整权限及能力校验。
-        if isinstance(raw, dict) and isinstance(raw.get("ops"), list) and raw["ops"]:
+        if isinstance(raw, dict) and isinstance(raw.get("ops"), list):
             options = raw.get("options")
             evidence = options.get("operation_evidence") if isinstance(options, dict) else None
             metric_text = _json([raw.get("raw_metric_text"), raw.get("raw_metric_texts")])
-            invalid_metric_reference = "<METRIC" in metric_text or "<ORG" in metric_text
+            invalid_metric_reference = _contains_entity_reference(metric_text)
             compound_operations = len(raw["ops"]) > 1
-            if (not _valid_operation_evidence(evidence, len(raw["ops"]), protected_question)
-                    or invalid_metric_reference or compound_operations):
-                extraction_context["existing_slot_frame_json"] = _json({
-                    "validation_feedback": "请复核本次完整解析，分别核对每项操作是否独立需要。"
-                    "每个操作引用标签外最短连续原文，不能含标签、改写、拼接或省略号；"
-                    "比较差额由period_compare负责，不再求和；用户明确另行求平均或合计仍须保留。"
-                    "raw_metric_text/raw_metric_texts不能含实体标签或整段操作句，已保护指标不再提取。"
-                    "如原文没有操作语义，应返回ops=[]。这不是历史对话。",
-                })
+            invalid_metric_phrase = _invalid_metric_phrase(raw, protected_question)
+            residual = re.sub(r"<(?:METRIC|ORG|ORG_SCOPE)\b[^>]*>", "\n", protected_question)
+            omitted_explicit_time = raw.get("time") is None and extract_time_expression(residual)
+            invalid_time_selection = False
+            invalid_model_time = False
+            if isinstance(raw.get("time"), str):
+                try:
+                    parse_time_expression(raw["time"], today=current_date)
+                except (SemanticValidationError, ValueError):
+                    invalid_model_time = True
+            if isinstance(options, dict):
+                try:
+                    explicit_selection_range(options)
+                except QueryPlanError:
+                    invalid_time_selection = True
+            if (
+                (
+                    raw["ops"]
+                    and not _valid_operation_evidence(evidence, len(raw["ops"]), protected_question)
+                )
+                or invalid_metric_reference
+                or compound_operations
+                or invalid_metric_phrase
+                or omitted_explicit_time
+                or invalid_time_selection
+                or invalid_model_time
+            ):
+                extraction_context["existing_slot_frame_json"] = _json(
+                    {
+                        **extraction_hints,
+                        "validation_feedback": "请复核本次完整解析，分别核对每项操作是否独立需要。"
+                        "每个操作引用标签外最短连续原文，不能含标签、改写、拼接或省略号；"
+                        "比较差额由period_compare负责，不再求和；用户明确另行求平均或合计仍须保留。"
+                        "raw_metric_text/raw_metric_texts不能含实体标签或整段操作句，已保护指标不再提取。"
+                        "M1/O1/S1等临时编号也不是未识别指标，不可与日期或礼貌用语拼成指标。"
+                        "未识别指标短语必须逐字来自标签外连续原文，不可重复、拼接日期或操作词。"
+                        "原文若已提供年份、月份或日，须忠实解析日期，不能忽略后要求补充。"
+                        "单日/连续范围只填time；不要输出空的target_dates或time_windows数组。"
+                        "如原文没有操作语义，应返回ops=[]。这不是历史对话。",
+                    }
+                )
                 raw = self.model_service.analyze(
                     prompt="slot_extraction", context=extraction_context,
                 )
+                raw = _remove_redundant_entity_references(raw, entity_codes)
                 debug["slot_contract_retry_count"] = 1
+        if isinstance(raw, dict) and _contains_entity_reference(
+            _json([raw.get("raw_metric_text"), raw.get("raw_metric_texts")])
+        ):
+            raise InvalidSlotFrameError(
+                [{"field": "raw_metric_text", "code": "entity_reference"}],
+                retry_count=debug.get("slot_contract_retry_count", 0),
+            )
+        if isinstance(raw, dict) and _invalid_metric_phrase(raw, protected_question):
+            raise InvalidSlotFrameError(
+                [{"field": "raw_metric_text", "code": "ungrounded_phrase"}],
+                retry_count=debug.get("slot_contract_retry_count", 0),
+            )
         timings_ms["chat_model_ms"] = _elapsed_ms(chat_started)
         debug["chat_model"] = {
             "prompt": "slot_extraction",
@@ -199,7 +262,9 @@ class SemanticEngine:
                 in {"task", "ops", "filters", "dimensions", "options"}
             ]
             if blocking_errors:
-                raise InvalidSlotFrameError(blocking_errors)
+                raise InvalidSlotFrameError(
+                    blocking_errors, retry_count=debug.get("slot_contract_retry_count", 0)
+                )
             frame = SlotFrame.model_validate(adaptation.adapted)
         except (TypeError, ValidationError) as exc:
             errors = (
@@ -211,7 +276,9 @@ class SemanticEngine:
                 if isinstance(exc, ValidationError)
                 else [{"field": "$", "code": "invalid_type", "message": str(exc)}]
             )
-            raise InvalidSlotFrameError(errors) from exc
+            raise InvalidSlotFrameError(
+                errors, retry_count=debug.get("slot_contract_retry_count", 0)
+            ) from exc
         # Intent routing is completed before slot extraction. Only metric queries
         # may enter this engine, so slot-model output cannot override that decision.
         frame.task = TaskType.METRIC_QUERY
@@ -267,7 +334,7 @@ class SemanticEngine:
             selected_metrics: list[MetricCatalogItem] = []
             candidate_metrics: list[MetricCatalogItem] = []
             scored_candidates: list[_ScoredMetricCandidate] = []
-            unresolved_metric_items: list[tuple[dict[str, Any], bool]] = []
+            unresolved_metric_items: list[dict[str, Any]] = []
             for index, phrase in enumerate(frame.raw_metric_texts):
                 phrase_resolution = matcher.resolve(phrase)
                 phrase_decision = self._resolve_metrics(
@@ -296,13 +363,7 @@ class SemanticEngine:
                         item.item.code: item.score
                         for item in phrase_decision.scored_candidates
                     }
-                    lexical_evidence = _lexical_metric_candidates(
-                        phrase,
-                        metrics,
-                        limit=1,
-                    )
                     unresolved_metric_items.append(
-                        (
                             {
                                 "id": f"metrics.{index}",
                                 "raw_text": phrase,
@@ -320,17 +381,9 @@ class SemanticEngine:
                                     for item in phrase_decision.candidates
                                 ],
                             },
-                            bool(
-                                phrase_resolution.ambiguous_candidates
-                                or lexical_evidence
-                            ),
-                        )
                     )
-            pending_metric_items = [
-                item
-                for item, has_metric_evidence in unresolved_metric_items
-                if has_metric_evidence or not selected_metrics
-            ]
+            # 模型已声明的请求项必须全部确认，不能因另一项命中就删除未知项。
+            pending_metric_items = unresolved_metric_items
             decision = _MetricDecision(
                 deduplicate_metrics(selected_metrics),
                 deduplicate_metrics(candidate_metrics),
@@ -354,9 +407,14 @@ class SemanticEngine:
         if frame.raw_metric_texts and not decision.selected and resolution.matches:
             # 部分实体已确认不代表其余请求可以丢弃。未识别短语保留为澄清项。
             pending_metric_items.extend(
-                {"id": f"metrics.{index}", "raw_text": phrase,
-                 "options": [{"code": item.code, "name": item.name, "kind": "metric"}
-                             for item in decision.candidates]}
+                {
+                    "id": f"metrics.{index}",
+                    "raw_text": phrase,
+                    "options": [
+                        {"code": item.code, "name": item.name, "kind": "metric"}
+                        for item in decision.candidates
+                    ],
+                }
                 for index, phrase in enumerate(frame.raw_metric_texts)
                 if not any(item["raw_text"] == phrase for item in pending_metric_items)
             )
@@ -368,42 +426,7 @@ class SemanticEngine:
             ]),
             decision.candidates, decision.scored_candidates, decision.mode,
         )
-        if (
-            not decision.selected
-            and decision.mode == "fuzzy_clarification"
-            and any(op.type == "period_compare" and op.method == "custom" for op in frame.ops)
-        ):
-            # An explicit two-date comparison may use an abbreviated metric name.
-            # Let the model distinguish the base measure from official growth
-            # indicators; it can select only from the recalled catalog candidates.
-            selection_started = perf_counter()
-            raw_selection = self.model_service.analyze(
-                prompt="comparison_metric_selection",
-                context={
-                    "question": question,
-                    "metric_phrase": frame.raw_metric_text or "",
-                    "candidates_json": _json([item.model_dump() for item in decision.candidates]),
-                },
-            )
-            timings_ms["comparison_metric_selection_ms"] = _elapsed_ms(selection_started)
-            debug["comparison_metric_selection"] = raw_selection
-            selected = next(
-                (
-                    item for item in decision.candidates
-                    if item.code == raw_selection.get("metric_code")
-                ),
-                None,
-            )
-            if selected is not None and sum(
-                item.name == selected.name for item in metrics
-            ) == 1:
-                decision = _MetricDecision(
-                    [selected], decision.candidates, decision.scored_candidates,
-                    "model_comparison_metric_selected",
-                )
-        frame.metrics = [
-            MetricSlot(code=item.code, name=item.name) for item in decision.selected
-        ]
+        frame.metrics = [MetricSlot(code=item.code, name=item.name) for item in decision.selected]
         if pending_metric_items:
             frame.options["metric_clarification_items"] = pending_metric_items
             frame.options["missing_metric_text"] = "、".join(
@@ -437,6 +460,18 @@ class SemanticEngine:
             organizations=organizations,
             organization_aliases=config.organization_aliases,
         )
+        if organization_scope is None:
+            scope_key = frame.options.get("organization_scope")
+            scope_text = frame.options.get("organization_scope_text")
+            if (isinstance(scope_key, str) and scope_key in config.organization_scopes
+                    and isinstance(scope_text, str) and scope_text.strip()
+                    and scope_text in protected_question and "<" not in scope_text
+                    and ">" not in scope_text):
+                organization_scope = (scope_key, scope_text)
+        if config.organization_scopes and organization_scope is None:
+            # 已启用正式集合策略时，旧的“全目录”标记不能绕过成员排除规则。
+            for field in ("organization_scope", "organization_scope_text"):
+                frame.options.pop(field, None)
         frame = self._merge_code_detected_entities(
             frame,
             question=question,
@@ -444,7 +479,45 @@ class SemanticEngine:
             organizations=organizations,
             organization_aliases=config.organization_aliases,
         )
+        if organization_scope is not None:
+            # 集合成员由正式配置中的机构编码限定，模型不能扩大授权范围。
+            key, text = organization_scope
+            excluded = set(config.organization_scopes[key].excluded_org_codes)
+            frame.orgs = [item.name for item in organizations if item.code not in excluded]
+            frame.options.update(
+                organization_scope="synchronized_catalog",
+                organization_scope_key=key,
+                organization_scope_text=text,
+                organization_scope_count=len(frame.orgs),
+            )
+            frame.missing = [item for item in frame.missing if item != "orgs"]
+            for field in ("missing_org_reason", "missing_org_text", "missing_org_texts",
+                          "organization_clarification_items"):
+                frame.options.pop(field, None)
+            if "org" not in frame.dimensions:
+                frame.dimensions.append("org")
+            explicit_orgs = resolve_organizations(
+                _outside_metric_text(question, resolution.matches), organizations,
+                config.organization_aliases,
+            )
+            if explicit_orgs.matches or explicit_orgs.ambiguous:
+                frame.orgs = []
+                frame.options["missing_org_reason"] = "scope_unconfirmed"
+                frame.missing.append("orgs")
         _validate_operation_evidence(frame, protected_question)
+        residual = re.sub(r"<(?:METRIC|ORG|ORG_SCOPE)\b[^>]*>", "\n", protected_question)
+        time_evidence = frame.options.get("time_evidence")
+        grounded_time = (
+            isinstance(time_evidence, str)
+            and bool(time_evidence.strip())
+            and time_evidence in residual
+        ) or extract_time_expression(residual) is not None
+        if not grounded_time:
+            frame.time = None
+            for key in ("target_dates", "time_windows", "current_date", "base_date", "time_mode"):
+                frame.options.pop(key, None)
+            if "time" not in frame.missing:
+                frame.missing.append("time")
         # The model owns natural-language date interpretation.  The backend only
         # validates the normalized value; it must not recover or rewrite a missing
         # model value with another set of date-expression rules.
@@ -492,6 +565,8 @@ class SemanticEngine:
                 "selected_time": None,
             }
         frame = normalize_slot_frame(frame, metrics=metrics, organizations=organizations)
+        # 仅保存当前任务原文，供目录确认后重新保护实体；不读取其他任务历史。
+        frame.options["semantic_source_question"] = question
         timings_ms["semantic_normalization_ms"] = _elapsed_ms(normalization_started)
         timings_ms["semantic_total_ms"] = _elapsed_ms(total_started)
         return SemanticAnalysis(
@@ -780,14 +855,14 @@ class SemanticEngine:
                 and "<" not in scope_text and ">" not in scope_text
             )
             if not grounded_scope or model_organizations:
-                frame.orgs = []
-                for key in ("organization_scope", "organization_scope_text",
-                            "organization_scope_count"):
+                for key in (
+                    "organization_scope",
+                    "organization_scope_text",
+                    "organization_scope_count",
+                ):
                     frame.options.pop(key, None)
-                frame.options["missing_org_reason"] = "scope_unconfirmed"
-                if "orgs" not in frame.missing:
-                    frame.missing.append("orgs")
-                return frame
+                # 无原文出处的集合标记不能抹掉已命中的正式机构；继续按目录解析。
+                requests_all_organizations = False
         if requests_all_organizations:
             # The enabled organization catalog is synchronized from the governed
             # 61-organization source query.  Its membership is authoritative; never
@@ -800,21 +875,19 @@ class SemanticEngine:
         else:
             frame.options.pop("organization_scope", None)
             frame.options.pop("organization_scope_count", None)
-            detected_orgs = []
-            searchable = re.sub(
-                r"^(?:请|帮我|麻烦)?(?:查询|查一下|查)?",
-                "",
-                catalog_residual.strip(),
+            org_resolution = resolve_organizations(
+                catalog_residual, organizations, organization_aliases
             )
-            for item in organizations:
-                terms = sorted(
-                    [item.name, *item.aliases, *organization_aliases.get(item.name, [])],
-                    key=len,
-                    reverse=True,
-                )
-                if any(term and term in searchable for term in terms):
-                    detected_orgs.append(item.name)
-            frame.orgs = detected_orgs
+            frame.orgs = list(dict.fromkeys(match.item.name for match in org_resolution.matches))
+            if org_resolution.ambiguous:
+                frame.options["missing_org_reason"] = "ambiguous_alias"
+                frame.options["organization_clarification_items"] = [
+                    {"id": f"orgs.{index}", **item}
+                    for index, item in enumerate(org_resolution.ambiguous)
+                ]
+                if "orgs" not in frame.missing:
+                    frame.missing.append("orgs")
+                return frame
         known_organization_terms = [
             term
             for item in organizations
@@ -921,44 +994,16 @@ def _protect_resolved_entities(
             spans.append((start, end, '<METRIC unresolved="true"/>'))
     occupied = [(start, end) for start, end, _ in spans]
 
-    term_owners: dict[str, list[OrganizationCatalogItem]] = {}
-    for organization in organizations:
-        for term in dict.fromkeys(
-            [
-                organization.name,
-                *organization.aliases,
-                *organization_aliases.get(organization.name, []),
-            ]
-        ):
-            normalized = term.strip()
-            if normalized:
-                term_owners.setdefault(normalized, []).append(organization)
-
-    candidates: list[tuple[int, int, str]] = []
-    for term, owners in term_owners.items():
-        unique_owners = {item.code: item for item in owners}
-        if len(unique_owners) != 1:
-            # Leave ambiguous aliases visible so the normal clarification path
-            # can resolve them instead of silently selecting a catalog row.
-            continue
-        organization = next(iter(unique_owners.values()))
-        search_start = 0
-        while True:
-            position = question.find(term, search_start)
-            if position < 0:
-                break
-            end = position + len(term)
-            candidates.append((position, end, organization.code))
-            search_start = end
-
-    for start, end, code in sorted(
-        candidates,
-        key=lambda item: (-(item[1] - item[0]), item[0]),
-    ):
-        if any(start < right and end > left for left, right in occupied):
-            continue
-        spans.append((start, end, f'<ORG code="{code}"/>'))
-        occupied.append((start, end))
+    resolution = resolve_organizations(question, organizations, organization_aliases)
+    for match in resolution.matches:
+        if not any(match.start < right and match.end > left for left, right in occupied):
+            spans.append((match.start, match.end, f'<ORG code="{match.item.code}"/>'))
+            occupied.append((match.start, match.end))
+    for item in resolution.ambiguous:
+        start, end = item["start"], item["end"]
+        if not any(start < right and end > left for left, right in occupied):
+            spans.append((start, end, '<ORG unresolved="true"/>'))
+            occupied.append((start, end))
 
     output: list[str] = []
     cursor = 0
@@ -1001,7 +1046,7 @@ def _validate_operation_evidence(frame: SlotFrame, protected_question: str) -> N
 
 
 def _valid_operation_evidence(evidence: Any, count: int, protected_question: str) -> bool:
-    residual = re.sub(r'<(?:METRIC|ORG)\b[^>]*>', '\n', protected_question)
+    residual = re.sub(r"<(?:METRIC|ORG|ORG_SCOPE)\b[^>]*>", "\n", protected_question)
     valid = isinstance(evidence, list) and len(evidence) == count
     if valid:
         valid = all(
@@ -1079,6 +1124,7 @@ def extract_time_expression(text: str) -> str | None:
         r"(?:(?:\d{4}年|今年|本年))?(?:第)?[一二三四1-4]季度",
         r"本季度|本季|上季度|上季|今年|本年|去年|上年|前年",
         r"本月|上个月|上月|今天|今日|昨天",
+        r"(?<!\d)\d{4}年",
         r"当前最新|最新一期|最近一期|最新|最近",
     ]
     for pattern in patterns:
@@ -1333,3 +1379,73 @@ def _json(value: Any) -> str:
 
 def _elapsed_ms(started: float) -> int:
     return max(0, round((perf_counter() - started) * 1000))
+
+
+def _contains_entity_reference(value: str) -> bool:
+    return bool(re.search(r"<(?:METRIC|ORG)\b|(?<![A-Za-z0-9])[MOS]\d+(?![A-Za-z0-9])", value))
+
+
+def _protect_organization_scope(
+    question: str, config: SemanticConfig
+) -> tuple[str, tuple[str, str] | None]:
+    residual = re.sub(r"<(?:METRIC|ORG)\b[^>]*>", "\n", question)
+    candidates = [
+        (key, term)
+        for key, scope in config.organization_scopes.items()
+        for term in scope.terms
+        if term and term in residual
+    ]
+    if not candidates:
+        return question, None
+    key, term = max(candidates, key=lambda item: len(item[1]))
+    if len({scope for scope, text in candidates if text == term}) != 1:
+        return question, None
+    return question.replace(term, '<ORG_SCOPE code="S1"/>'), (key, term)
+
+
+def prepare_model_question(
+    question: str,
+    metrics: list[MetricCatalogItem],
+    organizations: list[OrganizationCatalogItem],
+    config: SemanticConfig,
+) -> str:
+    """意图和槽位阶段共用实体边界；首次分类也看不到名称内部的操作含义。"""
+    resolution = MetricMatcher(metrics).resolve(question)
+    protected = _protect_resolved_entities(
+        question,
+        metric_matches=resolution.matches,
+        ambiguous_metric_spans=resolution.ambiguous_spans,
+        organizations=organizations,
+        organization_aliases=config.organization_aliases,
+    )
+    protected, _ = _protect_organization_scope(protected, config)
+    return _opaque_model_entities(protected)[0]
+
+
+def _remove_redundant_entity_references(raw: Any, entities: dict[str, str]) -> Any:
+    """只消除已确认指标的纯编号回显；混入日期或其他文字仍必须重试/拒绝。"""
+    if not isinstance(raw, dict):
+        return raw
+
+    def redundant(value: Any) -> bool:
+        if not isinstance(value, str):
+            return False
+        match = re.fullmatch(r'(M\d+)|<METRIC code="(M\d+)"/>', value.strip())
+        return bool(match and (match[1] or match[2]) in entities)
+
+    result = dict(raw)
+    if redundant(result.get("raw_metric_text")):
+        result["raw_metric_text"] = None
+    if isinstance(result.get("raw_metric_texts"), list):
+        result["raw_metric_texts"] = [value for value in result["raw_metric_texts"]
+                                    if not redundant(value)]
+    return result
+
+
+def _invalid_metric_phrase(raw: dict[str, Any], protected_question: str) -> bool:
+    phrases = raw.get("raw_metric_texts") or [raw.get("raw_metric_text")]
+    if not isinstance(phrases, list):
+        return False  # 字段格式交给正式适配器校验。
+    residual = re.sub(r'<(?:METRIC|ORG|ORG_SCOPE)\b[^>]*>', '\n', protected_question)
+    return any(isinstance(phrase, str) and phrase.strip() and phrase not in residual
+               for phrase in phrases)

@@ -72,7 +72,6 @@ def advance_slot_frame(
             elif (
                 slot == "orgs"
                 and not normalized.orgs
-                and not any(operation.type in {"ranking", "top_n"} for operation in normalized.ops)
                 and slot not in normalized.missing
             ):
                 normalized.missing.append(slot)
@@ -190,24 +189,18 @@ def semantic_patch_from_text(
             values["time"] = time_value
 
     if "orgs" in current.missing:
-        normalized_text = normalize_semantic_text(text)
-        matched_orgs = []
-        for organization in organizations:
-            terms = [organization.name, *organization.aliases]
-            if any(
-                normalized_term and normalized_term in normalized_text
-                for term in terms
-                if (normalized_term := normalize_semantic_text(term))
-            ):
-                matched_orgs.append(organization.name)
-        if len(matched_orgs) == 1:
-            values["orgs"] = matched_orgs
+        from ask_metric.domain.organization_matching import resolve_organizations
+
+        resolution = resolve_organizations(text, organizations)
+        if resolution.matches and not resolution.ambiguous:
+            values["orgs"] = list(dict.fromkeys(match.item.name for match in resolution.matches))
 
     if "metrics" in current.missing:
         resolution = MetricMatcher(metrics).resolve(text)
-        if len(resolution.matches) == 1 and not resolution.ambiguous_candidates:
-            match = resolution.matches[0]
-            values["metrics"] = [{"code": match.code, "name": match.name}]
+        if resolution.matches and not resolution.ambiguous_candidates:
+            values["metrics"] = [
+                {"code": match.code, "name": match.name} for match in resolution.matches
+            ]
 
     return SemanticPatch(set=values)
 
@@ -414,7 +407,9 @@ def _clarification_fields(
                     if not isinstance(pending, dict):
                         continue
                     raw_text = _clean_option_text(pending.get("raw_text"))
-                    options = _organization_candidates(raw_text, organizations)
+                    options = pending.get("options") or _organization_candidates(
+                        raw_text, organizations
+                    )
                     fields.append({
                         "field": str(pending.get("id") or f"orgs.{index}"),
                         "target_field": "orgs",

@@ -23,7 +23,11 @@ from ask_metric.domain.intent_routing import (
     RoutedIntent,
     parse_intent_classification,
 )
-from ask_metric.domain.semantic_engine import InvalidSlotFrameError, SemanticEngine
+from ask_metric.domain.semantic_engine import (
+    InvalidSlotFrameError,
+    SemanticEngine,
+    prepare_model_question,
+)
 from ask_metric.domain.task import (
     QueryTaskStage,
     QueryTaskState,
@@ -103,13 +107,18 @@ class SemanticTaskApplicationService:
             _require_analyzable(task)
             original_question = task.original_question
 
+        config = self.config_repository.load()
+        with self.uow_factory() as uow:
+            metrics = uow.metric_catalog.list_enabled()
+            organizations = uow.organization_catalog.list_enabled()
+        intent_question = prepare_model_question(original_question, metrics, organizations, config)
         intent_started = perf_counter()
         intent_raw: dict[str, Any] | None = None
         try:
             intent_raw = self.model_service.analyze(
                 prompt="intent_routing",
                 context={
-                    "question": original_question,
+                    "question": intent_question,
                     "allowed_intents_json": json.dumps(
                         [item.value for item in RoutedIntent],
                         ensure_ascii=False,
@@ -155,10 +164,6 @@ class SemanticTaskApplicationService:
             )
         # 不按原句关键词猜查询能力：先保护目录名称并提取操作，再由 QueryPlanner
         # 在执行前统一校验。名称里的“明细”等词不能直接让正式指标失去查询资格。
-        config = self.config_repository.load()
-        with self.uow_factory() as uow:
-            metrics = uow.metric_catalog.list_enabled()
-            organizations = uow.organization_catalog.list_enabled()
         current_date = self.today_provider()
         try:
             analysis = self.semantic_engine.analyze(
@@ -354,6 +359,18 @@ class SemanticTaskApplicationService:
             "error_reference": error_reference,
             "occurred_at": datetime.now(UTC).isoformat(),
         }
+        if isinstance(error, InvalidSlotFrameError):
+            error_debug["retry_count"] = error.retry_count
+            error_debug["validation"] = [
+                {"field": item.get("field") or item.get("loc", []),
+                 "type": item.get("code") or item.get("type", "invalid_value")}
+                for item in error.errors
+            ]
+            logger.warning(
+                "slot_validation_failed task_id=%s stage=%s retry_count=%s validation=%s",
+                command.task_id, stage.value, error.retry_count,
+                json.dumps(error_debug["validation"], ensure_ascii=False),
+            )
         if not getattr(error, "_ask_metric_alert_logged", False):
             logger.error(
                 "semantic_task_failed task_id=%s stage=%s code=%s error_reference=%s",

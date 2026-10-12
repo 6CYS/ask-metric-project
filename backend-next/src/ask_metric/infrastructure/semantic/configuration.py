@@ -51,6 +51,11 @@ class ClarificationPrompts(BaseModel):
         return self
 
 
+class OrganizationScopeConfig(BaseModel):
+    terms: list[str] = Field(default_factory=list)
+    excluded_org_codes: list[str] = Field(default_factory=list)
+
+
 class SemanticConfig(BaseModel):
     version: str
     tasks: list[str]
@@ -59,6 +64,7 @@ class SemanticConfig(BaseModel):
     required_slots: list[str] = Field(default_factory=list)
     dimension_names: dict[str, str] = Field(default_factory=dict)
     organization_aliases: dict[str, list[str]] = Field(default_factory=dict)
+    organization_scopes: dict[str, OrganizationScopeConfig] = Field(default_factory=dict)
     clarification_prompts: ClarificationPrompts
     metric_matching: MetricMatchingConfig = Field(default_factory=MetricMatchingConfig)
 

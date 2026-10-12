@@ -20,7 +20,10 @@
     "drill_down"
   ],
   "default_time": "latest",
-  "required_slots": ["time", "orgs"],
+  "required_slots": [
+    "time",
+    "orgs"
+  ],
   "organization_aliases": {
     "江苏农商联合银行": [
       "省农信",
@@ -71,5 +74,32 @@
     "similarity_threshold": 0.5,
     "auto_select_threshold": 0.85,
     "auto_select_margin": 0.15
+  },
+  "organization_scopes": {
+    "province_legal_banks": {
+      "terms": [
+        "全省农商行",
+        "全省农商银行",
+        "全省各家农商行",
+        "各家农商行",
+        "全省法人行",
+        "全省法人银行",
+        "全省60家法人行",
+        "全省所有农商银行",
+        "全省所有农商行"
+      ],
+      "excluded_org_codes": [
+        "320000000",
+        "320099000"
+      ]
+    },
+    "all_catalog_organizations": {
+      "terms": [
+        "全部机构",
+        "所有机构",
+        "全目录机构"
+      ],
+      "excluded_org_codes": []
+    }
   }
 }
