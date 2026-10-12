@@ -79,7 +79,9 @@ class QueryPlanError(ValueError):
 
 
 class UnsupportedQueryError(QueryPlanError):
-    pass
+    def __init__(self, message: str, *, public_message: str | None = None) -> None:
+        super().__init__(message)
+        self.public_message = public_message
 
 
 class QueryPlanner:
@@ -109,13 +111,17 @@ class QueryPlanner:
         if dsl.task.value != "metric_query":
             raise UnsupportedQueryError(f"Task {dsl.task.value} is not executable yet")
         if query_shape == "metric_detail":
-            raise UnsupportedQueryError("Detail queries are unsupported by metric_values")
+            raise UnsupportedQueryError(
+                "Detail queries are unsupported by metric_values",
+                public_message="当前仅支持指标查询，暂不支持交易流水或原始业务记录。",
+            )
         unsupported_dimensions = [
             dimension for dimension in dsl.dimensions if dimension not in {"org", "机构"}
         ]
         if unsupported_dimensions or dsl.filters:
             raise UnsupportedQueryError(
-                "Dimensions and filters are not supported by the initial metric_values templates"
+                "Dimensions and filters are not supported by the initial metric_values templates",
+                public_message="当前暂不支持按网点等业务维度展开或附加筛选条件，请查询正式目录指标。",
             )
         try:
             shape = SupportedQueryShape(query_shape)
@@ -125,7 +131,10 @@ class QueryPlanner:
         if shape == SupportedQueryShape.METRIC_PERIOD_COMPARE or any(
             op.get("type") in {"period_compare", "entity_compare"} for op in dsl.ops
         ):
-            raise UnsupportedQueryError("一期暂不支持现场比较计算，请查询已有的完整指标")
+            raise UnsupportedQueryError(
+                "一期暂不支持现场比较计算，请查询已有的完整指标",
+                public_message="一期暂不支持两期或两机构的现场比较计算；可查询目录中已有的增幅、占比等完整指标。",
+            )
         _validate_time_range(dsl)
         metric_codes = _validate_codes(dsl.metrics, "metric_codes")
         normalized_orgs = _validate_codes(
@@ -203,9 +212,10 @@ class QueryPlanner:
         if operation is None:
             raise QueryPlanError("Ranking shape requires ranking or top_n operation")
         raw_limit = operation.get("top_n") or operation.get("n")
-        if operation.get("type") == "ranking" and raw_limit is None and org_names:
+        if operation.get("type") == "ranking" and raw_limit is None and len(org_names) == 1:
             raise UnsupportedQueryError(
-                "A single organization's rank must use an official precomputed ranking metric"
+                "A single organization's rank must use an official precomputed ranking metric",
+                public_message="查询单家机构的名次，请选择目录中已有的完整排名指标；查询前几名请明确机构集合。",
             )
         if raw_limit is None:
             raw_limit = 10

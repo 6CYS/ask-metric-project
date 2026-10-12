@@ -150,12 +150,16 @@ class SlotFrame(BaseModel):
     def discard_invalid_filters(cls, value: Any) -> Any:
         if not isinstance(value, list):
             return []
+        # 适配器已生成FilterSlot；二次校验仍须保留，不能只接收原始字典。
         return [
             item
             for item in value
-            if isinstance(item, dict)
-            and isinstance(item.get("field"), str)
-            and item.get("op") in {"eq", "in", "between", "gt", "gte", "lt", "lte"}
+            if isinstance(item, FilterSlot)
+            or (
+                isinstance(item, dict)
+                and isinstance(item.get("field"), str)
+                and item.get("op") in {"eq", "in", "between", "gt", "gte", "lt", "lte"}
+            )
         ]
 
     @field_validator("orgs", mode="before")

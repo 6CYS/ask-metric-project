@@ -451,7 +451,7 @@ class QueryExecutionApplicationService:
         public_message = (
             "无权查询所选机构。"
             if forbidden
-            else "当前问题暂不支持执行。"
+            else exc.public_message or "当前问题暂不支持执行。"
             if unsupported
             else "查询计划生成失败，请稍后重试。"
         )
