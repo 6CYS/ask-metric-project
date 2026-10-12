@@ -80,13 +80,28 @@ export function isResultValueColumn(column: string) {
   return monetaryValueColumns.has(normalizeResultColumn(column))
 }
 
+/** 精确展开数据库 Decimal 的指数表示，保留大数小数位，不经过浮点转换。 */
+function decimalText(value: string | number): string | null {
+  const text = String(value).trim()
+  const match = /^([+-]?)(\d+)(?:\.(\d*))?[eE]([+-]?\d+)$/.exec(text)
+  if (!match) return text
+  const exponent = Number(match[4])
+  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 1000 || text.length > 2000) return null
+  const digits = match[2]! + (match[3] ?? "")
+  const point = match[2]!.length + exponent
+  const expanded = point <= 0 ? `0.${"0".repeat(-point)}${digits}`
+    : point >= digits.length ? digits + "0".repeat(point - digits.length)
+      : `${digits.slice(0, point)}.${digits.slice(point)}`
+  return match[1] + expanded
+}
+
 /** 表格按原单位显示；直接处理十进制字符串，避免大金额转 Number 丢分。 */
 export function formatResultTableValue(value: unknown, column: string, row: Record<string, unknown>): string | null {
   const normalized = normalizeResultColumn(column)
   // 历史比较结果的变化率是比例；按十进制字符串换算百分数，避免长小数溢出。
   if (normalized === "change_rate") {
     if (typeof value !== "string" && typeof value !== "number") return null
-    const rate = /^([+-]?)(\d+)(?:\.(\d*))?$/.exec(String(value).trim())
+    const rate = /^([+-]?)(\d+)(?:\.(\d*))?$/.exec(decimalText(value) ?? "")
     if (!rate) return null
     const fraction = (rate[3] ?? "").padEnd(2, "0")
     const percent = `${rate[1]}${rate[2]}${fraction.slice(0, 2)}.${fraction.slice(2) || "0"}`
@@ -94,10 +109,10 @@ export function formatResultTableValue(value: unknown, column: string, row: Reco
   }
   if (!isResultValueColumn(normalized) && normalized !== "rank") return null
   if (typeof value !== "string" && typeof value !== "number") return null
-  const match = /^([+-]?)(\d+)(?:\.(\d*))?$/.exec(String(value).trim())
+  const match = /^([+-]?)(\d+)(?:\.(\d*))?$/.exec(decimalText(value) ?? "")
   if (!match) return null
   const unit = String(getResultCellValue(row, "unit") ?? "")
-  const places = normalized === "rank" || ["户", "人", "笔", "个", "名"].includes(unit) ? 0 : 2
+  const places = normalized === "rank" || ["户", "人", "笔", "个", "名", "位"].includes(unit) ? 0 : 2
   const fraction = match[3] ?? ""
   const digits = match[2]! + fraction.slice(0, places).padEnd(places, "0")
   let scaled = BigInt(digits)
