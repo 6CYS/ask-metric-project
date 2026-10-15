@@ -27,7 +27,7 @@ export async function loadBusinessSkills(root = fileURLToPath(new URL("../skills
 export function businessKnowledgeCatalog(skills: readonly Skill[]): string {
   const catalog = skills.filter(skill => !skill.disableModelInvocation)
     .map(({name, description}) => ({name, description}));
-  return catalog.length ? `\n可按需查阅的业务知识目录（business_skill_read 按 name 读取，不影响工具选择）：\n${JSON.stringify(catalog)}` : "";
+  return catalog.length ? `\n可按需查阅的业务知识目录：需要相关业务判断时用 business_skill_read 按 name 读取，可组合参考；已有正文无需重读，读取不是业务工具前置步骤。\n${JSON.stringify(catalog)}` : "";
 }
 
 const readParameters = Type.Object({ name: Type.String({ minLength: 1 }) }, { additionalProperties: false });
@@ -70,7 +70,7 @@ export function createBusinessSkillReadTool(skills: Skill[]): AgentHarnessTool<A
   const approved = new Map(skills.map(skill => [skill.name, skill]));
   return {
     name: "business_skill_read", label: "读取业务知识",
-    description: "按需查阅指标口径、数据覆盖含义、计算规则或能力边界。可组合参考多份知识；当前上下文已有正文时无需重读。读取不查询业务数据、不启用或切换工具，也不是调用业务工具的前置步骤。",
+    description: "用途：按目录名称查阅相关业务判断，包括指标查询口径、记录覆盖、公式计算和能力边界。可组合参考；当前上下文已有正文无需重读。详细参数及合法值以工具/能力Schema为准。读取只提供知识，不查询数据、不启用或切换工具，也不是执行业务目标的前置步骤。",
     parameters: readParameters,
     execute: async (_id, params) => {
       const skill = approved.get(params.name as string);

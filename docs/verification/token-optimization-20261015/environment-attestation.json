@@ -1,0 +1,18 @@
+{
+  "checked_at_client_date": "2026-10-15",
+  "backend_origin": "http://127.0.0.1:8010",
+  "frontend_origin": "http://127.0.0.1:5173",
+  "runtime_startup_log": "/private/tmp/ask-metric-dev-backend.log:1",
+  "runtime_app_env": "development",
+  "runtime_app_database_dialect": "mysql",
+  "runtime_query_database_dialect": "mysql",
+  "local_settings_query_host_loopback": true,
+  "authorized_actor_confirmed_via_auth_me": true,
+  "credentials_source": "current_logged_in_development_browser_session",
+  "new_login_performed": false,
+  "real_account_permissions_changed": false,
+  "business_database_mutations": false,
+  "acceptance_metadata_writes": "dedicated conversation/query audit records only",
+  "business_values_exported": false,
+  "credentials_exported": false
+}

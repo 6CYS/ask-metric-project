@@ -1,0 +1,87 @@
+{
+  "agent": {
+    "total": 1223,
+    "passed": 1223,
+    "failed": 0,
+    "report_sha256": "d044392924daf7a651e152fcdce4d24539b370c34f3934e7bb522c8196d3d049"
+  },
+  "baseline": {
+    "total": 1088,
+    "passed": 775,
+    "failed": 313,
+    "report_sha256": "3ad5c0a4186511f087f4ef5327b878c29315613989b47c82f7f7fb0bf0551b3e"
+  },
+  "real_model_ab": {
+    "executed": true,
+    "complete_planned_samples": true,
+    "blocked_by": null,
+    "provider": "api.siliconflow.cn",
+    "model": "deepseek-ai/DeepSeek-V4-Flash",
+    "scenarios": 4,
+    "turns_per_version": 6,
+    "maximum_provider_calls_per_version": 24,
+    "requested_repetitions": 1,
+    "baseline": {
+      "passed": 4,
+      "failed": 2,
+      "provider_calls": 17
+    },
+    "candidate": {
+      "passed": 4,
+      "failed": 2,
+      "provider_calls": 15
+    },
+    "precise_and_context_passed_per_version": 4,
+    "analysis_passed_per_version": 0,
+    "first_request_prompt_token_reduction_percent": 18.1279,
+    "candidate_analysis_failure": "MODEL_STREAM_IDLE_EXCEEDED",
+    "candidate_analysis_actual_queries": 0,
+    "dynamic_planning_acceptance": "failed",
+    "real_database_in_model_batch": false,
+    "synthetic_values": true,
+    "reruns": 0,
+    "reports": [
+      "fixed-baseline.json",
+      "fixed-candidate.json",
+      "comparison.json"
+    ],
+    "source_changed_during_run": {
+      "baseline": false,
+      "candidate": false
+    }
+  },
+  "checks": {
+    "agent_typecheck": "passed",
+    "agent_build": "passed",
+    "built_catalog_loading": "passed",
+    "git_diff_check": "passed",
+    "frontend_changed_in_this_task": false,
+    "committed": false,
+    "deployed": false,
+    "existing_database_schema_applied": false
+  },
+  "backend": {
+    "passed": 604,
+    "failed": 0,
+    "analysis_specialized": 34,
+    "cross_language_actual_runtime_api": 2,
+    "ruff_new_files": 9,
+    "additional_old_schema_compatibility_test": {
+      "passed": 1,
+      "full_suite_rerun": false,
+      "runtime_code_changed": false
+    }
+  },
+  "candidate_source_manifest_sha256": "d88515b46ffd9cf713df2b9d4d8e986d9289988e506d62b10eaa94c0106b6aeb",
+  "model_runner_sha256": "c1408bd493e2cda0db34c4fa595d09079f6a95a1a82cefd2758746b538344a0b",
+  "deterministic_precise_identity": {
+    "unique_metrics": 184,
+    "inputs": 552,
+    "baseline_current_differences": 0,
+    "ambiguous": 0,
+    "mismatch": 0,
+    "not_found": 0,
+    "source_catalog_enabled_metrics": 9297,
+    "model_called": false
+  }
+}

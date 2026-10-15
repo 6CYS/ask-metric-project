@@ -1,0 +1,1913 @@
+{
+  "created_at": "2026-10-15T09:13:18.092Z",
+  "mode": "paired",
+  "repeat": 1,
+  "protocol": "semantic_v2",
+  "environment": "configured_real_model_authorized_development_database",
+  "production_accessed": false,
+  "corpus_sha256": "55d99e20d23f8ce62fb5de8b088181975989f99e35f68438cf222e25ccb26faf",
+  "source_hashes": {
+    "baseline": {
+      "src/config.ts": "3a1b298524f76a7fc2857cd3fd7631221814fb8f2579c3280d8dd5878bb76e77",
+      "src/harnessHost.ts": "6d4210ac59b77c937f6cbf071063ad6418595b290be1027e85cf3817a86a9ae9",
+      "src/modelContext.ts": "146e477d203362af3bb9107ebadc97e8049b84f3db20939d5efc217fd41f6b3a",
+      "src/sessionProjection.ts": "cb245505e627f12431c37611455152f5cc2cdb2560440f73f5b934fd0b9ac0d8",
+      "src/routes.ts": "62f7803d4bf44f1c42c52ef71f76fe1a169e498df5af0b5861fe9cc216920b38",
+      "src/semantic-task/prompt.ts": "fb032d5092dd3fdb9dd7ae513ecd84d6351ad892b5c91f242add871020ecaafb",
+      "src/semantic-task/planService.ts": "ecfa0e18c8449181dfe277b3ea8c8b1af1e77fb04e0872866b212d443f9df467",
+      "src/semantic-task/tools.ts": "0c09a362df188b53a8e9333deaa79ae1b96e358d0d022845d02474edbd0837ea",
+      "src/semantic-task/store.ts": "b99ca6d974574536ca52edac4feb9c0e138ab9975072d23894aa05ffc4657354"
+    },
+    "candidate": {
+      "src/config.ts": "21af6f0f9d857cd5324bd6b8097130acd784645d54dfe479ec84c4d64e934b4c",
+      "src/harnessHost.ts": "ab02a9fae16dec60b423b16c324de29d9988fc53b9301795264620b32b310b77",
+      "src/modelContext.ts": "146e477d203362af3bb9107ebadc97e8049b84f3db20939d5efc217fd41f6b3a",
+      "src/sessionProjection.ts": "a8804f2fe2a9c66af9a450fa85cf835ffd896905e3de6c53258553d89b95bee7",
+      "src/routes.ts": "f91e579ffb11503b2f6f19454fc2c3d7db4f87f6281c55b62059c42931432824",
+      "src/semantic-task/prompt.ts": "e4404e262955c6d3c517916c99c8e3ecc45ab366d50df4c2195680c43fd17f27",
+      "src/semantic-task/planService.ts": "5acd356d310862b703c8b8883addc3eee5b3cf881cda9a59a78556b02bea6b80",
+      "src/semantic-task/tools.ts": "0c09a362df188b53a8e9333deaa79ae1b96e358d0d022845d02474edbd0837ea",
+      "src/semantic-task/store.ts": "bf00a3e8d974fa29cebab5fe379a509270295591408a6630381a12ec49a5c8d0"
+    }
+  },
+  "model": "deepseek-ai/DeepSeek-V4-Flash",
+  "gateway_origin": "https://api.siliconflow.cn",
+  "script_sha256": "e88e57f667ccd30056a7ad4356d93cbe2cdb7ece89b03d290d49948c24479d33",
+  "effective_variants": {
+    "baseline": {
+      "direct_query_delivery": "absent_baseline",
+      "context_view": "absent_baseline",
+      "prompt_variant": "absent_baseline"
+    },
+    "candidate": {
+      "direct_query_delivery": "on",
+      "context_view": "compact_v1",
+      "prompt_variant": "compact_v1"
+    }
+  },
+  "settings": {
+    "max_tokens": 8192,
+    "context_window": 128000,
+    "extra_body": {
+      "enable_thinking": false
+    },
+    "retry": {
+      "enabled": true,
+      "maxRetries": 1,
+      "baseDelayMs": 1000
+    }
+  },
+  "native_session_directory": "/private/tmp/ask-metric-token-optimization-20261015/native-paired-final-3-affected",
+  "native_session_directories": [
+    "/private/tmp/ask-metric-token-optimization-20261015/native-paired-final-3-affected"
+  ],
+  "planned_tasks": 4,
+  "finished_tasks": 4,
+  "repetitions_by_case": {
+    "ordinary-multiturn": 1,
+    "missing-then-confirm": 1
+  },
+  "guard_ms": 120000,
+  "gateway_blocked": false,
+  "stopped_at_task_boundary": false,
+  "sampling": "whole tasks; failures and retries retained; AB/BA alternates per case and repetition",
+  "business_values_exported": false,
+  "credentials_exported": false,
+  "tasks": [
+    {
+      "case_id": "ordinary-multiturn",
+      "group": "ordinary",
+      "version": "baseline",
+      "repetition": 1,
+      "session_id": "01a13ed5-0cd1-75ce-9121-467b6fa8c064",
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "message": "查询无锡农村商业银行股份有限公司2026年5月31日的对公协定存款余额当日数",
+          "expected": {
+            "message": "查询无锡农村商业银行股份有限公司2026年5月31日的对公协定存款余额当日数",
+            "expected": [
+              {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "01",
+                "start": "2026-05-31",
+                "end": "2026-05-31"
+              }
+            ]
+          },
+          "passed": true,
+          "failures": [],
+          "elapsed_ms": 8389,
+          "status": "succeeded",
+          "completion": "full",
+          "formal_issue_codes": [],
+          "model_calls": 2,
+          "physical_calls": [
+            {
+              "call_index": 1,
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-0-ff56a6d7-7d36-427a-8525-b78438cb5fa3",
+              "operation_id": "01a13ed5-0cd6-75ce-9121-467dab17df3f",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-0cdd-75ce-9121-4685fd634302"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            },
+            {
+              "call_index": 2,
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-0-ff56a6d7-7d36-427a-8525-b78438cb5fa3",
+              "operation_id": "01a13ed5-0cd6-75ce-9121-467dab17df3f",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-2045-75ce-9121-468cdde089f0"
+              ],
+              "stop_reason": "stop",
+              "response_status": 200
+            }
+          ],
+          "usage": [
+            {
+              "usage_id": "01a13ed5-0cdd-75ce-9121-4685fd634302",
+              "entry_id": "01a13ed5-0cdd-75ce-9121-4682989d17a1",
+              "operation_id": "01a13ed5-0cd6-75ce-9121-467dab17df3f",
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-0-ff56a6d7-7d36-427a-8525-b78438cb5fa3",
+              "call_index": 1,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 5727,
+              "output_tokens": 183,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "total_tokens": 5910,
+              "noncache_input_tokens": 5727,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            },
+            {
+              "usage_id": "01a13ed5-2045-75ce-9121-468cdde089f0",
+              "entry_id": "01a13ed5-2045-75ce-9121-468b6a1ad12b",
+              "operation_id": "01a13ed5-0cd6-75ce-9121-467dab17df3f",
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-0-ff56a6d7-7d36-427a-8525-b78438cb5fa3",
+              "call_index": 2,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 7281,
+              "output_tokens": 52,
+              "cache_read_tokens": 4096,
+              "cache_write_tokens": 0,
+              "total_tokens": 7333,
+              "noncache_input_tokens": 3185,
+              "stop_reason": "stop",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            }
+          ],
+          "usage_adjustments": [],
+          "query_count": 1,
+          "queries": [
+            {
+              "status": "succeeded",
+              "spec": {
+                "metric_codes": [
+                  "ORG_CORP_AGRMT_DEPT_BAL"
+                ],
+                "org_codes": [
+                  "01"
+                ],
+                "time": {
+                  "start": "2026-05-31",
+                  "end": "2026-05-31"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "task_id": "2722cd7d-7a5f-49e1-ac39-d7812c39f666",
+              "row_count": 1,
+              "truncated": false
+            }
+          ],
+          "query_evidence": [
+            {
+              "target": {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "01",
+                "start": "2026-05-31",
+                "end": "2026-05-31"
+              },
+              "row_count": 1,
+              "rows_sha256": "8f4ec971d46f294e26244dda05dfd25d07ed7b560fb712f099da4671700f8eca",
+              "unit_set": [
+                "元"
+              ],
+              "null_count": 0
+            }
+          ],
+          "calculation_count": 0,
+          "calculation_result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "answer_sha256": "d8974c7ee60c94fc819c5c3e948d54a546b0a9536b8080a2282e8b3e7314b5b9",
+          "answer_entry_id": "01a13ed5-2045-75ce-9121-468b6a1ad12b",
+          "answer_length": 98,
+          "old_frame_count": 4,
+          "frames_sha256": "d0abc59345c1b54a1a0e248fd3341c32a83fa853021eef860900a2c4a12156d4",
+          "restored_messages_sha256": "01b585dab332fd66c33d60cfc45154baa6b914cc26cf33a2f2763264b83eddae",
+          "model_error_codes": [],
+          "restore_zero_sql": true,
+          "direct_delivery": null,
+          "saved_answer_id": null,
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments_sha256": "726a4f94e6e053ee80de5f107a6bf03abdc968af493c5c4705365eb44109d70e"
+            }
+          ]
+        },
+        {
+          "turn": 2,
+          "message": "日期改为2026年6月30日，其他条件不变",
+          "expected": {
+            "message": "日期改为2026年6月30日，其他条件不变",
+            "expected": [
+              {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "01",
+                "start": "2026-06-30",
+                "end": "2026-06-30"
+              }
+            ]
+          },
+          "passed": true,
+          "failures": [],
+          "elapsed_ms": 6008,
+          "status": "succeeded",
+          "completion": "full",
+          "formal_issue_codes": [],
+          "model_calls": 2,
+          "physical_calls": [
+            {
+              "call_index": 3,
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-1-b7cba374-355d-47d1-86a7-cc765952d426",
+              "operation_id": "01a13ed5-2dbc-75ce-9121-468e1011f28d",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-2e34-75ce-9121-46975a8dbe4a"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            },
+            {
+              "call_index": 4,
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-1-b7cba374-355d-47d1-86a7-cc765952d426",
+              "operation_id": "01a13ed5-2dbc-75ce-9121-468e1011f28d",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-3bca-75ce-9121-469e890aa604"
+              ],
+              "stop_reason": "stop",
+              "response_status": 200
+            }
+          ],
+          "usage": [
+            {
+              "usage_id": "01a13ed5-2e34-75ce-9121-46975a8dbe4a",
+              "entry_id": "01a13ed5-2e34-75ce-9121-4695ad9cd271",
+              "operation_id": "01a13ed5-2dbc-75ce-9121-468e1011f28d",
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-1-b7cba374-355d-47d1-86a7-cc765952d426",
+              "call_index": 3,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 6530,
+              "output_tokens": 120,
+              "cache_read_tokens": 5632,
+              "cache_write_tokens": 0,
+              "total_tokens": 6650,
+              "noncache_input_tokens": 898,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            },
+            {
+              "usage_id": "01a13ed5-3bca-75ce-9121-469e890aa604",
+              "entry_id": "01a13ed5-3bca-75ce-9121-469d10d77262",
+              "operation_id": "01a13ed5-2dbc-75ce-9121-468e1011f28d",
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-1-b7cba374-355d-47d1-86a7-cc765952d426",
+              "call_index": 4,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 7662,
+              "output_tokens": 39,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "total_tokens": 7701,
+              "noncache_input_tokens": 7662,
+              "stop_reason": "stop",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            }
+          ],
+          "usage_adjustments": [],
+          "query_count": 1,
+          "queries": [
+            {
+              "status": "succeeded",
+              "spec": {
+                "metric_codes": [
+                  "ORG_CORP_AGRMT_DEPT_BAL"
+                ],
+                "org_codes": [
+                  "01"
+                ],
+                "time": {
+                  "start": "2026-06-30",
+                  "end": "2026-06-30"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "task_id": "aef1666a-d27b-4f48-863d-4cd852632f15",
+              "row_count": 1,
+              "truncated": false
+            }
+          ],
+          "query_evidence": [
+            {
+              "target": {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "01",
+                "start": "2026-06-30",
+                "end": "2026-06-30"
+              },
+              "row_count": 1,
+              "rows_sha256": "a6ce6d5aa35d4b6814ceb524ae31c0c9be4856cf64defb43b4e23520cd1c2c77",
+              "unit_set": [
+                "元"
+              ],
+              "null_count": 0
+            }
+          ],
+          "calculation_count": 0,
+          "calculation_result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "answer_sha256": "7ff68629169b6d4f2e24beac78f645a2cedb04f3caa2a55af1dac435347c33f6",
+          "answer_entry_id": "01a13ed5-3bca-75ce-9121-469d10d77262",
+          "answer_length": 76,
+          "old_frame_count": 7,
+          "frames_sha256": "4b157d35b6ab83118cd44804cf80fb2ad2d08d7ce828448ab8675a03abfef794",
+          "restored_messages_sha256": "dd6c79c0c6d1755ff051d2c3a463c179255705a2a5d1d1b0a7149b93cd09c05d",
+          "model_error_codes": [],
+          "restore_zero_sql": true,
+          "direct_delivery": null,
+          "saved_answer_id": null,
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments_sha256": "6845f6629b25040d6daf1f833721f6d293e8f38faea4240c029884bc860f6cce"
+            }
+          ]
+        },
+        {
+          "turn": 3,
+          "message": "机构改成江苏苏州农村商业银行股份有限公司，其他条件不变",
+          "expected": {
+            "message": "机构改成江苏苏州农村商业银行股份有限公司，其他条件不变",
+            "expected": [
+              {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "070667800",
+                "start": "2026-06-30",
+                "end": "2026-06-30"
+              }
+            ]
+          },
+          "passed": true,
+          "failures": [],
+          "elapsed_ms": 5620,
+          "status": "succeeded",
+          "completion": "full",
+          "formal_issue_codes": [],
+          "model_calls": 2,
+          "physical_calls": [
+            {
+              "call_index": 5,
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-2-cf28e29e-b789-43db-842c-ec752b519ce3",
+              "operation_id": "01a13ed5-4535-75ce-9121-46a02a10edd8",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-4537-75ce-9121-46a9f6b21689"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            },
+            {
+              "call_index": 6,
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-2-cf28e29e-b789-43db-842c-ec752b519ce3",
+              "operation_id": "01a13ed5-4535-75ce-9121-46a02a10edd8",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-4e62-75ce-9121-46b0d6386c05"
+              ],
+              "stop_reason": "stop",
+              "response_status": 200
+            }
+          ],
+          "usage": [
+            {
+              "usage_id": "01a13ed5-4537-75ce-9121-46a9f6b21689",
+              "entry_id": "01a13ed5-4537-75ce-9121-46a78e5b2d38",
+              "operation_id": "01a13ed5-4535-75ce-9121-46a02a10edd8",
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-2-cf28e29e-b789-43db-842c-ec752b519ce3",
+              "call_index": 5,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 6699,
+              "output_tokens": 119,
+              "cache_read_tokens": 5888,
+              "cache_write_tokens": 0,
+              "total_tokens": 6818,
+              "noncache_input_tokens": 811,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            },
+            {
+              "usage_id": "01a13ed5-4e62-75ce-9121-46b0d6386c05",
+              "entry_id": "01a13ed5-4e62-75ce-9121-46ae4a50d7eb",
+              "operation_id": "01a13ed5-4535-75ce-9121-46a02a10edd8",
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-2-cf28e29e-b789-43db-842c-ec752b519ce3",
+              "call_index": 6,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 7909,
+              "output_tokens": 40,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "total_tokens": 7949,
+              "noncache_input_tokens": 7909,
+              "stop_reason": "stop",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            }
+          ],
+          "usage_adjustments": [],
+          "query_count": 1,
+          "queries": [
+            {
+              "status": "succeeded",
+              "spec": {
+                "metric_codes": [
+                  "ORG_CORP_AGRMT_DEPT_BAL"
+                ],
+                "org_codes": [
+                  "070667800"
+                ],
+                "time": {
+                  "start": "2026-06-30",
+                  "end": "2026-06-30"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "task_id": "3d99466a-0a3a-47dd-91e6-b124e2c55b39",
+              "row_count": 1,
+              "truncated": false
+            }
+          ],
+          "query_evidence": [
+            {
+              "target": {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "070667800",
+                "start": "2026-06-30",
+                "end": "2026-06-30"
+              },
+              "row_count": 1,
+              "rows_sha256": "3b8a01dc60a951abf5319b884f39ac673d669aa903c1553e8da22a91f14a12fa",
+              "unit_set": [
+                "元"
+              ],
+              "null_count": 0
+            }
+          ],
+          "calculation_count": 0,
+          "calculation_result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "answer_sha256": "1e8542c1ae37a748e290f6ae34edaa1b179af287e369cd95017e226fb13dfdd9",
+          "answer_entry_id": "01a13ed5-4e62-75ce-9121-46ae4a50d7eb",
+          "answer_length": 78,
+          "old_frame_count": 10,
+          "frames_sha256": "69eec2e964ee67f1a959c8253285990b4fb775b47611932f76a393e16f8f5308",
+          "restored_messages_sha256": "16f6fab943b5223767f82e516a4ecf402faae67f55a09e486307c3d0531209ea",
+          "model_error_codes": [],
+          "restore_zero_sql": true,
+          "direct_delivery": null,
+          "saved_answer_id": null,
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments_sha256": "0853c122f9eefe0c3baed3e4710e6055b16c3fe80c9858a6a8cd85cbcc8fed22"
+            }
+          ]
+        },
+        {
+          "turn": 4,
+          "message": "指标换成个人活期存款余额当日数，其他条件不变",
+          "expected": {
+            "message": "指标换成个人活期存款余额当日数，其他条件不变",
+            "expected": [
+              {
+                "metric": "ORG_PSON_DEDMDPT_BAL",
+                "org": "070667800",
+                "start": "2026-06-30",
+                "end": "2026-06-30"
+              }
+            ]
+          },
+          "passed": true,
+          "failures": [],
+          "elapsed_ms": 3552,
+          "status": "succeeded",
+          "completion": "full",
+          "formal_issue_codes": [],
+          "model_calls": 2,
+          "physical_calls": [
+            {
+              "call_index": 7,
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-3-b6423505-b873-44b1-b393-bd55cf0c2f26",
+              "operation_id": "01a13ed5-5b2a-75ce-9121-46b386682bed",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-5b2c-75ce-9121-46ba51706584"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            },
+            {
+              "call_index": 8,
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-3-b6423505-b873-44b1-b393-bd55cf0c2f26",
+              "operation_id": "01a13ed5-5b2a-75ce-9121-46b386682bed",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-61e2-75ce-9121-46c206af3049"
+              ],
+              "stop_reason": "stop",
+              "response_status": 200
+            }
+          ],
+          "usage": [
+            {
+              "usage_id": "01a13ed5-5b2c-75ce-9121-46ba51706584",
+              "entry_id": "01a13ed5-5b2c-75ce-9121-46b9232538a2",
+              "operation_id": "01a13ed5-5b2a-75ce-9121-46b386682bed",
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-3-b6423505-b873-44b1-b393-bd55cf0c2f26",
+              "call_index": 7,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 6895,
+              "output_tokens": 120,
+              "cache_read_tokens": 5888,
+              "cache_write_tokens": 0,
+              "total_tokens": 7015,
+              "noncache_input_tokens": 1007,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            },
+            {
+              "usage_id": "01a13ed5-61e2-75ce-9121-46c206af3049",
+              "entry_id": "01a13ed5-61e2-75ce-9121-46c10b4d1cec",
+              "operation_id": "01a13ed5-5b2a-75ce-9121-46b386682bed",
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-3-b6423505-b873-44b1-b393-bd55cf0c2f26",
+              "call_index": 8,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 8069,
+              "output_tokens": 42,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "total_tokens": 8111,
+              "noncache_input_tokens": 8069,
+              "stop_reason": "stop",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            }
+          ],
+          "usage_adjustments": [],
+          "query_count": 1,
+          "queries": [
+            {
+              "status": "succeeded",
+              "spec": {
+                "metric_codes": [
+                  "ORG_PSON_DEDMDPT_BAL"
+                ],
+                "org_codes": [
+                  "070667800"
+                ],
+                "time": {
+                  "start": "2026-06-30",
+                  "end": "2026-06-30"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "task_id": "954fcec2-f438-4a7b-a0b1-2e994296b421",
+              "row_count": 1,
+              "truncated": false
+            }
+          ],
+          "query_evidence": [
+            {
+              "target": {
+                "metric": "ORG_PSON_DEDMDPT_BAL",
+                "org": "070667800",
+                "start": "2026-06-30",
+                "end": "2026-06-30"
+              },
+              "row_count": 1,
+              "rows_sha256": "4026a52418ed141edc02f1aad2a255092f2cf7b1fb116a149d70bafd989c8d1b",
+              "unit_set": [
+                "元"
+              ],
+              "null_count": 0
+            }
+          ],
+          "calculation_count": 0,
+          "calculation_result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "answer_sha256": "1dc41916398a87e4e6f9c30b626d233426e333fb71d18c30eade3a5affe081f2",
+          "answer_entry_id": "01a13ed5-61e2-75ce-9121-46c10b4d1cec",
+          "answer_length": 80,
+          "old_frame_count": 13,
+          "frames_sha256": "777f228c3dcf529bac63f7a0671608a8eea06fb598744f1b9d9c85187cf1b54a",
+          "restored_messages_sha256": "0943898dc484c1e562585ec6e194cfb9bf50c499d14ae7621f3c997a6f8a2819",
+          "model_error_codes": [],
+          "restore_zero_sql": true,
+          "direct_delivery": null,
+          "saved_answer_id": null,
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments_sha256": "8e612093bd1fd8243c1f4e75ee22defc924b4169502a7330529f3b3cac648b73"
+            }
+          ]
+        },
+        {
+          "turn": 5,
+          "message": "重新展示本对话第一次查询的正式结果，不要重新查询",
+          "expected": {
+            "message": "重新展示本对话第一次查询的正式结果，不要重新查询",
+            "expected": [
+              {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "01",
+                "start": "2026-05-31",
+                "end": "2026-05-31"
+              }
+            ],
+            "reuse": true
+          },
+          "passed": true,
+          "failures": [],
+          "elapsed_ms": 8096,
+          "status": "reused",
+          "completion": "full",
+          "formal_issue_codes": [],
+          "model_calls": 3,
+          "physical_calls": [
+            {
+              "call_index": 9,
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-4-8ec4f3a1-98df-46af-9419-42d208a86b02",
+              "operation_id": "01a13ed5-690c-75ce-9121-46c5e15ea72e",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-690e-75ce-9121-46cde9003f57"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            },
+            {
+              "call_index": 10,
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-4-8ec4f3a1-98df-46af-9419-42d208a86b02",
+              "operation_id": "01a13ed5-690c-75ce-9121-46c5e15ea72e",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-6cee-75ce-9121-46d4042de06a"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            },
+            {
+              "call_index": 11,
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-4-8ec4f3a1-98df-46af-9419-42d208a86b02",
+              "operation_id": "01a13ed5-690c-75ce-9121-46c5e15ea72e",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-7cbc-75ce-9121-46dde51cd0c6"
+              ],
+              "stop_reason": "stop",
+              "response_status": 200
+            }
+          ],
+          "usage": [
+            {
+              "usage_id": "01a13ed5-690e-75ce-9121-46cde9003f57",
+              "entry_id": "01a13ed5-690e-75ce-9121-46cbe307f3a6",
+              "operation_id": "01a13ed5-690c-75ce-9121-46c5e15ea72e",
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-4-8ec4f3a1-98df-46af-9419-42d208a86b02",
+              "call_index": 9,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 7062,
+              "output_tokens": 44,
+              "cache_read_tokens": 5632,
+              "cache_write_tokens": 0,
+              "total_tokens": 7106,
+              "noncache_input_tokens": 1430,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            },
+            {
+              "usage_id": "01a13ed5-6cee-75ce-9121-46d4042de06a",
+              "entry_id": "01a13ed5-6cee-75ce-9121-46d203ba9d20",
+              "operation_id": "01a13ed5-690c-75ce-9121-46c5e15ea72e",
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-4-8ec4f3a1-98df-46af-9419-42d208a86b02",
+              "call_index": 10,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 8281,
+              "output_tokens": 110,
+              "cache_read_tokens": 6912,
+              "cache_write_tokens": 0,
+              "total_tokens": 8391,
+              "noncache_input_tokens": 1369,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            },
+            {
+              "usage_id": "01a13ed5-7cbc-75ce-9121-46dde51cd0c6",
+              "entry_id": "01a13ed5-7cbc-75ce-9121-46db7566183c",
+              "operation_id": "01a13ed5-690c-75ce-9121-46c5e15ea72e",
+              "request_id": "token-opt-baseline-ordinary-multiturn-1-4-8ec4f3a1-98df-46af-9419-42d208a86b02",
+              "call_index": 11,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 9311,
+              "output_tokens": 67,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "total_tokens": 9378,
+              "noncache_input_tokens": 9311,
+              "stop_reason": "stop",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            }
+          ],
+          "usage_adjustments": [],
+          "query_count": 0,
+          "queries": [],
+          "query_evidence": [],
+          "calculation_count": 0,
+          "calculation_result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "answer_sha256": "edac6ba1b19f1a4d9d9938f6bd37d9ff6bd28e4c8d45d01d5caa714e6c9eee19",
+          "answer_entry_id": "01a13ed5-7cbc-75ce-9121-46db7566183c",
+          "answer_length": 125,
+          "old_frame_count": 13,
+          "frames_sha256": "777f228c3dcf529bac63f7a0671608a8eea06fb598744f1b9d9c85187cf1b54a",
+          "restored_messages_sha256": "5837dfecc5f1ae8562d266491d128d2968ad4f4604a44806832d40ad014f5f37",
+          "model_error_codes": [],
+          "restore_zero_sql": true,
+          "direct_delivery": null,
+          "saved_answer_id": null,
+          "calls": [
+            {
+              "name": "business_context_read",
+              "arguments_sha256": "ca502dec04523cdc33afece69a9b600d5b9bd022d453791cc693b6b372f808ad"
+            },
+            {
+              "name": "read_business_result",
+              "arguments_sha256": "05c65f928ff8aaa20582e60a7b5293e5dbea501c707962b148bcf5b556d42e1c"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "ordinary-multiturn",
+      "group": "ordinary",
+      "version": "candidate",
+      "repetition": 1,
+      "session_id": "01a13ed5-88ae-75ce-9121-46de3b92ce98",
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "message": "查询无锡农村商业银行股份有限公司2026年5月31日的对公协定存款余额当日数",
+          "expected": {
+            "message": "查询无锡农村商业银行股份有限公司2026年5月31日的对公协定存款余额当日数",
+            "expected": [
+              {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "01",
+                "start": "2026-05-31",
+                "end": "2026-05-31"
+              }
+            ]
+          },
+          "passed": true,
+          "failures": [],
+          "elapsed_ms": 4783,
+          "status": "succeeded",
+          "completion": "full",
+          "formal_issue_codes": [],
+          "model_calls": 1,
+          "physical_calls": [
+            {
+              "call_index": 1,
+              "request_id": "token-opt-candidate-ordinary-multiturn-1-0-263db9fb-3857-4a80-8f82-6662f1dc8adc",
+              "operation_id": "01a13ed5-88b2-75ce-9121-46e0aeb1da76",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-88b4-75ce-9121-46e9c1163cd4"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            }
+          ],
+          "usage": [
+            {
+              "usage_id": "01a13ed5-88b4-75ce-9121-46e9c1163cd4",
+              "entry_id": "01a13ed5-88b4-75ce-9121-46e6cd1cd04f",
+              "operation_id": "01a13ed5-88b2-75ce-9121-46e0aeb1da76",
+              "request_id": "token-opt-candidate-ordinary-multiturn-1-0-263db9fb-3857-4a80-8f82-6662f1dc8adc",
+              "call_index": 1,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 5105,
+              "output_tokens": 182,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "total_tokens": 5287,
+              "noncache_input_tokens": 5105,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            }
+          ],
+          "usage_adjustments": [],
+          "query_count": 1,
+          "queries": [
+            {
+              "status": "succeeded",
+              "spec": {
+                "metric_codes": [
+                  "ORG_CORP_AGRMT_DEPT_BAL"
+                ],
+                "org_codes": [
+                  "01"
+                ],
+                "time": {
+                  "start": "2026-05-31",
+                  "end": "2026-05-31"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "task_id": "6c0547dd-082c-41ed-aa29-74f5448f6a61",
+              "row_count": 1,
+              "truncated": false
+            }
+          ],
+          "query_evidence": [
+            {
+              "target": {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "01",
+                "start": "2026-05-31",
+                "end": "2026-05-31"
+              },
+              "row_count": 1,
+              "rows_sha256": "8f4ec971d46f294e26244dda05dfd25d07ed7b560fb712f099da4671700f8eca",
+              "unit_set": [
+                "元"
+              ],
+              "null_count": 0
+            }
+          ],
+          "calculation_count": 0,
+          "calculation_result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "answer_sha256": "ea6ddfcfb9f5dc8c648886bf842983fdad78d6f8358b9b68c7f01b2c99de0b32",
+          "answer_entry_id": "direct:direct-answer-05ad73ceaa911052a475081655faf5887a5e48a297bfb2f635e7147ca334cf29",
+          "answer_length": 42,
+          "old_frame_count": 4,
+          "frames_sha256": "8f658422dc6ba427c5725f62f95e7090718ea1d57ee4b79b6b5ebcde84d7ace9",
+          "restored_messages_sha256": "79af7b37c9e2023e66e12a8467e8a09491b75f435e077f340c70350f17ae2216",
+          "model_error_codes": [],
+          "restore_zero_sql": true,
+          "direct_delivery": "direct_query",
+          "saved_answer_id": "direct-answer-05ad73ceaa911052a475081655faf5887a5e48a297bfb2f635e7147ca334cf29",
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments_sha256": "0913f3e943b94b7a59375244b8243a8c85f05b8f0b7257de20e423735112aade"
+            }
+          ]
+        },
+        {
+          "turn": 2,
+          "message": "日期改为2026年6月30日，其他条件不变",
+          "expected": {
+            "message": "日期改为2026年6月30日，其他条件不变",
+            "expected": [
+              {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "01",
+                "start": "2026-06-30",
+                "end": "2026-06-30"
+              }
+            ]
+          },
+          "passed": true,
+          "failures": [],
+          "elapsed_ms": 2501,
+          "status": "succeeded",
+          "completion": "full",
+          "formal_issue_codes": [],
+          "model_calls": 1,
+          "physical_calls": [
+            {
+              "call_index": 2,
+              "request_id": "token-opt-candidate-ordinary-multiturn-1-1-647192d2-3edd-43db-9859-2abf3a632f24",
+              "operation_id": "01a13ed5-9b62-75ce-9121-46ecabda9969",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-9b64-75ce-9121-46f548a348e6"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            }
+          ],
+          "usage": [
+            {
+              "usage_id": "01a13ed5-9b64-75ce-9121-46f548a348e6",
+              "entry_id": "01a13ed5-9b64-75ce-9121-46f2f621ba2b",
+              "operation_id": "01a13ed5-9b62-75ce-9121-46ecabda9969",
+              "request_id": "token-opt-candidate-ordinary-multiturn-1-1-647192d2-3edd-43db-9859-2abf3a632f24",
+              "call_index": 2,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 5845,
+              "output_tokens": 179,
+              "cache_read_tokens": 4864,
+              "cache_write_tokens": 0,
+              "total_tokens": 6024,
+              "noncache_input_tokens": 981,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            }
+          ],
+          "usage_adjustments": [],
+          "query_count": 1,
+          "queries": [
+            {
+              "status": "succeeded",
+              "spec": {
+                "metric_codes": [
+                  "ORG_CORP_AGRMT_DEPT_BAL"
+                ],
+                "org_codes": [
+                  "01"
+                ],
+                "time": {
+                  "start": "2026-06-30",
+                  "end": "2026-06-30"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "task_id": "b1b5a184-da8a-49f3-b6ec-e1b50e2812d1",
+              "row_count": 1,
+              "truncated": false
+            }
+          ],
+          "query_evidence": [
+            {
+              "target": {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "01",
+                "start": "2026-06-30",
+                "end": "2026-06-30"
+              },
+              "row_count": 1,
+              "rows_sha256": "a6ce6d5aa35d4b6814ceb524ae31c0c9be4856cf64defb43b4e23520cd1c2c77",
+              "unit_set": [
+                "元"
+              ],
+              "null_count": 0
+            }
+          ],
+          "calculation_count": 0,
+          "calculation_result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "answer_sha256": "50c66d46d9516fdde1b35ecb1647ae1b46bb0b184a32d8e67dd759109fd88232",
+          "answer_entry_id": "direct:direct-answer-f0c2e237db5ee447d79f11c5259f21e956540ea30dc81716245966c7b48784ec",
+          "answer_length": 42,
+          "old_frame_count": 7,
+          "frames_sha256": "4d911bc3d9a09b05d72d3ae47d291e93a2cf4a20b78e7c2c64ef6c984557850a",
+          "restored_messages_sha256": "05b49d85856b7468015640e6cb0d0d30beda47874a15d899db1dfcd38bd870e8",
+          "model_error_codes": [],
+          "restore_zero_sql": true,
+          "direct_delivery": "direct_query",
+          "saved_answer_id": "direct-answer-f0c2e237db5ee447d79f11c5259f21e956540ea30dc81716245966c7b48784ec",
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments_sha256": "8b55c559b2a717003dc0269e75d8526987e24233822891c1c28679f2b69dff2a"
+            }
+          ]
+        },
+        {
+          "turn": 3,
+          "message": "机构改成江苏苏州农村商业银行股份有限公司，其他条件不变",
+          "expected": {
+            "message": "机构改成江苏苏州农村商业银行股份有限公司，其他条件不变",
+            "expected": [
+              {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "070667800",
+                "start": "2026-06-30",
+                "end": "2026-06-30"
+              }
+            ]
+          },
+          "passed": true,
+          "failures": [],
+          "elapsed_ms": 6179,
+          "status": "succeeded",
+          "completion": "full",
+          "formal_issue_codes": [],
+          "model_calls": 1,
+          "physical_calls": [
+            {
+              "call_index": 3,
+              "request_id": "token-opt-candidate-ordinary-multiturn-1-2-271032ed-8d72-4ba5-996f-9af0c7c9bce3",
+              "operation_id": "01a13ed5-a528-75ce-9121-46f80c13b8b1",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-a52a-75ce-9121-4701c676fa9e"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            }
+          ],
+          "usage": [
+            {
+              "usage_id": "01a13ed5-a52a-75ce-9121-4701c676fa9e",
+              "entry_id": "01a13ed5-a52a-75ce-9121-46ffa7829eb1",
+              "operation_id": "01a13ed5-a528-75ce-9121-46f80c13b8b1",
+              "request_id": "token-opt-candidate-ordinary-multiturn-1-2-271032ed-8d72-4ba5-996f-9af0c7c9bce3",
+              "call_index": 3,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 6049,
+              "output_tokens": 180,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "total_tokens": 6229,
+              "noncache_input_tokens": 6049,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            }
+          ],
+          "usage_adjustments": [],
+          "query_count": 1,
+          "queries": [
+            {
+              "status": "succeeded",
+              "spec": {
+                "metric_codes": [
+                  "ORG_CORP_AGRMT_DEPT_BAL"
+                ],
+                "org_codes": [
+                  "070667800"
+                ],
+                "time": {
+                  "start": "2026-06-30",
+                  "end": "2026-06-30"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "task_id": "3b532216-0143-4a8b-a186-e09b13d83ea4",
+              "row_count": 1,
+              "truncated": false
+            }
+          ],
+          "query_evidence": [
+            {
+              "target": {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "070667800",
+                "start": "2026-06-30",
+                "end": "2026-06-30"
+              },
+              "row_count": 1,
+              "rows_sha256": "3b8a01dc60a951abf5319b884f39ac673d669aa903c1553e8da22a91f14a12fa",
+              "unit_set": [
+                "元"
+              ],
+              "null_count": 0
+            }
+          ],
+          "calculation_count": 0,
+          "calculation_result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "answer_sha256": "19dbcf1db06f72ed51612ff5c5bc367fce104b9f51d8dbfc59a030d1a31541d9",
+          "answer_entry_id": "direct:direct-answer-732b69f9ce988d27535e7b01e0ae3d52ab17a6d8663d2f3108fa8e6474d9a42d",
+          "answer_length": 42,
+          "old_frame_count": 10,
+          "frames_sha256": "075cb23ae7fba0c6180bda57449ee1fb37a98a40cfe8c3bfebae5a1d64f2baba",
+          "restored_messages_sha256": "101c401f39fb3a63c69b739b4e658451464c8fac582072f19a391db401602e23",
+          "model_error_codes": [],
+          "restore_zero_sql": true,
+          "direct_delivery": "direct_query",
+          "saved_answer_id": "direct-answer-732b69f9ce988d27535e7b01e0ae3d52ab17a6d8663d2f3108fa8e6474d9a42d",
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments_sha256": "c74ec80b58181786e247c587133adf924a0895acb3e1caf6e0356a837272fe2d"
+            }
+          ]
+        },
+        {
+          "turn": 4,
+          "message": "指标换成个人活期存款余额当日数，其他条件不变",
+          "expected": {
+            "message": "指标换成个人活期存款余额当日数，其他条件不变",
+            "expected": [
+              {
+                "metric": "ORG_PSON_DEDMDPT_BAL",
+                "org": "070667800",
+                "start": "2026-06-30",
+                "end": "2026-06-30"
+              }
+            ]
+          },
+          "passed": true,
+          "failures": [],
+          "elapsed_ms": 2499,
+          "status": "succeeded",
+          "completion": "full",
+          "formal_issue_codes": [],
+          "model_calls": 1,
+          "physical_calls": [
+            {
+              "call_index": 4,
+              "request_id": "token-opt-candidate-ordinary-multiturn-1-3-21c66c5b-fc68-4038-822b-392de942721e",
+              "operation_id": "01a13ed5-bd4b-75ce-9121-4704f27ec855",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-bd4d-75ce-9121-470c0fe09991"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            }
+          ],
+          "usage": [
+            {
+              "usage_id": "01a13ed5-bd4d-75ce-9121-470c0fe09991",
+              "entry_id": "01a13ed5-bd4d-75ce-9121-470b5184f6a1",
+              "operation_id": "01a13ed5-bd4b-75ce-9121-4704f27ec855",
+              "request_id": "token-opt-candidate-ordinary-multiturn-1-3-21c66c5b-fc68-4038-822b-392de942721e",
+              "call_index": 4,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 6240,
+              "output_tokens": 177,
+              "cache_read_tokens": 4864,
+              "cache_write_tokens": 0,
+              "total_tokens": 6417,
+              "noncache_input_tokens": 1376,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            }
+          ],
+          "usage_adjustments": [],
+          "query_count": 1,
+          "queries": [
+            {
+              "status": "succeeded",
+              "spec": {
+                "metric_codes": [
+                  "ORG_PSON_DEDMDPT_BAL"
+                ],
+                "org_codes": [
+                  "070667800"
+                ],
+                "time": {
+                  "start": "2026-06-30",
+                  "end": "2026-06-30"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "task_id": "1196327d-c52d-4ae5-88ff-b7510042189f",
+              "row_count": 1,
+              "truncated": false
+            }
+          ],
+          "query_evidence": [
+            {
+              "target": {
+                "metric": "ORG_PSON_DEDMDPT_BAL",
+                "org": "070667800",
+                "start": "2026-06-30",
+                "end": "2026-06-30"
+              },
+              "row_count": 1,
+              "rows_sha256": "4026a52418ed141edc02f1aad2a255092f2cf7b1fb116a149d70bafd989c8d1b",
+              "unit_set": [
+                "元"
+              ],
+              "null_count": 0
+            }
+          ],
+          "calculation_count": 0,
+          "calculation_result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "answer_sha256": "9598513cc0cb5d07e0c8f9ed2466b4a407d67a53810395b627654c8c415aee18",
+          "answer_entry_id": "direct:direct-answer-83c73c4756e28dc74f2ecfbdef010834a5eaf57a9fd003a56fbaa1310d2784e9",
+          "answer_length": 44,
+          "old_frame_count": 13,
+          "frames_sha256": "34e108f92e537da2681a64963971404e7e702185d703ad5beff8d7f582ac48f5",
+          "restored_messages_sha256": "1c1ca1356f6a423eeeed345b9f10c1a8d388f90731534798ad10872dc0353b22",
+          "model_error_codes": [],
+          "restore_zero_sql": true,
+          "direct_delivery": "direct_query",
+          "saved_answer_id": "direct-answer-83c73c4756e28dc74f2ecfbdef010834a5eaf57a9fd003a56fbaa1310d2784e9",
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments_sha256": "0b4fd6d410ff8492e84fd7991ef42731db72e3394f11aadc29fb696cda727b81"
+            }
+          ]
+        },
+        {
+          "turn": 5,
+          "message": "重新展示本对话第一次查询的正式结果，不要重新查询",
+          "expected": {
+            "message": "重新展示本对话第一次查询的正式结果，不要重新查询",
+            "expected": [
+              {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "01",
+                "start": "2026-05-31",
+                "end": "2026-05-31"
+              }
+            ],
+            "reuse": true
+          },
+          "passed": true,
+          "failures": [],
+          "elapsed_ms": 16973,
+          "status": "reused",
+          "completion": "full",
+          "formal_issue_codes": [],
+          "model_calls": 2,
+          "physical_calls": [
+            {
+              "call_index": 5,
+              "request_id": "token-opt-candidate-ordinary-multiturn-1-4-bce04b1c-b547-4d10-8edd-e8f1b08c55b5",
+              "operation_id": "01a13ed5-c710-75ce-9121-471131f25cc3",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-c712-75ce-9121-4719a5b9fe1d"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            },
+            {
+              "call_index": 6,
+              "request_id": "token-opt-candidate-ordinary-multiturn-1-4-bce04b1c-b547-4d10-8edd-e8f1b08c55b5",
+              "operation_id": "01a13ed5-c710-75ce-9121-471131f25cc3",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed5-ff31-75ce-9121-4720f54090f3"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            }
+          ],
+          "usage": [
+            {
+              "usage_id": "01a13ed5-c712-75ce-9121-4719a5b9fe1d",
+              "entry_id": "01a13ed5-c712-75ce-9121-471763508f44",
+              "operation_id": "01a13ed5-c710-75ce-9121-471131f25cc3",
+              "request_id": "token-opt-candidate-ordinary-multiturn-1-4-bce04b1c-b547-4d10-8edd-e8f1b08c55b5",
+              "call_index": 5,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 6441,
+              "output_tokens": 44,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "total_tokens": 6485,
+              "noncache_input_tokens": 6441,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            },
+            {
+              "usage_id": "01a13ed5-ff31-75ce-9121-4720f54090f3",
+              "entry_id": "01a13ed5-ff31-75ce-9121-471ea44ac6c7",
+              "operation_id": "01a13ed5-c710-75ce-9121-471131f25cc3",
+              "request_id": "token-opt-candidate-ordinary-multiturn-1-4-bce04b1c-b547-4d10-8edd-e8f1b08c55b5",
+              "call_index": 6,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 7665,
+              "output_tokens": 108,
+              "cache_read_tokens": 4864,
+              "cache_write_tokens": 0,
+              "total_tokens": 7773,
+              "noncache_input_tokens": 2801,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            }
+          ],
+          "usage_adjustments": [],
+          "query_count": 0,
+          "queries": [],
+          "query_evidence": [],
+          "calculation_count": 0,
+          "calculation_result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "answer_sha256": "ea6ddfcfb9f5dc8c648886bf842983fdad78d6f8358b9b68c7f01b2c99de0b32",
+          "answer_entry_id": "direct:direct-answer-b9e5fdfe428669e33840d6e5865bd981ad04eee49a74e05c678298971275d9a5",
+          "answer_length": 42,
+          "old_frame_count": 13,
+          "frames_sha256": "34e108f92e537da2681a64963971404e7e702185d703ad5beff8d7f582ac48f5",
+          "restored_messages_sha256": "b8a002dab77a6753516c5053a6163bd18b3ee53c1234dba14f431b761f3620ad",
+          "model_error_codes": [],
+          "restore_zero_sql": true,
+          "direct_delivery": "direct_query",
+          "saved_answer_id": "direct-answer-b9e5fdfe428669e33840d6e5865bd981ad04eee49a74e05c678298971275d9a5",
+          "calls": [
+            {
+              "name": "business_context_read",
+              "arguments_sha256": "ca502dec04523cdc33afece69a9b600d5b9bd022d453791cc693b6b372f808ad"
+            },
+            {
+              "name": "read_business_result",
+              "arguments_sha256": "dfdd0dd2975106589794c0a9848cb5b8f769f600c27897172a10af28274e2831"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "missing-then-confirm",
+      "group": "clarification",
+      "version": "candidate",
+      "repetition": 1,
+      "session_id": "01a13ed6-095f-75ce-9121-47253e1ece5b",
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "message": "帮我查对公协定存款余额当日数",
+          "expected": {
+            "message": "帮我查对公协定存款余额当日数",
+            "expected": [],
+            "missing": [
+              "organizations",
+              "time"
+            ]
+          },
+          "passed": true,
+          "failures": [],
+          "elapsed_ms": 4003,
+          "status": "needs_user",
+          "completion": "unmet",
+          "formal_issue_codes": [
+            {
+              "code": "FIELD_REQUIRED",
+              "field": "time",
+              "remediation": "user"
+            },
+            {
+              "code": "FIELD_REQUIRED",
+              "field": "organizations",
+              "remediation": "user"
+            }
+          ],
+          "model_calls": 1,
+          "physical_calls": [
+            {
+              "call_index": 1,
+              "request_id": "token-opt-candidate-missing-then-confirm-1-0-cc007b87-72ad-4eb1-b71c-4c4259881a55",
+              "operation_id": "01a13ed6-0961-75ce-9121-4727f4000ab8",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed6-0964-75ce-9121-472ec9ea815e"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            }
+          ],
+          "usage": [
+            {
+              "usage_id": "01a13ed6-0964-75ce-9121-472ec9ea815e",
+              "entry_id": "01a13ed6-0964-75ce-9121-472d27693bc5",
+              "operation_id": "01a13ed6-0961-75ce-9121-4727f4000ab8",
+              "request_id": "token-opt-candidate-missing-then-confirm-1-0-cc007b87-72ad-4eb1-b71c-4c4259881a55",
+              "call_index": 1,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 5095,
+              "output_tokens": 144,
+              "cache_read_tokens": 4096,
+              "cache_write_tokens": 0,
+              "total_tokens": 5239,
+              "noncache_input_tokens": 999,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            }
+          ],
+          "usage_adjustments": [],
+          "query_count": 0,
+          "queries": [],
+          "query_evidence": [],
+          "calculation_count": 0,
+          "calculation_result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "answer_sha256": "ecc879471ad7a875a6c236800e41c6c388914778a68a0c61b4260b06383c5bb0",
+          "answer_entry_id": "01a13ed6-0964-75ce-9121-473012d50522:answer",
+          "answer_length": 52,
+          "old_frame_count": 0,
+          "frames_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "restored_messages_sha256": "7989d6378f21071a89631f3220c8d2ac21c26bf73d7efb7764c9ef83632dd38e",
+          "model_error_codes": [],
+          "restore_zero_sql": true,
+          "direct_delivery": null,
+          "saved_answer_id": null,
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments_sha256": "7c344e5a9efb081acaaa53e7b34e118c37c8fcd6b299deb14f4f4b0600682be4"
+            }
+          ]
+        },
+        {
+          "turn": 2,
+          "message": "机构是无锡农村商业银行股份有限公司，日期是2026年5月31日",
+          "expected": {
+            "message": "机构是无锡农村商业银行股份有限公司，日期是2026年5月31日",
+            "expected": [
+              {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "01",
+                "start": "2026-05-31",
+                "end": "2026-05-31"
+              }
+            ]
+          },
+          "passed": true,
+          "failures": [],
+          "elapsed_ms": 4870,
+          "status": "succeeded",
+          "completion": "full",
+          "formal_issue_codes": [],
+          "model_calls": 1,
+          "physical_calls": [
+            {
+              "call_index": 2,
+              "request_id": "token-opt-candidate-missing-then-confirm-1-1-3f0eee10-3864-49e9-beba-cdff270b6f72",
+              "operation_id": "01a13ed6-1905-75ce-9121-47333069692e",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed6-1906-75ce-9121-473b104a1a9c"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            }
+          ],
+          "usage": [
+            {
+              "usage_id": "01a13ed6-1906-75ce-9121-473b104a1a9c",
+              "entry_id": "01a13ed6-1906-75ce-9121-4739db2e08f4",
+              "operation_id": "01a13ed6-1905-75ce-9121-47333069692e",
+              "request_id": "token-opt-candidate-missing-then-confirm-1-1-3f0eee10-3864-49e9-beba-cdff270b6f72",
+              "call_index": 2,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 5713,
+              "output_tokens": 204,
+              "cache_read_tokens": 4096,
+              "cache_write_tokens": 0,
+              "total_tokens": 5917,
+              "noncache_input_tokens": 1617,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            }
+          ],
+          "usage_adjustments": [],
+          "query_count": 1,
+          "queries": [
+            {
+              "status": "succeeded",
+              "spec": {
+                "metric_codes": [
+                  "ORG_CORP_AGRMT_DEPT_BAL"
+                ],
+                "org_codes": [
+                  "01"
+                ],
+                "time": {
+                  "start": "2026-05-31",
+                  "end": "2026-05-31"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "task_id": "bca47349-c97d-4c14-b97a-acaa7d22abaa",
+              "row_count": 1,
+              "truncated": false
+            }
+          ],
+          "query_evidence": [
+            {
+              "target": {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "01",
+                "start": "2026-05-31",
+                "end": "2026-05-31"
+              },
+              "row_count": 1,
+              "rows_sha256": "8f4ec971d46f294e26244dda05dfd25d07ed7b560fb712f099da4671700f8eca",
+              "unit_set": [
+                "元"
+              ],
+              "null_count": 0
+            }
+          ],
+          "calculation_count": 0,
+          "calculation_result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "answer_sha256": "ea6ddfcfb9f5dc8c648886bf842983fdad78d6f8358b9b68c7f01b2c99de0b32",
+          "answer_entry_id": "direct:direct-answer-2740b0cf757aec4b3688b57f452accf9da32470e898bcc395062e90328d66cd7",
+          "answer_length": 42,
+          "old_frame_count": 4,
+          "frames_sha256": "a70a165d4c150848e7678432c370e2369676bd92ec7d9df03885c6ce1969b67a",
+          "restored_messages_sha256": "895587e092eaf5d9314e6892a717a4ce4f21e3bb7d002accf8c77877fc484fac",
+          "model_error_codes": [],
+          "restore_zero_sql": true,
+          "direct_delivery": "direct_query",
+          "saved_answer_id": "direct-answer-2740b0cf757aec4b3688b57f452accf9da32470e898bcc395062e90328d66cd7",
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments_sha256": "82eb60bff0b761b03a1143aa0f3a0284f0326496f48f117eedffe9fb2368df8e"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "missing-then-confirm",
+      "group": "clarification",
+      "version": "baseline",
+      "repetition": 1,
+      "session_id": "01a13ed6-2c0c-75ce-9121-473f32e7cc36",
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "message": "帮我查对公协定存款余额当日数",
+          "expected": {
+            "message": "帮我查对公协定存款余额当日数",
+            "expected": [],
+            "missing": [
+              "organizations",
+              "time"
+            ]
+          },
+          "passed": true,
+          "failures": [],
+          "elapsed_ms": 6777,
+          "status": "needs_user",
+          "completion": "unmet",
+          "formal_issue_codes": [
+            {
+              "code": "FIELD_REQUIRED",
+              "field": "time",
+              "remediation": "user"
+            },
+            {
+              "code": "FIELD_REQUIRED",
+              "field": "organizations",
+              "remediation": "user"
+            }
+          ],
+          "model_calls": 1,
+          "physical_calls": [
+            {
+              "call_index": 1,
+              "request_id": "token-opt-baseline-missing-then-confirm-1-0-18c14e16-6e8b-4414-a9d3-3304efaa28ca",
+              "operation_id": "01a13ed6-2c10-75ce-9121-47419e5b3734",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed6-2c11-75ce-9121-4749af4bdec5"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            }
+          ],
+          "usage": [
+            {
+              "usage_id": "01a13ed6-2c11-75ce-9121-4749af4bdec5",
+              "entry_id": "01a13ed6-2c11-75ce-9121-47466a81911b",
+              "operation_id": "01a13ed6-2c10-75ce-9121-47419e5b3734",
+              "request_id": "token-opt-baseline-missing-then-confirm-1-0-18c14e16-6e8b-4414-a9d3-3304efaa28ca",
+              "call_index": 1,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 5717,
+              "output_tokens": 155,
+              "cache_read_tokens": 4096,
+              "cache_write_tokens": 0,
+              "total_tokens": 5872,
+              "noncache_input_tokens": 1621,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            }
+          ],
+          "usage_adjustments": [],
+          "query_count": 0,
+          "queries": [],
+          "query_evidence": [],
+          "calculation_count": 0,
+          "calculation_result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "answer_sha256": "ecc879471ad7a875a6c236800e41c6c388914778a68a0c61b4260b06383c5bb0",
+          "answer_entry_id": "01a13ed6-2c11-75ce-9121-474aca47d6a1:answer",
+          "answer_length": 52,
+          "old_frame_count": 0,
+          "frames_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "restored_messages_sha256": "6e970bc62773343727ae8f138f964ae782fcaf073daf6b0a5b21d89d09c52409",
+          "model_error_codes": [],
+          "restore_zero_sql": true,
+          "direct_delivery": null,
+          "saved_answer_id": null,
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments_sha256": "92da88021edff77cb5447a89e0e06b6f3b982511885efbb006621211db9c5a8f"
+            }
+          ]
+        },
+        {
+          "turn": 2,
+          "message": "机构是无锡农村商业银行股份有限公司，日期是2026年5月31日",
+          "expected": {
+            "message": "机构是无锡农村商业银行股份有限公司，日期是2026年5月31日",
+            "expected": [
+              {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "01",
+                "start": "2026-05-31",
+                "end": "2026-05-31"
+              }
+            ]
+          },
+          "passed": true,
+          "failures": [],
+          "elapsed_ms": 5504,
+          "status": "succeeded",
+          "completion": "full",
+          "formal_issue_codes": [],
+          "model_calls": 3,
+          "physical_calls": [
+            {
+              "call_index": 2,
+              "request_id": "token-opt-baseline-missing-then-confirm-1-1-a57269e6-8cbe-496d-a343-ad773a63e338",
+              "operation_id": "01a13ed6-468a-75ce-9121-474d53476824",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed6-468b-75ce-9121-47542e7615ee"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            },
+            {
+              "call_index": 3,
+              "request_id": "token-opt-baseline-missing-then-confirm-1-1-a57269e6-8cbe-496d-a343-ad773a63e338",
+              "operation_id": "01a13ed6-468a-75ce-9121-474d53476824",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed6-4f2f-75ce-9121-475d650905eb"
+              ],
+              "stop_reason": "toolUse",
+              "response_status": 200
+            },
+            {
+              "call_index": 4,
+              "request_id": "token-opt-baseline-missing-then-confirm-1-1-a57269e6-8cbe-496d-a343-ad773a63e338",
+              "operation_id": "01a13ed6-468a-75ce-9121-474d53476824",
+              "step": "assistant",
+              "attempt": 1,
+              "usage_ids": [
+                "01a13ed6-57b2-75ce-9121-4765dedff1d5"
+              ],
+              "stop_reason": "stop",
+              "response_status": 200
+            }
+          ],
+          "usage": [
+            {
+              "usage_id": "01a13ed6-468b-75ce-9121-47542e7615ee",
+              "entry_id": "01a13ed6-468b-75ce-9121-4753abe4de87",
+              "operation_id": "01a13ed6-468a-75ce-9121-474d53476824",
+              "request_id": "token-opt-baseline-missing-then-confirm-1-1-a57269e6-8cbe-496d-a343-ad773a63e338",
+              "call_index": 2,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 6332,
+              "output_tokens": 142,
+              "cache_read_tokens": 5632,
+              "cache_write_tokens": 0,
+              "total_tokens": 6474,
+              "noncache_input_tokens": 700,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            },
+            {
+              "usage_id": "01a13ed6-4f2f-75ce-9121-475d650905eb",
+              "entry_id": "01a13ed6-4f2f-75ce-9121-475ba8af279e",
+              "operation_id": "01a13ed6-468a-75ce-9121-474d53476824",
+              "request_id": "token-opt-baseline-missing-then-confirm-1-1-a57269e6-8cbe-496d-a343-ad773a63e338",
+              "call_index": 3,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 6605,
+              "output_tokens": 142,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "total_tokens": 6747,
+              "noncache_input_tokens": 6605,
+              "stop_reason": "toolUse",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            },
+            {
+              "usage_id": "01a13ed6-57b2-75ce-9121-4765dedff1d5",
+              "entry_id": "01a13ed6-57b2-75ce-9121-4762ab3a8ec7",
+              "operation_id": "01a13ed6-468a-75ce-9121-474d53476824",
+              "request_id": "token-opt-baseline-missing-then-confirm-1-1-a57269e6-8cbe-496d-a343-ad773a63e338",
+              "call_index": 4,
+              "step": "assistant",
+              "attempt": 1,
+              "usage_known": true,
+              "input_tokens": 7972,
+              "output_tokens": 27,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "total_tokens": 7999,
+              "noncache_input_tokens": 7972,
+              "stop_reason": "stop",
+              "accounting_complete": true,
+              "accounting_status": "provider_reported_settled"
+            }
+          ],
+          "usage_adjustments": [],
+          "query_count": 1,
+          "queries": [
+            {
+              "status": "succeeded",
+              "spec": {
+                "metric_codes": [
+                  "ORG_CORP_AGRMT_DEPT_BAL"
+                ],
+                "org_codes": [
+                  "01"
+                ],
+                "time": {
+                  "start": "2026-05-31",
+                  "end": "2026-05-31"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "task_id": "ca9664e2-c64d-41e9-889f-b009d635da9e",
+              "row_count": 1,
+              "truncated": false
+            }
+          ],
+          "query_evidence": [
+            {
+              "target": {
+                "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+                "org": "01",
+                "start": "2026-05-31",
+                "end": "2026-05-31"
+              },
+              "row_count": 1,
+              "rows_sha256": "8f4ec971d46f294e26244dda05dfd25d07ed7b560fb712f099da4671700f8eca",
+              "unit_set": [
+                "元"
+              ],
+              "null_count": 0
+            }
+          ],
+          "calculation_count": 0,
+          "calculation_result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "answer_sha256": "3a2d356cfdc73db44d4a36cfe542848f285259181297404ed2d66b273676949e",
+          "answer_entry_id": "01a13ed6-57b2-75ce-9121-4762ab3a8ec7",
+          "answer_length": 46,
+          "old_frame_count": 4,
+          "frames_sha256": "1f5aad77c71264e5b34450b99cab13592c89d0eb82ec26f69f2f355e0790937c",
+          "restored_messages_sha256": "8bbeef429aa66e878fc9f751d592380ebf436b50169c115c0e995d0b08d9a674",
+          "model_error_codes": [],
+          "restore_zero_sql": true,
+          "direct_delivery": null,
+          "saved_answer_id": null,
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "arguments_sha256": "8e7e4daffc85f6061382c5a374e761749e551f895f7c854ed3653f18426e9a11"
+            },
+            {
+              "name": "resolve_business_turn",
+              "arguments_sha256": "b97ac78719a3e5b39341c751124bbce336c6a8331ed1fb5b9b95d197f6d879e1"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

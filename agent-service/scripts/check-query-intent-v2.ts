@@ -24,6 +24,8 @@ import {createCapabilities} from "../src/business-context/capabilities.js";
 import {projectEntries} from "../src/sessionProjection.js";
 import {BackendApiError} from "../src/backendClient.js";
 import {AnswerStreamProjector} from "../src/answerStream.js";
+import {modelUsage} from "../src/modelUsage.js";
+import type {AskMetricRequestContext} from "../src/requestContext.js";
 import type {BackendClient, BackendUser, BasicQuerySpec} from "../src/backendClient.js";
 import type {BusinessFrame, FieldResolution, OrganizationScope, OrganizationScopeInput} from "../src/business-context/types.js";
 
@@ -237,97 +239,156 @@ export function checkExpectation(expected: Expectation, queries: BasicQuerySpec[
   }
 }
 
+export interface QueryIntentTurnReport extends Record<string, unknown> {
+  case: string;
+  group: string;
+  iteration: number;
+  turn: number;
+  expected: Expectation;
+  passed: boolean;
+  errors: string[];
+  elapsed_ms: number;
+  first_visible_ms: number | null;
+  first_model_output_tokens: number | null;
+  first_model_usage_known: boolean;
+}
+
+/** 允许当轮参数纠错，必须最终有已校验解析及原生执行证据；首个错误回执不能掩盖后续成功。 */
+export function assertNativeBusinessExecution(
+  toolCalls: Array<{name: string}>,
+  toolResults: Array<{name: string; statuses: Array<{status: unknown}>}>,
+) {
+  const resolvedAt = toolCalls.findIndex(call => call.name === "resolve_business_turn");
+  const executeAt = toolCalls.findIndex(call => call.name === "execute_business_frame");
+  const resolutions = toolResults.filter(result => result.name === "resolve_business_turn");
+  assert(resolvedAt >= 0 && resolutions.some(result => result.statuses.some(status => ["READY", "succeeded"].includes(String(status.status)))),
+    "native model must resolve the business Frame");
+  assert(executeAt > resolvedAt || resolutions.some(result => result.statuses.some(status => status.status === "succeeded")),
+    "validated Frame must execute through the native tool receipt");
+}
+
+/** 共用原生回合验收；只注入合成后端，记录首个实际回答与首个 assistant 的提供方用量。 */
+export async function runQueryIntentCase(host: HarnessHost, test: AcceptanceCase, iteration: number,
+  options: {answerStreaming: boolean; onReport?: (report: QueryIntentTurnReport) => Promise<void>}) {
+  const reports: QueryIntentTurnReport[] = [];
+  const actor: BackendUser = {id: `synthetic-${test.id}-${iteration}`, username: "synthetic", display_name: "合成入口验收", org_code: "O1", org_name: "合成甲农商行", role_code: "USER"};
+  const {backend, queries, trace} = syntheticBackend(test);
+  let session = await host.createSession(actor);
+  try {
+    for (const [turnIndex, turn] of test.turns.entries()) {
+      if (turn.reopen) {const id = session.sessionId; await host.closeSession(id); session = (await host.openSession(actor, id))!; assert(session);}
+      const queryStart = queries.length; const traceStart = trace.length;
+      const initialEntries = await session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
+      const started = performance.now();
+      const errors: string[] = [];
+      const requestId = `${test.id}-${iteration}-${turnIndex}`;
+      let operationId: string | undefined;
+      let request: AskMetricRequestContext | undefined;
+      let firstVisibleAt: number | undefined;
+      const streamedCalls = new Set<number>();
+      let resets = 0;
+      const markVisible = () => {
+        firstVisibleAt ??= performance.now();
+        if (request?.timings) request.timings.firstVisibleAt ??= firstVisibleAt;
+      };
+      try {
+        const admitted = await host.admitPrompt(session, {protocol_version: 3, request_id: requestId, message: turn.text}, {actor, backend});
+        assert(admitted.ok, "host must admit the prompt");
+        request = admitted.request;
+        if (request.timings) {
+          request.timings.receivedAt = started;
+          request.timings.reportAtSnapshot = true;
+        }
+        const projector = new AnswerStreamProjector((type, data) => {
+          if (type === "answer_delta" && "text" in data && data.text.trim()) {
+            markVisible();
+            streamedCalls.add(data.call_seq);
+          } else if (type === "answer_reset") resets += 1;
+        });
+        const watch = await host.watch(session);
+        if (options.answerStreaming) admitted.request.reportAnswerRetry = callSeq => projector.retry(callSeq);
+        watch.start(event => {if (options.answerStreaming) projector.onWatchEvent(event, admitted.request.answerStream);});
+        const result = await host.drivePrompt(session, admitted).finally(() => {projector.close(); watch.unsubscribe();});
+        assert(result.ok, "host must admit and finish the prompt");
+        operationId = result.operationId;
+      }
+      catch (error) {errors.push(`host: ${safeError(error)}`);}
+      const entries = await session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
+      const messages = entries.slice(initialEntries.length).filter(entry => entry.type === "message").map(entry => entry.message);
+      const answer = projectEntries(entries.slice(initialEntries.length)).filter(message => message.role === "assistant").at(-1);
+      if (answer?.text.trim()) markVisible();
+      if (request) await host.recordRequestTiming(session, request);
+      const frames = new NativeFrameStore(session.session);
+      const state = await frames.state();
+      const frame = state.focusFrameId ? await frames.get(state.focusFrameId) : undefined;
+      const assistantMessages = messages.filter(message => message.role === "assistant");
+      const firstAssistant = assistantMessages[0];
+      // 首次响应未知用量保持 null；不能用后续成功响应或零值代替。
+      const firstUsage = firstAssistant ? modelUsage(firstAssistant.usage) : undefined;
+      const toolCalls = messages.flatMap(message => message.role === "assistant" ? message.content.filter(block => block.type === "toolCall").map(block => ({name: block.name, arguments: block.arguments})) : []);
+      const toolResults = messages.filter(message => message.role === "toolResult").map(message => ({name: message.toolName,
+        isError: message.isError, statuses: message.content.filter(block => block.type === "text").flatMap(block => {try {const value = JSON.parse(block.text); return [{status: value.status, error_code: value.error_code, frameId: value.frameId}];} catch {return [];}})}));
+      const currentTrace = trace.slice(traceStart); const currentQueries = queries.slice(queryStart);
+      try {
+        assert(answer, "every turn must produce a visible answer");
+        assert(answer.text.trim(), "every turn must produce a non-empty visible answer");
+        assert(!answer.error, "visible answer must not be a transport failure");
+        assert(!toolCalls.some(call => forbiddenTools.has(call.name)), "model must use only new business entry");
+        assert(!currentTrace.some(item => item.method.startsWith("UNEXPECTED:") || /semantic|submit|clarify/i.test(item.method)), "legacy or undeclared backend call");
+        assert(!messages.some(message => message.role === "assistant" && ["error", "aborted"].includes(message.stopReason)), "model must finish normally");
+        assert(toolCalls.filter(call => call.name === "resolve_business_turn").length <= 3, "unbounded resolution retry");
+        checkExpectation(turn.expect, currentQueries, frame, currentTrace);
+        if (turn.expect.queryCount) {
+          assertNativeBusinessExecution(toolCalls, toolResults);
+        }
+      } catch (error) {errors.push(safeError(error));}
+      const report: QueryIntentTurnReport = {case: test.id, group: test.group, iteration, turn: turnIndex + 1, input: turn.text,
+        session_id: session.sessionId, request_id: requestId, operation_id: operationId, turn_id: operationId, answer,
+        expected: turn.expect, passed: !errors.length, errors, elapsed_ms: Math.round(performance.now() - started),
+        first_visible_ms: firstVisibleAt === undefined ? null : Math.round(firstVisibleAt - started),
+        first_model_output_tokens: firstUsage?.output_tokens ?? null,
+        first_model_usage_known: firstUsage?.usage_known ?? false,
+        first_model_stop_reason: firstAssistant?.stopReason ?? null,
+        model_first_token_ms: request?.timings?.modelFirstTokenMs ?? [],
+        streamed_calls: streamedCalls.size, resets,
+        native_tool_calls: toolCalls, native_tool_results: toolResults,
+        model_calls: assistantMessages.length,
+        focus_frame: frame, basic_queries: currentQueries, backend_trace: currentTrace};
+      reports.push(report);
+      console.log(JSON.stringify({case: test.id, iteration, turn: turnIndex + 1, passed: report.passed, errors,
+        tools: toolCalls.map(call => call.name), query_count: currentQueries.length, elapsed_ms: report.elapsed_ms}));
+      await options.onReport?.(report);
+    }
+  } finally {await host.closeSession(session.sessionId);}
+  return reports;
+}
+
 if (directlyInvoked && !args.includes("--live")) {
   console.log(JSON.stringify({status: "fixtures_and_protocol_valid", cases: cases.length, selected_cases: selected.length,
     selected_turns: selected.reduce((sum, test) => sum + test.turns.length, 0), repeats: repeat, concurrency, model_called: false,
     backend: "synthetic_only", limitation: "Offline validation does not prove real model intent parsing or SQL execution"}));
 } else if (directlyInvoked) {
   const dir = await mkdtemp(join(tmpdir(), "query-intent-v2-"));
-  // 每次模型流限时，避免单个坏网关请求拖住整批；不使用不能取消请求的 Promise.race。
-  const config = {...loadConfig(), modelTimeoutMs: 60_000, dataDir: dir};
+  // 输出停滞最多等 60 秒；首响沿用环境配置，持续输出不按总时长中断。
+  const config = {...loadConfig(), modelStreamIdleTimeoutMs: 60_000, dataDir: dir};
   const store = new NativeSessionStore(dir);
   const skills = await loadBusinessSkills();
   const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store,
-    [...createAskMetricTools(), createBusinessSkillReadTool(skills)], {skills});
+    [...createAskMetricTools({compactTurnArgs: config.compactTurnArgs}), createBusinessSkillReadTool(skills)], {skills});
   const reports: Array<Record<string, unknown>> = [];
   const reportPath = option("--report") ?? join(dir, "report.json");
   let reportWrite: Promise<void> = Promise.resolve();
   const saveReport = () => {
     const content = JSON.stringify({environment: "configured_real_model_synthetic_backend_real_python_resolvers",
     model_called: true, production_backend_called: false, sql_executed: false, reference_date: "2026-09-22",
-    model_name: config.model.name, model_timeout_ms: config.modelTimeoutMs, concurrency,
+    model_name: config.model.name, model_stream_idle_timeout_ms: config.modelStreamIdleTimeoutMs,
+    model_first_response_timeout_ms: config.modelFirstResponseTimeoutMs, concurrency,
     selected_cases: selected.map(test => test.id), repeats: repeat, business_skills: skills.map(skill => skill.name),
     passed: reports.length === selected.reduce((sum, test) => sum + test.turns.length, 0) * repeat && reports.every(item => item.passed), reports}, null, 2);
     reportWrite = reportWrite.then(() => writeFile(reportPath, content));
     return reportWrite;
   };
-  const runCase = async (test: AcceptanceCase, iteration: number) => {
-      const actor: BackendUser = {id: `synthetic-${test.id}-${iteration}`, username: "synthetic", display_name: "合成入口验收", org_code: "O1", org_name: "合成甲农商行", role_code: "USER"};
-      const {backend, queries, trace} = syntheticBackend(test);
-      let session = await host.createSession(actor);
-      try {
-        for (const [turnIndex, turn] of test.turns.entries()) {
-          if (turn.reopen) {const id = session.sessionId; await host.closeSession(id); session = (await host.openSession(actor, id))!; assert(session);}
-          const queryStart = queries.length; const traceStart = trace.length;
-          const initialEntries = await session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
-          const started = performance.now();
-          const errors: string[] = [];
-          const requestId = `${test.id}-${iteration}-${turnIndex}`;
-          let operationId: string | undefined;
-          try {
-            const admitted = await host.admitPrompt(session, {protocol_version: 3, request_id: requestId, message: turn.text}, {actor, backend});
-            assert(admitted.ok, "host must admit the prompt");
-            const projector = new AnswerStreamProjector(() => {});
-            const watch = await host.watch(session);
-            if (config.answerStreaming) admitted.request.reportAnswerRetry = callSeq => projector.retry(callSeq);
-            watch.start(event => {if (config.answerStreaming) projector.onWatchEvent(event, admitted.request.answerStream);});
-            const result = await host.drivePrompt(session, admitted).finally(() => {projector.close(); watch.unsubscribe();});
-            assert(result.ok, "host must admit and finish the prompt");
-            operationId = result.operationId;
-          }
-          catch (error) {errors.push(`host: ${safeError(error)}`);}
-          const frames = new NativeFrameStore(session.session);
-          const state = await frames.state();
-          const frame = state.focusFrameId ? await frames.get(state.focusFrameId) : undefined;
-          const entries = await session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
-          const messages = entries.slice(initialEntries.length).filter(entry => entry.type === "message").map(entry => entry.message);
-          const answer = projectEntries(entries.slice(initialEntries.length)).filter(message => message.role === "assistant").at(-1);
-          const toolCalls = messages.flatMap(message => message.role === "assistant" ? message.content.filter(block => block.type === "toolCall").map(block => ({name: block.name, arguments: block.arguments})) : []);
-          const toolResults = messages.filter(message => message.role === "toolResult").map(message => ({name: message.toolName,
-            isError: message.isError, statuses: message.content.filter(block => block.type === "text").flatMap(block => {try {const value = JSON.parse(block.text); return [{status: value.status, error_code: value.error_code, frameId: value.frameId}];} catch {return [];}})}));
-          const currentTrace = trace.slice(traceStart); const currentQueries = queries.slice(queryStart);
-          try {
-            assert(answer, "every turn must produce a visible answer");
-            assert(answer.text.trim(), "every turn must produce a non-empty visible answer");
-            assert(!answer.error, "visible answer must not be a transport failure");
-            assert(!toolCalls.some(call => forbiddenTools.has(call.name)), "model must use only new business entry");
-            assert(!currentTrace.some(item => item.method.startsWith("UNEXPECTED:") || /semantic|submit|clarify/i.test(item.method)), "legacy or undeclared backend call");
-            assert(!messages.some(message => message.role === "assistant" && ["error", "aborted"].includes(message.stopReason)), "model must finish normally");
-            assert(toolCalls.filter(call => call.name === "resolve_business_turn").length <= 3, "unbounded resolution retry");
-            checkExpectation(turn.expect, currentQueries, frame, currentTrace);
-            if (turn.expect.queryCount) {
-              const resolvedAt = toolCalls.findIndex(call => call.name === "resolve_business_turn");
-              const executeAt = toolCalls.findIndex(call => call.name === "execute_business_frame");
-              const resolution = toolResults.find(result => result.name === "resolve_business_turn");
-              const resolvedStatus = resolution?.statuses.some(status => ["READY", "succeeded"].includes(status.status));
-              assert(resolvedAt >= 0 && resolvedStatus, "native model must resolve the business Frame");
-              assert(executeAt > resolvedAt || resolution?.statuses.some(status => status.status === "succeeded"),
-                "validated Frame must execute through the native tool receipt");
-            }
-          } catch (error) {errors.push(safeError(error));}
-          const report = {case: test.id, group: test.group, iteration, turn: turnIndex + 1, input: turn.text,
-            session_id: session.sessionId, request_id: requestId, operation_id: operationId, turn_id: operationId, answer,
-            expected: turn.expect, passed: !errors.length, errors, elapsed_ms: Math.round(performance.now() - started),
-            native_tool_calls: toolCalls, native_tool_results: toolResults,
-            model_calls: messages.filter(message => message.role === "assistant").length,
-            focus_frame: frame, basic_queries: currentQueries, backend_trace: currentTrace};
-          reports.push(report);
-          console.log(JSON.stringify({case: test.id, iteration, turn: turnIndex + 1, passed: report.passed, errors,
-            tools: toolCalls.map(call => call.name), query_count: currentQueries.length, elapsed_ms: report.elapsed_ms}));
-          await saveReport();
-        }
-      } finally {await host.closeSession(session.sessionId);}
-  };
+
   try {
     const jobs = Array.from({length: repeat}, (_, index) => selected.map(test => ({test, iteration: index + 1}))).flat();
     let nextJob = 0;
@@ -336,7 +397,8 @@ if (directlyInvoked && !args.includes("--live")) {
       for (;;) {
         const job = jobs[nextJob++];
         if (!job) return;
-        await runCase(job.test, job.iteration);
+        await runQueryIntentCase(host, job.test, job.iteration, {answerStreaming: config.answerStreaming ?? false,
+          onReport: async report => {reports.push(report); await saveReport();}});
       }
     });
     const outcomes = await Promise.allSettled(workers);

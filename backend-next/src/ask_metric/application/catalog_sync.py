@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from ask_metric.application.org_aliases import derive_org_aliases
 from ask_metric.domain.organization_scope import (
     OrganizationHierarchyNode,
     OrganizationHierarchySnapshot,
@@ -218,15 +219,16 @@ class SitCatalogSyncService:
         org_name_field: str = "org_chn_nm",
         corporation_code_field: str = "corpt_no",
         hierarchy_field: str = "org_hier_code",
-        corporation_code_max: str = "134",
-        excluded_corporation_code: str = "086",
-        head_office_corporation_code: str = "000",
-        legal_entity_hier_code: str = "3",
-        head_office_hier_code: str = "1",
-        expected_count: int = 61,
+        corporation_code_max: str,
+        excluded_corporation_code: str,
+        head_office_corporation_code: str,
+        legal_entity_hier_code: str,
+        head_office_hier_code: str,
+        expected_count: int,
         snapshot_date: date | None = None,
         aliases_by_code: dict[str, list[str]] | None = None,
         strict_scope: bool = False,
+        confirm_org_additions: bool = False,
         include_branch_level: bool = False,
         branch_hier_code: str = "2",
         parent_field: str = "",
@@ -336,20 +338,14 @@ class SitCatalogSyncService:
                 for alias in aliases
             ):
                 raise ValueError("机构别名必须为非空文本列表，每项不超过255字符")
-        if include_branch_level:
-            # 扩展模式纳入支行，总数随数据湖支行数变化：只要求不少于
-            # 现行 1/3 层级范围（expected_count），缺失任一现有机构仍视为异常。
-            if len(selected) < expected_count:
-                raise RuntimeError(
-                    "Organization catalog scope returned "
-                    f"{len(selected)} rows; expected at least {expected_count} "
-                    "(branch level included). No application catalog data was written."
-                )
-        elif len(selected) != expected_count:
+        # 数量闸门只防“少”：少于现行范围（expected_count）一律拒绝；
+        # “多”与编码集合差异在写入前对照应用库现有目录单独把关。
+        if len(selected) < expected_count:
+            scope_note = " (branch level included)" if include_branch_level else ""
             raise RuntimeError(
                 "Organization catalog scope returned "
-                f"{len(selected)} rows; expected {expected_count}. "
-                "No application catalog data was written."
+                f"{len(selected)} rows; expected at least {expected_count}"
+                f"{scope_note}. No application catalog data was written."
             )
         summary = SyncSummary(
             len(rows),
@@ -364,6 +360,21 @@ class SitCatalogSyncService:
                              if term.enabled and code not in selected)
             if strict_scope and outside:
                 raise OrganizationScopeError(outside)
+            if outside:
+                # 丢失任一已启用编码一律拒绝：可能是源范围配置错误或机构撤并未处理。
+                raise RuntimeError(
+                    "Organization catalog would drop enabled codes "
+                    f"{outside}. No application catalog data was written."
+                )
+            additions_codes = sorted(code for code in selected if code not in existing)
+            if additions_codes and not confirm_org_additions and not dry_run:
+                # 新增编码可能来自新设机构，也可能是编码口径变化；须显式确认才写入。
+                # dry-run 不写入，允许预览新增以便核对后再带确认执行。
+                raise RuntimeError(
+                    "Organization catalog introduces new codes "
+                    f"{additions_codes}; rerun with --confirm-org-additions to accept them. "
+                    "No application catalog data was written."
+                )
             for code, row in selected.items():
                 name = str(row.get("org_chn_nm") or "").strip()
                 if not code or not name:
@@ -376,9 +387,11 @@ class SitCatalogSyncService:
                     session.add(term)
                 before = _org_state(term)
                 term.org_name = name
-                # 按机构码追加导出别名，不覆盖目标库已有人工维护的别名。
+                # 按机构码追加导出别名，不覆盖目标库已有人工维护的别名；
+                # 派生别名排在最后，人工别名（库中已有与本次导出）优先保留。
                 term.aliases = list(dict.fromkeys([
                     *(term.aliases or []), *(alias.strip() for alias in additions.get(code, [])),
+                    *derive_org_aliases(name),
                 ]))
                 term.enabled = True
                 node = hierarchy_by_code[code]

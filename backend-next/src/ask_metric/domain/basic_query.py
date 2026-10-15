@@ -21,6 +21,18 @@ CatalogCode = Annotated[
 ]
 
 
+def _require_calendar_date(value) -> date:
+    # 不接受时间戳/日期时间的隐式转换；调用方必须给出明确的业务日期。
+    if type(value) is date:
+        return value
+    if not isinstance(value, str) or len(value) != 10:
+        raise ValueError("日期必须为 YYYY-MM-DD")
+    parsed = date.fromisoformat(value)
+    if parsed.isoformat() != value:
+        raise ValueError("日期必须为 YYYY-MM-DD")
+    return parsed
+
+
 class BasicQueryTime(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -34,15 +46,7 @@ class BasicQueryTime(BaseModel):
     @field_validator("start", "end", mode="before")
     @classmethod
     def require_calendar_date(cls, value):
-        # 不接受时间戳/日期时间的隐式转换；调用方必须给出明确的业务日期。
-        if type(value) is date:
-            return value
-        if not isinstance(value, str) or len(value) != 10:
-            raise ValueError("日期必须为 YYYY-MM-DD")
-        parsed = date.fromisoformat(value)
-        if parsed.isoformat() != value:
-            raise ValueError("日期必须为 YYYY-MM-DD")
-        return parsed
+        return _require_calendar_date(value)
 
     @field_validator("dates", mode="before")
     @classmethod
@@ -67,6 +71,27 @@ class BasicQueryTime(BaseModel):
         return self
 
 
+class BasicQueryTimeAlternative(BaseModel):
+    """“近 N 年”歧义的备选口径（如最近 N 个完整年度）；随查询落库并随结果透传，不参与取数。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=100)
+    start: date
+    end: date
+
+    @field_validator("start", "end", mode="before")
+    @classmethod
+    def require_calendar_date(cls, value):
+        return _require_calendar_date(value)
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.start > self.end:
+            raise ValueError("开始日期不能晚于结束日期")
+        return self
+
+
 class ValueOperation(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: Literal["value"] = "value"
@@ -81,7 +106,34 @@ class RankingOperation(BaseModel):
     top_n: int = Field(ge=1, le=100, strict=True)
 
 
-QueryOperation = Annotated[ValueOperation | RankingOperation, Field(discriminator="kind")]
+class RankPositionOperation(BaseModel):
+    """关注对象在受治理比较总体中的位次；排序遵循指标规则，不需要榜单条数。"""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["rank_position"]
+
+
+QueryOperation = Annotated[
+    ValueOperation | RankingOperation | RankPositionOperation, Field(discriminator="kind")
+]
+
+
+class ComparisonScope(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    org_codes: list[CatalogCode] = Field(default_factory=list, max_length=MAX_ORG_CODES)
+    organization_scope: OrganizationScopeSpec | None = None
+    scope_fingerprint: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_scope(self):
+        self.org_codes = list(dict.fromkeys(self.org_codes))
+        if self.organization_scope is not None:
+            if self.org_codes or self.scope_fingerprint is None:
+                raise ValueError("比较集合范围必须携带已解析指纹，不能同时指定机构编码")
+        elif not self.org_codes or self.scope_fingerprint is not None:
+            raise ValueError("比较总体必须提供实际机构编码或受治理集合")
+        return self
 
 
 class BasicQuerySpec(BaseModel):
@@ -93,7 +145,9 @@ class BasicQuerySpec(BaseModel):
     org_codes: list[CatalogCode] = Field(default_factory=list, max_length=MAX_ORG_CODES)
     organization_scope: OrganizationScopeSpec | None = None
     scope_fingerprint: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    comparison_scope: ComparisonScope | None = None
     time: BasicQueryTime
+    time_alternative: BasicQueryTimeAlternative | None = None
     selection: Literal["exact", "latest_in_range", "all_in_range"]
     operation: QueryOperation = Field(default_factory=ValueOperation)
 
@@ -104,7 +158,7 @@ class BasicQuerySpec(BaseModel):
         if has_dates:
             if self.selection == "all_in_range":
                 raise ValueError("离散日期点不能与完整时间序列取数方式共用")
-            if self.operation.kind == "ranking":
+            if self.operation.kind in {"ranking", "rank_position"}:
                 raise ValueError("逐个离散日期排名尚未实现")
         elif self.selection == "exact" and self.time.start != self.time.end:
             raise ValueError("exact 必须指定同一个日期")
@@ -119,8 +173,10 @@ class BasicQuerySpec(BaseModel):
         else:
             if not self.org_codes or self.scope_fingerprint is not None:
                 raise ValueError("具体机构查询必须提供编码，不能携带集合指纹")
-        if self.operation.kind == "ranking" and self.selection == "all_in_range":
+        if self.operation.kind in {"ranking", "rank_position"} and self.selection == "all_in_range":
             raise ValueError("逐日排名尚未实现，不能将完整序列静默缩为一期")
+        if (self.operation.kind == "rank_position") != (self.comparison_scope is not None):
+            raise ValueError("位次查询必须提供比较总体；其它操作不能携带未使用的比较总体")
         return self
 
     def to_logical_dsl(self) -> LogicalDSL:
@@ -134,18 +190,31 @@ class BasicQuerySpec(BaseModel):
             ops = [{"type": "top_n", "n": self.operation.top_n,
                     "position": self.operation.position,
                     "order": "desc" if self.operation.position == "top" else "asc"}]
+        elif self.operation.kind == "rank_position":
+            ops = [{"type": "rank_position", "order": "desc"}]
         options: dict[str, Any] = {"query_contract_version": self.schema_version}
-        if self.organization_scope is not None:
+        if self.operation.kind == "rank_position":
+            # 两个角色在执行入口分别授权；orgs 不能先筛成关注对象后再计算位次。
+            options["rank_subject_scope"] = ComparisonScope(
+                org_codes=self.org_codes, organization_scope=self.organization_scope,
+                scope_fingerprint=self.scope_fingerprint,
+            ).model_dump(mode="json", exclude_none=True)
+            options["rank_comparison_scope"] = self.comparison_scope.model_dump(
+                mode="json", exclude_none=True,
+            )
+        elif self.organization_scope is not None:
             options.update(query_scope=self.organization_scope.model_dump(mode="json"),
                            scope_fingerprint=self.scope_fingerprint)
         # 离散多点走 planner 的 METRIC_VALUE_AT_DATES 场景（stat_date IN），
         # time 仍保留 min~max 供 latest 判断等既有逻辑读取。
         if self.time.dates is not None:
             options["target_dates"] = [item.isoformat() for item in self.time.dates]
+        if self.time_alternative is not None:
+            options["time_alternative"] = self.time_alternative.model_dump(mode="json")
         return LogicalDSL(
             task=TaskType.METRIC_QUERY,
             metrics=self.metric_codes,
-            orgs=self.org_codes,
+            orgs=[] if self.operation.kind == "rank_position" else self.org_codes,
             time=LogicalTimeRange(start=self.time.start, end=self.time.end),
             ops=ops,
             options=options,
@@ -157,4 +226,6 @@ class BasicQuerySpec(BaseModel):
             return "metric_trend"
         if self.operation.kind == "ranking":
             return "metric_ranking"
+        if self.operation.kind == "rank_position":
+            return "metric_rank_position"
         return "metric_value"

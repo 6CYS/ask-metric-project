@@ -7,6 +7,7 @@ from typing import Protocol
 from sqlalchemy import func, inspect, select
 from sqlalchemy.orm import Session, undefer_group
 
+from ask_metric.application.org_aliases import derive_org_aliases
 from ask_metric.domain.semantics import MetricCatalogItem, OrganizationCatalogItem
 from ask_metric.infrastructure.db.models import (
     MetricSynonym,
@@ -134,7 +135,11 @@ class SqlAlchemyOrganizationCatalogRepository:
             OrganizationCatalogItem(
                 code=row.org_code,
                 name=row.org_name,
-                aliases=list(dict.fromkeys(row.aliases or [])),
+                # 运行时即时派生：上线后不等重新同步即生效；
+                # 库中人工别名在前，派生别名只补充不覆盖。
+                aliases=list(dict.fromkeys([
+                    *(row.aliases or []), *derive_org_aliases(row.org_name),
+                ])),
             )
             for row in rows
         ]

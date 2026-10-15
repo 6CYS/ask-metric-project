@@ -76,6 +76,24 @@ export interface OrgSearchResponse {
   items: OrgSearchHit[];
 }
 
+/** 机构目录项（GET /business-context/org-catalog）：已按当前用户权限过滤 */
+export interface OrgCatalogItem {
+  code: string;
+  name: string;
+  aliases: string[];
+}
+
+export interface OrgCatalogResponse {
+  items: OrgCatalogItem[];
+}
+
+/** resolve-field 的模型建议项：模型按有权机构清单自主判断的结论，excerpt 为用户原文片段（仅记录） */
+export interface FieldSuggestion {
+  code?: string;
+  name?: string;
+  excerpt?: string;
+}
+
 export interface TaskClarification {
   id?: string;
   prompt?: string;
@@ -186,16 +204,37 @@ export interface TaskResultPage {
 }
 
 /** 结构化基础查询（basic-queries）契约：不调用模型，按正式编码与明确日期取数 */
+export interface SourceMetricExclusion {
+  /** source_question 中的 Unicode 码点区间，不能使用 JS UTF-16 下标。 */
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface SourceMetricBinding extends SourceMetricExclusion {
+  codes: string[];
+}
+
 export interface BasicQuerySpec {
+  /** 宿主从已记录目录选择取得的服务端回执，模型输入中不提供。 */
+  source_semantic_receipt?: string;
   conversation_id?: string;
   calculation_context?: {scope_id: string; user_question: string};
   source_question?: string;
+  /** 已校验 Frame 的逐目标身份；后端仍须按当前启用目录复核。 */
+  source_metric_bindings?: SourceMetricBinding[];
+  /** 用户明确放弃的原始目标区间；保留整句以支持共用基础指标名称的省略口径。 */
+  source_metric_exclusions?: SourceMetricExclusion[];
   metric_codes: string[];
   schema_version?: 2;
   org_codes?: string[];
   organization_scope?: import("./business-context/types.js").OrganizationScope;
   scope_fingerprint?: string;
+  /** 位次查询的比较总体；与 org_codes / organization_scope 关注对象分离。 */
+  comparison_scope?: {org_codes?: string[]; organization_scope?: import("./business-context/types.js").OrganizationScope; scope_fingerprint?: string};
   time: { start: string; end: string; dates?: string[] };
+  /** “近N年”默认滚动口径的完整年度备选（可选）；随 spec 提交，供前端“切换口径”重查。 */
+  time_alternative?: {label: string; start: string; end: string};
   selection: "exact" | "latest_in_range" | "all_in_range";
   operation?: import("./business-context/types.js").QueryOperation;
 }
@@ -305,16 +344,48 @@ export class BackendClient {
     return this.request<BackendUser>("/api/v1/auth/me", {}, options);
   }
 
-  resolveBusinessField(entity: string, rawValues: string[], options?: CallOptions, referenceYear?: number): Promise<import("./business-context/types.js").FieldResolution> {
+  resolveBusinessField(entity: string, rawValues: string[], options?: CallOptions, referenceYear?: number,
+    semanticSource?: {business_date: string; source_question: string},
+    modelValue?: import("./business-context/types.js").DateModelValue | null): Promise<import("./business-context/types.js").FieldResolution> {
     return this.request("/api/v1/business-context/resolve-field", {
-      method: "POST", body: JSON.stringify({entity, raw_values: rawValues, ...(referenceYear !== undefined ? {reference_year: referenceYear} : {})}),
+      method: "POST", body: JSON.stringify({entity, raw_values: rawValues, ...(referenceYear !== undefined ? {reference_year: referenceYear} : {}), ...semanticSource,
+        // 模型随原文提交的日期换算；缺省或宽松校验未通过时省略，由服务端确定性解析兜底。
+        ...(modelValue ? {model_value: modelValue} : {})}),
     }, options);
+  }
+
+  inspectBusinessGoal(question: string, businessDate: string, options?: CallOptions, referenceYear?: number,
+    history?: {conversation_id: string; session_id: string; sources: Array<{spec: BasicQuerySpec; receipt: string}>}): Promise<{
+    question: string; requires_calculation?: boolean; reference_year: number | null;
+    fragments: Array<{question: string; organizations: string[];
+      calendar: {ranges: Array<{start: string; end: string; dates?: string[]}>; unresolved: string[]};
+      mentions: import("./business-context/metricMentions.js").MetricMention[]}>;
+  }> {
+    return this.request("/api/v1/business-context/inspect-goal", {method: "POST", body: JSON.stringify({question, business_date: businessDate, ...(referenceYear ? {reference_year: referenceYear} : {}), ...(history ? {history} : {})})}, options);
+  }
+  admitSemanticPlan(payload: {conversation_id: string; session_id: string; goal: string; business_date: string; analysis: boolean; reference_year?: number; context_sources?: import("./semantic-task/transition.js").SemanticTransition[];
+    steps: Array<{target_ref: string; fragment: number; origin: "user_explicit" | "history" | "analysis_selected"; spec: BasicQuerySpec;
+      source_question?: string; source_semantic_receipt?: string; bindings?: unknown[]; exclusions?: unknown[];
+      transition?: import("./semantic-task/transition.js").SemanticTransition}>; fragment_bindings: Record<string, unknown[]>}, options?: CallOptions): Promise<{status: "admitted"; receipts: Array<{target_ref: string; receipt: string}>}> {
+    return this.request("/api/v1/business-context/admit-plan", {method: "POST", body: JSON.stringify(payload)}, options);
   }
 
   resolveOrganizationScope(scope: import("./business-context/types.js").OrganizationScopeInput, options?: CallOptions): Promise<import("./business-context/types.js").FieldResolution> {
     return this.request("/api/v1/business-context/resolve-scope", {
       method: "POST", body: JSON.stringify({kind: scope.kind, source_text: scope.sourceText,
         ...(scope.kind === "authorized_cohort" ? {cohort: scope.cohort} : {parent_name: scope.parentName})}),
+    }, options);
+  }
+
+  /** 机构目录：当前用户权限内的机构清单（编码+名称+别名），供模型自主匹配用户所指机构 */
+  orgCatalog(options?: CallOptions): Promise<OrgCatalogResponse> {
+    return this.request<OrgCatalogResponse>("/api/v1/business-context/org-catalog", {}, options);
+  }
+
+  /** resolve-field 的模型建议通道：成员校验、编码来源与非字面命中标记仍由后端裁定 */
+  resolveBusinessFieldSuggestion(entity: string, suggested: FieldSuggestion[], options?: CallOptions, sourceQuestion?: string): Promise<import("./business-context/types.js").FieldResolution> {
+    return this.request("/api/v1/business-context/resolve-field", {
+      method: "POST", body: JSON.stringify({entity, raw_values: [], suggested, ...(sourceQuestion ? {source_question: sourceQuestion} : {})}),
     }, options);
   }
 
@@ -373,7 +444,8 @@ export class BackendClient {
     return this.request("/api/v1/agent-query-contexts", {method: "POST", body: JSON.stringify({session_id: sessionId})}, options);
   }
 
-  calculate(spec: CalculationSpec & {conversation_id: string; scope_id: string}, key: string, options?: CallOptions): Promise<CalculationResult> {
+  calculate(spec: CalculationSpec & {conversation_id: string; scope_id: string;
+    source_policy?: "current_scope" | "conversation_snapshots"; user_question?: string}, key: string, options?: CallOptions): Promise<CalculationResult> {
     return this.request("/api/v1/calculations", {method: "POST", body: JSON.stringify(spec)}, {...options, idempotencyKey: key});
   }
 

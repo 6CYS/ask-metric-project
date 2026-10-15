@@ -25,6 +25,7 @@ from ask_metric.application.result_answering import render_fact_answer
 from ask_metric.application.result_processing import process_query_result
 from ask_metric.application.result_repository import artifact_from_query, attach_artifact
 from ask_metric.core.errors import ApplicationError
+from ask_metric.domain.basic_query import ComparisonScope
 from ask_metric.domain.query_execution import (
     ORDINAL_UNITS,
     QueryExecutionPlan,
@@ -144,9 +145,10 @@ class QueryExecutionApplicationService:
                                        "目标日期存在重复指标事实，无法确定排名，请核对数据版本。",
                                        status_code=409)
             ranking_evidence = []
-            if plan.shape.value == "metric_ranking":
+            if plan.shape.value in {"metric_ranking", "metric_rank_position"}:
                 for metric in plan.dsl.get("metrics", []):
                     matching = [row for row in fetched_rows if row.get("metric_code") == metric]
+                    returned = [row for row in matching if not row.get("rank_metadata")]
                     count = next((int(row["rank_population"]) for row in matching
                                   if row.get("rank_population") is not None), None)
                     if not matching:
@@ -160,14 +162,25 @@ class QueryExecutionApplicationService:
                         "with_data": count,
                         "without_data": (len(plan.parameters.get("org_codes", [])) - count
                                          if count is not None else None),
-                        "returned": len(matching),
+                        "returned": len(returned),
                         "tie_policy": "row_number_then_org_code",
                         "sort": _ranking_sort(plan, metric),
+                        **({
+                            "goal": "rank_position",
+                            "comparison_population": len(plan.parameters["org_codes"]),
+                            "rank_population": count,
+                            "missing_population": len(plan.parameters["org_codes"]) - count,
+                            "subject_codes": plan.parameters["rank_subject_codes"],
+                            "subjects_without_data": [
+                                code for code in plan.parameters["rank_subject_codes"]
+                                if code not in {row.get("org_code") for row in returned}
+                            ],
+                        } if plan.shape.value == "metric_rank_position" else {}),
                     })
             # 内部完整性列用于校验与证据，不成为用户指标或可计算事实。
             fetched_rows = [{key: value for key, value in row.items()
-                             if key not in {"rank_population", "rank_data_conflict"}}
-                            for row in fetched_rows]
+                             if key not in {"rank_population", "rank_data_conflict", "rank_metadata"}}
+                            for row in fetched_rows if not row.get("rank_metadata")]
             truncated = (
                 plan.shape.value != "metric_ranking" and len(fetched_rows) > self.planner.max_limit
             )
@@ -611,6 +624,46 @@ class QueryExecutionApplicationService:
         # 执行前按当前权限和正式目录再校验一次；历史保存的 DSL 不能直接当作授权。
         dsl = LogicalDSL.model_validate(logical_dsl)
         organization_catalog = uow.organization_catalog.list_enabled()
+        if any(operation.get("type") == "rank_position" for operation in dsl.ops):
+            if dsl.options.get("query_scope") is not None:
+                raise UnsupportedQueryError("Rank position cannot mix role scopes and query_scope")
+            # 角色来源分别验证，不能把模型提供的 subject_codes 当作授权事实。
+            def resolve_role(name: str) -> list[str]:
+                try:
+                    role = ComparisonScope.model_validate(dsl.options.get(name))
+                except ValueError as exc:
+                    raise UnsupportedQueryError("Rank position role scope is invalid") from exc
+                if role.organization_scope is not None:
+                    resolved = resolve_query_scope(
+                        scope=role.organization_scope, actor=actor,
+                        organizations=organization_catalog, permissions=self.permission_service,
+                        hierarchy=self.org_hierarchy_provider,
+                    )
+                    if resolved["scope_fingerprint"] != role.scope_fingerprint:
+                        raise ApplicationError("SCOPE_CHANGED", "机构范围已变化，请重新解析查询条件。",
+                                               status_code=409)
+                    codes = resolved["codes"]
+                else:
+                    codes = role.org_codes
+                known = {item.code for item in organization_catalog}
+                if not set(codes).issubset(known):
+                    raise UnsupportedQueryError("Organization code is not in enabled catalog")
+                checked = self.permission_service.authorize_logical_dsl(
+                    actor=actor, logical_dsl={**dsl.model_dump(mode="json"), "orgs": codes},
+                )
+                if set(checked.get("orgs", [])) != set(codes):
+                    raise PermissionDeniedError("位次查询的机构范围超出当前权限")
+                return codes
+
+            subjects = resolve_role("rank_subject_scope")
+            comparison = resolve_role("rank_comparison_scope")
+            if not set(subjects).issubset(comparison):
+                raise ApplicationError(
+                    "SUBJECT_OUTSIDE_COMPARISON_SCOPE",
+                    "关注对象不属于所选比较总体，请确认关注对象与比较范围。", status_code=422,
+                )
+            dsl.options["rank_subject_codes"] = subjects
+            dsl.orgs = comparison
         scope = dsl.options.get("query_scope")
         if scope is not None:
             resolved = resolve_query_scope(
@@ -653,6 +706,13 @@ class QueryExecutionApplicationService:
         dsl, metric_catalog, organization_catalog = self._authorize_query(
             uow=uow, actor=actor, logical_dsl=logical_dsl, strict_codes=strict_codes,
         )
+        # 非 latest 预设的区间不允许越过业务日期；latest 由执行层取有数据日，不校验边界。
+        if (
+            dsl.time.preset != "latest"
+            and dsl.time.end is not None
+            and dsl.time.end > self.today_provider()
+        ):
+            raise QueryPlanError("Time range end cannot be after the business date")
         if (not strict_codes and query_shape == "metric_ranking"
                 and dsl.options.get("organization_scope") == "synchronized_catalog"):
             # 集合排名与结构化全省排名使用同一层级口径，只裁剪已授权候选、不扩权。

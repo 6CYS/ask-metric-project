@@ -1,0 +1,61 @@
+{
+  "checked_at_local": "2026-10-15T18:15:04.663892+08:00",
+  "paid_matrix_snapshot": "candidate-final-4",
+  "final_delivery_snapshot": "candidate-post-review",
+  "final_manifest_sha256": "b0cf0e0f0c5a3bc4ac3a1440f814d3ffe5bae0da72a35357c98213b6791dc1d8",
+  "post_review_runtime_differences_from_paid_matrix": [
+    {
+      "path": "agent-service/src/semantic-task/sourceGuard.ts",
+      "final4_sha256": "4f9eb960a4c4383fbd15005437e170c3a771534632ee9647990efe830726eac1",
+      "post_review_sha256": "07921b0425b80b90021325a5b879cd089d90bffef3fa7e3a2d43c034c3261a13",
+      "kind": "changed"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/routes/business_context.py",
+      "final4_sha256": "46e66524d486f801a7783391ee96de0bb1a3c609f30fc070f7c177fec8b7c19e",
+      "post_review_sha256": "fcdff8aef214fbd43d88a8d9550a501971fedf1df824a83c24add44ebfe8af85",
+      "kind": "changed"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/catalog_sync.py",
+      "final4_sha256": "48376ff0db06dc7501541e9a5f9e844587881cf56dd2008876dee628051e1f55",
+      "post_review_sha256": "b5357d54ef6470c359f850ec2e10659be9436a216ae6f79e7ab7d7740a1af36d",
+      "kind": "changed"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/field_resolution.py",
+      "final4_sha256": "5ad1a0ae5fed1424173e2bf335eb81d543b16a6e4b933c89031d9b41a57510ea",
+      "post_review_sha256": "38751f56441e032fb7efdcbfafe73aa3ce4d1e24c5f3235598649f1c40e843a0",
+      "kind": "changed"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/metric_candidates.py",
+      "final4_sha256": "c75bf946056d4331c6170c6c3fe7fe0bad74a0608a60afdb893129cf5223d0de",
+      "post_review_sha256": "2eace71edf96391bd50b18697cb6414addf2e0a98d5208e8278cb5aa59c854c1",
+      "kind": "changed"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/text_correction.py",
+      "final4_sha256": "6fee707fe5dd495960e771b97ec529f1f03e7f79632249134839243a51fcaab4",
+      "post_review_sha256": "8e09d02d5c6d799e61dbf513109d1f761dc3685e491dc49eb3affbdefec4dbcd",
+      "kind": "changed"
+    },
+    {
+      "path": "frontend-vue/src/components/chat/BackendNextChatPanel.vue",
+      "final4_sha256": "92608c1e82f9b27d73143d67647b3d01047c5730ee153a2960dfdc9c9f5ced2f",
+      "post_review_sha256": "81f3e80a0b3c1443b987cb9bc02c5a932014d6b2b025a7ae0dd6e35805a607b2",
+      "kind": "changed"
+    }
+  ],
+  "current_workspace_differences_after_final_freeze": [],
+  "current_workspace_matches_final_snapshot": true,
+  "scope": "Paid A/B is final4 only. Post-review sourceGuard/frontend/backend additions are covered by listed isolated checks and same-session real authenticated restoration; no paid requery or suggested-feature real-model claim.",
+  "classification_sources": [
+    "post-freeze-backend-classification.json",
+    "post-freeze-resolver-compatibility.json",
+    "post-review-sourceGuard-negative-audit.json",
+    "implementation-checks.md"
+  ],
+  "final_rechecked_at_local": "2026-10-15T18:17:10.217689+08:00",
+  "final_current_workspace_differences": []
+}

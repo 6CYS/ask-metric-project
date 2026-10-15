@@ -936,11 +936,51 @@ class SqlBuilder:
             raise QueryPlanError(
                 f"Plan for {plan.template.value} misses parameters: {', '.join(missing)}"
             )
-        sql = self._adapter.build(plan.template, scenario).sql(self.read_dialect)
+        query = self._adapter.build(plan.template, scenario)
+        if plan.shape.value == "metric_rank_position":
+            query = self._rank_position(query)
+        sql = query.sql(self.read_dialect)
         self._validate_bound_parameters(plan, sql)
         # 出口校验只读形态，所有查询场景均经过同一道闸门。
         validate_readonly_sql(sql)
         return sql
+
+    def _rank_position(self, query: Select) -> exp.Expression:
+        """复用双方言的总体排序，只在窗口计算后筛关注对象。
+
+        独立元数据行保留总体完整性证据：关注对象缺数时也不能误报总体为零，
+        未返回的其它机构存在重复事实时仍阻断整次位次查询。
+        """
+        ranked_source = query.args["from_"].this.copy()
+        with_clause = query.args.get("with_")
+        query.set("with_", None)
+        query.set("where", None)
+        query.set("order", None)
+        query = query.select("0 AS rank_metadata", dialect=self.read_dialect).where(
+            "org_code IN :rank_subject_codes", dialect=self.read_dialect,
+        )
+        metadata_columns = []
+        for expression in query.expressions:
+            name = expression.alias_or_name
+            if name == "metric_code":
+                metadata_columns.append("metric_code")
+            elif name == "stat_date":
+                metadata_columns.append("MAX(stat_date) AS stat_date")
+            elif name == "rank_population":
+                metadata_columns.append("COUNT(*) AS rank_population")
+            elif name == "rank_data_conflict":
+                metadata_columns.append("MAX(rank_data_conflict) AS rank_data_conflict")
+            elif name == "rank_metadata":
+                metadata_columns.append("1 AS rank_metadata")
+            else:
+                metadata_columns.append(f"NULL AS `{name}`")
+        metadata = exp.select(*metadata_columns, dialect=self.read_dialect).from_(
+            ranked_source,
+        ).group_by("metric_code", dialect=self.read_dialect)
+        union = query.union(metadata, distinct=False)
+        if with_clause is not None:
+            union.set("with_", with_clause)
+        return union
 
     @staticmethod
     def _validate_bound_parameters(plan: QueryExecutionPlan, sql: str) -> None:

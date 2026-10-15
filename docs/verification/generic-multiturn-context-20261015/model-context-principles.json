@@ -1,0 +1,350 @@
+[
+  {
+    "id": "principles-followup-wording",
+    "messages": [
+      "查询合成机构甲2026年5月31日的经营收益金额当日数",
+      "沿用刚才的指标和日期，看看合成机构乙的情况",
+      "时间挪到2026年6月30日，其他条件照旧",
+      "接着看合成机构丙，按刚才的条件来"
+    ],
+    "expected": [
+      {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O2",
+        "day": "2026-05-31"
+      },
+      {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O2",
+        "day": "2026-06-30"
+      },
+      {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O3",
+        "day": "2026-06-30"
+      }
+    ]
+  },
+  {
+    "id": "principles-collection-negation",
+    "messages": [
+      "查询合成机构甲2026年5月31日的经营收益金额当日数",
+      "保留刚才那项，另外把对公协定存款余额当日数也一起查出来",
+      "不是让你去掉对公协定存款余额当日数，我要这两项继续一起查询",
+      "经营收益金额当日数这回不用了，只看对公协定存款余额当日数",
+      "把现在唯一这项换成经营收益金额较同期，机构和日期保持原样"
+    ],
+    "expected": [
+      {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      {
+        "status": "succeeded",
+        "metrics": [
+          "SYNTH_M:D",
+          "SYNTH_DEPOSIT:D"
+        ],
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      {
+        "status": "succeeded",
+        "metrics": [
+          "SYNTH_M:D",
+          "SYNTH_DEPOSIT:D"
+        ],
+        "org": "SYNTH_O1",
+        "day": "2026-05-31",
+        "allow_evidence_reuse": true
+      },
+      {
+        "status": "succeeded",
+        "metric": "SYNTH_DEPOSIT:D",
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      {
+        "status": "succeeded",
+        "metric": "SYNTH_M:Y",
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      }
+    ]
+  },
+  {
+    "id": "principles-multiple-explicit-one",
+    "messages": [
+      "分别查询合成机构甲2026年5月31日和合成机构乙2026年6月30日的经营收益金额当日数",
+      "只调整合成机构甲那项，日期变成2026年6月30日；合成机构乙那项保留原结果",
+      "回到第一轮的合成机构乙那项，将它的指标换成对公协定存款余额当日数，机构日期照旧",
+      "回看第一轮合成机构甲和合成机构乙那两个查询的原始结果，不重新查询",
+      "以刚才回看的合成机构乙那项为基础，日期改成2026年5月31日，其余沿用"
+    ],
+    "expected": [
+      {
+        "status": "succeeded",
+        "queries": [
+          {
+            "metric": "SYNTH_M:D",
+            "org": "SYNTH_O1",
+            "day": "2026-05-31"
+          },
+          {
+            "metric": "SYNTH_M:D",
+            "org": "SYNTH_O2",
+            "day": "2026-06-30"
+          }
+        ]
+      },
+      {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O1",
+        "day": "2026-06-30"
+      },
+      {
+        "status": "succeeded",
+        "metric": "SYNTH_DEPOSIT:D",
+        "org": "SYNTH_O2",
+        "day": "2026-06-30"
+      },
+      {
+        "status": [
+          "reused",
+          "succeeded"
+        ],
+        "no_query": true,
+        "evidence_queries": [
+          {
+            "metric": "SYNTH_M:D",
+            "org": "SYNTH_O1",
+            "day": "2026-05-31"
+          },
+          {
+            "metric": "SYNTH_M:D",
+            "org": "SYNTH_O2",
+            "day": "2026-06-30"
+          }
+        ]
+      },
+      {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O2",
+        "day": "2026-05-31"
+      }
+    ]
+  },
+  {
+    "id": "principles-multiple-explicit-all",
+    "messages": [
+      "查询合成机构甲2026年5月31日的经营收益金额当日数；另外查询合成机构乙2026年5月31日的对公协定存款余额当日数",
+      "刚才这两个查询的日期一并改为2026年6月30日，各自机构和指标都沿用",
+      "现在这两个查询的机构都换成合成机构丙，各自指标和日期不变"
+    ],
+    "expected": [
+      {
+        "status": "succeeded",
+        "queries": [
+          {
+            "metric": "SYNTH_M:D",
+            "org": "SYNTH_O1",
+            "day": "2026-05-31"
+          },
+          {
+            "metric": "SYNTH_DEPOSIT:D",
+            "org": "SYNTH_O2",
+            "day": "2026-05-31"
+          }
+        ]
+      },
+      {
+        "status": "succeeded",
+        "queries": [
+          {
+            "metric": "SYNTH_M:D",
+            "org": "SYNTH_O1",
+            "day": "2026-06-30"
+          },
+          {
+            "metric": "SYNTH_DEPOSIT:D",
+            "org": "SYNTH_O2",
+            "day": "2026-06-30"
+          }
+        ]
+      },
+      {
+        "status": "succeeded",
+        "queries": [
+          {
+            "metric": "SYNTH_M:D",
+            "org": "SYNTH_O3",
+            "day": "2026-06-30"
+          },
+          {
+            "metric": "SYNTH_DEPOSIT:D",
+            "org": "SYNTH_O3",
+            "day": "2026-06-30"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "principles-multiple-ambiguous-then-select",
+    "messages": [
+      "分别查询合成机构甲2026年5月31日和合成机构乙2026年6月30日的经营收益金额当日数",
+      "把其中一项的日期改成2026年5月30日",
+      "我指的是合成机构乙那项，另一项保留原结果",
+      "刚调整的那一项再换成合成机构丙，指标和日期不动"
+    ],
+    "expected": [
+      {
+        "status": "succeeded",
+        "queries": [
+          {
+            "metric": "SYNTH_M:D",
+            "org": "SYNTH_O1",
+            "day": "2026-05-31"
+          },
+          {
+            "metric": "SYNTH_M:D",
+            "org": "SYNTH_O2",
+            "day": "2026-06-30"
+          }
+        ]
+      },
+      {
+        "status": [
+          "needs_user",
+          "clarification"
+        ],
+        "no_query": true,
+        "clarification": {
+          "options": [
+            [
+              "合成机构甲",
+              "机构甲"
+            ],
+            [
+              "合成机构乙",
+              "机构乙"
+            ]
+          ],
+          "question_markers": [
+            "？",
+            "?",
+            "请确认",
+            "请明确",
+            "请选择",
+            "哪"
+          ]
+        }
+      },
+      {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O2",
+        "day": "2026-05-30"
+      },
+      {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O3",
+        "day": "2026-05-30"
+      }
+    ]
+  },
+  {
+    "id": "principles-contrast-and-replacement",
+    "messages": [
+      "查询合成机构甲2026年5月31日的经营收益金额当日数和对公协定存款余额当日数",
+      "对公协定存款余额当日数不用删，经营收益金额当日数才是不需要的那项",
+      "我现在不是仅查对公协定存款余额当日数，把经营收益金额当日数也查回来",
+      "原有的经营收益金额当日数继续保留；另一项对公协定存款余额当日数换成经营收益金额较同期"
+    ],
+    "expected": [
+      {
+        "status": "succeeded",
+        "metrics": [
+          "SYNTH_M:D",
+          "SYNTH_DEPOSIT:D"
+        ],
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      {
+        "status": "succeeded",
+        "metric": "SYNTH_DEPOSIT:D",
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      {
+        "status": "succeeded",
+        "metrics": [
+          "SYNTH_M:D",
+          "SYNTH_DEPOSIT:D"
+        ],
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      {
+        "status": "succeeded",
+        "metrics": [
+          "SYNTH_M:D",
+          "SYNTH_M:Y"
+        ],
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      }
+    ]
+  },
+  {
+    "id": "principles-new-topic-and-history",
+    "messages": [
+      "查询合成机构甲2026年5月31日的经营收益金额当日数",
+      "另起一个查询，查对公协定存款余额当日数，不继承任何之前的查询条件",
+      "这个新查询的机构是合成机构乙，日期是2026年6月30日",
+      "再回到第一轮的经营收益金额当日数查询，日期改成2026年6月30日，机构还是第一轮的"
+    ],
+    "expected": [
+      {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      {
+        "status": "needs_user",
+        "missing": [
+          "organizations",
+          "time"
+        ]
+      },
+      {
+        "status": "succeeded",
+        "metric": "SYNTH_DEPOSIT:D",
+        "org": "SYNTH_O2",
+        "day": "2026-06-30"
+      },
+      {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O1",
+        "day": "2026-06-30"
+      }
+    ]
+  }
+]

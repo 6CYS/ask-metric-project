@@ -1,0 +1,1537 @@
+{
+  "environment": "real_model_synthetic_catalog_in_memory_SQL",
+  "real_database": false,
+  "source_root": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/agent-service",
+  "source_hashes": {
+    "src/harnessHost.ts": "1f8af56429d4fc547102b0f5c4d2569e89d39b5f6f21dc01fab2dc16b4d5c9bd",
+    "src/semantic-task/service.ts": "52a5f8ac1ff2766e832a32255889b3f2d2c97b6a8774f8b7aa7c6a8922a3353f",
+    "src/semantic-task/planService.ts": "17b7455d12a423d663938fed28116fab6080d70cec98fd7ee9064f8aa476696e",
+    "src/semantic-task/feedback.ts": "0dc208dc8bf3e6d512b14b702d9d23b952b1f6fd9bdd3c7ada69aa265e644afd",
+    "src/semantic-task/prompt.ts": "ace578d123519ec7d7acbba9f8c9defaed96e824ce3b32d250cb665053102b38"
+  },
+  "model": "deepseek-ai/DeepSeek-V4-Flash",
+  "gateway_origin": "https://api.siliconflow.cn",
+  "model_settings": {
+    "max_tokens": 8192,
+    "context_window": 128000,
+    "extra_body": {
+      "enable_thinking": false
+    },
+    "retry": {
+      "enabled": true,
+      "maxRetries": 1,
+      "baseDelayMs": 1000
+    },
+    "first_response_timeout_ms": 30000,
+    "stream_idle_timeout_ms": 120000
+  },
+  "native_session_directory": "/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/missing-conditions-model-H2uuTN",
+  "planned_turns": 2,
+  "gateway_blocked": false,
+  "total": 2,
+  "passed": 2,
+  "turns": [
+    {
+      "scenario": "confirmed-multiple-new-metrics",
+      "turn": 1,
+      "message": "准备合成机构乙2026年6月30日的经营收益金额当日数查询条件，先不要执行",
+      "expected": {
+        "status": "prepared"
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "prepared",
+      "elapsed_ms": 10011,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "prepare",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构乙"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年6月30日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "prepared",
+            "state": {
+              "task_ref": "323500cd-e41d-45d3-9445-c36a7ecf5cc8",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "f75818f4-67dd-434d-8a93-ad50f292516a",
+                  "status": "draft",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构乙 / 2026年6月30日 / 经营收益金额当日数",
+                  "aliases": [
+                    "合成机构乙 / 2026年6月30日 / 经营收益金额当日数",
+                    "合成机构乙",
+                    "2026年6月30日",
+                    "经营收益金额当日数",
+                    "2026年6月30日经营收益金额当日数",
+                    "合成机构乙2026年6月30日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [],
+            "continuation": {
+              "actor": "none",
+              "action": "stop"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "completion": "unmet",
+      "answer": "\n查询条件已整理并保存，尚未执行查询。"
+    },
+    {
+      "scenario": "confirmed-multiple-new-metrics",
+      "turn": 2,
+      "message": "分别查询对公协定存款余额当日数和经营收益金额较同期",
+      "expected": {
+        "status": "succeeded",
+        "metrics": [
+          "SYNTH_DEPOSIT:D",
+          "SYNTH_M:Y"
+        ],
+        "org": "SYNTH_O2",
+        "day": "2026-06-30"
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 40672,
+      "model_calls": 5,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构乙"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年6月30日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数"
+                  }
+                ]
+              },
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构乙"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年6月30日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数"
+                  }
+                ]
+              },
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构乙"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "较同期"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构乙"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年6月30日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数"
+                  }
+                ]
+              },
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构乙"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年6月30日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数"
+                  }
+                ]
+              },
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构乙"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "基期"
+                  },
+                  {
+                    "action": "set",
+                    "field": "objective",
+                    "value": "基期"
+                  }
+                ]
+              },
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "objective",
+                    "value": "本期"
+                  },
+                  {
+                    "action": "set",
+                    "field": "calculation",
+                    "value": "`本期` - `基期`"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "指定日期"
+                  }
+                ]
+              },
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "objective",
+                    "value": "较同期"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构乙"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年6月30日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数"
+                  }
+                ]
+              },
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构乙"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年6月30日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数"
+                  },
+                  {
+                    "action": "set",
+                    "field": "objective",
+                    "value": "本期"
+                  }
+                ]
+              },
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构乙"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "较同期"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "指定日期"
+                  },
+                  {
+                    "action": "set",
+                    "field": "objective",
+                    "value": "基期"
+                  }
+                ]
+              },
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "objective",
+                    "value": "较同期"
+                  },
+                  {
+                    "action": "set",
+                    "field": "calculation",
+                    "value": "`本期` - `基期`"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构乙"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年6月30日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数"
+                  },
+                  {
+                    "action": "set",
+                    "field": "objective",
+                    "value": "对公协定存款余额当日数"
+                  }
+                ]
+              },
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构乙"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年6月30日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数"
+                  },
+                  {
+                    "action": "set",
+                    "field": "objective",
+                    "value": "本期"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_interpretation",
+            "state": {
+              "task_ref": "fcd2d59c-4948-4a9e-bc7b-c52942903ac8",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "57f30071-7683-43d2-a838-d8a8dc3833ed",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构乙 / 2026年6月30日 / 对公协定存款余额当日数",
+                  "aliases": [
+                    "合成机构乙 / 2026年6月30日 / 对公协定存款余额当日数",
+                    "合成机构乙",
+                    "2026年6月30日",
+                    "对公协定存款余额当日数",
+                    "2026年6月30日对公协定存款余额当日数",
+                    "合成机构乙2026年6月30日对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "b9116cb3-e357-47d0-8cf9-dcd7ee2ba3f1",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额较同期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构乙 / 2026年6月30日 / 经营收益金额较同期",
+                  "aliases": [
+                    "合成机构乙 / 2026年6月30日 / 经营收益金额较同期",
+                    "合成机构乙",
+                    "2026年6月30日",
+                    "经营收益金额较同期",
+                    "2026年6月30日经营收益金额较同期",
+                    "合成机构乙2026年6月30日经营收益金额较同期"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "2758f5b5-63a0-4d3e-8d73-b1bd633ecc50",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额较同期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构乙 / 2026年6月30日 / 经营收益金额较同期",
+                  "aliases": [
+                    "合成机构乙 / 2026年6月30日 / 经营收益金额较同期",
+                    "合成机构乙",
+                    "2026年6月30日",
+                    "经营收益金额较同期",
+                    "2026年6月30日经营收益金额较同期",
+                    "合成机构乙2026年6月30日经营收益金额较同期"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "PLAN_SOURCE_OVERLAP",
+                "message": "提案含重叠的查询来源。未执行草案请用完整new提案重组为不重叠的来源；已有正式结果请引用复用。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "GOAL_OBLIGATION_UNCOVERED",
+                "field": "metrics",
+                "message": "原始义务“经营收益金额较同期”尚未正确进入目标或有依据的替换排除，不能只执行已完整部分。",
+                "remediation": "pi",
+                "category": "coverage"
+              },
+              {
+                "code": "GOAL_OBLIGATION_UNCOVERED",
+                "field": "metrics",
+                "message": "原始义务“对公协定存款余额当日数”尚未正确进入目标或有依据的替换排除，不能只执行已完整部分。",
+                "remediation": "pi",
+                "category": "coverage"
+              },
+              {
+                "code": "GOAL_OBLIGATION_UNCOVERED",
+                "field": "metrics",
+                "message": "原始义务“对公协定存款余额当日数”尚未正确进入目标或有依据的替换排除，不能只执行已完整部分。",
+                "remediation": "pi",
+                "category": "coverage"
+              }
+            ],
+            "continuation": {
+              "actor": "pi",
+              "action": "revise_proposal"
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_interpretation",
+            "state": {
+              "task_ref": "fcd2d59c-4948-4a9e-bc7b-c52942903ac8",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "479e1e67-ce2d-4111-af75-315479a0a08d",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构乙 / 2026年6月30日 / 对公协定存款余额当日数",
+                  "aliases": [
+                    "合成机构乙 / 2026年6月30日 / 对公协定存款余额当日数",
+                    "合成机构乙",
+                    "2026年6月30日",
+                    "对公协定存款余额当日数",
+                    "2026年6月30日对公协定存款余额当日数",
+                    "合成机构乙2026年6月30日对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "f98681a5-8338-43d2-8673-f0ac25e7d60e",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额较同期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构乙 / 2026年6月30日 / 经营收益金额较同期",
+                  "aliases": [
+                    "合成机构乙 / 2026年6月30日 / 经营收益金额较同期",
+                    "合成机构乙",
+                    "2026年6月30日",
+                    "经营收益金额较同期",
+                    "2026年6月30日经营收益金额较同期",
+                    "合成机构乙2026年6月30日经营收益金额较同期"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "4290a4b2-4735-4a5f-8b1a-6b1f3520c2ec",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额较同期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "objective",
+                      "display": "基期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "基期",
+                  "aliases": [
+                    "基期",
+                    "合成机构乙",
+                    "2026年6月30日",
+                    "经营收益金额较同期",
+                    "2026年6月30日经营收益金额较同期",
+                    "合成机构乙2026年6月30日经营收益金额较同期"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "70ab3743-8098-4dc8-897b-31e1c626d632",
+                  "status": "blocked",
+                  "conditions": [],
+                  "pending": [],
+                  "label": "本期",
+                  "aliases": [
+                    "本期"
+                  ],
+                  "kind": "calculation"
+                },
+                {
+                  "target_ref": "1920391f-3be3-42b1-9f51-c757f02f7f29",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "objective",
+                      "display": "较同期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "尚未确定"
+                  ],
+                  "label": "较同期",
+                  "aliases": [
+                    "较同期",
+                    "合成机构乙",
+                    "2026年6月30日",
+                    "合成机构乙2026年6月30日"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "GOAL_OBLIGATION_UNCOVERED",
+                "field": "metrics",
+                "message": "原始义务“经营收益金额较同期”尚未正确进入目标或有依据的替换排除，不能只执行已完整部分。",
+                "remediation": "pi",
+                "category": "coverage"
+              },
+              {
+                "code": "GOAL_OBLIGATION_UNCOVERED",
+                "field": "metrics",
+                "message": "原始义务“对公协定存款余额当日数”尚未正确进入目标或有依据的替换排除，不能只执行已完整部分。",
+                "remediation": "pi",
+                "category": "coverage"
+              },
+              {
+                "code": "GOAL_OBLIGATION_UNCOVERED",
+                "field": "metrics",
+                "message": "原始义务“对公协定存款余额当日数”尚未正确进入目标或有依据的替换排除，不能只执行已完整部分。",
+                "remediation": "pi",
+                "category": "coverage"
+              },
+              {
+                "code": "CALCULATION_NOT_DETERMINED",
+                "category": "semantic",
+                "field": "calculation",
+                "message": "计算来源“本期”没有唯一对应的任务步骤，请明确步骤名称。",
+                "remediation": "pi"
+              },
+              {
+                "code": "PROPOSAL_FIELD_OMITTED",
+                "field": "metrics",
+                "message": "原始目标已提供指标，请按原始绑定补齐或重组提案，不能把内部遗漏转成用户缺项。",
+                "remediation": "pi",
+                "category": "semantic"
+              }
+            ],
+            "continuation": {
+              "actor": "pi",
+              "action": "revise_proposal"
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_interpretation",
+            "state": {
+              "task_ref": "fcd2d59c-4948-4a9e-bc7b-c52942903ac8",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "3114c8e8-91d4-4adf-873d-ef5653df9bc6",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构乙 / 2026年6月30日 / 对公协定存款余额当日数",
+                  "aliases": [
+                    "合成机构乙 / 2026年6月30日 / 对公协定存款余额当日数",
+                    "合成机构乙",
+                    "2026年6月30日",
+                    "对公协定存款余额当日数",
+                    "2026年6月30日对公协定存款余额当日数",
+                    "合成机构乙2026年6月30日对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "9833b262-6cfc-4070-896c-a120967d8949",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额较同期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "objective",
+                      "display": "本期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "本期",
+                  "aliases": [
+                    "本期",
+                    "合成机构乙",
+                    "2026年6月30日",
+                    "经营收益金额较同期",
+                    "2026年6月30日经营收益金额较同期",
+                    "合成机构乙2026年6月30日经营收益金额较同期"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "659537ff-e5fb-4302-91b8-5359dc00b8a0",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额较同期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "objective",
+                      "display": "基期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "基期",
+                  "aliases": [
+                    "基期",
+                    "合成机构乙",
+                    "2026年6月30日",
+                    "经营收益金额较同期",
+                    "2026年6月30日经营收益金额较同期",
+                    "合成机构乙2026年6月30日经营收益金额较同期"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "70ab3743-8098-4dc8-897b-31e1c626d632",
+                  "status": "waiting_dependency",
+                  "conditions": [],
+                  "pending": [],
+                  "label": "较同期",
+                  "aliases": [
+                    "较同期"
+                  ],
+                  "kind": "calculation"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "PLAN_SOURCE_OVERLAP",
+                "message": "提案含重叠的查询来源。未执行草案请用完整new提案重组为不重叠的来源；已有正式结果请引用复用。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "GOAL_OBLIGATION_UNCOVERED",
+                "field": "metrics",
+                "message": "原始义务“经营收益金额较同期”尚未正确进入目标或有依据的替换排除，不能只执行已完整部分。",
+                "remediation": "pi",
+                "category": "coverage"
+              },
+              {
+                "code": "GOAL_OBLIGATION_UNCOVERED",
+                "field": "metrics",
+                "message": "原始义务“对公协定存款余额当日数”尚未正确进入目标或有依据的替换排除，不能只执行已完整部分。",
+                "remediation": "pi",
+                "category": "coverage"
+              },
+              {
+                "code": "GOAL_OBLIGATION_UNCOVERED",
+                "field": "metrics",
+                "message": "原始义务“对公协定存款余额当日数”尚未正确进入目标或有依据的替换排除，不能只执行已完整部分。",
+                "remediation": "pi",
+                "category": "coverage"
+              }
+            ],
+            "continuation": {
+              "actor": "pi",
+              "action": "revise_proposal"
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "succeeded",
+            "state": {
+              "task_ref": "fcd2d59c-4948-4a9e-bc7b-c52942903ac8",
+              "task_status": "completed",
+              "completion": "full",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "d678d498-fc74-4731-912d-5e3b208425cd",
+                  "status": "succeeded",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "objective",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "对公协定存款余额当日数",
+                  "aliases": [
+                    "对公协定存款余额当日数",
+                    "合成机构乙",
+                    "2026年6月30日",
+                    "2026年6月30日对公协定存款余额当日数",
+                    "合成机构乙2026年6月30日对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "381a72d6-30fb-4af4-aa1e-9e3a017e7908",
+                  "status": "succeeded",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额较同期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "objective",
+                      "display": "本期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "本期",
+                  "aliases": [
+                    "本期",
+                    "合成机构乙",
+                    "2026年6月30日",
+                    "经营收益金额较同期",
+                    "2026年6月30日经营收益金额较同期",
+                    "合成机构乙2026年6月30日经营收益金额较同期"
+                  ],
+                  "kind": "query"
+                }
+              ],
+              "evidence": {
+                "kind": "semantic_results",
+                "delivery": "business_evidence_v1",
+                "status": "succeeded",
+                "results": [
+                  {
+                    "kind": "metric_query_structured",
+                    "task_id": "query-1",
+                    "version": 1,
+                    "result_id": "result-query-1",
+                    "public_answer": "2026-06-30，合成机构乙的对公协定存款余额当日数为50元。",
+                    "status": "succeeded",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "rows": [
+                      {
+                        "metric_code": "SYNTH_DEPOSIT:D",
+                        "metric_name": "对公协定存款余额当日数",
+                        "unit": "元",
+                        "org_code": "SYNTH_O2",
+                        "org_name": "合成机构乙",
+                        "metric_value": 50,
+                        "stat_date": "2026-06-30"
+                      }
+                    ],
+                    "row_count": 1,
+                    "truncated": false,
+                    "frame_id": "5495ac2a-c920-4c59-b5d8-928a8f0c9da2",
+                    "delivery": "business_evidence_v1",
+                    "payloads": [
+                      {
+                        "status": "succeeded",
+                        "task_id": "query-1",
+                        "version": 1,
+                        "result_id": "result-query-1",
+                        "columns": [
+                          "metric_code",
+                          "metric_name",
+                          "unit",
+                          "org_code",
+                          "org_name",
+                          "metric_value",
+                          "stat_date"
+                        ],
+                        "sample_rows": [
+                          {
+                            "metric_code": "SYNTH_DEPOSIT:D",
+                            "metric_name": "对公协定存款余额当日数",
+                            "unit": "元",
+                            "org_code": "SYNTH_O2",
+                            "org_name": "合成机构乙",
+                            "metric_value": 50,
+                            "stat_date": "2026-06-30"
+                          }
+                        ],
+                        "facts": [
+                          {
+                            "fact_id": "fact:query-1:0:metric_value",
+                            "task_id": "query-1",
+                            "field": "metric_value",
+                            "value": "50",
+                            "unit": "元",
+                            "metric_code": "SYNTH_DEPOSIT:D",
+                            "org_code": "SYNTH_O2",
+                            "date": "2026-06-30"
+                          }
+                        ],
+                        "fact_count": 1,
+                        "facts_truncated": false,
+                        "row_count": 1,
+                        "truncated": false,
+                        "error_code": null,
+                        "message": null,
+                        "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                        "frame_id": "5495ac2a-c920-4c59-b5d8-928a8f0c9da2",
+                        "result_ref": "query:query-1:result-query-1"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "metric_query_structured",
+                    "task_id": "query-2",
+                    "version": 1,
+                    "result_id": "result-query-2",
+                    "public_answer": "2026-06-30，合成机构乙的经营收益金额较同期为50元。",
+                    "status": "succeeded",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "rows": [
+                      {
+                        "metric_code": "SYNTH_M:Y",
+                        "metric_name": "经营收益金额较同期",
+                        "unit": "元",
+                        "org_code": "SYNTH_O2",
+                        "org_name": "合成机构乙",
+                        "metric_value": 50,
+                        "stat_date": "2026-06-30"
+                      }
+                    ],
+                    "row_count": 1,
+                    "truncated": false,
+                    "frame_id": "e2d4aa3f-1dce-4cbd-8a7b-2e5335dba5af",
+                    "delivery": "business_evidence_v1",
+                    "payloads": [
+                      {
+                        "status": "succeeded",
+                        "task_id": "query-2",
+                        "version": 1,
+                        "result_id": "result-query-2",
+                        "columns": [
+                          "metric_code",
+                          "metric_name",
+                          "unit",
+                          "org_code",
+                          "org_name",
+                          "metric_value",
+                          "stat_date"
+                        ],
+                        "sample_rows": [
+                          {
+                            "metric_code": "SYNTH_M:Y",
+                            "metric_name": "经营收益金额较同期",
+                            "unit": "元",
+                            "org_code": "SYNTH_O2",
+                            "org_name": "合成机构乙",
+                            "metric_value": 50,
+                            "stat_date": "2026-06-30"
+                          }
+                        ],
+                        "facts": [
+                          {
+                            "fact_id": "fact:query-2:0:metric_value",
+                            "task_id": "query-2",
+                            "field": "metric_value",
+                            "value": "50",
+                            "unit": "元",
+                            "metric_code": "SYNTH_M:Y",
+                            "org_code": "SYNTH_O2",
+                            "date": "2026-06-30"
+                          }
+                        ],
+                        "fact_count": 1,
+                        "facts_truncated": false,
+                        "row_count": 1,
+                        "truncated": false,
+                        "error_code": null,
+                        "message": null,
+                        "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                        "frame_id": "e2d4aa3f-1dce-4cbd-8a7b-2e5335dba5af",
+                        "result_ref": "query:query-2:result-query-2"
+                      }
+                    ]
+                  }
+                ],
+                "public_answer": "2026-06-30，合成机构乙的对公协定存款余额当日数为50元。\n\n2026-06-30，合成机构乙的经营收益金额较同期为50元。"
+              }
+            },
+            "issues": [],
+            "continuation": {
+              "actor": "pi",
+              "action": "answer"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiZjYzMWU5NWUwMzk1MDZmZjdiNjk2YzE1YzgxNWQ3ZWI2Zjc1ZWRmMDQyYWNmZDgwYjYyZGM0OTI5YzA4NzJhMSIsImNvZGVzIjpbIlNZTlRIX0RFUE9TSVQ6RCJdLCJjb252ZXJzYXRpb24iOiJzeW50aGV0aWMtc2VtYW50aWMiLCJnb2FsX2hhc2giOiI0NjE1Zjg4YWM1ZjBiZGJlZGQyMDlkNGFhZjA5Zjk4YWM2NTc4ZWJlZTA5ZDFhNjA1MTA0Njc0MWI4NmMyNmY4Iiwib3duZXIiOiJzeW50aGV0aWMtc2VtYW50aWMiLCJzY29wZSI6eyJtZXRyaWNfY29kZXMiOlsiU1lOVEhfREVQT1NJVDpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX08yIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNi0zMCIsInN0YXJ0IjoiMjAyNi0wNi0zMCJ9fSwic2Vzc2lvbiI6IjAxYTEzZDY4LTU5MDYtNzJkNS04NDQ2LTFlOGRjZmUxOGEzMSIsInYiOjF9.EbIh-S3FeMVDBznwmAFnpeYGWWsZJghtVzQCM2jYEOg",
+            "conversation_id": "synthetic-semantic",
+            "calculation_context": {
+              "scope_id": "01a13d68-8033-72d5-8446-1e9b4d2bf2ea:85b4c980-92f4-41c7-ba6e-6ee4e68e0e3b",
+              "user_question": "分别查询对公协定存款余额当日数和经营收益金额较同期"
+            },
+            "metric_codes": [
+              "SYNTH_DEPOSIT:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_O2"
+            ],
+            "time": {
+              "start": "2026-06-30",
+              "end": "2026-06-30"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        },
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiYmRmZTdlZTgwMmNiZjk0MDRlN2ZmMDk0NmY3YmRhMjk2NTRmNTkyMjViNzQ5MzllNWM5MjNmNmQxYmVmODQ3YSIsImNvZGVzIjpbIlNZTlRIX006WSJdLCJjb252ZXJzYXRpb24iOiJzeW50aGV0aWMtc2VtYW50aWMiLCJnb2FsX2hhc2giOiI0NjE1Zjg4YWM1ZjBiZGJlZGQyMDlkNGFhZjA5Zjk4YWM2NTc4ZWJlZTA5ZDFhNjA1MTA0Njc0MWI4NmMyNmY4Iiwib3duZXIiOiJzeW50aGV0aWMtc2VtYW50aWMiLCJzY29wZSI6eyJtZXRyaWNfY29kZXMiOlsiU1lOVEhfTTpZIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX08yIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNi0zMCIsInN0YXJ0IjoiMjAyNi0wNi0zMCJ9fSwic2Vzc2lvbiI6IjAxYTEzZDY4LTU5MDYtNzJkNS04NDQ2LTFlOGRjZmUxOGEzMSIsInYiOjF9.k7aU9ir_dxfu_5mCS6AwdJ6YXuGQxUDwZTgjXiQ64dQ",
+            "conversation_id": "synthetic-semantic",
+            "calculation_context": {
+              "scope_id": "01a13d68-8033-72d5-8446-1e9b4d2bf2ea:565842aa-7f49-4bda-b125-fd7cee23b09e",
+              "user_question": "分别查询对公协定存款余额当日数和经营收益金额较同期"
+            },
+            "metric_codes": [
+              "SYNTH_M:Y"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_O2"
+            ],
+            "time": {
+              "start": "2026-06-30",
+              "end": "2026-06-30"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "completion": "full",
+      "answer": "\n\n\n\n查询已完成，结果如下：\n\n**合成机构乙 · 2026年6月30日**\n\n| 指标 | 数值 | 单位 |\n|------|------|------|\n| 对公协定存款余额当日数 | 50 | 元 |\n| 经营收益金额较同期 | 50 | 元 |\n\n两项指标均已查询到该日期的数据。如需进一步比较、计算或查看明细，请告诉我。"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "model_called": false,
+  "all_critical_inputs_and_fixtures_unchanged": true,
+  "critical_source_hashes": {
+    "scenarios": "d56580b6a7f0ce9987aaca65c807f310546dbf0a6956ce4b573b170cd67dc15e",
+    "actor": "e2f01757e832235908ccc51bb81796c5d61dcd59868db6deabd0837d42ebfeb6",
+    "ORGS": "4b0a3830797af24eac52ec046fa173caf77b73469023fd3515af1da7e027caff",
+    "METRIC": "c74c850bdf56f6cfdae159b2eac3300f93f67c8585064ed165daeedd6f46fddf",
+    "CODE": "9c0b1246f142097e1335f6e2f6cb0f31b19382a5e37d30346ceb5d1eea930ed1",
+    "DATE": "b4f38562d42c392f61a9d48c7084ab492cdde20686e6da5f7a1bfc4007cac706",
+    "NEXT": "5b4391b6c2f300e9c080fb3fab36c17731fc3c780edb68f0085b292772d100e4",
+    "MONTH": "9febfdfb871a6dfd73c717b9fac8d8bb0345d546d2a1604f2b33037640218f10",
+    "day": "c5bb6611acbb67e107b61b874b6839fdd23e56962234c50171e75fa7890ca8cf",
+    "normalized": "3970a3b71c6ca713d485bf38cb8558160bead16a0ab18101e7b7698b7e112401",
+    "resolveCatalog": "29efef28e67d94e79f7ce2fc16c0e022caa4dcb02cdf3082bfd903fc70570288",
+    "seed": "8281e52835cd21f37508becfc443d48386aa99855f7b62adbdea22b70afd9427",
+    "fixtureDelta": "d3f0106dde9c483fc146a00e2281b44d70c8fabf35a216d78df123ff0bbb5084",
+    "assertSpec": "fca1500856b219d823b9875d9664561d0ad0dc7de28e7aa8d9cab606ee9dfac1",
+    "checkFixtures": "16703b72b3ff7b20dabf86198ae1fb55e43bb35fc6238e33acd8f07c844a5293",
+    "assistant": "85aefc5f539c1ef81c9c076beca476ffbddd5795b322ae9042e15dc3e6fdfda3",
+    "preRead": "80005457f3e8b6533b63d9ac9ee83f84afc842743963fc8bb8d24ad05f9a5aab",
+    "guesses": "6a56a89b0c3eb64d947270c8d2ae95c08c9555a063eba7446f76c55d9d84bb52"
+  },
+  "backend_fixture_only_assertion_diagnostic_message_changed": true,
+  "grading_revisions": [
+    "same-turn repeat clarification count",
+    "Unicode mathematical minus display only"
+  ],
+  "measurement_revisions": [
+    "explicit assertion failures",
+    "per-turn checkpoint",
+    "resume only unexecuted cases"
+  ],
+  "production_changes": false
+}

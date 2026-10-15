@@ -1,0 +1,12 @@
+{
+  "scope": "current_local_project_only",
+  "agent_url": "http://127.0.0.1:8020",
+  "frontend_url": "http://127.0.0.1:5173/chat",
+  "new_session_id": "01a13d2b-9a11-74e7-b5aa-02b95475a2ef",
+  "persisted_protocol": "semantic_v2",
+  "existing_session_protocol_preserved_by_host_regression": true,
+  "model_acceptance_complete": false,
+  "stability_acceptance_complete": false,
+  "production_deployed": false,
+  "reason": "user explicitly requested direct local switch and manual scenario testing"
+}

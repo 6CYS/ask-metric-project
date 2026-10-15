@@ -20,19 +20,14 @@ const parameters = Type.Object({
 export function createMetricCalculateTool(): AgentHarnessTool<AskMetricRequestContext, typeof parameters> {
   return {
     name: "metric_calculate", label: "受控结果计算", parameters,
-    description: "用途：按用户公式对本轮事实做有界运算。不适用：提槽取数、归因或预测。前提：输入来自本轮完整查询回执的 fact_id，不能手填业务数值；缺数、截断、单位冲突或零分母会拒绝。返回：持久化计算引用、公式、输入证据和结果。",
+    description: "用途：按用户公式对本会话经过权限复核的查询快照做有界运算，支持历史原值接续计算。不适用：提槽取数、归因或预测。输入须为完整查询或历史结果回执中的 fact_id，不能手填业务数值；过期、缺数、截断、单位冲突或零分母会拒绝。返回：计算引用、公式、输入来源和结果。",
     execute: async (_id, params, _update, request, _invocation, context) => {
       try {
         const conversationId = await request.commands.getConversationId();
         if (!conversationId) throw new BackendApiError(422, "请先查询本次计算需要的指标。", "CALCULATION_CONTEXT_MISSING");
-        let scopeId = request.operationId;
-        const write = await request.commands.getWriteCommand();
-        // 正式澄清延续原任务范围；引用和归属仍在后端逐项复核。
-        if (write?.action === "clarify" && write.taskId) {
-          const page = await request.backend.getTaskResult(write.taskId, 0, 1, {signal: context.abortSignal});
-          scopeId = page.calculation_scope_id ?? scopeId;
-        }
-        const payload = {...params, conversation_id: conversationId, scope_id: scopeId};
+        // 来源策略、会话和本轮原文由宿主绑定，模型只能提交公式与事实引用。
+        const payload = {...params, conversation_id: conversationId, scope_id: request.operationId,
+          source_policy: "conversation_snapshots" as const, user_question: request.originalMessage};
         const key = commandKey({owner: request.actor.id, session: request.sessionId, request: request.requestId, action: "calculate", payload});
         const result = await request.backend.calculate(payload, key, {signal: context.abortSignal});
         return {content: [{type: "text", text: JSON.stringify(result)}], details: {kind: "metric_calculate", ...result}};

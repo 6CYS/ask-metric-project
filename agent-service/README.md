@@ -3,6 +3,11 @@
 基于 pi AgentHarness 原生运行时（`@earendil-works/pi-ai` + `@earendil-works/pi-agent-core`）的问数代理服务。
 pi 是唯一的 Agent 运行与对话控制核心：会话、模型上下文、压缩、执行状态与恢复全部使用原生能力
 （`JsonlSessionRepo` + `main` lane）；本服务承载鉴权、可信输入绑定、原生接线、Schema 驱动的业务 Frame 及页面投影。
+
+`AGENT_BUSINESS_PROTOCOL=semantic_v2` 为新会话默认入口，既有会话保持原协议。
+已贯通精确查询、条件准备、确认、历史重显、复合目标、比较排名、覆盖发现、正式结果计算及结果驱动规划。
+阶段4按用户要求先切换本地并交付手测；自动稳定性验收尚未完成，未证明95%覆盖率。
+实现、检查及回退见[阶段4说明](../docs/pi-semantic-task/implementation-phase4.md)，可复制问法见[手工验收案例](../docs/pi-semantic-task/manual-acceptance-phase4.md)。
 Agent 的业务取数只调用 FastAPI 后端受治理接口并透传用户 Bearer，目录校验、权限裁剪、
 SQL builder 生成和执行与受控计算全部保留在后端；本服务不生成或执行 SQL；Frame 仅保留字段、结果引用和摘要，结果快照按需读取。
 
@@ -25,19 +30,43 @@ npm run dev            # 默认 127.0.0.1:8020
 压缩配置只映射原生 `CompactionSettings`（`AGENT_COMPACTION_*`），启动时校验
 `reserveTokens + keepRecentTokens < contextWindow` 且 `maxTokens < contextWindow`，不成立即拒绝启动。
 
+普通取值可用 `AGENT_DIRECT_QUERY_DELIVERY=on|observe|off` 控制最后一轮模型总结：默认 `on`，
+只有当前计划、全部目标、正式结果、完整性、当前授权及纯结果交付要求全部核验通过才直接交付。
+分析、解释、排名、计算、未知语言要求、混合工具批次及不完整结果继续原流程；权限失败或执行未知
+分别停止/回查原命令，不交给模型绕过。`observe` 记录资格但仍由Pi回答，`off` 关闭新operation直接交付。
+接纳时冻结策略；版本化答案随真实工具回执持久化，关闭后仍能刷新和恢复已保存交付，不伪造模型消息。
+
+`AGENT_MODEL_CONTEXT_VIEW=compact_v1|raw` 默认 `compact_v1`，仅删除模型发送副本内完全相同的回执表示，
+保留独有事实、绑定、告警、分页及原生记录；`AGENT_SEMANTIC_PROMPT_VARIANT=compact_v1|full` 默认 `compact_v1`，
+合并重复规则，工具集合和严格Schema不变。三项配置非法值拒绝启动，修改后重启服务。
+回退新请求使用 `off/raw/full`，保留新版快照读取器及历史，不把新历史交给不识别快照的旧二进制。
+无需业务数据库结构迁移。验收、完整性与权限边界见[Token优化实施说明](../docs/token-optimization.md)。
+
+模型超时分两个阶段：`AGENT_MODEL_FIRST_RESPONSE_TIMEOUT_MS` 控制发出请求后首次有效输出的等待，
+`AGENT_MODEL_STREAM_IDLE_TIMEOUT_MS` 控制开始输出后相邻有效输出之间的空闲时间，均默认 30000 毫秒。
+非空文本、思考及工具参数增量均刷新空闲计时；响应头、开始事件、空增量不算进展。
+持续输出不会因整次调用达到固定总时长而中断；一直没有首次有效输出时可按模型重试配置重试，
+已经输出后的停滞以 `MODEL_STREAM_IDLE_EXCEEDED` 结束本轮，不自动重放请求。
+
+旧 `AGENT_MODEL_TIMEOUT_MS` 仅在新空闲变量未设置或为空白时作为空闲时限后备，语义已从总时限改为空闲时限。
+更新后重启 Agent 服务生效，无需数据库或会话迁移。回滚旧版本前核对保留的环境文件：旧版本会重新按总时限
+解释 `AGENT_MODEL_TIMEOUT_MS`，且不识别新空闲变量；旧 `MODEL_DEADLINE_EXCEEDED` 历史记录仍兼容展示。
+
 ## 接口（协议 V3）
 
 - `GET /health`：健康检查（无需鉴权）。
 - `POST /sessions`、`GET /sessions`、`GET /sessions/{id}`、`DELETE /sessions/{id}`：会话管理；历史消息由原生记录投影（含工具回执引用），删除活动会话返回 409。
 - `POST /sessions/{id}/prompt`：提问，SSE 事件流。请求体为 `{protocol_version: 3, request_id, message, clarification_target?, selected_answers?}`；`request_id` 由浏览器每次确认发送生成，重试不变。旧协议请求返回 `CLIENT_UPGRADE_REQUIRED`。
 - `GET /sessions/{id}/stream`：只读观察流（断线重连：快照 + 实时事件），不接纳新输入。
-- `POST /sessions/{id}/cancel`：显式停止指定 operation（原生 requestAbort）。
+- `POST /sessions/{id}/cancel`：传operation_id停止指定操作，或传request_id取消尚未收到accepted的请求；两者恰好一个。
 
 SSE 事件：`accepted`（含快照）、`snapshot`、`tool_start`、`tool_end`、`run_terminal`
 （分开表达 `run_status`/`answer_status`/`business_tasks`）、`error`；公共字段含
 `protocol_version`、`session_id`，提问流另含 `operation_id`、`request_id`。
-模型原始 `text_delta` 不直接交付。Pi 根据工具事实组织最终说明和澄清，最终快照同步到页面。
-宿主不拼接业务正文或多条证据、不注入回答补救或强制交付工具。已校验的 `READY + execute` 和 `REUSE_RESULT` 必须接续原生执行/回读工具；模型在此处的提前确认响应会转换为该 Frame 的确定下一动作，工具结果后再组织回答。失败不自动重试。步骤结果可提前展示，不能把中间成功当成整轮完成。
+模型原始 `text_delta` 不直接交付。Pi根据正式工具事实组织解释与分析；完整普通取值由宿主核验后复制后端正式正文，
+按目标组织结构块，答案随真实回执保存并统一投影到实时、历史和最终快照。宿主不进行数值推理或另建对话运行时。
+已校验的 `READY + execute` 和 `REUSE_RESULT` 必须接续原生执行/回读工具；模型在此处的提前确认响应会转换为该Frame的确定下一动作。
+失败不自动重试。步骤结果可提前展示，不能把中间成功当成整轮完成。
 新用户消息持久化 `businessProtocol=frame_v1`，投影返回 `business_protocol`，历史、重连与实时正文保持一致；旧历史按原协议只读兼容。
 `run_terminal.timings_ms` 在提问流中记录鉴权、外层模型、工具和总耗时，另有
 `first_visible_ms`（首次发送回答正文）与 `model_first_token_ms`（各次调用首次输出）。
@@ -48,6 +77,28 @@ SSE 事件：`accepted`（含快照）、`snapshot`、`tool_start`、`tool_end`�
 仅向请求头声明 `X-Agent-Answer-Streaming: v1` 的新前端发送，旧页面继续原事件序列。
 80ms 合并发送，模型结束补齐。工具调用、重试或失败可撤回临时正文，最终快照整体替换。
 临时文本不参与存档、复制或导出；GET 重连流保持快照投影。关闭开关并重启 agent-service 即回退。
+
+模型统一以 `protocol_version/capability/base/mode/changes` 调用 `resolve_business_turn`。
+实际工具 Schema 固定允许字段、动作与值类型；每项变化只表达一次，入口拒绝隐式类型转换。
+内部仍用既有 `ContextDelta`，原生会话和业务 Frame 不改写；可信旧在途操作按原身份恢复。
+历史发送副本只投影可无损转换的参数，不能转换的调用成对呈现为历史数据。
+旧 `AGENT_COMPACT_TURN_ARGS` 配置继续可读，但不再选择新模型协议，关闭它不能回退新入口。
+完整格式与示例见[固定业务请求接口](../docs/fixed-business-turn-interface.md)。
+
+`changes` 的具名字段及类型来自能力契约，值仍由业务服务核验目录、来源和权限；机构集合和下辖范围使用固定范围结构。
+参数纠错须保留同一来源及本轮全部有效变化，`inherit` 不能替代本轮新值。已核验的候选确认独立保存；恢复回执的 `pending_changes` 区分有依据的待修变化与允许明确继承旧值的错误提案，不能靠省略字段绕过恢复。正式指标错字的自动纠正、原文审计与排名证据校验见[确认与恢复契约](../docs/business-context-reference-recovery.md)。
+空授权范围、不支持的查询组合和不支持的覆盖查询范围返回 `retryable=false`；宿主结束本轮业务动作并交付原因，下一用户轮可继续新请求。
+确定失败修复和完整日期表达解析规则继续生效。
+
+历史二期真实模型对照脚本（旧格式兼容研究；不代表固定入口的模型验收）：
+
+```bash
+node --env-file=.env --import tsx scripts/check-compact-turn-args.ts --live --repeat 3 --supplementary --report /tmp/compact-phase2.json
+```
+
+报告区分语义回归、首调用输出 token、首字时间及未完成的真实页面/数据库工具治理门禁。
+不带 `--live` 仅列计划，`--self-check` 离线核对门禁统计。验收结论见 `../docs/verification/`。
+`--concurrency 1..3` 控制独立用例对的并发，默认 1；每个用例旧/新仍串行对照，每轮全部完成后再重复。性能对比须保留报告中的并发设置。
 `answer_stream_started` / `answer_stream_reset` 日志只记录请求、调用编号和撤回原因，供统计撤回率。
 
 真实模型开关对照（业务后端为隔离合成桩，不验证真实数据库）：
@@ -75,8 +126,8 @@ operation；是否存在 `current` 不能用来判断当前进程是否已有执
 默认工具：`resolve_business_turn`、`business_context_read`、`execute_business_frame`、`read_business_result`、
 `catalog`、`read`、`business_skill_read`、`business_capability_explain`。
 
-Pi 输出能力、历史引用、字段变化和执行意图；通用 Schema/Resolver 确定业务事实并验证 READY，
-执行工具仅接受本轮 frameId。自然语言澄清由 Pi 根据 issues 组织，新用户回合补充后产生新 Frame。
+Pi 输出能力、历史引用、本轮字段目标声明、字段变化和执行意图；通用 Schema/Resolver 确定业务事实并验证 READY，
+执行工具仅接受本轮 frameId。待用户澄清时，宿主按已保存 Frame 交付问题并结束本轮；新用户回合补充后产生新 Frame。
 基础取值、覆盖、排名和计算均经过这条链路，原页面入口不变。
 取值与排名通过独立 operation 表达，selection 只表达时间选择。机构集合由后端
 `business-context/resolve-scope` 按正式层级和账号权限解析，执行前复核指纹；不使用空机构数组表示全行。
@@ -89,4 +140,5 @@ Frame 使用 Pi 原生事务 values 持久化，支持历史分支、独立焦�
 旧查询工具不再向新回合提供；旧结果继续兼容只读，不重写历史。
 
 完整契约、可复现检查、升级与回退见 [Pi 通用多轮业务上下文](../docs/pi-business-context.md)。
+模型的固定请求格式见[固定业务请求接口](../docs/fixed-business-turn-interface.md)；内部目标声明、历史字段引用、确认及恢复契约见 [历史字段引用、确认与恢复](../docs/business-context-reference-recovery.md)。
 配套升级后端、Agent、前端，先排空活动回合；不增加依赖或数据库迁移。

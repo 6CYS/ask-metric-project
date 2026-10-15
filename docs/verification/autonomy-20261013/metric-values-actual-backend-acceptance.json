@@ -1,0 +1,148 @@
+{
+  "checked_at_utc": "2026-10-13T16:44:50.847026+00:00",
+  "query_source": "unchanged configured QUERY_DATABASE_URL / metric_values",
+  "existing_database_writes": false,
+  "models_called": false,
+  "app_state": "dedicated temporary SQLite, removed after run",
+  "authentication_scope": "synthetic test actor and service token only; does not certify the currently logged-in user's permissions",
+  "upstream_lake_provenance_verified": false,
+  "metric": {
+    "metric_code": "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG",
+    "metric_name": "个人存款余额较年初增幅",
+    "unit": "%",
+    "source_metric_code": "LOCAL:个人存款余额",
+    "base_name": "个人存款余额",
+    "value_basis": "较年初增幅"
+  },
+  "precise_scenarios": [
+    {
+      "scenario": "precise_query",
+      "query": {
+        "schema_version": 2,
+        "metric_codes": [
+          "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+        ],
+        "org_codes": [
+          "01"
+        ],
+        "time": {
+          "start": "2026-07-31",
+          "end": "2026-07-31"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        }
+      },
+      "independent_select": {
+        "metric_code": "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG",
+        "org_code": "01",
+        "date": "2026-07-31",
+        "value": "0.005484",
+        "has_test_source_marker": false
+      },
+      "actual_value": "0.005484",
+      "fact_value": "0.005484",
+      "unit": "%",
+      "independent_match": true,
+      "task_id": "d0f023db-dfbd-4fcf-b31e-ebe0d279b4e5"
+    },
+    {
+      "scenario": "change_organization",
+      "query": {
+        "schema_version": 2,
+        "metric_codes": [
+          "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+        ],
+        "org_codes": [
+          "070667800"
+        ],
+        "time": {
+          "start": "2026-07-31",
+          "end": "2026-07-31"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        }
+      },
+      "independent_select": {
+        "metric_code": "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG",
+        "org_code": "070667800",
+        "date": "2026-07-31",
+        "value": "-0.016004",
+        "has_test_source_marker": false
+      },
+      "actual_value": "-0.016004",
+      "fact_value": "-0.016004",
+      "unit": "%",
+      "independent_match": true,
+      "task_id": "3e6ff84f-84f8-4c43-871a-e659a42db1d0"
+    },
+    {
+      "scenario": "change_date",
+      "query": {
+        "schema_version": 2,
+        "metric_codes": [
+          "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+        ],
+        "org_codes": [
+          "070667800"
+        ],
+        "time": {
+          "start": "2026-06-30",
+          "end": "2026-06-30"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        }
+      },
+      "independent_select": {
+        "metric_code": "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG",
+        "org_code": "070667800",
+        "date": "2026-06-30",
+        "value": "-0.016330",
+        "has_test_source_marker": false
+      },
+      "actual_value": "-0.016330",
+      "fact_value": "-0.016330",
+      "unit": "%",
+      "independent_match": true,
+      "task_id": "606c56a2-2fe8-4332-b77c-c5f681fd6fee"
+    }
+  ],
+  "analysis_scenario": {
+    "query": {
+      "metric_codes": [
+        "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+      ],
+      "schema_version": 2,
+      "org_codes": [
+        "070667800"
+      ],
+      "time": {
+        "start": "2026-06-30",
+        "end": "2026-06-30"
+      },
+      "selection": "exact",
+      "operation": {
+        "kind": "value"
+      }
+    },
+    "actual_value": "-0.016330",
+    "unit": "%",
+    "independent_match": true,
+    "prepare_business_sql_count": 0,
+    "execute_business_sql_count": 1,
+    "replay_business_sql_count": 0
+  },
+  "business_sql_execution_count": 4,
+  "actual_sql_templates": [
+    "SELECT mv.metric_code, COALESCE(mt.metric_name, mv.metric_name) AS metric_name, mt.unit, mv.org_code, mv.org_name, mv.metric_value, mv.stat_date FROM metric_values AS mv LEFT JOIN metric_terms AS mt ON mt.metric_code = mv.metric_code WHERE (mv.metric_code IN :metric_codes AND (:filter_orgs = FALSE OR mv.org_code IN :org_codes)) AND mv.stat_date = CAST(:stat_date AS DATE) ORDER BY mv.metric_code, mv.org_name LIMIT :limit",
+    "SELECT mv.metric_code, COALESCE(mt.metric_name, mv.metric_name) AS metric_name, mt.unit, mv.org_code, mv.org_name, mv.metric_value, mv.stat_date FROM metric_values AS mv LEFT JOIN metric_terms AS mt ON mt.metric_code = mv.metric_code WHERE (mv.metric_code IN :metric_codes AND (:filter_orgs = FALSE OR mv.org_code IN :org_codes)) AND mv.stat_date = CAST(:stat_date AS DATE) ORDER BY mv.metric_code, mv.org_name LIMIT :limit",
+    "SELECT mv.metric_code, COALESCE(mt.metric_name, mv.metric_name) AS metric_name, mt.unit, mv.org_code, mv.org_name, mv.metric_value, mv.stat_date FROM metric_values AS mv LEFT JOIN metric_terms AS mt ON mt.metric_code = mv.metric_code WHERE (mv.metric_code IN :metric_codes AND (:filter_orgs = FALSE OR mv.org_code IN :org_codes)) AND mv.stat_date = CAST(:stat_date AS DATE) ORDER BY mv.metric_code, mv.org_name LIMIT :limit",
+    "SELECT mv.metric_code, COALESCE(mt.metric_name, mv.metric_name) AS metric_name, mt.unit, mv.org_code, mv.org_name, mv.metric_value, mv.stat_date FROM metric_values AS mv LEFT JOIN metric_terms AS mt ON mt.metric_code = mv.metric_code WHERE (mv.metric_code IN :metric_codes AND (:filter_orgs = FALSE OR mv.org_code IN :org_codes)) AND mv.stat_date = CAST(:stat_date AS DATE) ORDER BY mv.metric_code, mv.org_name LIMIT :limit"
+  ],
+  "status": "passed"
+}

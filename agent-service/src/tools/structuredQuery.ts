@@ -18,9 +18,19 @@ import {
 } from "./shared.js";
 
 const structuredQueryParameters = Type.Object({
+  source_semantic_receipt: Type.Optional(Type.String({minLength: 1, maxLength: 16000})),
   verify_question_coverage: Type.Optional(Type.Boolean()),
   source_question: Type.Optional(Type.String({minLength: 1,
-    description: "覆盖率复核的归一化原句，仅由业务 Frame 适配器按已确认口径注入；缺省使用本轮用户原文"})),
+    description: "完整覆盖率复核原句，仅由业务 Frame 适配器注入，明确放弃片段也保留；缺省使用本轮用户原文"})),
+  source_metric_bindings: Type.Optional(Type.Array(Type.Object({
+    start: Type.Integer({minimum: 0}), end: Type.Integer({minimum: 1}), text: Type.String({minLength: 1}),
+    codes: Type.Array(Type.String({minLength: 1}), {minItems: 1, maxItems: 100}),
+  }, {additionalProperties: false}), {minItems: 1, maxItems: 100,
+    description: "仅宿主从已校验 Frame 注入的原句片段与指标编码绑定；区间使用 Unicode 码点"})),
+  source_metric_exclusions: Type.Optional(Type.Array(Type.Object({
+    start: Type.Integer({minimum: 0}), end: Type.Integer({minimum: 1}), text: Type.String({minLength: 1}),
+  }, {additionalProperties: false}), {minItems: 1, maxItems: 100,
+    description: "仅宿主从已校验 Frame 注入的明确放弃目标原始区间；原句不删除这些片段"})),
   metric_codes: Type.Array(Type.String({ minLength: 1 }), {
     minItems: 1,
     maxItems: 100,
@@ -33,8 +43,22 @@ const structuredQueryParameters = Type.Object({
     Type.Object({kind: Type.Literal("children_of"), parent_code: Type.String({minLength: 1})}, {additionalProperties: false}),
   ])),
   scope_fingerprint: Type.Optional(Type.String({pattern: "^[a-f0-9]{64}$"})),
+  comparison_scope: Type.Optional(Type.Object({
+    org_codes: Type.Optional(Type.Array(Type.String({minLength: 1}), {minItems: 1, maxItems: 1000})),
+    organization_scope: Type.Optional(Type.Union([
+      Type.Object({kind: Type.Literal("authorized_cohort"), cohort: Type.Literal("rural_commercial_banks")}, {additionalProperties: false}),
+      Type.Object({kind: Type.Literal("children_of"), parent_code: Type.String({minLength: 1})}, {additionalProperties: false}),
+    ])),
+    scope_fingerprint: Type.Optional(Type.String({pattern: "^[a-f0-9]{64}$"})),
+  }, {additionalProperties: false})),
   start: Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "起始日期 YYYY-MM-DD（含）；多个离散日期时为最早日期" }),
   end: Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "结束日期 YYYY-MM-DD（含）；多个离散日期时为最晚日期" }),
+  time_alternative: Type.Optional(Type.Object({
+    label: Type.String({minLength: 1, maxLength: 200}),
+    start: Type.String({pattern: "^\\d{4}-\\d{2}-\\d{2}$"}),
+    end: Type.String({pattern: "^\\d{4}-\\d{2}-\\d{2}$"}),
+  }, {additionalProperties: false,
+    description: "仅由业务 Frame 适配器注入的“近N年”备选口径（最近 N 个完整年度），随回执透传供前端切换口径；模型不填写"})),
   dates: Type.Optional(Type.Array(Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" }), {
     minItems: 2, maxItems: 31,
     description: "多个离散日期点（如各月末），各点独立取值；start/end 须等于最早/最晚。与排名、完整时间序列互斥。",
@@ -45,6 +69,7 @@ const structuredQueryParameters = Type.Object({
   operation: Type.Optional(Type.Union([
     Type.Object({kind: Type.Literal("value")}, {additionalProperties: false}),
     Type.Object({kind: Type.Literal("ranking"), position: StringEnum(["top", "bottom"]), top_n: Type.Integer({minimum: 1, maximum: 100})}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("rank_position")}, {additionalProperties: false}),
   ])),
 }, {additionalProperties: false});
 
@@ -62,6 +87,10 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
         };
       }
       const hasDates = Array.isArray(params.dates) && params.dates.length > 0;
+      // 备选口径仅随有效查询透传；畸形值不影响主查询，按未注入处理。
+      const timeAlternative = params.time_alternative && isCalendarDate(params.time_alternative.start)
+        && isCalendarDate(params.time_alternative.end) && params.time_alternative.start <= params.time_alternative.end
+        ? params.time_alternative : undefined;
       if (hasDates) {
         const dates = params.dates!;
         const sortedUnique = [...new Set(dates)].sort();
@@ -83,9 +112,18 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
       const scopeValid = params.organization_scope
         ? !!params.scope_fingerprint && /^[a-f0-9]{64}$/.test(params.scope_fingerprint) && params.org_codes === undefined
         : !params.scope_fingerprint && !!params.org_codes?.length;
-      if (!scopeValid || !["exact", "latest_in_range", "all_in_range"].includes(params.selection)
-        || "order" in params || "top_n" in params || (params.operation?.kind === "ranking" && params.selection === "all_in_range")
-        || (hasDates && (params.operation?.kind === "ranking" || params.selection === "all_in_range"))) {
+      const comparison = params.comparison_scope;
+      const comparisonValid = comparison?.organization_scope
+        ? !!comparison.scope_fingerprint && /^[a-f0-9]{64}$/.test(comparison.scope_fingerprint) && comparison.org_codes === undefined
+        : !!comparison?.org_codes?.length && !comparison.scope_fingerprint;
+      const isRank = params.operation?.kind === "ranking" || params.operation?.kind === "rank_position";
+      if (!scopeValid || (params.operation?.kind === "rank_position" ? !comparisonValid : comparison !== undefined)
+        || ((params.source_metric_bindings !== undefined || params.source_metric_exclusions !== undefined)
+        && (!params.verify_question_coverage || !params.source_question))
+        || (params.source_metric_exclusions !== undefined && params.source_metric_bindings === undefined)
+        || !["exact", "latest_in_range", "all_in_range"].includes(params.selection)
+        || "order" in params || "top_n" in params || (isRank && params.selection === "all_in_range")
+        || (hasDates && (isRank || params.selection === "all_in_range"))) {
         return {
           content: [{type: "text", text: JSON.stringify({status: "error", error_code: "QUERY_CONTRACT_INVALID", message: "机构必须为实际编码或带指纹的集合；尚不支持逐日排名"})}],
           details: {kind: "metric_query_structured" as const, status: "error", retryable: false, error_code: "QUERY_CONTRACT_INVALID", public_answer: "查询条件组合未通过校验。"},
@@ -99,14 +137,19 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
           await request.commands.setConversationId(conversationId);
         }
         const spec: BasicQuerySpec = {
+          ...(params.source_semantic_receipt ? {source_semantic_receipt: params.source_semantic_receipt} : {}),
           conversation_id: conversationId,
           calculation_context: {scope_id: request.operationId, user_question: request.originalMessage},
-          ...(params.verify_question_coverage ? {source_question: params.source_question ?? request.originalMessage} : {}),
+          ...(params.verify_question_coverage ? {source_question: params.source_question ?? request.originalMessage,
+            ...(params.source_metric_bindings ? {source_metric_bindings: params.source_metric_bindings} : {}),
+            ...(params.source_metric_exclusions ? {source_metric_exclusions: params.source_metric_exclusions} : {})} : {}),
           metric_codes: [...new Set(params.metric_codes)],
           schema_version: 2,
           ...(params.organization_scope ? {organization_scope: params.organization_scope, scope_fingerprint: params.scope_fingerprint!}
             : {org_codes: [...new Set(params.org_codes!)]}),
+          ...(comparison ? {comparison_scope: comparison} : {}),
           time: { start: params.start, end: params.end, ...(hasDates ? { dates: params.dates } : {}) },
+          ...(timeAlternative ? {time_alternative: timeAlternative} : {}),
           selection: params.selection as BasicQuerySpec["selection"],
           operation: (params.operation ?? {kind: "value"}) as NonNullable<BasicQuerySpec["operation"]>,
         };
@@ -165,6 +208,8 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
             result_id: task?.result?.result_id,
             public_answer: result.status === "succeeded" ? resultAnswer(result) : readableMessage ?? "查询未成功。",
             status: result.status,
+            // “近N年”备选口径透传到工具明细（SSE tool_end 与会话快照同源），前端据此提供“切换口径”。
+            ...(timeAlternative ? {time_variants: [timeAlternative]} : {}),
             ...(result.error_code ? {error_code: result.error_code} : {}),
             columns: result.columns,
             rows: result.rows,

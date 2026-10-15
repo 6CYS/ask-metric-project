@@ -1,0 +1,746 @@
+{
+  "model": "deepseek-ai/DeepSeek-V4-Flash",
+  "baseline_report": "prompt-skill-ab-20261013-before.json",
+  "candidate_report": "prompt-skill-ab-20261013-candidate1.json",
+  "before": {
+    "cases": 8,
+    "turns": 11,
+    "achieved_turns": 8,
+    "tool_calls": 14,
+    "error_calls": 3,
+    "error_rate": 0.21428571428571427,
+    "expected_business_refusals": 2,
+    "ungrounded_condition_proposals": 3,
+    "ungrounded_condition_executions": 1,
+    "unnecessary_clarifications": 1,
+    "repeated_clarifications": 0,
+    "model_calls": 24,
+    "ungrounded_reference_count_turns": 0
+  },
+  "after": {
+    "cases": 8,
+    "turns": 11,
+    "achieved_turns": 9,
+    "tool_calls": 17,
+    "error_calls": 7,
+    "error_rate": 0.4117647058823529,
+    "expected_business_refusals": 1,
+    "ungrounded_condition_proposals": 4,
+    "ungrounded_condition_executions": 1,
+    "unnecessary_clarifications": 0,
+    "repeated_clarifications": 0,
+    "model_calls": 28,
+    "ungrounded_reference_count_turns": 0
+  },
+  "counts": {
+    "shared_pass": 8,
+    "candidate_only_failure": 0,
+    "baseline_only_failure": 1,
+    "shared_failure": 2
+  },
+  "paired": [
+    {
+      "scenario": "clear_first_and_date_followup",
+      "turn": 1,
+      "before": {
+        "passed": true,
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 24348
+      },
+      "after": {
+        "passed": true,
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 8055
+      },
+      "result": "shared_pass"
+    },
+    {
+      "scenario": "clear_first_and_date_followup",
+      "turn": 2,
+      "before": {
+        "passed": true,
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 9331
+      },
+      "after": {
+        "passed": true,
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 16613
+      },
+      "result": "shared_pass"
+    },
+    {
+      "scenario": "ambiguous_month_ranking_and_recovery",
+      "turn": 1,
+      "before": {
+        "passed": false,
+        "tool_calls": 2,
+        "error_calls": 1,
+        "error_rate": 0.5,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 3,
+        "ungrounded_condition_executions": 1,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 3,
+        "elapsed_ms": 20023
+      },
+      "after": {
+        "passed": false,
+        "tool_calls": 3,
+        "error_calls": 2,
+        "error_rate": 0.6666666666666666,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 4,
+        "ungrounded_condition_executions": 1,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 4,
+        "elapsed_ms": 27604
+      },
+      "result": "shared_failure"
+    },
+    {
+      "scenario": "ambiguous_month_ranking_and_recovery",
+      "turn": 2,
+      "before": {
+        "passed": true,
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 5838
+      },
+      "after": {
+        "passed": true,
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 26857
+      },
+      "result": "shared_pass"
+    },
+    {
+      "scenario": "unique_reference_without_count",
+      "turn": 1,
+      "before": {
+        "passed": true,
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 4755
+      },
+      "after": {
+        "passed": true,
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 22961
+      },
+      "result": "shared_pass"
+    },
+    {
+      "scenario": "two_sources_union_count",
+      "turn": 1,
+      "before": {
+        "passed": true,
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 4657
+      },
+      "after": {
+        "passed": true,
+        "tool_calls": 2,
+        "error_calls": 1,
+        "error_rate": 0.5,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 3,
+        "elapsed_ms": 21684
+      },
+      "result": "shared_pass"
+    },
+    {
+      "scenario": "saved_candidate_confirm_and_date_change",
+      "turn": 1,
+      "before": {
+        "passed": true,
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 5487
+      },
+      "after": {
+        "passed": true,
+        "tool_calls": 2,
+        "error_calls": 1,
+        "error_rate": 0.5,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 3,
+        "elapsed_ms": 10714
+      },
+      "result": "shared_pass"
+    },
+    {
+      "scenario": "real_prime_and_historical_calculation",
+      "turn": 1,
+      "before": {
+        "passed": true,
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 10602
+      },
+      "after": {
+        "passed": true,
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 3943
+      },
+      "result": "shared_pass"
+    },
+    {
+      "scenario": "real_prime_and_historical_calculation",
+      "turn": 2,
+      "before": {
+        "passed": false,
+        "tool_calls": 2,
+        "error_calls": 2,
+        "error_rate": 1,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 3,
+        "elapsed_ms": 9258
+      },
+      "after": {
+        "passed": false,
+        "tool_calls": 3,
+        "error_calls": 3,
+        "error_rate": 1,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 4,
+        "elapsed_ms": 23486
+      },
+      "result": "shared_failure"
+    },
+    {
+      "scenario": "coverage_discovery",
+      "turn": 1,
+      "before": {
+        "passed": false,
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 1,
+        "repeated_clarifications": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 1,
+        "elapsed_ms": 13485
+      },
+      "after": {
+        "passed": true,
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 1,
+        "model_calls": 2,
+        "elapsed_ms": 7245
+      },
+      "result": "baseline_only_failure"
+    },
+    {
+      "scenario": "unsupported_cause_boundary",
+      "turn": 1,
+      "before": {
+        "passed": true,
+        "tool_calls": 2,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 2,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 3,
+        "elapsed_ms": 8058
+      },
+      "after": {
+        "passed": true,
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 1,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 4918
+      },
+      "result": "shared_pass"
+    }
+  ],
+  "measurement_audit": {
+    "model_called": false,
+    "script_hash_equal": true,
+    "instrumentation_patch_reviewed": true,
+    "before": {
+      "model_called": false,
+      "original_report": "prompt-skill-ab-20261013-before.raw.json",
+      "raw_sha256": "4b8b2fa7c48e921c1f1f01eb169714d1d35718690ff9cc242579203a8a401ab7",
+      "audit_script_sha256": "dcf9f01fff0b3fe5b7b586b35ee97f342c39037b06c6c1a0b0baf982c9baf59c",
+      "rule": "same-turn repeated=max(0, NEEDS_CLARIFICATION receipts-1); unnecessary stays separate",
+      "changes": [
+        {
+          "scenario": "clear_first_and_date_followup",
+          "turn": 1,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "clear_first_and_date_followup",
+          "turn": 2,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "ambiguous_month_ranking_and_recovery",
+          "turn": 1,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "ambiguous_month_ranking_and_recovery",
+          "turn": 2,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "unique_reference_without_count",
+          "turn": 1,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "two_sources_union_count",
+          "turn": 1,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "saved_candidate_confirm_and_date_change",
+          "turn": 1,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "real_prime_and_historical_calculation",
+          "turn": 1,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "real_prime_and_historical_calculation",
+          "turn": 2,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "coverage_discovery",
+          "turn": 1,
+          "structured_clarifications": 1,
+          "original_repeated": 1,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "unsupported_cause_boundary",
+          "turn": 1,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        }
+      ],
+      "model_requests_or_results_changed": false
+    },
+    "after": {
+      "model_called": false,
+      "original_report": "prompt-skill-ab-20261013-candidate1.raw.json",
+      "raw_sha256": "d777023bcfef8477871a97cdc3f060f6305b31f565a2fdbc3349c85fe75871cc",
+      "audit_script_sha256": "dcf9f01fff0b3fe5b7b586b35ee97f342c39037b06c6c1a0b0baf982c9baf59c",
+      "rule": "same-turn repeated=max(0, NEEDS_CLARIFICATION receipts-1); unnecessary stays separate",
+      "changes": [
+        {
+          "scenario": "clear_first_and_date_followup",
+          "turn": 1,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "clear_first_and_date_followup",
+          "turn": 2,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "ambiguous_month_ranking_and_recovery",
+          "turn": 1,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "ambiguous_month_ranking_and_recovery",
+          "turn": 2,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "unique_reference_without_count",
+          "turn": 1,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "two_sources_union_count",
+          "turn": 1,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "saved_candidate_confirm_and_date_change",
+          "turn": 1,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "real_prime_and_historical_calculation",
+          "turn": 1,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "real_prime_and_historical_calculation",
+          "turn": 2,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "coverage_discovery",
+          "turn": 1,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        },
+        {
+          "scenario": "unsupported_cause_boundary",
+          "turn": 1,
+          "structured_clarifications": 0,
+          "original_repeated": 0,
+          "audited_repeated": 0
+        }
+      ],
+      "model_requests_or_results_changed": false
+    }
+  },
+  "limitations": "one sample/version; synthetic backend; controlled pre-read subset; no statistical significance or production acceptance",
+  "intermediate_candidate1": {
+    "report": "prompt-skill-ab-20261013-candidate1.json",
+    "summary": {
+      "cases": 8,
+      "turns": 11,
+      "achieved_turns": 9,
+      "tool_calls": 17,
+      "error_calls": 7,
+      "error_rate": 0.4117647058823529,
+      "expected_business_refusals": 1,
+      "ungrounded_condition_proposals": 4,
+      "ungrounded_condition_executions": 1,
+      "unnecessary_clarifications": 0,
+      "repeated_clarifications": 0,
+      "model_calls": 28,
+      "ungrounded_reference_count_turns": 0
+    },
+    "source_hashes": {
+      "src/prompts/businessSystemPrompt.ts": "497cd6ec3d7e706b32cef6e7957d037b5747f9b8430ae5d951ebc83028a18e3b",
+      "src/tools/businessContext.ts": "0182c8408902c688c46fdc01fd8c1fb3bb87ffc7a787f0e366fe412c3c4104cd",
+      "src/business-context/capabilities.ts": "c0c2e9d7b35c4e868dbb1a46d899aadbe993bad9c93c1fbed6b19ac070e18f96",
+      "src/businessSkills.ts": "cd84656797addc8937fea6d1610dcb3e90b42803186b659d6fc2d476f851ac1d",
+      "skills/analysis-boundary/SKILL.md": "0c19d3a107be19c326d2b92eaa941ef5ec776474871da08c4f42338b45c9b5d4",
+      "skills/data-coverage/SKILL.md": "27a0f4a56bf899b256d972cae9efa3a4788b33254765fe81e93f6e18a60e048e",
+      "skills/metric-query/SKILL.md": "8c98e635f1727f5cb6ff0d08bec45161f15f4586bb16d9eaee3ab224b9eb386b",
+      "skills/result-calculation/SKILL.md": "6b902f5c1333a31c8d457423ab0e98a0e78e63a710088b647e5b67c857fdfb8e"
+    },
+    "retained_all_failures": true
+  },
+  "intermediate_candidate2": {
+    "report": "prompt-skill-ab-20261013-candidate2.json",
+    "summary": {
+      "cases": 8,
+      "turns": 11,
+      "achieved_turns": 9,
+      "tool_calls": 21,
+      "error_calls": 10,
+      "expected_business_refusals": 1,
+      "ungrounded_condition_proposals": 5,
+      "ungrounded_condition_executions": 0,
+      "unnecessary_clarifications": 0,
+      "repeated_clarifications": 0,
+      "model_calls": 30,
+      "error_rate": 0.47619047619047616,
+      "ungrounded_reference_count_turns": 0
+    },
+    "source_hashes": {
+      "src/prompts/businessSystemPrompt.ts": "eb0c5a8de904a23b3b08f4bbb55ee85ee263836da4024403acf1ec21a932e73f",
+      "src/tools/businessContext.ts": "a25f89dd39470616053da44228fbf81365c7436ddf2449e854a38b40e1078793",
+      "src/business-context/capabilities.ts": "84fe3306fa36ef5c9bc571f15edb9186303f204bf2bf0c55cfe9c22a304119cd",
+      "src/businessSkills.ts": "cd84656797addc8937fea6d1610dcb3e90b42803186b659d6fc2d476f851ac1d",
+      "skills/analysis-boundary/SKILL.md": "0c19d3a107be19c326d2b92eaa941ef5ec776474871da08c4f42338b45c9b5d4",
+      "skills/data-coverage/SKILL.md": "27a0f4a56bf899b256d972cae9efa3a4788b33254765fe81e93f6e18a60e048e",
+      "skills/metric-query/SKILL.md": "8c98e635f1727f5cb6ff0d08bec45161f15f4586bb16d9eaee3ab224b9eb386b",
+      "skills/result-calculation/SKILL.md": "6b902f5c1333a31c8d457423ab0e98a0e78e63a710088b647e5b67c857fdfb8e"
+    },
+    "retained_all_failures": true
+  },
+  "intermediate_candidate3": {
+    "report": "prompt-skill-ab-20261013-candidate3.json",
+    "summary": {
+      "cases": 8,
+      "turns": 11,
+      "achieved_turns": 9,
+      "tool_calls": 12,
+      "error_calls": 1,
+      "error_rate": 0.08333333333333333,
+      "expected_business_refusals": 1,
+      "ungrounded_condition_proposals": 0,
+      "ungrounded_condition_executions": 0,
+      "unnecessary_clarifications": 1,
+      "repeated_clarifications": 0,
+      "model_calls": 21,
+      "ungrounded_reference_count_turns": 1
+    },
+    "source_hashes": {
+      "src/prompts/businessSystemPrompt.ts": "aa3b63a99728cec83b8f7296c4dee17d855cddac711e08960cd28e16d45470ed",
+      "src/tools/businessContext.ts": "c9d43e7774cd13ae2f8bcee242b0cf6320e8826448024f789cae355f1a7072a1",
+      "src/business-context/capabilities.ts": "090827c69a39827e4c31b36b3efb1c223ac8bf0a9f50748b5c0e0f724b133836",
+      "src/businessSkills.ts": "cd84656797addc8937fea6d1610dcb3e90b42803186b659d6fc2d476f851ac1d",
+      "skills/analysis-boundary/SKILL.md": "0c19d3a107be19c326d2b92eaa941ef5ec776474871da08c4f42338b45c9b5d4",
+      "skills/data-coverage/SKILL.md": "27a0f4a56bf899b256d972cae9efa3a4788b33254765fe81e93f6e18a60e048e",
+      "skills/metric-query/SKILL.md": "8c98e635f1727f5cb6ff0d08bec45161f15f4586bb16d9eaee3ab224b9eb386b",
+      "skills/result-calculation/SKILL.md": "6b902f5c1333a31c8d457423ab0e98a0e78e63a710088b647e5b67c857fdfb8e"
+    },
+    "retained_all_failures": true
+  },
+  "intermediate_candidate4": {
+    "report": "prompt-skill-ab-20261013-candidate4.json",
+    "summary": {
+      "cases": 8,
+      "turns": 11,
+      "achieved_turns": 10,
+      "tool_calls": 19,
+      "error_calls": 7,
+      "error_rate": 0.3684210526315789,
+      "expected_business_refusals": 1,
+      "ungrounded_condition_proposals": 0,
+      "ungrounded_condition_executions": 0,
+      "unnecessary_clarifications": 0,
+      "repeated_clarifications": 0,
+      "model_calls": 29,
+      "ungrounded_reference_count_turns": 0
+    },
+    "source_hashes": {
+      "src/prompts/businessSystemPrompt.ts": "6e9579e7a80ad3c956c99907aa84521c265e77f195898b6631a94af3f2188eb7",
+      "src/tools/businessContext.ts": "ba0ef145d92c168445fb198a6c4f712ea17aac3fc9ff6d8e1854795da50e8414",
+      "src/business-context/capabilities.ts": "9f4fd203fd48783a81fd63894af77d28c286f26c43d201331491d429c222ba62",
+      "src/businessSkills.ts": "cd84656797addc8937fea6d1610dcb3e90b42803186b659d6fc2d476f851ac1d",
+      "skills/analysis-boundary/SKILL.md": "0c19d3a107be19c326d2b92eaa941ef5ec776474871da08c4f42338b45c9b5d4",
+      "skills/data-coverage/SKILL.md": "27a0f4a56bf899b256d972cae9efa3a4788b33254765fe81e93f6e18a60e048e",
+      "skills/metric-query/SKILL.md": "8c98e635f1727f5cb6ff0d08bec45161f15f4586bb16d9eaee3ab224b9eb386b",
+      "skills/result-calculation/SKILL.md": "6b902f5c1333a31c8d457423ab0e98a0e78e63a710088b647e5b67c857fdfb8e"
+    },
+    "retained_all_failures": true
+  }
+}

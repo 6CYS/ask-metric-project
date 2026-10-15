@@ -186,6 +186,13 @@ export type ClarificationField = {
   suggested_end?: string
 }
 
+/** 后端下发的备选时间口径；点选后前端仅原样回传 start/end，不做日期换算。 */
+export type TimeVariant = {
+  label: string
+  start: string
+  end: string
+}
+
 /** 单次问数的完整响应，既用于最终 SSE 事件，也会原样写入历史消息快照。 */
 export type ChatResponse = {
   message_id: string
@@ -214,6 +221,8 @@ export type ChatResponse = {
     understood?: ClarificationUnderstood
     reply_examples?: string[]
   }
+  /** 备选时间口径：存在时答案卡片提供切换 chips，空结果时也提示可切换口径重查。 */
+  time_variants?: TimeVariant[]
     debug: null | Record<string, unknown>
     download?: {
       task_id: string

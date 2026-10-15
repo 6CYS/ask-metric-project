@@ -1,0 +1,120 @@
+{
+  "baseline_snapshot": "/private/tmp/ask-metric-token-optimization-20261015/baseline/backend-next",
+  "current_workspace": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/backend-next",
+  "scope": "src,config,verification; py/json/toml/yaml/yml; hashes only; credentials excluded",
+  "baseline_file_count": 123,
+  "current_file_count": 126,
+  "changes": [
+    {
+      "path": "src/ask_metric/__main__.py",
+      "kind": "changed",
+      "baseline_sha256": "2e53a8b27db0a610994877c554f998d9d3e22bb9f020b690f45391ae3047cf03",
+      "current_sha256": "38fb8ccb119756ade62e6def0650a0efc98c7913d543ec3f77f0142799e14879",
+      "current_mtime_local": "2026-10-15T17:29:28.707335"
+    },
+    {
+      "path": "src/ask_metric/api/routes/business_context.py",
+      "kind": "changed",
+      "baseline_sha256": "7b4ee0928fe8ba3f2f7cad823b9049840536bbd3482f31c5f951dd684a415d69",
+      "current_sha256": "46e66524d486f801a7783391ee96de0bb1a3c609f30fc070f7c177fec8b7c19e",
+      "current_mtime_local": "2026-10-15T17:32:59.835893"
+    },
+    {
+      "path": "src/ask_metric/application/catalog_sync.py",
+      "kind": "changed",
+      "baseline_sha256": "6d5be07e7f08beedb3b49980f8e393c9f3878e101f5f580b1730f30144e74d4f",
+      "current_sha256": "48376ff0db06dc7501541e9a5f9e844587881cf56dd2008876dee628051e1f55",
+      "current_mtime_local": "2026-10-15T17:28:48.900158"
+    },
+    {
+      "path": "src/ask_metric/application/field_resolution.py",
+      "kind": "changed",
+      "baseline_sha256": "46d5a474d3103cd7e0b5cdabbb002d205a9aa5eb2032068435ef47c52c501b35",
+      "current_sha256": "5ad1a0ae5fed1424173e2bf335eb81d543b16a6e4b933c89031d9b41a57510ea",
+      "current_mtime_local": "2026-10-15T17:32:28.538106"
+    },
+    {
+      "path": "src/ask_metric/application/metric_candidates.py",
+      "kind": "changed",
+      "baseline_sha256": "59eb3d2baacd3be9e2194c5a07e0fefdbfefdb3ce6e15e1b3bfc712563002f30",
+      "current_sha256": "c75bf946056d4331c6170c6c3fe7fe0bad74a0608a60afdb893129cf5223d0de",
+      "current_mtime_local": "2026-10-15T17:26:36.223749"
+    },
+    {
+      "path": "src/ask_metric/application/org_aliases.py",
+      "kind": "new",
+      "baseline_sha256": null,
+      "current_sha256": "93f642716420998038a73887fd2da952847504eb3e4f943477fb0a4720dbf48e",
+      "current_mtime_local": "2026-10-15T17:27:13.870543"
+    },
+    {
+      "path": "src/ask_metric/application/text_correction.py",
+      "kind": "new",
+      "baseline_sha256": null,
+      "current_sha256": "6fee707fe5dd495960e771b97ec529f1f03e7f79632249134839243a51fcaab4",
+      "current_mtime_local": "2026-10-15T17:25:29.011889"
+    },
+    {
+      "path": "src/ask_metric/core/config.py",
+      "kind": "changed",
+      "baseline_sha256": "6ee74cc733de41240e30d1a022edf79494c94b841974899d04fe33fe0fe534bc",
+      "current_sha256": "7d819bc0c4ea6376065074c51c7bee5407a56128125f4312cee5e7c3b0dae344",
+      "current_mtime_local": "2026-10-15T17:29:09.340639"
+    },
+    {
+      "path": "src/ask_metric/infrastructure/semantic/catalogs.py",
+      "kind": "changed",
+      "baseline_sha256": "318fdf94f1f8ced934cdd4848ce055909140e00b21e47621a54706be86aeca25",
+      "current_sha256": "987761db24233645cf1d14288f1d98afef95e5640547c3bcc8fe59181ab23c33",
+      "current_mtime_local": "2026-10-15T17:27:46.377666"
+    },
+    {
+      "path": "verification/test_org_aliases.py",
+      "kind": "new",
+      "baseline_sha256": null,
+      "current_sha256": "a04cdc5a2a645a5c0923b615c97443a2af10d42f1d21643bbd63c45e930666ba",
+      "current_mtime_local": "2026-10-15T17:34:45.390164"
+    },
+    {
+      "path": "verification/test_organization_core_matching.py",
+      "kind": "deleted",
+      "baseline_sha256": "4ad4fffbdd8f9f07917485fd3f68ef75faeac36469e9469d082e6c53c2e1a4fd",
+      "current_sha256": null,
+      "current_mtime_local": null
+    },
+    {
+      "path": "verification/test_organization_ladder.py",
+      "kind": "new",
+      "baseline_sha256": null,
+      "current_sha256": "ccca1bf19b7657a0d557775d4f18915db3cb5115dc6f11bc5885834666b55efd",
+      "current_mtime_local": "2026-10-15T17:34:26.140422"
+    }
+  ],
+  "comparison_correction": "Earlier record incompletely listed only text_correction.py; this complete union comparison supersedes it. Nine runtime source paths, one removed test and two newly added tests differ as of compared_at_local.",
+  "runtime": {
+    "port": 8010,
+    "pid": 32348,
+    "started_local": "2026-10-15 15:06:18 +08:00",
+    "cwd": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/backend-next",
+    "entrypoint": "python -m uvicorn ask_metric.main:app",
+    "reload_flag": false,
+    "workers_flag": false,
+    "changed_source_mtime_local": "2026-10-15 17:25:29 +08:00",
+    "proof_limit": "No reload flag. Runtime source differences have mtimes after process start; current disk hashes cannot prove imported live module bytes. Validation has not restarted or modified the live backend. Real A/B uses the same running backend, not a certified current merged backend binary."
+  },
+  "root_reported_static_result": {
+    "current_merged_backend": {
+      "tests": 182,
+      "passed": 163,
+      "failed": 19
+    },
+    "frozen_baseline_same_command": {
+      "tests": 182,
+      "passed": 182,
+      "failed": 0
+    },
+    "evidence": "/private/tmp/ask-metric-token-optimization-20261015/baseline-backend-compat.log",
+    "boundary": "Reported by root agent after actual runs; current merged backend is not a passed regression result."
+  },
+  "compared_at_local": "2026-10-15T17:35:01.740677+08:00"
+}

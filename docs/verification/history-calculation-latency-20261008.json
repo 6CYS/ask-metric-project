@@ -1,0 +1,106 @@
+{
+  "environment": "configured_model_synthetic_backend",
+  "model": "deepseek-ai/DeepSeek-V4-Flash",
+  "real_database_verified": false,
+  "compact_turn_args": false,
+  "passed": true,
+  "reports": [
+    {
+      "iteration": 1,
+      "passed": true,
+      "elapsed_ms": 12660,
+      "model_calls": 2,
+      "model_ms": [
+        6897,
+        5754
+      ],
+      "tool_ms": [
+        2,
+        2
+      ],
+      "calls": [
+        "resolve_business_turn"
+      ],
+      "error_count": 0,
+      "query_count": 1,
+      "calculation_count": 1,
+      "backend_fact_checks": 2
+    },
+    {
+      "iteration": 2,
+      "passed": true,
+      "elapsed_ms": 12264,
+      "model_calls": 2,
+      "model_ms": [
+        7467,
+        4787
+      ],
+      "tool_ms": [
+        2,
+        1
+      ],
+      "calls": [
+        "resolve_business_turn"
+      ],
+      "error_count": 0,
+      "query_count": 1,
+      "calculation_count": 1,
+      "backend_fact_checks": 2
+    },
+    {
+      "iteration": 3,
+      "passed": true,
+      "elapsed_ms": 11465,
+      "model_calls": 2,
+      "model_ms": [
+        6657,
+        4794
+      ],
+      "tool_ms": [
+        5,
+        2
+      ],
+      "calls": [
+        "resolve_business_turn"
+      ],
+      "error_count": 0,
+      "query_count": 1,
+      "calculation_count": 1,
+      "backend_fact_checks": 2
+    }
+  ],
+  "date": "2026-10-08",
+  "baseline": {
+    "environment": "user_local_incident",
+    "elapsed_ms": 34617,
+    "model_ms": [
+      9264,
+      4572,
+      13184,
+      7432
+    ],
+    "tool_ms": [
+      4,
+      30,
+      25,
+      61
+    ],
+    "reason": "历史裁剪删除具体事实引用，误用结果ID后回读、纠错增加模型往返"
+  },
+  "boundaries": [
+    "最终三个样本为真实配置模型与隔离合成后端，不访问业务数据库；不等同于原问题实库或浏览器耗时验收。",
+    "源记录离线投影确认两条精确事实引用均保留，原记录不变。",
+    "中间实测发现表达式包装错误及遗漏跨机构scope_policy；最终参数说明修正后重新运行三个独立样本。",
+    "模型网络/排队/生成速度仍会波动，不承诺固定延迟。"
+  ],
+  "checks": {
+    "agent_tests": 797,
+    "agent_test_files": 44,
+    "snapshot_calculation_tests": 39,
+    "agent_typecheck": true,
+    "agent_build": true,
+    "probe_typecheck": true,
+    "diff_check": true,
+    "local_agent_health": "ok"
+  }
+}

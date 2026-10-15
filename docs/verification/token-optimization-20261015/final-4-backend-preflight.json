@@ -1,0 +1,50 @@
+{
+  "checked_at_local": "2026-10-15T17:44:14.105450+08:00",
+  "settings_valid": true,
+  "backend_root": "/private/tmp/ask-metric-token-optimization-20261015/candidate-final-4/backend-next",
+  "process_port": 8015,
+  "public_settings": {
+    "app_env": "development",
+    "app_dialect": "mysql",
+    "query_dialect": "mysql",
+    "nacos_enabled": false,
+    "schema_changes_allowed": false,
+    "sql_echo": false
+  },
+  "same_development_connection_and_auth_configuration": {
+    "app_database_url": true,
+    "query_database_url": true,
+    "metric_catalog_database_url": true,
+    "org_catalog_database_url": true,
+    "jwt_secret": true
+  },
+  "governance_process_only_overrides": {
+    "SIT_ORG_CORPORATION_CODE_MAX": "134",
+    "SIT_ORG_EXCLUDED_CORPORATION_CODE": "086",
+    "SIT_ORG_HEAD_OFFICE_CORPORATION_CODE": "000",
+    "SIT_ORG_LEGAL_ENTITY_HIER_CODE": "3",
+    "SIT_ORG_HEAD_OFFICE_HIER_CODE": "1",
+    "SIT_ORG_EXPECTED_COUNT": "61"
+  },
+  "override_authority": [
+    "backend-next/.env.example",
+    "deploy/package/DATA_LAKE_DEPLOY.md",
+    "deploy/package/runtime/backend.env.example"
+  ],
+  "all_three_examples_consistent": true,
+  "user_env_modified": false,
+  "schema_migration_or_catalog_sync_performed": false,
+  "started_instance": {
+    "pid": 15863,
+    "process_start": "15863 Thu Oct 15 17:44:34 2026",
+    "cwd": "/private/tmp/ask-metric-token-optimization-20261015/candidate-final-4/backend-next",
+    "host": "127.0.0.1",
+    "port": 8015,
+    "reload": false,
+    "workers_override": false,
+    "pythonpath_and_app_dir": "frozen candidate-final-4/backend-next/src",
+    "log_file": "/private/tmp/ask-metric-token-optimization-20261015/backend-final-4.log",
+    "startup_catalog_sync": false,
+    "startup_schema_migration": false
+  }
+}

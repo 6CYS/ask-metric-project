@@ -129,12 +129,20 @@ python scripts/run_goldendb_migration.py --config .env --apply --confirm APP_DAT
 python -m ask_metric sync-metric-catalog --dry-run
 python -m ask_metric sync-org-catalog --dry-run
 python -m ask_metric sync-metric-catalog
-python -m ask_metric sync-org-catalog
+python -m ask_metric sync-org-catalog --confirm-org-additions
 python -m ask_metric check-data-lake
 ```
 
 The module commands assume the backend package has been installed (for example,
 `python -m pip install -e .`). In a source-only checkout, set `PYTHONPATH=src` first.
+
+`sync-org-catalog` refuses to write when the source returns fewer organizations
+than `SIT_ORG_EXPECTED_COUNT`, when any currently enabled code would disappear,
+or when new codes appear without `--confirm-org-additions` (the refusal lists the
+affected codes). The first synchronization of an empty application catalog is
+entirely additions, so it requires `--confirm-org-additions` as shown above.
+The six `SIT_ORG_*` scope settings have no defaults; an environment file missing
+any of them fails application startup.
 
 Add `--full` only for a complete source snapshot. Full mode disables missing rows
 previously owned by that source table; it does not disable manually created rows.

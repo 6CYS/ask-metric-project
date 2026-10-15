@@ -32,6 +32,7 @@ class AppUserRepository(Protocol):
 
 class ChatMessageRepository(Protocol):
     def add(self, message: ChatMessage) -> None: ...
+    def get(self, message_id: str, conversation_id: str) -> ChatMessage | None: ...
     def list_for_conversation(self, conversation_id: str) -> list[ChatMessage]: ...
     def find_by_external_message_id(
         self, channel: str, external_message_id: str
@@ -173,6 +174,13 @@ class SqlAlchemyChatMessageRepository:
 
     def add(self, message: ChatMessage) -> None:
         self.session.add(message)
+
+    def get(self, message_id: str, conversation_id: str) -> ChatMessage | None:
+        statement = select(ChatMessage).where(
+            ChatMessage.id == message_id,
+            ChatMessage.conversation_id == conversation_id,
+        )
+        return self.session.execute(statement).scalar_one_or_none()
 
     def list_for_conversation(self, conversation_id: str) -> list[ChatMessage]:
         statement = (

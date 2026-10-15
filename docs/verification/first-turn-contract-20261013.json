@@ -1,0 +1,3503 @@
+{
+  "environment": "configured_model_synthetic_backend",
+  "created_at": "2026-10-13T02:47:21.887Z",
+  "model": "deepseek-ai/DeepSeek-V4-Flash",
+  "model_called": true,
+  "model_max_tokens": 8192,
+  "compact_turn_args": false,
+  "validation_turn_timeout_ms": 180000,
+  "real_database_verified": false,
+  "production_accessed": false,
+  "fixture_mode": "empty_first_turn",
+  "fixture_scope": "Each scenario starts with no native chat messages and no Frames. Names reuse the authorized incident; all formal codes, permissions, dates and query results are synthetic.",
+  "session_data": "/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/pi-first-turn-contract-cBYzBI",
+  "fixture_checks": [
+    {
+      "case": "month_spaced_last_available_top3",
+      "passed": true,
+      "model_called": false,
+      "empty_history": true
+    },
+    {
+      "case": "month_fullwidth_last_available_top3",
+      "passed": true,
+      "model_called": false,
+      "empty_history": true
+    },
+    {
+      "case": "single_day_top3",
+      "passed": true,
+      "model_called": false,
+      "empty_history": true
+    },
+    {
+      "case": "different_month_is_not_equivalent",
+      "passed": true,
+      "model_called": false,
+      "expected_error": "FIELD_INPUT_NOT_CURRENT"
+    },
+    {
+      "case": "invented_evidence_is_rejected",
+      "passed": true,
+      "model_called": false,
+      "expected_error": "FIELD_INTENT_EVIDENCE_INVALID"
+    }
+  ],
+  "acceptance_passed": true,
+  "acceptance_cases": 3,
+  "acceptance_passed_cases": 3,
+  "diagnostic_cases": 1,
+  "followup_recovery_cases": 0,
+  "followup_recovery_passed_cases": 0,
+  "reports": [
+    {
+      "name": "month_spaced_last_available_top3",
+      "scope": "acceptance",
+      "passed": true,
+      "message": "对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名，取该月最后有数据的日期，列出前3名。",
+      "expected": {
+        "org_codes": [
+          "SYNTH_ORG_1"
+        ],
+        "metric_codes": [
+          "SYNTH_METRIC_1"
+        ],
+        "time": {
+          "start": "2026-07-01",
+          "end": "2026-07-31"
+        },
+        "selection": "latest_in_range",
+        "operation": {
+          "kind": "ranking",
+          "position": "top",
+          "top_n": 3
+        }
+      },
+      "elapsed_ms": 21266,
+      "completion": {
+        "ok": true,
+        "operationId": "01a13326-cbab-70bf-a088-0b97637870da",
+        "outcome": {
+          "kind": "settled",
+          "outcome": {
+            "operationId": "01a13326-cbab-70bf-a088-0b97637870da",
+            "kind": "run",
+            "status": "completed",
+            "fromTipId": null,
+            "tipId": "01a13326-d607-70bf-a088-0ba577603aab",
+            "startedAt": 1791859542956,
+            "endedAt": 1791859564213
+          }
+        }
+      },
+      "validation_deadline_exceeded": false,
+      "empty_history": true,
+      "query_count": 1,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "fieldIntents": {
+              "metrics": {
+                "sourceText": "净利润金融当日数",
+                "expectedCount": null,
+                "mode": "set"
+              },
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": 1,
+                "mode": "set"
+              }
+            },
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "latest_in_range"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": 3
+                }
+              }
+            ],
+            "executionMode": "execute"
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "kind": "metric_query_structured",
+            "task_id": "synthetic-first-turn-1",
+            "version": 1,
+            "result_id": "result:synthetic-first-turn-1",
+            "public_answer": "隔离合成查询已完成，无记录。",
+            "status": "succeeded",
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "frame_id": "29a7a87d-9182-4155-9cdb-5aa140a33762",
+            "delivery": "business_evidence_v1",
+            "display_conditions": [
+              {
+                "label": "指标",
+                "value": "净利润金融当日数"
+              },
+              {
+                "label": "机构",
+                "value": "江苏农商联合银行"
+              },
+              {
+                "label": "日期",
+                "value": "2026-07-01 至 2026-07-31"
+              },
+              {
+                "label": "取数方式",
+                "value": "范围内最新数据日"
+              },
+              {
+                "label": "排名",
+                "value": "前 3 名"
+              }
+            ]
+          },
+          "text": "{\"status\":\"succeeded\",\"task_id\":\"synthetic-first-turn-1\",\"version\":1,\"result_id\":\"result:synthetic-first-turn-1\",\"query_evidence\":{\"logical_dsl\":{\"conversation_id\":\"synthetic-first-turn-contract\",\"calculation_context\":{\"scope_id\":\"01a13326-cbab-70bf-a088-0b97637870da\",\"user_question\":\"对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名，取该月最后有数据的日期，列出前3名。\"},\"source_question\":\"对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名，取该月最后有数据的日期，列出前3名。\",\"source_metric_bindings\":[{\"start\":20,\"end\":28,\"text\":\"净利润金融当日数\",\"codes\":[\"SYNTH_METRIC_1\"]}],\"metric_codes\":[\"SYNTH_METRIC_1\"],\"schema_version\":2,\"org_codes\":[\"SYNTH_ORG_1\"],\"time\":{\"start\":\"2026-07-01\",\"end\":\"2026-07-31\"},\"selection\":\"latest_in_range\",\"operation\":{\"kind\":\"ranking\",\"position\":\"top\",\"top_n\":3}}},\"columns\":[],\"sample_rows\":[],\"facts\":[],\"fact_count\":0,\"facts_truncated\":false,\"row_count\":0,\"truncated\":false,\"error_code\":null,\"message\":\"隔离合成查询已完成，无记录。\",\"display_hint\":\"明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。\",\"frame_id\":\"29a7a87d-9182-4155-9cdb-5aa140a33762\",\"result_ref\":\"query:synthetic-first-turn-1:result%3Asynthetic-first-turn-1\",\"ready_frame_id\":\"8e6085e9-8e0d-463d-97b2-eb1714748587\",\"next_step\":\"条件已全部确定，查询已执行。请直接依据本回执组织回答，不要再向用户确认，也不要重复取数。\"}"
+        }
+      ],
+      "query_specs": [
+        {
+          "conversation_id": "synthetic-first-turn-contract",
+          "calculation_context": {
+            "scope_id": "01a13326-cbab-70bf-a088-0b97637870da",
+            "user_question": "对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名，取该月最后有数据的日期，列出前3名。"
+          },
+          "source_question": "对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名，取该月最后有数据的日期，列出前3名。",
+          "source_metric_bindings": [
+            {
+              "start": 20,
+              "end": 28,
+              "text": "净利润金融当日数",
+              "codes": [
+                "SYNTH_METRIC_1"
+              ]
+            }
+          ],
+          "metric_codes": [
+            "SYNTH_METRIC_1"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "SYNTH_ORG_1"
+          ],
+          "time": {
+            "start": "2026-07-01",
+            "end": "2026-07-31"
+          },
+          "selection": "latest_in_range",
+          "operation": {
+            "kind": "ranking",
+            "position": "top",
+            "top_n": 3
+          }
+        }
+      ],
+      "authorized_lookups": [
+        {
+          "entity": "organization",
+          "raw": [
+            "江苏农商联合银行"
+          ]
+        },
+        {
+          "entity": "date",
+          "raw": [
+            "2026年7月"
+          ]
+        }
+      ],
+      "focus": {
+        "frameId": "29a7a87d-9182-4155-9cdb-5aa140a33762",
+        "sessionId": "01a13326-cba9-70bf-a088-0b9437670bfe",
+        "requestId": "month_spaced_last_available_top3",
+        "turnId": "01a13326-cbab-70bf-a088-0b97637870da",
+        "capability": "metric_query",
+        "operationFrameId": "8e6085e9-8e0d-463d-97b2-eb1714748587",
+        "fields": {
+          "metrics": {
+            "rawValue": [
+              "净利润金融当日数"
+            ],
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_METRIC_1"
+              ],
+              "names": [
+                "净利润金融当日数"
+              ]
+            },
+            "source": "explicit",
+            "resolver": "metric",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "extractedRawValues": [
+                "净利润金融当日数"
+              ],
+              "referenceValues": [
+                "SYNTH_METRIC_1",
+                "净利润金融当日数"
+              ],
+              "questionText": "对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名，取该月最后有数据的日期，列出前3名。",
+              "mentionResolutions": [
+                {
+                  "text": "净利润金融当日数",
+                  "start": 20,
+                  "end": 28,
+                  "status": "resolved",
+                  "value": {
+                    "codes": [
+                      "SYNTH_METRIC_1"
+                    ],
+                    "names": [
+                      "净利润金融当日数"
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "organizations": {
+            "rawValue": "江苏农商联合银行",
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_ORG_1"
+              ],
+              "names": [
+                "江苏农商联合银行"
+              ]
+            },
+            "source": "explicit",
+            "resolver": "organization",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "referenceValues": [
+                "SYNTH_ORG_1",
+                "江苏农商联合银行"
+              ],
+              "turnIntentExpectedCount": 1
+            }
+          },
+          "time": {
+            "rawValue": "2026年7月",
+            "resolvedValue": {
+              "start": "2026-07-01",
+              "end": "2026-07-31"
+            },
+            "source": "explicit",
+            "resolver": "date",
+            "resolutionStatus": "resolved"
+          },
+          "selection": {
+            "rawValue": "latest_in_range",
+            "resolvedValue": "latest_in_range",
+            "source": "explicit",
+            "resolver": "enum",
+            "resolutionStatus": "resolved"
+          },
+          "operation": {
+            "rawValue": {
+              "kind": "ranking",
+              "position": "top",
+              "top_n": 3
+            },
+            "resolvedValue": {
+              "kind": "ranking",
+              "position": "top",
+              "top_n": 3
+            },
+            "source": "explicit",
+            "resolver": "query_operation",
+            "resolutionStatus": "resolved"
+          }
+        },
+        "delta": {
+          "executionMode": "execute",
+          "fieldChanges": [
+            {
+              "fieldHint": "metrics",
+              "operation": "set",
+              "rawValue": {
+                "fromQuestion": true
+              }
+            },
+            {
+              "fieldHint": "organizations",
+              "operation": "set",
+              "rawValue": "江苏农商联合银行"
+            },
+            {
+              "fieldHint": "time",
+              "operation": "set",
+              "rawValue": "2026年7月"
+            },
+            {
+              "fieldHint": "selection",
+              "operation": "set",
+              "rawValue": "latest_in_range"
+            },
+            {
+              "fieldHint": "operation",
+              "operation": "set",
+              "rawValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              }
+            }
+          ],
+          "capabilityHint": "metric_query",
+          "baseReference": null,
+          "fieldIntents": {
+            "metrics": {
+              "sourceText": "净利润金融当日数",
+              "expectedCount": null,
+              "mode": "set"
+            },
+            "organizations": {
+              "sourceText": "江苏农商联合银行",
+              "expectedCount": 1,
+              "mode": "set"
+            }
+          }
+        },
+        "issues": [],
+        "status": "success",
+        "createdAt": "2026-10-13T02:45:45.604Z",
+        "parentFrameId": "c321e3b0-96a7-4835-be5f-b8db1acef6f0",
+        "resultRef": "query:synthetic-first-turn-1:result%3Asynthetic-first-turn-1",
+        "resultSummary": {
+          "rowCount": 0,
+          "truncated": false
+        }
+      },
+      "turn_frames": [
+        {
+          "frameId": "8e6085e9-8e0d-463d-97b2-eb1714748587",
+          "sessionId": "01a13326-cba9-70bf-a088-0b9437670bfe",
+          "requestId": "month_spaced_last_available_top3",
+          "turnId": "01a13326-cbab-70bf-a088-0b97637870da",
+          "capability": "metric_query",
+          "operationFrameId": "8e6085e9-8e0d-463d-97b2-eb1714748587",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "净利润金融当日数"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_METRIC_1"
+                ],
+                "names": [
+                  "净利润金融当日数"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "净利润金融当日数"
+                ],
+                "referenceValues": [
+                  "SYNTH_METRIC_1",
+                  "净利润金融当日数"
+                ],
+                "questionText": "对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名，取该月最后有数据的日期，列出前3名。",
+                "mentionResolutions": [
+                  {
+                    "text": "净利润金融当日数",
+                    "start": 20,
+                    "end": 28,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "SYNTH_METRIC_1"
+                      ],
+                      "names": [
+                        "净利润金融当日数"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "江苏农商联合银行",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_ORG_1"
+                ],
+                "names": [
+                  "江苏农商联合银行"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_ORG_1",
+                  "江苏农商联合银行"
+                ],
+                "turnIntentExpectedCount": 1
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月",
+              "resolvedValue": {
+                "start": "2026-07-01",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "selection": {
+              "rawValue": "latest_in_range",
+              "resolvedValue": "latest_in_range",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "resolvedValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "latest_in_range"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": 3
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "metrics": {
+                "sourceText": "净利润金融当日数",
+                "expectedCount": null,
+                "mode": "set"
+              },
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": 1,
+                "mode": "set"
+              }
+            }
+          },
+          "issues": [],
+          "status": "ready",
+          "createdAt": "2026-10-13T02:45:45.598Z"
+        },
+        {
+          "frameId": "c321e3b0-96a7-4835-be5f-b8db1acef6f0",
+          "sessionId": "01a13326-cba9-70bf-a088-0b9437670bfe",
+          "requestId": "month_spaced_last_available_top3",
+          "turnId": "01a13326-cbab-70bf-a088-0b97637870da",
+          "capability": "metric_query",
+          "operationFrameId": "8e6085e9-8e0d-463d-97b2-eb1714748587",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "净利润金融当日数"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_METRIC_1"
+                ],
+                "names": [
+                  "净利润金融当日数"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "净利润金融当日数"
+                ],
+                "referenceValues": [
+                  "SYNTH_METRIC_1",
+                  "净利润金融当日数"
+                ],
+                "questionText": "对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名，取该月最后有数据的日期，列出前3名。",
+                "mentionResolutions": [
+                  {
+                    "text": "净利润金融当日数",
+                    "start": 20,
+                    "end": 28,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "SYNTH_METRIC_1"
+                      ],
+                      "names": [
+                        "净利润金融当日数"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "江苏农商联合银行",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_ORG_1"
+                ],
+                "names": [
+                  "江苏农商联合银行"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_ORG_1",
+                  "江苏农商联合银行"
+                ],
+                "turnIntentExpectedCount": 1
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月",
+              "resolvedValue": {
+                "start": "2026-07-01",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "selection": {
+              "rawValue": "latest_in_range",
+              "resolvedValue": "latest_in_range",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "resolvedValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "latest_in_range"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": 3
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "metrics": {
+                "sourceText": "净利润金融当日数",
+                "expectedCount": null,
+                "mode": "set"
+              },
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": 1,
+                "mode": "set"
+              }
+            }
+          },
+          "issues": [],
+          "status": "executing",
+          "createdAt": "2026-10-13T02:45:45.602Z",
+          "parentFrameId": "8e6085e9-8e0d-463d-97b2-eb1714748587"
+        },
+        {
+          "frameId": "29a7a87d-9182-4155-9cdb-5aa140a33762",
+          "sessionId": "01a13326-cba9-70bf-a088-0b9437670bfe",
+          "requestId": "month_spaced_last_available_top3",
+          "turnId": "01a13326-cbab-70bf-a088-0b97637870da",
+          "capability": "metric_query",
+          "operationFrameId": "8e6085e9-8e0d-463d-97b2-eb1714748587",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "净利润金融当日数"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_METRIC_1"
+                ],
+                "names": [
+                  "净利润金融当日数"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "净利润金融当日数"
+                ],
+                "referenceValues": [
+                  "SYNTH_METRIC_1",
+                  "净利润金融当日数"
+                ],
+                "questionText": "对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名，取该月最后有数据的日期，列出前3名。",
+                "mentionResolutions": [
+                  {
+                    "text": "净利润金融当日数",
+                    "start": 20,
+                    "end": 28,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "SYNTH_METRIC_1"
+                      ],
+                      "names": [
+                        "净利润金融当日数"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "江苏农商联合银行",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_ORG_1"
+                ],
+                "names": [
+                  "江苏农商联合银行"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_ORG_1",
+                  "江苏农商联合银行"
+                ],
+                "turnIntentExpectedCount": 1
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月",
+              "resolvedValue": {
+                "start": "2026-07-01",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "selection": {
+              "rawValue": "latest_in_range",
+              "resolvedValue": "latest_in_range",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "resolvedValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "latest_in_range"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": 3
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "metrics": {
+                "sourceText": "净利润金融当日数",
+                "expectedCount": null,
+                "mode": "set"
+              },
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": 1,
+                "mode": "set"
+              }
+            }
+          },
+          "issues": [],
+          "status": "success",
+          "createdAt": "2026-10-13T02:45:45.604Z",
+          "parentFrameId": "c321e3b0-96a7-4835-be5f-b8db1acef6f0",
+          "resultRef": "query:synthetic-first-turn-1:result%3Asynthetic-first-turn-1",
+          "resultSummary": {
+            "rowCount": 0,
+            "truncated": false
+          }
+        }
+      ],
+      "reopen_verified": true,
+      "answer": "针对您的查询，已完成以下条件的确认与执行：\n\n- **机构**：江苏农商联合银行\n- **指标**：净利润金融当日数\n- **日期范围**：2026年7月\n- **取数方式**：取该月最后有数据的日期\n- **排名**：前3名\n\n查询结果显示：本次查询未返回记录，即当前数据源中没有符合条件的数据可供展示。\n\n如需调整日期范围、机构或其他查询条件，请告诉我。"
+    },
+    {
+      "name": "month_fullwidth_last_available_top3",
+      "scope": "acceptance",
+      "passed": true,
+      "message": "对江苏农商联合银行２０２６年７月净利润金融当日数进行排名，取该月最后有数据的日期，列出前３名。",
+      "expected": {
+        "org_codes": [
+          "SYNTH_ORG_1"
+        ],
+        "metric_codes": [
+          "SYNTH_METRIC_1"
+        ],
+        "time": {
+          "start": "2026-07-01",
+          "end": "2026-07-31"
+        },
+        "selection": "latest_in_range",
+        "operation": {
+          "kind": "ranking",
+          "position": "top",
+          "top_n": 3
+        }
+      },
+      "elapsed_ms": 13263,
+      "completion": {
+        "ok": true,
+        "operationId": "01a13327-1ebf-70bf-a088-0baaf358731c",
+        "outcome": {
+          "kind": "settled",
+          "outcome": {
+            "operationId": "01a13327-1ebf-70bf-a088-0baaf358731c",
+            "kind": "run",
+            "status": "completed",
+            "fromTipId": null,
+            "tipId": "01a13327-27a6-70bf-a088-0bb8b8b5b4b0",
+            "startedAt": 1791859564223,
+            "endedAt": 1791859577480
+          }
+        }
+      },
+      "validation_deadline_exceeded": false,
+      "empty_history": true,
+      "query_count": 1,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": 1,
+                "mode": "set"
+              }
+            },
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "latest_in_range"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": 3
+                }
+              }
+            ],
+            "executionMode": "execute"
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "kind": "metric_query_structured",
+            "task_id": "synthetic-first-turn-1",
+            "version": 1,
+            "result_id": "result:synthetic-first-turn-1",
+            "public_answer": "隔离合成查询已完成，无记录。",
+            "status": "succeeded",
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "frame_id": "9bb3a72b-b351-4ce3-9a4f-0946b7c5451d",
+            "delivery": "business_evidence_v1",
+            "display_conditions": [
+              {
+                "label": "指标",
+                "value": "净利润金融当日数"
+              },
+              {
+                "label": "机构",
+                "value": "江苏农商联合银行"
+              },
+              {
+                "label": "日期",
+                "value": "2026-07-01 至 2026-07-31"
+              },
+              {
+                "label": "取数方式",
+                "value": "范围内最新数据日"
+              },
+              {
+                "label": "排名",
+                "value": "前 3 名"
+              }
+            ]
+          },
+          "text": "{\"status\":\"succeeded\",\"task_id\":\"synthetic-first-turn-1\",\"version\":1,\"result_id\":\"result:synthetic-first-turn-1\",\"query_evidence\":{\"logical_dsl\":{\"conversation_id\":\"synthetic-first-turn-contract\",\"calculation_context\":{\"scope_id\":\"01a13327-1ebf-70bf-a088-0baaf358731c\",\"user_question\":\"对江苏农商联合银行２０２６年７月净利润金融当日数进行排名，取该月最后有数据的日期，列出前３名。\"},\"source_question\":\"对江苏农商联合银行２０２６年７月净利润金融当日数进行排名，取该月最后有数据的日期，列出前３名。\",\"source_metric_bindings\":[{\"start\":16,\"end\":24,\"text\":\"净利润金融当日数\",\"codes\":[\"SYNTH_METRIC_1\"]}],\"metric_codes\":[\"SYNTH_METRIC_1\"],\"schema_version\":2,\"org_codes\":[\"SYNTH_ORG_1\"],\"time\":{\"start\":\"2026-07-01\",\"end\":\"2026-07-31\"},\"selection\":\"latest_in_range\",\"operation\":{\"kind\":\"ranking\",\"position\":\"top\",\"top_n\":3}}},\"columns\":[],\"sample_rows\":[],\"facts\":[],\"fact_count\":0,\"facts_truncated\":false,\"row_count\":0,\"truncated\":false,\"error_code\":null,\"message\":\"隔离合成查询已完成，无记录。\",\"display_hint\":\"明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。\",\"frame_id\":\"9bb3a72b-b351-4ce3-9a4f-0946b7c5451d\",\"result_ref\":\"query:synthetic-first-turn-1:result%3Asynthetic-first-turn-1\",\"ready_frame_id\":\"b7c42038-4201-4e92-bb30-029eb038c89d\",\"next_step\":\"条件已全部确定，查询已执行。请直接依据本回执组织回答，不要再向用户确认，也不要重复取数。\"}"
+        }
+      ],
+      "query_specs": [
+        {
+          "conversation_id": "synthetic-first-turn-contract",
+          "calculation_context": {
+            "scope_id": "01a13327-1ebf-70bf-a088-0baaf358731c",
+            "user_question": "对江苏农商联合银行２０２６年７月净利润金融当日数进行排名，取该月最后有数据的日期，列出前３名。"
+          },
+          "source_question": "对江苏农商联合银行２０２６年７月净利润金融当日数进行排名，取该月最后有数据的日期，列出前３名。",
+          "source_metric_bindings": [
+            {
+              "start": 16,
+              "end": 24,
+              "text": "净利润金融当日数",
+              "codes": [
+                "SYNTH_METRIC_1"
+              ]
+            }
+          ],
+          "metric_codes": [
+            "SYNTH_METRIC_1"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "SYNTH_ORG_1"
+          ],
+          "time": {
+            "start": "2026-07-01",
+            "end": "2026-07-31"
+          },
+          "selection": "latest_in_range",
+          "operation": {
+            "kind": "ranking",
+            "position": "top",
+            "top_n": 3
+          }
+        }
+      ],
+      "authorized_lookups": [
+        {
+          "entity": "organization",
+          "raw": [
+            "江苏农商联合银行"
+          ]
+        },
+        {
+          "entity": "date",
+          "raw": [
+            "2026年7月"
+          ]
+        }
+      ],
+      "focus": {
+        "frameId": "9bb3a72b-b351-4ce3-9a4f-0946b7c5451d",
+        "sessionId": "01a13327-1ebd-70bf-a088-0ba8de383b32",
+        "requestId": "month_fullwidth_last_available_top3",
+        "turnId": "01a13327-1ebf-70bf-a088-0baaf358731c",
+        "capability": "metric_query",
+        "operationFrameId": "b7c42038-4201-4e92-bb30-029eb038c89d",
+        "fields": {
+          "metrics": {
+            "rawValue": [
+              "净利润金融当日数"
+            ],
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_METRIC_1"
+              ],
+              "names": [
+                "净利润金融当日数"
+              ]
+            },
+            "source": "explicit",
+            "resolver": "metric",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "extractedRawValues": [
+                "净利润金融当日数"
+              ],
+              "referenceValues": [
+                "SYNTH_METRIC_1",
+                "净利润金融当日数"
+              ],
+              "questionText": "对江苏农商联合银行２０２６年７月净利润金融当日数进行排名，取该月最后有数据的日期，列出前３名。",
+              "mentionResolutions": [
+                {
+                  "text": "净利润金融当日数",
+                  "start": 16,
+                  "end": 24,
+                  "status": "resolved",
+                  "value": {
+                    "codes": [
+                      "SYNTH_METRIC_1"
+                    ],
+                    "names": [
+                      "净利润金融当日数"
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "organizations": {
+            "rawValue": "江苏农商联合银行",
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_ORG_1"
+              ],
+              "names": [
+                "江苏农商联合银行"
+              ]
+            },
+            "source": "explicit",
+            "resolver": "organization",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "referenceValues": [
+                "SYNTH_ORG_1",
+                "江苏农商联合银行"
+              ],
+              "turnIntentExpectedCount": 1
+            }
+          },
+          "time": {
+            "rawValue": "2026年7月",
+            "resolvedValue": {
+              "start": "2026-07-01",
+              "end": "2026-07-31"
+            },
+            "source": "explicit",
+            "resolver": "date",
+            "resolutionStatus": "resolved"
+          },
+          "selection": {
+            "rawValue": "latest_in_range",
+            "resolvedValue": "latest_in_range",
+            "source": "explicit",
+            "resolver": "enum",
+            "resolutionStatus": "resolved"
+          },
+          "operation": {
+            "rawValue": {
+              "kind": "ranking",
+              "position": "top",
+              "top_n": 3
+            },
+            "resolvedValue": {
+              "kind": "ranking",
+              "position": "top",
+              "top_n": 3
+            },
+            "source": "explicit",
+            "resolver": "query_operation",
+            "resolutionStatus": "resolved"
+          }
+        },
+        "delta": {
+          "executionMode": "execute",
+          "fieldChanges": [
+            {
+              "fieldHint": "metrics",
+              "operation": "set",
+              "rawValue": {
+                "fromQuestion": true,
+                "mentionIndexes": [
+                  1
+                ]
+              }
+            },
+            {
+              "fieldHint": "organizations",
+              "operation": "set",
+              "rawValue": "江苏农商联合银行"
+            },
+            {
+              "fieldHint": "time",
+              "operation": "set",
+              "rawValue": "2026年7月"
+            },
+            {
+              "fieldHint": "selection",
+              "operation": "set",
+              "rawValue": "latest_in_range"
+            },
+            {
+              "fieldHint": "operation",
+              "operation": "set",
+              "rawValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              }
+            }
+          ],
+          "capabilityHint": "metric_query",
+          "baseReference": null,
+          "fieldIntents": {
+            "organizations": {
+              "sourceText": "江苏农商联合银行",
+              "expectedCount": 1,
+              "mode": "set"
+            }
+          }
+        },
+        "issues": [],
+        "status": "success",
+        "createdAt": "2026-10-13T02:46:06.500Z",
+        "parentFrameId": "5bc8e8f9-19c2-4783-96f2-1f6e09952ef9",
+        "resultRef": "query:synthetic-first-turn-1:result%3Asynthetic-first-turn-1",
+        "resultSummary": {
+          "rowCount": 0,
+          "truncated": false
+        }
+      },
+      "turn_frames": [
+        {
+          "frameId": "b7c42038-4201-4e92-bb30-029eb038c89d",
+          "sessionId": "01a13327-1ebd-70bf-a088-0ba8de383b32",
+          "requestId": "month_fullwidth_last_available_top3",
+          "turnId": "01a13327-1ebf-70bf-a088-0baaf358731c",
+          "capability": "metric_query",
+          "operationFrameId": "b7c42038-4201-4e92-bb30-029eb038c89d",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "净利润金融当日数"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_METRIC_1"
+                ],
+                "names": [
+                  "净利润金融当日数"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "净利润金融当日数"
+                ],
+                "referenceValues": [
+                  "SYNTH_METRIC_1",
+                  "净利润金融当日数"
+                ],
+                "questionText": "对江苏农商联合银行２０２６年７月净利润金融当日数进行排名，取该月最后有数据的日期，列出前３名。",
+                "mentionResolutions": [
+                  {
+                    "text": "净利润金融当日数",
+                    "start": 16,
+                    "end": 24,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "SYNTH_METRIC_1"
+                      ],
+                      "names": [
+                        "净利润金融当日数"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "江苏农商联合银行",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_ORG_1"
+                ],
+                "names": [
+                  "江苏农商联合银行"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_ORG_1",
+                  "江苏农商联合银行"
+                ],
+                "turnIntentExpectedCount": 1
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月",
+              "resolvedValue": {
+                "start": "2026-07-01",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "selection": {
+              "rawValue": "latest_in_range",
+              "resolvedValue": "latest_in_range",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "resolvedValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "latest_in_range"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": 3
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": 1,
+                "mode": "set"
+              }
+            }
+          },
+          "issues": [],
+          "status": "ready",
+          "createdAt": "2026-10-13T02:46:06.494Z"
+        },
+        {
+          "frameId": "5bc8e8f9-19c2-4783-96f2-1f6e09952ef9",
+          "sessionId": "01a13327-1ebd-70bf-a088-0ba8de383b32",
+          "requestId": "month_fullwidth_last_available_top3",
+          "turnId": "01a13327-1ebf-70bf-a088-0baaf358731c",
+          "capability": "metric_query",
+          "operationFrameId": "b7c42038-4201-4e92-bb30-029eb038c89d",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "净利润金融当日数"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_METRIC_1"
+                ],
+                "names": [
+                  "净利润金融当日数"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "净利润金融当日数"
+                ],
+                "referenceValues": [
+                  "SYNTH_METRIC_1",
+                  "净利润金融当日数"
+                ],
+                "questionText": "对江苏农商联合银行２０２６年７月净利润金融当日数进行排名，取该月最后有数据的日期，列出前３名。",
+                "mentionResolutions": [
+                  {
+                    "text": "净利润金融当日数",
+                    "start": 16,
+                    "end": 24,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "SYNTH_METRIC_1"
+                      ],
+                      "names": [
+                        "净利润金融当日数"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "江苏农商联合银行",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_ORG_1"
+                ],
+                "names": [
+                  "江苏农商联合银行"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_ORG_1",
+                  "江苏农商联合银行"
+                ],
+                "turnIntentExpectedCount": 1
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月",
+              "resolvedValue": {
+                "start": "2026-07-01",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "selection": {
+              "rawValue": "latest_in_range",
+              "resolvedValue": "latest_in_range",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "resolvedValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "latest_in_range"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": 3
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": 1,
+                "mode": "set"
+              }
+            }
+          },
+          "issues": [],
+          "status": "executing",
+          "createdAt": "2026-10-13T02:46:06.499Z",
+          "parentFrameId": "b7c42038-4201-4e92-bb30-029eb038c89d"
+        },
+        {
+          "frameId": "9bb3a72b-b351-4ce3-9a4f-0946b7c5451d",
+          "sessionId": "01a13327-1ebd-70bf-a088-0ba8de383b32",
+          "requestId": "month_fullwidth_last_available_top3",
+          "turnId": "01a13327-1ebf-70bf-a088-0baaf358731c",
+          "capability": "metric_query",
+          "operationFrameId": "b7c42038-4201-4e92-bb30-029eb038c89d",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "净利润金融当日数"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_METRIC_1"
+                ],
+                "names": [
+                  "净利润金融当日数"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "净利润金融当日数"
+                ],
+                "referenceValues": [
+                  "SYNTH_METRIC_1",
+                  "净利润金融当日数"
+                ],
+                "questionText": "对江苏农商联合银行２０２６年７月净利润金融当日数进行排名，取该月最后有数据的日期，列出前３名。",
+                "mentionResolutions": [
+                  {
+                    "text": "净利润金融当日数",
+                    "start": 16,
+                    "end": 24,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "SYNTH_METRIC_1"
+                      ],
+                      "names": [
+                        "净利润金融当日数"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "江苏农商联合银行",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_ORG_1"
+                ],
+                "names": [
+                  "江苏农商联合银行"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_ORG_1",
+                  "江苏农商联合银行"
+                ],
+                "turnIntentExpectedCount": 1
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月",
+              "resolvedValue": {
+                "start": "2026-07-01",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "selection": {
+              "rawValue": "latest_in_range",
+              "resolvedValue": "latest_in_range",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "resolvedValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "latest_in_range"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": 3
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": 1,
+                "mode": "set"
+              }
+            }
+          },
+          "issues": [],
+          "status": "success",
+          "createdAt": "2026-10-13T02:46:06.500Z",
+          "parentFrameId": "5bc8e8f9-19c2-4783-96f2-1f6e09952ef9",
+          "resultRef": "query:synthetic-first-turn-1:result%3Asynthetic-first-turn-1",
+          "resultSummary": {
+            "rowCount": 0,
+            "truncated": false
+          }
+        }
+      ],
+      "reopen_verified": true,
+      "answer": "查询已完成。根据您的要求，我对**江苏农商联合银行**在**2026年7月**的**净利润金融当日数**进行了排名查询，取该月最后有数据的日期，并列出前3名。\n\n当前查询结果为：该条件下**未返回排名数据**（无记录）。这可能意味着该月最后有数据日期对应的机构数据尚未形成排名明细，或该时间段内暂无对应数据可供展示。\n\n如需进一步核查，您可以：\n- 调整时间范围（如查看其他月份）；\n- 检查机构范围或指标口径；\n- 或更换为其他查询条件。\n\n请告诉我您的下一步需求。"
+    },
+    {
+      "name": "single_day_top3",
+      "scope": "acceptance",
+      "passed": true,
+      "message": "对江苏农商联合银行 2026 年 7 月 31 日净利润金融当日数进行排名，列出前3名。",
+      "expected": {
+        "org_codes": [
+          "SYNTH_ORG_1"
+        ],
+        "metric_codes": [
+          "SYNTH_METRIC_1"
+        ],
+        "time": {
+          "start": "2026-07-31",
+          "end": "2026-07-31"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "ranking",
+          "position": "top",
+          "top_n": 3
+        }
+      },
+      "elapsed_ms": 27900,
+      "completion": {
+        "ok": true,
+        "operationId": "01a13327-528f-70bf-a088-0bbe29f37a3f",
+        "outcome": {
+          "kind": "settled",
+          "outcome": {
+            "operationId": "01a13327-528f-70bf-a088-0bbe29f37a3f",
+            "kind": "run",
+            "status": "completed",
+            "fromTipId": null,
+            "tipId": "01a13327-ab6c-70bf-a088-0bcd1ef13fc9",
+            "startedAt": 1791859577487,
+            "endedAt": 1791859605380
+          }
+        }
+      },
+      "validation_deadline_exceeded": false,
+      "empty_history": true,
+      "query_count": 1,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "fieldIntents": {
+              "metrics": {
+                "sourceText": "净利润金融当日数",
+                "expectedCount": null,
+                "mode": "set"
+              },
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": 1,
+                "mode": "set"
+              },
+              "time": {
+                "sourceText": "2026年7月31日",
+                "expectedCount": null,
+                "mode": "set"
+              }
+            },
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月31日"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "exact"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": 3
+                }
+              }
+            ],
+            "executionMode": "execute"
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "kind": "metric_query_structured",
+            "task_id": "synthetic-first-turn-1",
+            "version": 1,
+            "result_id": "result:synthetic-first-turn-1",
+            "public_answer": "隔离合成查询已完成，无记录。",
+            "status": "succeeded",
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "frame_id": "ae62c917-71f2-47ab-b691-4ac4cf7312eb",
+            "delivery": "business_evidence_v1",
+            "display_conditions": [
+              {
+                "label": "指标",
+                "value": "净利润金融当日数"
+              },
+              {
+                "label": "机构",
+                "value": "江苏农商联合银行"
+              },
+              {
+                "label": "日期",
+                "value": "2026-07-31"
+              },
+              {
+                "label": "排名",
+                "value": "前 3 名"
+              }
+            ]
+          },
+          "text": "{\"status\":\"succeeded\",\"task_id\":\"synthetic-first-turn-1\",\"version\":1,\"result_id\":\"result:synthetic-first-turn-1\",\"query_evidence\":{\"logical_dsl\":{\"conversation_id\":\"synthetic-first-turn-contract\",\"calculation_context\":{\"scope_id\":\"01a13327-528f-70bf-a088-0bbe29f37a3f\",\"user_question\":\"对江苏农商联合银行 2026 年 7 月 31 日净利润金融当日数进行排名，列出前3名。\"},\"source_question\":\"对江苏农商联合银行 2026 年 7 月 31 日净利润金融当日数进行排名，列出前3名。\",\"source_metric_bindings\":[{\"start\":25,\"end\":33,\"text\":\"净利润金融当日数\",\"codes\":[\"SYNTH_METRIC_1\"]}],\"metric_codes\":[\"SYNTH_METRIC_1\"],\"schema_version\":2,\"org_codes\":[\"SYNTH_ORG_1\"],\"time\":{\"start\":\"2026-07-31\",\"end\":\"2026-07-31\"},\"selection\":\"exact\",\"operation\":{\"kind\":\"ranking\",\"position\":\"top\",\"top_n\":3}}},\"columns\":[],\"sample_rows\":[],\"facts\":[],\"fact_count\":0,\"facts_truncated\":false,\"row_count\":0,\"truncated\":false,\"error_code\":null,\"message\":\"隔离合成查询已完成，无记录。\",\"display_hint\":\"明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。\",\"frame_id\":\"ae62c917-71f2-47ab-b691-4ac4cf7312eb\",\"result_ref\":\"query:synthetic-first-turn-1:result%3Asynthetic-first-turn-1\",\"ready_frame_id\":\"788a4f88-c3b6-4b78-93bd-cd8d0f944729\",\"next_step\":\"条件已全部确定，查询已执行。请直接依据本回执组织回答，不要再向用户确认，也不要重复取数。\"}"
+        }
+      ],
+      "query_specs": [
+        {
+          "conversation_id": "synthetic-first-turn-contract",
+          "calculation_context": {
+            "scope_id": "01a13327-528f-70bf-a088-0bbe29f37a3f",
+            "user_question": "对江苏农商联合银行 2026 年 7 月 31 日净利润金融当日数进行排名，列出前3名。"
+          },
+          "source_question": "对江苏农商联合银行 2026 年 7 月 31 日净利润金融当日数进行排名，列出前3名。",
+          "source_metric_bindings": [
+            {
+              "start": 25,
+              "end": 33,
+              "text": "净利润金融当日数",
+              "codes": [
+                "SYNTH_METRIC_1"
+              ]
+            }
+          ],
+          "metric_codes": [
+            "SYNTH_METRIC_1"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "SYNTH_ORG_1"
+          ],
+          "time": {
+            "start": "2026-07-31",
+            "end": "2026-07-31"
+          },
+          "selection": "exact",
+          "operation": {
+            "kind": "ranking",
+            "position": "top",
+            "top_n": 3
+          }
+        }
+      ],
+      "authorized_lookups": [
+        {
+          "entity": "organization",
+          "raw": [
+            "江苏农商联合银行"
+          ]
+        },
+        {
+          "entity": "date",
+          "raw": [
+            "2026年7月31日"
+          ]
+        }
+      ],
+      "focus": {
+        "frameId": "ae62c917-71f2-47ab-b691-4ac4cf7312eb",
+        "sessionId": "01a13327-528d-70bf-a088-0bbd046b8ca8",
+        "requestId": "single_day_top3",
+        "turnId": "01a13327-528f-70bf-a088-0bbe29f37a3f",
+        "capability": "metric_query",
+        "operationFrameId": "788a4f88-c3b6-4b78-93bd-cd8d0f944729",
+        "fields": {
+          "metrics": {
+            "rawValue": [
+              "净利润金融当日数"
+            ],
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_METRIC_1"
+              ],
+              "names": [
+                "净利润金融当日数"
+              ]
+            },
+            "source": "explicit",
+            "resolver": "metric",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "extractedRawValues": [
+                "净利润金融当日数"
+              ],
+              "referenceValues": [
+                "SYNTH_METRIC_1",
+                "净利润金融当日数"
+              ],
+              "questionText": "对江苏农商联合银行 2026 年 7 月 31 日净利润金融当日数进行排名，列出前3名。",
+              "mentionResolutions": [
+                {
+                  "text": "净利润金融当日数",
+                  "start": 25,
+                  "end": 33,
+                  "status": "resolved",
+                  "value": {
+                    "codes": [
+                      "SYNTH_METRIC_1"
+                    ],
+                    "names": [
+                      "净利润金融当日数"
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "organizations": {
+            "rawValue": "江苏农商联合银行",
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_ORG_1"
+              ],
+              "names": [
+                "江苏农商联合银行"
+              ]
+            },
+            "source": "explicit",
+            "resolver": "organization",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "referenceValues": [
+                "SYNTH_ORG_1",
+                "江苏农商联合银行"
+              ],
+              "turnIntentExpectedCount": 1
+            }
+          },
+          "time": {
+            "rawValue": "2026年7月31日",
+            "resolvedValue": {
+              "start": "2026-07-31",
+              "end": "2026-07-31"
+            },
+            "source": "explicit",
+            "resolver": "date",
+            "resolutionStatus": "resolved"
+          },
+          "selection": {
+            "rawValue": "exact",
+            "resolvedValue": "exact",
+            "source": "explicit",
+            "resolver": "enum",
+            "resolutionStatus": "resolved"
+          },
+          "operation": {
+            "rawValue": {
+              "kind": "ranking",
+              "position": "top",
+              "top_n": 3
+            },
+            "resolvedValue": {
+              "kind": "ranking",
+              "position": "top",
+              "top_n": 3
+            },
+            "source": "explicit",
+            "resolver": "query_operation",
+            "resolutionStatus": "resolved"
+          }
+        },
+        "delta": {
+          "executionMode": "execute",
+          "fieldChanges": [
+            {
+              "fieldHint": "metrics",
+              "operation": "set",
+              "rawValue": {
+                "fromQuestion": true,
+                "mentionIndexes": [
+                  1
+                ]
+              }
+            },
+            {
+              "fieldHint": "organizations",
+              "operation": "set",
+              "rawValue": "江苏农商联合银行"
+            },
+            {
+              "fieldHint": "time",
+              "operation": "set",
+              "rawValue": "2026年7月31日"
+            },
+            {
+              "fieldHint": "selection",
+              "operation": "set",
+              "rawValue": "exact"
+            },
+            {
+              "fieldHint": "operation",
+              "operation": "set",
+              "rawValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              }
+            }
+          ],
+          "capabilityHint": "metric_query",
+          "baseReference": null,
+          "fieldIntents": {
+            "metrics": {
+              "sourceText": "净利润金融当日数",
+              "expectedCount": null,
+              "mode": "set"
+            },
+            "organizations": {
+              "sourceText": "江苏农商联合银行",
+              "expectedCount": 1,
+              "mode": "set"
+            },
+            "time": {
+              "sourceText": "2026年7月31日",
+              "expectedCount": null,
+              "mode": "set"
+            }
+          }
+        },
+        "issues": [],
+        "status": "success",
+        "createdAt": "2026-10-13T02:46:40.234Z",
+        "parentFrameId": "7d0e2d0c-3e72-480e-9380-2b8ebdd4592b",
+        "resultRef": "query:synthetic-first-turn-1:result%3Asynthetic-first-turn-1",
+        "resultSummary": {
+          "rowCount": 0,
+          "truncated": false
+        }
+      },
+      "turn_frames": [
+        {
+          "frameId": "788a4f88-c3b6-4b78-93bd-cd8d0f944729",
+          "sessionId": "01a13327-528d-70bf-a088-0bbd046b8ca8",
+          "requestId": "single_day_top3",
+          "turnId": "01a13327-528f-70bf-a088-0bbe29f37a3f",
+          "capability": "metric_query",
+          "operationFrameId": "788a4f88-c3b6-4b78-93bd-cd8d0f944729",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "净利润金融当日数"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_METRIC_1"
+                ],
+                "names": [
+                  "净利润金融当日数"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "净利润金融当日数"
+                ],
+                "referenceValues": [
+                  "SYNTH_METRIC_1",
+                  "净利润金融当日数"
+                ],
+                "questionText": "对江苏农商联合银行 2026 年 7 月 31 日净利润金融当日数进行排名，列出前3名。",
+                "mentionResolutions": [
+                  {
+                    "text": "净利润金融当日数",
+                    "start": 25,
+                    "end": 33,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "SYNTH_METRIC_1"
+                      ],
+                      "names": [
+                        "净利润金融当日数"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "江苏农商联合银行",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_ORG_1"
+                ],
+                "names": [
+                  "江苏农商联合银行"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_ORG_1",
+                  "江苏农商联合银行"
+                ],
+                "turnIntentExpectedCount": 1
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月31日",
+              "resolvedValue": {
+                "start": "2026-07-31",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "selection": {
+              "rawValue": "exact",
+              "resolvedValue": "exact",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "resolvedValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月31日"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "exact"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": 3
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "metrics": {
+                "sourceText": "净利润金融当日数",
+                "expectedCount": null,
+                "mode": "set"
+              },
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": 1,
+                "mode": "set"
+              },
+              "time": {
+                "sourceText": "2026年7月31日",
+                "expectedCount": null,
+                "mode": "set"
+              }
+            }
+          },
+          "issues": [],
+          "status": "ready",
+          "createdAt": "2026-10-13T02:46:40.227Z"
+        },
+        {
+          "frameId": "7d0e2d0c-3e72-480e-9380-2b8ebdd4592b",
+          "sessionId": "01a13327-528d-70bf-a088-0bbd046b8ca8",
+          "requestId": "single_day_top3",
+          "turnId": "01a13327-528f-70bf-a088-0bbe29f37a3f",
+          "capability": "metric_query",
+          "operationFrameId": "788a4f88-c3b6-4b78-93bd-cd8d0f944729",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "净利润金融当日数"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_METRIC_1"
+                ],
+                "names": [
+                  "净利润金融当日数"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "净利润金融当日数"
+                ],
+                "referenceValues": [
+                  "SYNTH_METRIC_1",
+                  "净利润金融当日数"
+                ],
+                "questionText": "对江苏农商联合银行 2026 年 7 月 31 日净利润金融当日数进行排名，列出前3名。",
+                "mentionResolutions": [
+                  {
+                    "text": "净利润金融当日数",
+                    "start": 25,
+                    "end": 33,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "SYNTH_METRIC_1"
+                      ],
+                      "names": [
+                        "净利润金融当日数"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "江苏农商联合银行",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_ORG_1"
+                ],
+                "names": [
+                  "江苏农商联合银行"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_ORG_1",
+                  "江苏农商联合银行"
+                ],
+                "turnIntentExpectedCount": 1
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月31日",
+              "resolvedValue": {
+                "start": "2026-07-31",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "selection": {
+              "rawValue": "exact",
+              "resolvedValue": "exact",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "resolvedValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月31日"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "exact"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": 3
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "metrics": {
+                "sourceText": "净利润金融当日数",
+                "expectedCount": null,
+                "mode": "set"
+              },
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": 1,
+                "mode": "set"
+              },
+              "time": {
+                "sourceText": "2026年7月31日",
+                "expectedCount": null,
+                "mode": "set"
+              }
+            }
+          },
+          "issues": [],
+          "status": "executing",
+          "createdAt": "2026-10-13T02:46:40.232Z",
+          "parentFrameId": "788a4f88-c3b6-4b78-93bd-cd8d0f944729"
+        },
+        {
+          "frameId": "ae62c917-71f2-47ab-b691-4ac4cf7312eb",
+          "sessionId": "01a13327-528d-70bf-a088-0bbd046b8ca8",
+          "requestId": "single_day_top3",
+          "turnId": "01a13327-528f-70bf-a088-0bbe29f37a3f",
+          "capability": "metric_query",
+          "operationFrameId": "788a4f88-c3b6-4b78-93bd-cd8d0f944729",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "净利润金融当日数"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_METRIC_1"
+                ],
+                "names": [
+                  "净利润金融当日数"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "净利润金融当日数"
+                ],
+                "referenceValues": [
+                  "SYNTH_METRIC_1",
+                  "净利润金融当日数"
+                ],
+                "questionText": "对江苏农商联合银行 2026 年 7 月 31 日净利润金融当日数进行排名，列出前3名。",
+                "mentionResolutions": [
+                  {
+                    "text": "净利润金融当日数",
+                    "start": 25,
+                    "end": 33,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "SYNTH_METRIC_1"
+                      ],
+                      "names": [
+                        "净利润金融当日数"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "江苏农商联合银行",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_ORG_1"
+                ],
+                "names": [
+                  "江苏农商联合银行"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_ORG_1",
+                  "江苏农商联合银行"
+                ],
+                "turnIntentExpectedCount": 1
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月31日",
+              "resolvedValue": {
+                "start": "2026-07-31",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "selection": {
+              "rawValue": "exact",
+              "resolvedValue": "exact",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "resolvedValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 3
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月31日"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "exact"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": 3
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "metrics": {
+                "sourceText": "净利润金融当日数",
+                "expectedCount": null,
+                "mode": "set"
+              },
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": 1,
+                "mode": "set"
+              },
+              "time": {
+                "sourceText": "2026年7月31日",
+                "expectedCount": null,
+                "mode": "set"
+              }
+            }
+          },
+          "issues": [],
+          "status": "success",
+          "createdAt": "2026-10-13T02:46:40.234Z",
+          "parentFrameId": "7d0e2d0c-3e72-480e-9380-2b8ebdd4592b",
+          "resultRef": "query:synthetic-first-turn-1:result%3Asynthetic-first-turn-1",
+          "resultSummary": {
+            "rowCount": 0,
+            "truncated": false
+          }
+        }
+      ],
+      "reopen_verified": true,
+      "answer": "已为您完成对江苏农商联合银行 2026 年 7 月 31 日净利润（金融当日数）前3名的排名查询。\n\n查询已执行完毕，但服务端返回的结果中没有匹配到可用的数据记录。这可能意味着在当前业务环境下，该机构在该日期下的净利润（金融当日数）没有可展示的明细排名结果。\n\n如需进一步调整查询条件（如更换机构、日期或指标），请随时告诉我。"
+    },
+    {
+      "name": "incident_ambiguous_month_ranking",
+      "scope": "independent_diagnostic",
+      "diagnostic": {
+        "outcome": "executed_without_user_time_or_rank_limit_basis",
+        "acceptable": false,
+        "reason": "原句未指明时间选取方式与排名条数；不能把自动latest/月末/top10作为正确业务期望。"
+      },
+      "message": "对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名",
+      "expected": {
+        "time": {
+          "start": "2026-07-01",
+          "end": "2026-07-31"
+        },
+        "known_org_codes": [
+          "SYNTH_ORG_1"
+        ],
+        "known_metric_codes": [
+          "SYNTH_METRIC_1"
+        ],
+        "time_selection": "not_supplied",
+        "ranking_limit": "not_supplied",
+        "cannot_assume_default": true
+      },
+      "elapsed_ms": 36499,
+      "completion": {
+        "ok": true,
+        "operationId": "01a13327-bf8d-70bf-a088-0bd31744466f",
+        "outcome": {
+          "kind": "settled",
+          "outcome": {
+            "operationId": "01a13327-bf8d-70bf-a088-0bd31744466f",
+            "kind": "run",
+            "status": "completed",
+            "fromTipId": null,
+            "tipId": "01a13328-364f-70bf-a088-0be8ff628ed1",
+            "startedAt": 1791859605389,
+            "endedAt": 1791859641880
+          }
+        }
+      },
+      "validation_deadline_exceeded": false,
+      "empty_history": true,
+      "query_count": 1,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": null,
+                "mode": "set"
+              }
+            },
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "latest_in_range"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": null
+                }
+              }
+            ],
+            "executionMode": "execute"
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": null,
+                "mode": "set"
+              }
+            },
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "latest_in_range"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": 10
+                }
+              }
+            ],
+            "executionMode": "execute"
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "kind": "business_context",
+            "status": "ARGUMENT_ERROR",
+            "retryable": true,
+            "error_code": "FIELD_INPUT_SCHEMA_INVALID"
+          },
+          "text": "{\"status\":\"ARGUMENT_ERROR\",\"error_code\":\"FIELD_INPUT_SCHEMA_INVALID\",\"field\":\"operation\",\"message\":\"rawValue 未满足 inputSchema：{\\\"oneOf\\\":[{\\\"type\\\":\\\"object\\\",\\\"required\\\":[\\\"kind\\\"],\\\"properties\\\":{\\\"kind\\\":{\\\"const\\\":\\\"value\\\"}},\\\"additionalProperties\\\":false},{\\\"type\\\":\\\"object\\\",\\\"required\\\":[\\\"kind\\\",\\\"position\\\",\\\"top_n\\\"],\\\"properties\\\":{\\\"kind\\\":{\\\"const\\\":\\\"ranking\\\"},\\\"position\\\":{\\\"enum\\\":[\\\"top\\\",\\\"bottom\\\"]},\\\"top_n\\\":{\\\"type\\\":\\\"integer\\\",\\\"minimum\\\":1,\\\"maximum\\\":100}},\\\"additionalProperties\\\":false}]}。省略为普通取值。排名提交 {kind:'ranking',position:'top'或'bottom',top_n:1..100}：前N/最高/最多用 top，后N/最低/最少用 bottom；实际升降序由服务端按指标决定（名次类指标名次越小越靠前），不要自行换算方向。只对已确定机构目标排序，不自动展开下级；取消排名提交 {kind:'value'}，整个排名条件随之移除。请修正调用，原焦点未改变。\",\"current_user_input\":\"对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名\",\"focus_preserved\":true,\"next_action\":\"correct_arguments\",\"scope\":\"argument_validation\",\"query_executed\":false,\"preserve_user_conditions\":true,\"corrections\":[{\"field\":\"operation\",\"reason\":\"invalid\",\"message\":\"rawValue 未满足 inputSchema：{\\\"oneOf\\\":[{\\\"type\\\":\\\"object\\\",\\\"required\\\":[\\\"kind\\\"],\\\"properties\\\":{\\\"kind\\\":{\\\"const\\\":\\\"value\\\"}},\\\"additionalProperties\\\":false},{\\\"type\\\":\\\"object\\\",\\\"required\\\":[\\\"kind\\\",\\\"position\\\",\\\"top_n\\\"],\\\"properties\\\":{\\\"kind\\\":{\\\"const\\\":\\\"ranking\\\"},\\\"position\\\":{\\\"enum\\\":[\\\"top\\\",\\\"bottom\\\"]},\\\"top_n\\\":{\\\"type\\\":\\\"integer\\\",\\\"minimum\\\":1,\\\"maximum\\\":100}},\\\"additionalProperties\\\":false}]}。省略为普通取值。排名提交 {kind:'ranking',position:'top'或'bottom',top_n:1..100}：前N/最高/最多用 top，后N/最低/最少用 bottom；实际升降序由服务端按指标决定（名次类指标名次越小越靠前），不要自行换算方向。只对已确定机构目标排序，不自动展开下级；取消排名提交 {kind:'value'}，整个排名条件随之移除。请修正调用，原焦点未改变。\",\"inputSchema\":{\"oneOf\":[{\"type\":\"object\",\"required\":[\"kind\"],\"properties\":{\"kind\":{\"const\":\"value\"}},\"additionalProperties\":false},{\"type\":\"object\",\"required\":[\"kind\",\"position\",\"top_n\"],\"properties\":{\"kind\":{\"const\":\"ranking\"},\"position\":{\"enum\":[\"top\",\"bottom\"]},\"top_n\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100}},\"additionalProperties\":false}]}}],\"reference_hint\":\"原焦点未改变不代表它就是用户所指来源。若字段来自历史引用，先用 FrameSelector 定位对应业务状态，再合并本轮变化；不要仅删除报错字段而默认继承焦点。\"}"
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "kind": "metric_query_structured",
+            "task_id": "synthetic-first-turn-1",
+            "version": 1,
+            "result_id": "result:synthetic-first-turn-1",
+            "public_answer": "隔离合成查询已完成，无记录。",
+            "status": "succeeded",
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "frame_id": "14f1e0f1-3875-4bea-8e71-51b2f597e086",
+            "delivery": "business_evidence_v1",
+            "display_conditions": [
+              {
+                "label": "指标",
+                "value": "净利润金融当日数"
+              },
+              {
+                "label": "机构",
+                "value": "江苏农商联合银行"
+              },
+              {
+                "label": "日期",
+                "value": "2026-07-01 至 2026-07-31"
+              },
+              {
+                "label": "取数方式",
+                "value": "范围内最新数据日"
+              },
+              {
+                "label": "排名",
+                "value": "前 10 名"
+              }
+            ]
+          },
+          "text": "{\"status\":\"succeeded\",\"task_id\":\"synthetic-first-turn-1\",\"version\":1,\"result_id\":\"result:synthetic-first-turn-1\",\"query_evidence\":{\"logical_dsl\":{\"conversation_id\":\"synthetic-first-turn-contract\",\"calculation_context\":{\"scope_id\":\"01a13327-bf8d-70bf-a088-0bd31744466f\",\"user_question\":\"对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名\"},\"source_question\":\"对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名\",\"source_metric_bindings\":[{\"start\":20,\"end\":28,\"text\":\"净利润金融当日数\",\"codes\":[\"SYNTH_METRIC_1\"]}],\"metric_codes\":[\"SYNTH_METRIC_1\"],\"schema_version\":2,\"org_codes\":[\"SYNTH_ORG_1\"],\"time\":{\"start\":\"2026-07-01\",\"end\":\"2026-07-31\"},\"selection\":\"latest_in_range\",\"operation\":{\"kind\":\"ranking\",\"position\":\"top\",\"top_n\":10}}},\"columns\":[],\"sample_rows\":[],\"facts\":[],\"fact_count\":0,\"facts_truncated\":false,\"row_count\":0,\"truncated\":false,\"error_code\":null,\"message\":\"隔离合成查询已完成，无记录。\",\"display_hint\":\"明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。\",\"frame_id\":\"14f1e0f1-3875-4bea-8e71-51b2f597e086\",\"result_ref\":\"query:synthetic-first-turn-1:result%3Asynthetic-first-turn-1\",\"ready_frame_id\":\"909df4f9-9690-4bc6-a1b9-dbc0a5eab6f0\",\"next_step\":\"条件已全部确定，查询已执行。请直接依据本回执组织回答，不要再向用户确认，也不要重复取数。\"}"
+        }
+      ],
+      "query_specs": [
+        {
+          "conversation_id": "synthetic-first-turn-contract",
+          "calculation_context": {
+            "scope_id": "01a13327-bf8d-70bf-a088-0bd31744466f",
+            "user_question": "对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名"
+          },
+          "source_question": "对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名",
+          "source_metric_bindings": [
+            {
+              "start": 20,
+              "end": 28,
+              "text": "净利润金融当日数",
+              "codes": [
+                "SYNTH_METRIC_1"
+              ]
+            }
+          ],
+          "metric_codes": [
+            "SYNTH_METRIC_1"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "SYNTH_ORG_1"
+          ],
+          "time": {
+            "start": "2026-07-01",
+            "end": "2026-07-31"
+          },
+          "selection": "latest_in_range",
+          "operation": {
+            "kind": "ranking",
+            "position": "top",
+            "top_n": 10
+          }
+        }
+      ],
+      "authorized_lookups": [
+        {
+          "entity": "organization",
+          "raw": [
+            "江苏农商联合银行"
+          ]
+        },
+        {
+          "entity": "date",
+          "raw": [
+            "2026年7月"
+          ]
+        },
+        {
+          "entity": "organization",
+          "raw": [
+            "江苏农商联合银行"
+          ]
+        },
+        {
+          "entity": "date",
+          "raw": [
+            "2026年7月"
+          ]
+        }
+      ],
+      "focus": {
+        "frameId": "14f1e0f1-3875-4bea-8e71-51b2f597e086",
+        "sessionId": "01a13327-bf8a-70bf-a088-0bd04d66b69d",
+        "requestId": "incident_ambiguous_month_ranking",
+        "turnId": "01a13327-bf8d-70bf-a088-0bd31744466f",
+        "capability": "metric_query",
+        "operationFrameId": "909df4f9-9690-4bc6-a1b9-dbc0a5eab6f0",
+        "fields": {
+          "metrics": {
+            "rawValue": [
+              "净利润金融当日数"
+            ],
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_METRIC_1"
+              ],
+              "names": [
+                "净利润金融当日数"
+              ]
+            },
+            "source": "explicit",
+            "resolver": "metric",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "extractedRawValues": [
+                "净利润金融当日数"
+              ],
+              "referenceValues": [
+                "SYNTH_METRIC_1",
+                "净利润金融当日数"
+              ],
+              "questionText": "对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名",
+              "mentionResolutions": [
+                {
+                  "text": "净利润金融当日数",
+                  "start": 20,
+                  "end": 28,
+                  "status": "resolved",
+                  "value": {
+                    "codes": [
+                      "SYNTH_METRIC_1"
+                    ],
+                    "names": [
+                      "净利润金融当日数"
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "organizations": {
+            "rawValue": "江苏农商联合银行",
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_ORG_1"
+              ],
+              "names": [
+                "江苏农商联合银行"
+              ]
+            },
+            "source": "explicit",
+            "resolver": "organization",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "referenceValues": [
+                "SYNTH_ORG_1",
+                "江苏农商联合银行"
+              ]
+            }
+          },
+          "time": {
+            "rawValue": "2026年7月",
+            "resolvedValue": {
+              "start": "2026-07-01",
+              "end": "2026-07-31"
+            },
+            "source": "explicit",
+            "resolver": "date",
+            "resolutionStatus": "resolved"
+          },
+          "selection": {
+            "rawValue": "latest_in_range",
+            "resolvedValue": "latest_in_range",
+            "source": "explicit",
+            "resolver": "enum",
+            "resolutionStatus": "resolved"
+          },
+          "operation": {
+            "rawValue": {
+              "kind": "ranking",
+              "position": "top",
+              "top_n": 10
+            },
+            "resolvedValue": {
+              "kind": "ranking",
+              "position": "top",
+              "top_n": 10
+            },
+            "source": "explicit",
+            "resolver": "query_operation",
+            "resolutionStatus": "resolved"
+          }
+        },
+        "delta": {
+          "executionMode": "execute",
+          "fieldChanges": [
+            {
+              "fieldHint": "metrics",
+              "operation": "set",
+              "rawValue": {
+                "fromQuestion": true,
+                "mentionIndexes": [
+                  1
+                ]
+              }
+            },
+            {
+              "fieldHint": "organizations",
+              "operation": "set",
+              "rawValue": "江苏农商联合银行"
+            },
+            {
+              "fieldHint": "time",
+              "operation": "set",
+              "rawValue": "2026年7月"
+            },
+            {
+              "fieldHint": "selection",
+              "operation": "set",
+              "rawValue": "latest_in_range"
+            },
+            {
+              "fieldHint": "operation",
+              "operation": "set",
+              "rawValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 10
+              }
+            }
+          ],
+          "capabilityHint": "metric_query",
+          "baseReference": null,
+          "fieldIntents": {
+            "organizations": {
+              "sourceText": "江苏农商联合银行",
+              "expectedCount": null,
+              "mode": "set"
+            }
+          }
+        },
+        "issues": [],
+        "status": "success",
+        "createdAt": "2026-10-13T02:47:15.789Z",
+        "parentFrameId": "fdabc244-e488-4973-824c-ee1161654b41",
+        "resultRef": "query:synthetic-first-turn-1:result%3Asynthetic-first-turn-1",
+        "resultSummary": {
+          "rowCount": 0,
+          "truncated": false
+        }
+      },
+      "turn_frames": [
+        {
+          "frameId": "909df4f9-9690-4bc6-a1b9-dbc0a5eab6f0",
+          "sessionId": "01a13327-bf8a-70bf-a088-0bd04d66b69d",
+          "requestId": "incident_ambiguous_month_ranking",
+          "turnId": "01a13327-bf8d-70bf-a088-0bd31744466f",
+          "capability": "metric_query",
+          "operationFrameId": "909df4f9-9690-4bc6-a1b9-dbc0a5eab6f0",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "净利润金融当日数"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_METRIC_1"
+                ],
+                "names": [
+                  "净利润金融当日数"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "净利润金融当日数"
+                ],
+                "referenceValues": [
+                  "SYNTH_METRIC_1",
+                  "净利润金融当日数"
+                ],
+                "questionText": "对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名",
+                "mentionResolutions": [
+                  {
+                    "text": "净利润金融当日数",
+                    "start": 20,
+                    "end": 28,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "SYNTH_METRIC_1"
+                      ],
+                      "names": [
+                        "净利润金融当日数"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "江苏农商联合银行",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_ORG_1"
+                ],
+                "names": [
+                  "江苏农商联合银行"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_ORG_1",
+                  "江苏农商联合银行"
+                ]
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月",
+              "resolvedValue": {
+                "start": "2026-07-01",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "selection": {
+              "rawValue": "latest_in_range",
+              "resolvedValue": "latest_in_range",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 10
+              },
+              "resolvedValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 10
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "latest_in_range"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": 10
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": null,
+                "mode": "set"
+              }
+            }
+          },
+          "issues": [],
+          "status": "ready",
+          "createdAt": "2026-10-13T02:47:15.785Z"
+        },
+        {
+          "frameId": "fdabc244-e488-4973-824c-ee1161654b41",
+          "sessionId": "01a13327-bf8a-70bf-a088-0bd04d66b69d",
+          "requestId": "incident_ambiguous_month_ranking",
+          "turnId": "01a13327-bf8d-70bf-a088-0bd31744466f",
+          "capability": "metric_query",
+          "operationFrameId": "909df4f9-9690-4bc6-a1b9-dbc0a5eab6f0",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "净利润金融当日数"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_METRIC_1"
+                ],
+                "names": [
+                  "净利润金融当日数"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "净利润金融当日数"
+                ],
+                "referenceValues": [
+                  "SYNTH_METRIC_1",
+                  "净利润金融当日数"
+                ],
+                "questionText": "对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名",
+                "mentionResolutions": [
+                  {
+                    "text": "净利润金融当日数",
+                    "start": 20,
+                    "end": 28,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "SYNTH_METRIC_1"
+                      ],
+                      "names": [
+                        "净利润金融当日数"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "江苏农商联合银行",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_ORG_1"
+                ],
+                "names": [
+                  "江苏农商联合银行"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_ORG_1",
+                  "江苏农商联合银行"
+                ]
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月",
+              "resolvedValue": {
+                "start": "2026-07-01",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "selection": {
+              "rawValue": "latest_in_range",
+              "resolvedValue": "latest_in_range",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 10
+              },
+              "resolvedValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 10
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "latest_in_range"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": 10
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": null,
+                "mode": "set"
+              }
+            }
+          },
+          "issues": [],
+          "status": "executing",
+          "createdAt": "2026-10-13T02:47:15.788Z",
+          "parentFrameId": "909df4f9-9690-4bc6-a1b9-dbc0a5eab6f0"
+        },
+        {
+          "frameId": "14f1e0f1-3875-4bea-8e71-51b2f597e086",
+          "sessionId": "01a13327-bf8a-70bf-a088-0bd04d66b69d",
+          "requestId": "incident_ambiguous_month_ranking",
+          "turnId": "01a13327-bf8d-70bf-a088-0bd31744466f",
+          "capability": "metric_query",
+          "operationFrameId": "909df4f9-9690-4bc6-a1b9-dbc0a5eab6f0",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "净利润金融当日数"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_METRIC_1"
+                ],
+                "names": [
+                  "净利润金融当日数"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "净利润金融当日数"
+                ],
+                "referenceValues": [
+                  "SYNTH_METRIC_1",
+                  "净利润金融当日数"
+                ],
+                "questionText": "对江苏农商联合银行 2026 年 7 月净利润金融当日数进行排名",
+                "mentionResolutions": [
+                  {
+                    "text": "净利润金融当日数",
+                    "start": 20,
+                    "end": 28,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "SYNTH_METRIC_1"
+                      ],
+                      "names": [
+                        "净利润金融当日数"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "江苏农商联合银行",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_ORG_1"
+                ],
+                "names": [
+                  "江苏农商联合银行"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_ORG_1",
+                  "江苏农商联合银行"
+                ]
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月",
+              "resolvedValue": {
+                "start": "2026-07-01",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "selection": {
+              "rawValue": "latest_in_range",
+              "resolvedValue": "latest_in_range",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 10
+              },
+              "resolvedValue": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 10
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "江苏农商联合银行"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "latest_in_range"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "ranking",
+                  "position": "top",
+                  "top_n": 10
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "江苏农商联合银行",
+                "expectedCount": null,
+                "mode": "set"
+              }
+            }
+          },
+          "issues": [],
+          "status": "success",
+          "createdAt": "2026-10-13T02:47:15.789Z",
+          "parentFrameId": "fdabc244-e488-4973-824c-ee1161654b41",
+          "resultRef": "query:synthetic-first-turn-1:result%3Asynthetic-first-turn-1",
+          "resultSummary": {
+            "rowCount": 0,
+            "truncated": false
+          }
+        }
+      ],
+      "reopen_verified": true,
+      "answer": "已完成对江苏农商联合银行 2026 年 7 月净利润金融当日数的排名查询。\n\n以下是查询概要：\n- **指标**：净利润金融当日数\n- **机构**：江苏农商联合银行\n- **日期范围**：2026年7月（取该范围内最后一个有数据的当日值，即最新一期）\n- **排名**：前 10 名\n\n不过，本次查询在对应的数据范围内没有返回记录（即当前条件下暂无可用数据结果）。这可能是因为该机构在相应日期暂无净利润金融当日数的数据。如需调整日期范围或其他查询条件，请告诉我。"
+    }
+  ],
+  "diagnostic_acceptable_cases": 0,
+  "contract_objectives_passed": false,
+  "report_review_note": "单次完整运行明确首问3/3；事故原句首次ranking.top_n=null，参数纠正后擅自填top10且latest_in_range，实际执行1次。该诊断不接受，不补跑求过，不追加恢复。脚本随后仅修正总体退出码/统计以免明确3例通过掩盖诊断失败，未变动模型结果。"
+}

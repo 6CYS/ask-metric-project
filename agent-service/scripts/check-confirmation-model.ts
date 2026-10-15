@@ -20,7 +20,7 @@ if (!process.argv.includes("--live")) {
   const dir = await mkdtemp(join(tmpdir(), "pi-confirmation-"));
   const config = {...loadConfig(), dataDir: dir};
   const store = new NativeSessionStore(dir);
-  const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store, createAskMetricTools());
+  const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store, createAskMetricTools({compactTurnArgs: config.compactTurnArgs}));
   const actor: BackendUser = {id: "synthetic-confirmation", username: "synthetic", display_name: "合成验收", org_code: "O1", org_name: "合成机构全称", role_code: "USER"};
   const reports: Array<Record<string, unknown>> = [];
   try {
@@ -54,11 +54,18 @@ if (!process.argv.includes("--live")) {
       const userIndex = messages.findLastIndex(message => message.role === "user");
       const turn = messages.slice(userIndex + 1);
       const tools = turn.filter(message => message.role === "toolResult").map(message => message.toolName);
+      // 当前宿主可在解析回执中落地执行；核对成功证据，而非要求额外一次模型工具调用。
+      const executions = turn.filter(message => message.role === "toolResult"
+        && ["resolve_business_turn", "execute_business_frame"].includes(message.toolName)
+        && message.content.some(block => {
+          if (block.type !== "text") return false;
+          try { return JSON.parse(block.text).status === "succeeded"; } catch { return false; }
+        })).length;
       const modelCalls = turn.filter(message => message.role === "assistant").length;
       const success = frames.find(frame => frame.requestId === "confirmation" && frame.status === "success");
       const passed = queriedBeforeConfirmation === 0 && queries.length === 1 && !!success
         && success.fields.organizations?.source === "confirmed" && tools.filter(name => name === "resolve_business_turn").length === 1
-        && tools.filter(name => name === "execute_business_frame").length === 1 && tools.length <= 3;
+        && executions === 1 && tools.length <= 3;
       const report = {reply, passed, queried_before_confirmation: queriedBeforeConfirmation, query_count: queries.length,
         confirmation_tools: tools, confirmation_model_calls: modelCalls, elapsed_ms: Math.round(performance.now() - started)};
       reports.push(report); console.log(JSON.stringify(report));

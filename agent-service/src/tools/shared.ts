@@ -95,6 +95,8 @@ export interface StructuredQueryDetails {
   rows?: Record<string, unknown>[];
   row_count?: number;
   truncated?: boolean | undefined;
+  /** “近N年”备选口径（最近 N 个完整年度）；存在时前端提供“切换口径”重查。 */
+  time_variants?: Array<{label: string; start: string; end: string}>;
 }
 
 export interface CatalogSearchDetails {

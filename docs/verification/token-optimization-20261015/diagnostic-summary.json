@@ -1,0 +1,214 @@
+[
+  {
+    "file": "baseline-diagnostic.json",
+    "model": "deepseek-ai/DeepSeek-V4-Flash",
+    "source_hashes": {
+      "baseline": {
+        "src/config.ts": "3a1b298524f76a7fc2857cd3fd7631221814fb8f2579c3280d8dd5878bb76e77",
+        "src/harnessHost.ts": "6d4210ac59b77c937f6cbf071063ad6418595b290be1027e85cf3817a86a9ae9",
+        "src/modelContext.ts": "146e477d203362af3bb9107ebadc97e8049b84f3db20939d5efc217fd41f6b3a",
+        "src/sessionProjection.ts": "cb245505e627f12431c37611455152f5cc2cdb2560440f73f5b934fd0b9ac0d8",
+        "src/routes.ts": "62f7803d4bf44f1c42c52ef71f76fe1a169e498df5af0b5861fe9cc216920b38",
+        "src/semantic-task/prompt.ts": "fb032d5092dd3fdb9dd7ae513ecd84d6351ad892b5c91f242add871020ecaafb",
+        "src/semantic-task/planService.ts": "ecfa0e18c8449181dfe277b3ea8c8b1af1e77fb04e0872866b212d443f9df467",
+        "src/semantic-task/tools.ts": "0c09a362df188b53a8e9333deaa79ae1b96e358d0d022845d02474edbd0837ea",
+        "src/semantic-task/store.ts": "b99ca6d974574536ca52edac4feb9c0e138ab9975072d23894aa05ffc4657354"
+      }
+    },
+    "corpus_sha256": "31f12c5239a377e1e15078cd2ef82a22ba3fdcaedc40f75bdfef98e2f663d0d5",
+    "tasks": 1,
+    "turns": 5,
+    "passed_turns": 5,
+    "model_calls": 11,
+    "unknown_usage": 0,
+    "known_usage_subtotal": {
+      "input": 80840,
+      "output": 1125,
+      "cache": 35072,
+      "noncache": 45768
+    },
+    "failures": [],
+    "status": "diagnostic_not_final_acceptance"
+  },
+  {
+    "file": "baseline-diagnostic-boundaries.json",
+    "model": "deepseek-ai/DeepSeek-V4-Flash",
+    "source_hashes": {
+      "baseline": {
+        "src/config.ts": "3a1b298524f76a7fc2857cd3fd7631221814fb8f2579c3280d8dd5878bb76e77",
+        "src/harnessHost.ts": "6d4210ac59b77c937f6cbf071063ad6418595b290be1027e85cf3817a86a9ae9",
+        "src/modelContext.ts": "146e477d203362af3bb9107ebadc97e8049b84f3db20939d5efc217fd41f6b3a",
+        "src/sessionProjection.ts": "cb245505e627f12431c37611455152f5cc2cdb2560440f73f5b934fd0b9ac0d8",
+        "src/routes.ts": "62f7803d4bf44f1c42c52ef71f76fe1a169e498df5af0b5861fe9cc216920b38",
+        "src/semantic-task/prompt.ts": "fb032d5092dd3fdb9dd7ae513ecd84d6351ad892b5c91f242add871020ecaafb",
+        "src/semantic-task/planService.ts": "ecfa0e18c8449181dfe277b3ea8c8b1af1e77fb04e0872866b212d443f9df467",
+        "src/semantic-task/tools.ts": "0c09a362df188b53a8e9333deaa79ae1b96e358d0d022845d02474edbd0837ea",
+        "src/semantic-task/store.ts": "b99ca6d974574536ca52edac4feb9c0e138ab9975072d23894aa05ffc4657354"
+      }
+    },
+    "corpus_sha256": "31f12c5239a377e1e15078cd2ef82a22ba3fdcaedc40f75bdfef98e2f663d0d5",
+    "tasks": 5,
+    "turns": 6,
+    "passed_turns": 5,
+    "model_calls": 19,
+    "unknown_usage": 0,
+    "known_usage_subtotal": {
+      "input": 142513,
+      "output": 3323,
+      "cache": 76800,
+      "noncache": 65713
+    },
+    "failures": [
+      {
+        "case": "empty-result",
+        "turn": 1,
+        "failures": [
+          "FORMAL_QUERY_SUCCESS"
+        ]
+      }
+    ],
+    "status": "diagnostic_not_final_acceptance"
+  },
+  {
+    "file": "baseline-diagnostic-empty-exact.json",
+    "model": "deepseek-ai/DeepSeek-V4-Flash",
+    "source_hashes": {
+      "baseline": {
+        "src/config.ts": "3a1b298524f76a7fc2857cd3fd7631221814fb8f2579c3280d8dd5878bb76e77",
+        "src/harnessHost.ts": "6d4210ac59b77c937f6cbf071063ad6418595b290be1027e85cf3817a86a9ae9",
+        "src/modelContext.ts": "146e477d203362af3bb9107ebadc97e8049b84f3db20939d5efc217fd41f6b3a",
+        "src/sessionProjection.ts": "cb245505e627f12431c37611455152f5cc2cdb2560440f73f5b934fd0b9ac0d8",
+        "src/routes.ts": "62f7803d4bf44f1c42c52ef71f76fe1a169e498df5af0b5861fe9cc216920b38",
+        "src/semantic-task/prompt.ts": "fb032d5092dd3fdb9dd7ae513ecd84d6351ad892b5c91f242add871020ecaafb",
+        "src/semantic-task/planService.ts": "ecfa0e18c8449181dfe277b3ea8c8b1af1e77fb04e0872866b212d443f9df467",
+        "src/semantic-task/tools.ts": "0c09a362df188b53a8e9333deaa79ae1b96e358d0d022845d02474edbd0837ea",
+        "src/semantic-task/store.ts": "b99ca6d974574536ca52edac4feb9c0e138ab9975072d23894aa05ffc4657354"
+      }
+    },
+    "corpus_sha256": "55d99e20d23f8ce62fb5de8b088181975989f99e35f68438cf222e25ccb26faf",
+    "tasks": 1,
+    "turns": 1,
+    "passed_turns": 0,
+    "model_calls": 2,
+    "unknown_usage": 0,
+    "known_usage_subtotal": {
+      "input": 12730,
+      "output": 254,
+      "cache": 6400,
+      "noncache": 6330
+    },
+    "failures": [
+      {
+        "case": "empty-exact",
+        "turn": 1,
+        "failures": [
+          "EMPTY_MUST_BE_EXPLICIT"
+        ]
+      }
+    ],
+    "status": "diagnostic_not_final_acceptance"
+  },
+  {
+    "file": "baseline-empty-exact-confirmed.json",
+    "model": "deepseek-ai/DeepSeek-V4-Flash",
+    "source_hashes": {
+      "baseline": {
+        "src/config.ts": "3a1b298524f76a7fc2857cd3fd7631221814fb8f2579c3280d8dd5878bb76e77",
+        "src/harnessHost.ts": "6d4210ac59b77c937f6cbf071063ad6418595b290be1027e85cf3817a86a9ae9",
+        "src/modelContext.ts": "146e477d203362af3bb9107ebadc97e8049b84f3db20939d5efc217fd41f6b3a",
+        "src/sessionProjection.ts": "cb245505e627f12431c37611455152f5cc2cdb2560440f73f5b934fd0b9ac0d8",
+        "src/routes.ts": "62f7803d4bf44f1c42c52ef71f76fe1a169e498df5af0b5861fe9cc216920b38",
+        "src/semantic-task/prompt.ts": "fb032d5092dd3fdb9dd7ae513ecd84d6351ad892b5c91f242add871020ecaafb",
+        "src/semantic-task/planService.ts": "ecfa0e18c8449181dfe277b3ea8c8b1af1e77fb04e0872866b212d443f9df467",
+        "src/semantic-task/tools.ts": "0c09a362df188b53a8e9333deaa79ae1b96e358d0d022845d02474edbd0837ea",
+        "src/semantic-task/store.ts": "b99ca6d974574536ca52edac4feb9c0e138ab9975072d23894aa05ffc4657354"
+      }
+    },
+    "corpus_sha256": "55d99e20d23f8ce62fb5de8b088181975989f99e35f68438cf222e25ccb26faf",
+    "tasks": 1,
+    "turns": 1,
+    "passed_turns": 1,
+    "model_calls": 2,
+    "unknown_usage": 0,
+    "known_usage_subtotal": {
+      "input": 12712,
+      "output": 233,
+      "cache": 8192,
+      "noncache": 4520
+    },
+    "failures": [],
+    "status": "diagnostic_not_final_acceptance"
+  },
+  {
+    "file": "direct-only-diagnostic.json",
+    "model": "deepseek-ai/DeepSeek-V4-Flash",
+    "source_hashes": {
+      "candidate": {
+        "src/config.ts": "21af6f0f9d857cd5324bd6b8097130acd784645d54dfe479ec84c4d64e934b4c",
+        "src/harnessHost.ts": "b2ff1aedcb39141b4043e0d530f0b2b658eedeab44cf8dd95541544f29cb6690",
+        "src/modelContext.ts": "146e477d203362af3bb9107ebadc97e8049b84f3db20939d5efc217fd41f6b3a",
+        "src/sessionProjection.ts": "a8804f2fe2a9c66af9a450fa85cf835ffd896905e3de6c53258553d89b95bee7",
+        "src/routes.ts": "f91e579ffb11503b2f6f19454fc2c3d7db4f87f6281c55b62059c42931432824",
+        "src/semantic-task/prompt.ts": "a3e653b7d576150f7079f67ff8f95a2560a6eeacb9940bad5b55fe26aa4619d1",
+        "src/semantic-task/planService.ts": "5acd356d310862b703c8b8883addc3eee5b3cf881cda9a59a78556b02bea6b80",
+        "src/semantic-task/tools.ts": "0c09a362df188b53a8e9333deaa79ae1b96e358d0d022845d02474edbd0837ea",
+        "src/semantic-task/store.ts": "4e81af5bc88bd9cdc8e1dd20b1d72a273d4b38d58014b258a1de0610eb566b95"
+      }
+    },
+    "corpus_sha256": "31f12c5239a377e1e15078cd2ef82a22ba3fdcaedc40f75bdfef98e2f663d0d5",
+    "tasks": 6,
+    "turns": 11,
+    "passed_turns": 10,
+    "model_calls": 40,
+    "unknown_usage": 0,
+    "known_usage_subtotal": {
+      "input": 400479,
+      "output": 5354,
+      "cache": 300800,
+      "noncache": 99679
+    },
+    "failures": [
+      {
+        "case": "empty-result",
+        "turn": 1,
+        "failures": [
+          "TURN_COMPLETED",
+          "TEST_GUARD_ABORTED",
+          "FORMAL_QUERY_SUCCESS"
+        ]
+      }
+    ],
+    "status": "diagnostic_not_final_acceptance"
+  },
+  {
+    "file": "candidate-2-affected-diagnostic.json",
+    "model": "deepseek-ai/DeepSeek-V4-Flash",
+    "source_hashes": {
+      "candidate": {
+        "src/config.ts": "21af6f0f9d857cd5324bd6b8097130acd784645d54dfe479ec84c4d64e934b4c",
+        "src/harnessHost.ts": "495b744a6b02bad85ccf5ab48d76137eb82e5d726b8985084ed80dff94b6344f",
+        "src/modelContext.ts": "146e477d203362af3bb9107ebadc97e8049b84f3db20939d5efc217fd41f6b3a",
+        "src/sessionProjection.ts": "a8804f2fe2a9c66af9a450fa85cf835ffd896905e3de6c53258553d89b95bee7",
+        "src/routes.ts": "f91e579ffb11503b2f6f19454fc2c3d7db4f87f6281c55b62059c42931432824",
+        "src/semantic-task/prompt.ts": "c221c9acdfa4054d88871cf0964ee0a9b43ed281b7ba3a5f16641863cf111e9f",
+        "src/semantic-task/planService.ts": "5acd356d310862b703c8b8883addc3eee5b3cf881cda9a59a78556b02bea6b80",
+        "src/semantic-task/tools.ts": "0c09a362df188b53a8e9333deaa79ae1b96e358d0d022845d02474edbd0837ea",
+        "src/semantic-task/store.ts": "bf00a3e8d974fa29cebab5fe379a509270295591408a6630381a12ec49a5c8d0"
+      }
+    },
+    "corpus_sha256": "55d99e20d23f8ce62fb5de8b088181975989f99e35f68438cf222e25ccb26faf",
+    "tasks": 2,
+    "turns": 6,
+    "passed_turns": 6,
+    "model_calls": 10,
+    "unknown_usage": 0,
+    "known_usage_subtotal": {
+      "input": 68974,
+      "output": 1215,
+      "cache": 12800,
+      "noncache": 56174
+    },
+    "failures": [],
+    "status": "diagnostic_not_final_acceptance"
+  }
+]

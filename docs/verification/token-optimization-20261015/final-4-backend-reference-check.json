@@ -1,0 +1,89 @@
+{
+  "checked_at": "2026-10-15T09:48:45.195Z",
+  "backend_origin": "http://127.0.0.1:8015",
+  "health_ready": true,
+  "legal_auth_get_me": true,
+  "model_calls": 0,
+  "basic_query_submissions": 7,
+  "reference_values_changed": false,
+  "corpus_modified": false,
+  "references": [
+    {
+      "target": {
+        "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+        "org": "01",
+        "start": "2026-05-31",
+        "end": "2026-05-31"
+      },
+      "row_count": 1,
+      "rows_sha256": "8f4ec971d46f294e26244dda05dfd25d07ed7b560fb712f099da4671700f8eca",
+      "matches_frozen_reference": true
+    },
+    {
+      "target": {
+        "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+        "org": "01",
+        "start": "2026-06-30",
+        "end": "2026-06-30"
+      },
+      "row_count": 1,
+      "rows_sha256": "a6ce6d5aa35d4b6814ceb524ae31c0c9be4856cf64defb43b4e23520cd1c2c77",
+      "matches_frozen_reference": true
+    },
+    {
+      "target": {
+        "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+        "org": "070667800",
+        "start": "2026-06-30",
+        "end": "2026-06-30"
+      },
+      "row_count": 1,
+      "rows_sha256": "3b8a01dc60a951abf5319b884f39ac673d669aa903c1553e8da22a91f14a12fa",
+      "matches_frozen_reference": true
+    },
+    {
+      "target": {
+        "metric": "ORG_PSON_DEDMDPT_BAL",
+        "org": "070667800",
+        "start": "2026-06-30",
+        "end": "2026-06-30"
+      },
+      "row_count": 1,
+      "rows_sha256": "4026a52418ed141edc02f1aad2a255092f2cf7b1fb116a149d70bafd989c8d1b",
+      "matches_frozen_reference": true
+    },
+    {
+      "target": {
+        "metric": "ORG_PSON_DEDMDPT_BAL",
+        "org": "01",
+        "start": "2026-06-30",
+        "end": "2026-06-30"
+      },
+      "row_count": 1,
+      "rows_sha256": "b5f7caf0fb77c076b61e8c349a484163d72db7babb4f22eb2830ceeb7c56f92f",
+      "matches_frozen_reference": true
+    },
+    {
+      "target": {
+        "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+        "org": "980000",
+        "start": "2021-01-01",
+        "end": "2025-12-31"
+      },
+      "row_count": 0,
+      "rows_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "matches_frozen_reference": true
+    },
+    {
+      "target": {
+        "metric": "ORG_CORP_AGRMT_DEPT_BAL",
+        "org": "980000",
+        "start": "2025-12-31",
+        "end": "2025-12-31"
+      },
+      "row_count": 0,
+      "rows_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "matches_frozen_reference": true
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "frozen_candidate": "candidate-final-3",
+  "manifest_files": 81,
+  "workspace_source_drift": [
+    "src/backendClient.ts",
+    "src/harnessHost.ts",
+    "src/requestContext.ts",
+    "src/tools/businessContext.ts",
+    "src/business-context/adapters.ts",
+    "src/business-context/capabilities.ts",
+    "src/business-context/types.ts",
+    "src/business-context/resolvers.ts",
+    "src/business-context/fixedTurnArgs.ts"
+  ],
+  "source_matches_frozen_candidate": false,
+  "frozen_snapshot_drift": [],
+  "frozen_snapshot_intact": true
+}

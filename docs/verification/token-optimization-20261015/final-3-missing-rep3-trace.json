@@ -1,0 +1,365 @@
+{
+  "snapshot": "candidate-final-3",
+  "case_id": "missing-then-confirm",
+  "repetition": 3,
+  "native_path": "/private/tmp/ask-metric-token-optimization-20261015/native-paired-final-3/candidate/native-v1/u_46c20338f84cfc35fddd56937467806a/--private-tmp-ask-metric-token-optimization-20261015-native-paired-final-3-candidate-native-v1--/2026-10-15T09-24-18-397Z_01a13ee0-6f5d-77dc-9421-7438b6d34240.jsonl",
+  "native_sha256": "ad6b3beebc4a7a9f4015954deb09fb20753ca76586786aa5bc88046d525f9887",
+  "model_calls": 3,
+  "query_submissions": 0,
+  "restore_assertions_passed": true,
+  "observations": [
+    "首轮已保存用户明确指标，正式needs_user要求机构与时间。",
+    "第二轮第一次提案仍source:new，重述历史指标被ENTITY_SOURCE_NOT_ESTABLISHED拒绝。",
+    "第二次提案仍new并省略metrics，覆盖为缺指标的needs_user，没有沿用上一轮保存来源。",
+    "本轮已有正式resolve动作，普通目录动作guard没有介入条件；这是source继承失败。"
+  ],
+  "entries": [
+    {
+      "entry_id": "01a13ee0-6f5f-77dc-9421-743c9f7b1eb0",
+      "seq": 11,
+      "role": "user",
+      "stop_reason": null,
+      "message": "帮我查对公协定存款余额当日数"
+    },
+    {
+      "entry_id": "01a13ee0-6f5f-77dc-9421-74417aa43749",
+      "seq": 61,
+      "role": "assistant",
+      "stop_reason": "toolUse",
+      "tool_calls": [
+        {
+          "id": "01a13ee074696fbe77d2732914a4c8d8",
+          "name": "resolve_business_turn",
+          "arguments": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026-10-15"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "entry_id": "01a13ee0-6f5f-77dc-9421-744492e105f0",
+      "seq": 86,
+      "role": "toolResult",
+      "stop_reason": null,
+      "tool": "resolve_business_turn",
+      "terminate": true,
+      "feedback": {
+        "protocol_version": 2,
+        "status": "needs_user",
+        "state": {
+          "task_ref": "c97d3230-6695-443b-9aa9-76789b854e42",
+          "task_status": "waiting_input",
+          "completion": "unmet",
+          "raw_message_retained": true,
+          "proposals_retained": true,
+          "targets": [
+            {
+              "target_ref": "e36be45e-7e77-46a7-a732-432a01eba4f3",
+              "status": "blocked",
+              "conditions": [
+                {
+                  "field": "metrics",
+                  "display": "对公协定存款余额当日数",
+                  "origin": "user_explicit"
+                },
+                {
+                  "field": "operation",
+                  "display": "查询操作",
+                  "origin": "rule_default"
+                }
+              ],
+              "pending": [
+                "2026-10-15",
+                "尚未确定"
+              ],
+              "label": "对公协定存款余额当日数",
+              "aliases": [
+                "对公协定存款余额当日数"
+              ],
+              "kind": "query"
+            }
+          ]
+        },
+        "issues": [
+          {
+            "code": "FIELD_REQUIRED",
+            "field": "time",
+            "message": "请补充查询日期范围。",
+            "remediation": "user",
+            "category": "calendar"
+          },
+          {
+            "code": "FIELD_REQUIRED",
+            "field": "organizations",
+            "message": "请补充或确定机构。",
+            "remediation": "user",
+            "category": "semantic"
+          }
+        ],
+        "continuation": {
+          "actor": "user",
+          "action": "ask_user"
+        }
+      }
+    },
+    {
+      "entry_id": "01a13ee0-ae29-77dc-9421-744935aadb11",
+      "seq": 101,
+      "role": "user",
+      "stop_reason": null,
+      "message": "机构是无锡农村商业银行股份有限公司，日期是2026年5月31日"
+    },
+    {
+      "entry_id": "01a13ee0-ae29-77dc-9421-744c6b575e61",
+      "seq": 163,
+      "role": "assistant",
+      "stop_reason": "toolUse",
+      "tool_calls": [
+        {
+          "id": "01a13ee0b599b0c4138684386b48b12e",
+          "name": "resolve_business_turn",
+          "arguments": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "无锡农村商业银行股份有限公司"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "entry_id": "01a13ee0-ae29-77dc-9421-74501e0c9c97",
+      "seq": 188,
+      "role": "toolResult",
+      "stop_reason": null,
+      "tool": "resolve_business_turn",
+      "terminate": null,
+      "feedback": {
+        "protocol_version": 2,
+        "status": "needs_interpretation",
+        "state": {
+          "task_ref": "bd2f214b-a798-44a1-9c94-d918976c2334",
+          "task_status": "active",
+          "completion": "unmet",
+          "raw_message_retained": true,
+          "proposals_retained": true,
+          "targets": [
+            {
+              "target_ref": "639245a9-e4dc-4b73-9938-39fb2d1e7884",
+              "status": "blocked",
+              "conditions": [
+                {
+                  "field": "organizations",
+                  "display": "无锡农村商业银行股份有限公司",
+                  "origin": "user_explicit"
+                },
+                {
+                  "field": "time",
+                  "display": "2026年5月31日",
+                  "origin": "user_explicit"
+                },
+                {
+                  "field": "operation",
+                  "display": "查询操作",
+                  "origin": "rule_default"
+                },
+                {
+                  "field": "selection",
+                  "display": "指定日期",
+                  "origin": "rule_default"
+                }
+              ],
+              "pending": [
+                "尚未确定"
+              ],
+              "label": "无锡农村商业银行股份有限公司 / 2026年5月31日",
+              "aliases": [
+                "无锡农村商业银行股份有限公司 / 2026年5月31日",
+                "无锡农村商业银行股份有限公司",
+                "2026年5月31日",
+                "无锡农村商业银行股份有限公司2026年5月31日"
+              ],
+              "kind": "query"
+            }
+          ]
+        },
+        "issues": [
+          {
+            "code": "ENTITY_SOURCE_NOT_ESTABLISHED",
+            "field": "metrics",
+            "message": "本轮没有此指标新值依据。若沿用已确认指标，请保留已绑定source并省略未变化字段；不要把模型复述产生的歧义交给用户。",
+            "remediation": "pi",
+            "category": "semantic"
+          }
+        ],
+        "continuation": {
+          "actor": "pi",
+          "action": "revise_proposal"
+        }
+      }
+    },
+    {
+      "entry_id": "01a13ee0-c172-77dc-9421-745545c8949a",
+      "seq": 238,
+      "role": "assistant",
+      "stop_reason": "toolUse",
+      "tool_calls": [
+        {
+          "id": "01a13ee0e23e07b234e240aaf287a529",
+          "name": "resolve_business_turn",
+          "arguments": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "无锡农村商业银行股份有限公司"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "entry_id": "01a13ee0-c172-77dc-9421-7458469f3b2e",
+      "seq": 258,
+      "role": "toolResult",
+      "stop_reason": null,
+      "tool": "resolve_business_turn",
+      "terminate": true,
+      "feedback": {
+        "protocol_version": 2,
+        "status": "needs_user",
+        "state": {
+          "task_ref": "bd2f214b-a798-44a1-9c94-d918976c2334",
+          "task_status": "waiting_input",
+          "completion": "unmet",
+          "raw_message_retained": true,
+          "proposals_retained": true,
+          "targets": [
+            {
+              "target_ref": "fdab27f2-02d2-47ca-87c5-84cdd3923e8a",
+              "status": "blocked",
+              "conditions": [
+                {
+                  "field": "organizations",
+                  "display": "无锡农村商业银行股份有限公司",
+                  "origin": "user_explicit"
+                },
+                {
+                  "field": "time",
+                  "display": "2026年5月31日",
+                  "origin": "user_explicit"
+                },
+                {
+                  "field": "operation",
+                  "display": "查询操作",
+                  "origin": "rule_default"
+                },
+                {
+                  "field": "selection",
+                  "display": "指定日期",
+                  "origin": "rule_default"
+                }
+              ],
+              "pending": [
+                "尚未确定"
+              ],
+              "label": "无锡农村商业银行股份有限公司 / 2026年5月31日",
+              "aliases": [
+                "无锡农村商业银行股份有限公司 / 2026年5月31日",
+                "无锡农村商业银行股份有限公司",
+                "2026年5月31日",
+                "无锡农村商业银行股份有限公司2026年5月31日"
+              ],
+              "kind": "query"
+            }
+          ]
+        },
+        "issues": [
+          {
+            "code": "FIELD_REQUIRED",
+            "field": "metrics",
+            "message": "请补充或确定指标。",
+            "remediation": "user",
+            "category": "semantic"
+          }
+        ],
+        "continuation": {
+          "actor": "user",
+          "action": "ask_user"
+        }
+      }
+    }
+  ]
+}

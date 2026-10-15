@@ -1,0 +1,431 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:ask-metric:pi-semantic-task:request:v2",
+  "title": "Pi 语义业务提案请求候选协议",
+  "description": "版本2语义提议。Schema校验形状；原问、来源、权限、完整性与执行许可由宿主独立核验。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol_version",
+    "intent",
+    "targets"
+  ],
+  "properties": {
+    "protocol_version": {
+      "type": "integer",
+      "const": 2
+    },
+    "context_action": {
+      "type": "string",
+      "enum": [
+        "resume",
+        "defer",
+        "abandon"
+      ],
+      "description": "resume续接待明确修改，defer暂缓，abandon放弃；缺省不续接。"
+    },
+    "intent": {
+      "type": "string",
+      "enum": [
+        "query",
+        "analyze",
+        "availability",
+        "calculate",
+        "reuse",
+        "prepare"
+      ],
+      "description": "prepare只保存条件，reuse只读旧结果；其余按整笔目的选择并接受治理校验。"
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/definitions/target"
+      },
+      "description": "分别绑定的目标组；数组顺序不是历史身份。"
+    }
+  },
+  "definitions": {
+    "businessText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000,
+      "description": "自然语言业务表达，须有本轮依据、可信继承或授权分析来源。"
+    },
+    "field": {
+      "type": "string",
+      "enum": [
+        "organizations",
+        "comparison_organizations",
+        "metrics",
+        "time",
+        "selection",
+        "operation",
+        "objective",
+        "calculation",
+        "availability"
+      ],
+      "description": "业务条件字段。"
+    },
+    "source": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "references"
+          ],
+          "properties": {
+            "kind": {
+              "const": "references"
+            },
+            "references": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "task_ref",
+                  "target_ref"
+                ],
+                "properties": {
+                  "task_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "target_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  }
+                }
+              },
+              "description": "签发引用集合，逐来源继承并应用同一operations，保留各自绑定。"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "new",
+              "description": "空条件新目标；继承须用current/reference。"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "current",
+              "description": "继承冻结的唯一当前目标；多目标用reference。"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "task_ref",
+            "target_ref"
+          ],
+          "properties": {
+            "kind": {
+              "const": "reference"
+            },
+            "task_ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "description": "复制宿主签发的同会话计划引用。"
+            },
+            "target_ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "description": "复制该计划内的目标引用，与task_ref配对。"
+            }
+          }
+        }
+      ]
+    },
+    "orgSuggestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "有权机构清单中的正式编码。"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "有权机构清单中的正式名称。"
+        },
+        "excerpt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "用户措辞片段。"
+        }
+      },
+      "description": "按有权清单建议用户所指机构；code/name至少其一。无法匹配用原文value，不选无关成员；宿主复核并明示纠正。"
+    },
+    "operation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "field",
+            "direction"
+          ],
+          "properties": {
+            "action": {
+              "const": "rank_all"
+            },
+            "field": {
+              "const": "operation"
+            },
+            "direction": {
+              "enum": [
+                "ascending",
+                "descending"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "field",
+            "reference"
+          ],
+          "properties": {
+            "action": {
+              "const": "copy"
+            },
+            "field": {
+              "$ref": "#/definitions/field"
+            },
+            "reference": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "task_ref",
+                "target_ref"
+              ],
+              "properties": {
+                "task_ref": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "target_ref": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "field",
+            "offset",
+            "limit"
+          ],
+          "properties": {
+            "action": {
+              "const": "select"
+            },
+            "field": {
+              "const": "organizations"
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 999
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "field",
+            "value"
+          ],
+          "properties": {
+            "action": {
+              "const": "set"
+            },
+            "field": {
+              "$ref": "#/definitions/field"
+            },
+            "value": {
+              "$ref": "#/definitions/businessText"
+            },
+            "suggestion": {
+              "$ref": "#/definitions/orgSuggestion"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "field",
+            "subject",
+            "value"
+          ],
+          "properties": {
+            "action": {
+              "const": "replace"
+            },
+            "field": {
+              "$ref": "#/definitions/field"
+            },
+            "subject": {
+              "$ref": "#/definitions/businessText"
+            },
+            "value": {
+              "$ref": "#/definitions/businessText"
+            },
+            "suggestion": {
+              "$ref": "#/definitions/orgSuggestion"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "field",
+            "value"
+          ],
+          "properties": {
+            "action": {
+              "const": "add"
+            },
+            "field": {
+              "$ref": "#/definitions/field"
+            },
+            "value": {
+              "$ref": "#/definitions/businessText"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "field",
+            "subject"
+          ],
+          "properties": {
+            "action": {
+              "const": "exclude"
+            },
+            "field": {
+              "$ref": "#/definitions/field"
+            },
+            "subject": {
+              "$ref": "#/definitions/businessText"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "field"
+          ],
+          "properties": {
+            "action": {
+              "const": "clear"
+            },
+            "field": {
+              "$ref": "#/definitions/field"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "field",
+            "value"
+          ],
+          "properties": {
+            "action": {
+              "const": "confirm"
+            },
+            "field": {
+              "$ref": "#/definitions/field"
+            },
+            "value": {
+              "$ref": "#/definitions/businessText"
+            }
+          }
+        }
+      ]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "operations"
+      ],
+      "properties": {
+        "source": {
+          "$ref": "#/definitions/source"
+        },
+        "operations": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/definitions/operation"
+          },
+          "description": "空数组只表示保留所选来源；新建空目标不能执行。"
+        }
+      }
+    }
+  }
+}

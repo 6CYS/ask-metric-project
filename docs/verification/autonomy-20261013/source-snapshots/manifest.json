@@ -1,0 +1,26 @@
+[
+  {
+    "name": "baseline",
+    "file": "docs/verification/autonomy-20261013/source-snapshots/baseline.zip",
+    "files": 279,
+    "bytes": 881769,
+    "sha256": "5d3adbe647749bb7f85c0b0dfde097d00f9fa28c085fcc9142c076130e22df76",
+    "excluded": [
+      "node_modules",
+      ".env",
+      "__pycache__"
+    ]
+  },
+  {
+    "name": "candidate-v1",
+    "file": "docs/verification/autonomy-20261013/source-snapshots/candidate-v1.zip",
+    "files": 304,
+    "bytes": 1019299,
+    "sha256": "2259df7c64bc7aa44d4a36ea28b5c5d358a6d3b17d115579036b9ead1963114b",
+    "excluded": [
+      "node_modules",
+      ".env",
+      "__pycache__"
+    ]
+  }
+]

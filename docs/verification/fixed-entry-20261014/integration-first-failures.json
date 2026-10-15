@@ -1,0 +1,12 @@
+{
+  "passed": 1211,
+  "failed": 47,
+  "total": 1258,
+  "failure_files": {
+    "conversationReplyTurn.spec.ts": 1,
+    "harnessHost.test.ts": 43,
+    "routes.test.ts": 3
+  },
+  "resolution": "Original model stubs/expectations used the former public argument dialect. Valid stubs migrated; invalid cases retain rejection assertions. Final full regression has zero failures.",
+  "retained_raw_report": "agent-tests-first.json"
+}

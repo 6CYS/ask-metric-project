@@ -365,6 +365,7 @@ class QueryTaskApplicationService:
             page_rows = result.rows[offset : offset + limit]
             next_offset = offset + len(page_rows)
             page_indices = {str(index) for index in range(offset, next_offset)}
+            snapshot_dsl = result.evidence.get("logical_dsl") or artifact.get("logical_dsl") or {}
             return TaskResultPage(
                 task_id=task.id,
                 result_id=artifact["result_id"],
@@ -388,6 +389,7 @@ class QueryTaskApplicationService:
                 message=result.message,
                 answer_blocks=result.answer_blocks,
                 evidence=result.evidence,
+                time_alternative=(snapshot_dsl.get("options") or {}).get("time_alternative"),
             )
 
     def find_basic_query(

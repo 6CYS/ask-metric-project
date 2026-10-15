@@ -124,6 +124,21 @@ sudo vi /etc/ask-metric/agent.env   # 可选；启用智能助手时配置模型
 sudo ./ops/install.sh
 ```
 
+`AGENT_COMPACT_TURN_ARGS` 是旧配置兼容项，不再选择新会话工具格式。
+`AGENT_BUSINESS_PROTOCOL=semantic_v2` 为新会话默认入口，已贯通查询、复合目标、排名、覆盖、计算和结果驱动规划。
+阶段4按用户要求先切换本地并交付手测，自动稳定性验收尚未完成；模板默认值变化不代表已部署生产。
+修改此配置后重启 agent-service，只影响随后创建的会话。已有会话、原生 operation 及恢复始终沿用保存的协议；
+新协议 Session 使用增量领域值，无需本次数据库迁移。回到 fixed_v1 默认值仍须运行支持两种 Session 的新版服务；
+不能用旧二进制恢复 semantic_v2 的 READY 或在途操作。详细范围与回退见[阶段4说明](../../docs/pi-semantic-task/implementation-phase4.md)。
+
+模型超时使用两阶段配置：`AGENT_MODEL_FIRST_RESPONSE_TIMEOUT_MS` 控制首次有效输出等待，
+`AGENT_MODEL_STREAM_IDLE_TIMEOUT_MS` 控制开始输出后的空闲时限，默认均为 30000 毫秒。
+非空文本、思考和工具参数输出均刷新空闲计时，响应头、开始事件和空增量不算进展。
+持续输出没有固定总时长中断；未首次输出时可按重试配置重试，输出后停滞不会自动重放请求。
+新空闲变量未设置或为空白时，旧 `AGENT_MODEL_TIMEOUT_MS` 兼容作为空闲时限后备。
+环境文件跨版本保留，升级后重启 Agent 服务生效，无需数据库或会话迁移；回滚旧版本前必须核对环境文件，
+旧版本会恢复 `AGENT_MODEL_TIMEOUT_MS` 的总时限语义，且不识别新空闲变量。
+
 `agent.env` 中的 `AGENT_MODEL_API_KEY` 支持与后端一致的 `ENC[SM4:v1:...]` 密文，复用
 `/etc/ask-metric/config-sm4.key` 主密钥；Nginx 会把同源 `/agent-api/` 反代到回环地址的
 agent-service（SSE 流式，已关闭代理缓冲）。不需要智能助手时使用 `--no-agent` 跳过。
@@ -392,3 +407,8 @@ SQL 安全校验继续生效。模型/提示词的配置与历史回滚功能保
 未完成回填时只剩完整名称匹配与保守确认，不能识别口径省略、缺口径追问。
 排名契约同时由 `operation.order` 改为 `operation.position=top|bottom`，名次类指标（单位“名”）的方向由后端决定；
 Agent、后端须配套升级，旧 Frame 中的排名条件需在新回合重建。回退时整包回退，回填字段可保留。
+
+
+### semantic_v2 阶段3候选
+
+阶段3使用同一版本2协议贯通复合目标、排名、覆盖、计算和结果驱动分析。须同时更新Agent及Backend（新增inspect-goal/admit-plan与签名来源校验），无需业务数据库迁移。默认值仍为fixed_v1，不在阶段3自动切换。候选Session不能降级交给阶段2代码续跑；先停止在途操作、保留原生Session和源码快照，再按协议绑定回退。详见[阶段3实施说明](../../docs/pi-semantic-task/implementation-phase3.md)。

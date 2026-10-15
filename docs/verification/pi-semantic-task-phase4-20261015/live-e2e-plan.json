@@ -1,0 +1,33 @@
+{
+  "target": "current_local_project",
+  "backend": "http://127.0.0.1:8010",
+  "candidate_agent": "http://127.0.0.1:8022",
+  "frontend": "http://127.0.0.1:5174",
+  "query_source": "configured_project_database_readonly_business_queries",
+  "application_metadata": "normal_owned_acceptance_sessions_queries_and_audit_records",
+  "external_gateway": "https://api.siliconflow.cn",
+  "external_model": "deepseek-ai/DeepSeek-V4-Flash",
+  "requires_extended_data_authorization": false,
+  "previous_authorization": "current prompts/tools and synthetic samples; no real database results or credentials",
+  "planned_tasks": [
+    "原问题：查询张家港农商行近5年的存款记录；验证必要澄清、补充和恢复",
+    "查询无锡农村商业银行股份有限公司2026年5月31日的对公协定存款余额当日数",
+    "分别查询无锡农村商业银行股份有限公司2026年5月31日与江苏苏州农村商业银行股份有限公司2026年6月30日的对公协定存款余额当日数",
+    "上述正式结果的受控差额计算、刷新恢复及停止/重连验证"
+  ],
+  "proposed_external_data": [
+    "验收问题",
+    "相关机构与指标目录命中",
+    "实际日期范围",
+    "验收查询返回的机构、指标、日期、数值、单位和结果摘要"
+  ],
+  "excluded_external_data": [
+    "登录令牌",
+    "数据库连接凭据",
+    "模型密钥",
+    "无关数据库数据"
+  ],
+  "default_switch": "after_local_gates_pass; preserve_existing_session_protocol; rollback_new_sessions_to_fixed_v1_using_current_dual_reader_program",
+  "quality_95_percent": "separate_acceptance",
+  "extended_data_authorization": "confirmed by user: 允许按验收计划发送少量真实结果"
+}

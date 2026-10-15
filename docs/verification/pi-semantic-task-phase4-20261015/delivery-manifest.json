@@ -1,0 +1,1377 @@
+{
+  "contains_runtime_credentials": false,
+  "synthetic_fixture_scanner_exception": [
+    "agent-service/scripts/semantic-task-fixture.py"
+  ],
+  "archive_sha256": "4182b7c1cbe2f4d5d661257ed9d1179432ce90d2a560f0cf0ef415d63e2e1cb1",
+  "files": [
+    {
+      "path": "agent-service/.env.example",
+      "sha256": "c3e54f629a57404045dae86f634f7019315ed19aa849b39973c64999cfc7d7bd"
+    },
+    {
+      "path": "agent-service/README.md",
+      "sha256": "a0a62718a33e6c7719a883465ea061c1c25a8a3d87f80b997db16671fffd2da1"
+    },
+    {
+      "path": "agent-service/package-lock.json",
+      "sha256": "b2daea6bc4169a69a1d955b90de8a06e4a805350b67ee028b499d7ff16712db7"
+    },
+    {
+      "path": "agent-service/package.json",
+      "sha256": "5d54314a4e3af91fb107896b684e313d3c5b58d5ce43e033a2adb5f0e0fc7d92"
+    },
+    {
+      "path": "agent-service/scripts/audit-semantic-phase4.mjs",
+      "sha256": "41e8af396a81c8fa79275543716c6139311e288397fe2d641323dc81e8a76529"
+    },
+    {
+      "path": "agent-service/scripts/audit-semantic-plan-model.mjs",
+      "sha256": "a2eef6e4d3d972c562c3b858bac8e610c670d3831ce5107557de71ca70ca8fea"
+    },
+    {
+      "path": "agent-service/scripts/check-semantic-phase4.ts",
+      "sha256": "3cdb8c88e771e94c1079882b7ed1e10791a7dc527178b2c2d2e4fecfebdecd2d"
+    },
+    {
+      "path": "agent-service/scripts/check-semantic-plan-model.ts",
+      "sha256": "4954b030c77923382aea1b656e634d127011c670b3c5193cdef20ca18c533a7e"
+    },
+    {
+      "path": "agent-service/scripts/phase4-synthetic-backend.ts",
+      "sha256": "9a59004b4751b56961fa684e368309dca2b6d0f8cc414943863f4c609dd891b9"
+    },
+    {
+      "path": "agent-service/scripts/semantic-task-fixture.py",
+      "sha256": "c86739c627293ea0bbfd8d2226d7b95030ff3d95e1dc4cfe4bb5dfcafcdc0814"
+    },
+    {
+      "path": "agent-service/scripts/serve-phase4-cancel-fixture.ts",
+      "sha256": "299e70f39e0b44c41d154d6affc60ce6f4ab3b464d200dd72aefe6ffdfcb297c"
+    },
+    {
+      "path": "agent-service/skills/analysis-boundary/SKILL.md",
+      "sha256": "0c19d3a107be19c326d2b92eaa941ef5ec776474871da08c4f42338b45c9b5d4"
+    },
+    {
+      "path": "agent-service/skills/business-analysis/SKILL.md",
+      "sha256": "0b7c71c5e7c6ee202cf16f15ba92f9ee3c0addffa7e44b0d375c25e6a4fedb04"
+    },
+    {
+      "path": "agent-service/skills/data-coverage/SKILL.md",
+      "sha256": "27a0f4a56bf899b256d972cae9efa3a4788b33254765fe81e93f6e18a60e048e"
+    },
+    {
+      "path": "agent-service/skills/metric-query/SKILL.md",
+      "sha256": "9b0f3f2e062e3889af2127baa59f74e3e8317675d21e8f0b1f6b0dcd32c96b7d"
+    },
+    {
+      "path": "agent-service/skills/result-calculation/SKILL.md",
+      "sha256": "6b902f5c1333a31c8d457423ab0e98a0e78e63a710088b647e5b67c857fdfb8e"
+    },
+    {
+      "path": "agent-service/specs/answerStream.spec.ts",
+      "sha256": "af2ebed90555a5b5a794d194da7ace2a4c306fdfbc100d89698e18c00c4b2278"
+    },
+    {
+      "path": "agent-service/specs/business-context/argumentCorrections.spec.ts",
+      "sha256": "643db9b443db4c0d6525ffe151d6ff38733805e3b600a95960948b7760e2efac"
+    },
+    {
+      "path": "agent-service/specs/business-context/clarificationOptions.spec.ts",
+      "sha256": "1aa6de7e8021664407729c68bb8b0db28cf360999ff8486a2468bf0196ef13e2"
+    },
+    {
+      "path": "agent-service/specs/business-context/clarificationPresentation.spec.ts",
+      "sha256": "59ab015b538325ea7628912ac1d3735adf9c742e2b38a35091ab4bd7fa62198d"
+    },
+    {
+      "path": "agent-service/specs/business-context/compactTurnContract.spec.ts",
+      "sha256": "f4a62c989ab1595eaa97ea9f902ddc7dfcc32db3bfac8204f4e969b7166b03d0"
+    },
+    {
+      "path": "agent-service/specs/business-context/confirmationContinuation.spec.ts",
+      "sha256": "6c0ba111fa9aa0911451b60540256f30ece02c2b7eda3c4458570aec743b479a"
+    },
+    {
+      "path": "agent-service/specs/business-context/confirmationRecovery.spec.ts",
+      "sha256": "2a828bfafe970119b66554494daecdeb518d365a0a82005932501bc48e56297b"
+    },
+    {
+      "path": "agent-service/specs/business-context/context.spec.ts",
+      "sha256": "55390a9bb2c15f6fe314722bd42d9713a6ac53a136f0540770562d3a3569ad16"
+    },
+    {
+      "path": "agent-service/specs/business-context/fieldIntents.spec.ts",
+      "sha256": "0dfbcfd2db9c5af416d455456c28f60abd9b3aa1ba2bb871ca372301a8254cbe"
+    },
+    {
+      "path": "agent-service/specs/business-context/fixedTurnArgs.spec.ts",
+      "sha256": "266844c82be90bd1a84c290389976a74d28c4748ca535deac2686db67ff126df"
+    },
+    {
+      "path": "agent-service/specs/business-context/historyReference.spec.ts",
+      "sha256": "ced319c364c4c369d9d3a4044bac4deefa2ef24841b95306156b4ce4c3ce4db5"
+    },
+    {
+      "path": "agent-service/specs/business-context/historyReferences.spec.ts",
+      "sha256": "d060855293a2a77b10c390c695f3113cb2efeb45ec5f385acd5a8b35e24167e1"
+    },
+    {
+      "path": "agent-service/specs/business-context/inputEvidence.spec.ts",
+      "sha256": "6b73036dfa205fac253c61353db3b3bbfa2db33ac0ca44bc289f53ff51fe2554"
+    },
+    {
+      "path": "agent-service/specs/business-context/metricCoverageSource.spec.ts",
+      "sha256": "26e7a37e3bddc373f208d8e115d30ced7f433bd2f336b7bf6012ee571e474534"
+    },
+    {
+      "path": "agent-service/specs/business-context/metricMentions.spec.ts",
+      "sha256": "4e154afb8d44636aa95bee5f78a0aeb021f827628241f093d574e963738907e6"
+    },
+    {
+      "path": "agent-service/specs/business-context/modelView.spec.ts",
+      "sha256": "6ed6d0203956d4df3873dc102697b41cab4ff693128d93aab22e8ee6ac53fda0"
+    },
+    {
+      "path": "agent-service/specs/business-context/queryIntentV2.spec.ts",
+      "sha256": "5bfbc0b3c4da96ca014642963c663e27b6e312a6c675ab5e4291634d14bf7583"
+    },
+    {
+      "path": "agent-service/specs/business-context/rankingEvidence.spec.ts",
+      "sha256": "ac5e89fcbb1cb4155afe060a849e6c3eb435420c83d4ce5af5369f20a758fcc4"
+    },
+    {
+      "path": "agent-service/specs/business-context/resolutionFailure.spec.ts",
+      "sha256": "b16fcc5befe83b024db5338c2599d019d081deabe44a38601150e5921bac6749"
+    },
+    {
+      "path": "agent-service/specs/business-context/turnArgs.spec.ts",
+      "sha256": "9e27ce5dcb0b6cf124ab68f422be76e3709a687b7f95a6fce6ffa838baebc053"
+    },
+    {
+      "path": "agent-service/specs/business-context/turnDialect.spec.ts",
+      "sha256": "a837647cedf0a0d84dd0da2c338e3bb2599a046404a3ad952b9c4d7ead4c7e16"
+    },
+    {
+      "path": "agent-service/specs/business-context/userClarification.spec.ts",
+      "sha256": "73f1c4a96cc9d3afd4dfee1cbfaaca3ae919c6dd142ed01c9a77696148fe34ca"
+    },
+    {
+      "path": "agent-service/specs/config.spec.ts",
+      "sha256": "7325b2f7c27c0093c964920f0a33a6077d08b42e141cc26f06ef4fda818b70e4"
+    },
+    {
+      "path": "agent-service/specs/conversationReplyProjection.spec.ts",
+      "sha256": "1900de9baedc176863ce27b5c3bc9d80aeb3d4c7222c02b6c03ac62ee3027b01"
+    },
+    {
+      "path": "agent-service/specs/conversationReplyTurn.spec.ts",
+      "sha256": "692e036d69b637702887aec3dc2f6f9f2e9d3466bb73609616e4d8f150a4b7d8"
+    },
+    {
+      "path": "agent-service/specs/fixedBusinessCapabilities.spec.ts",
+      "sha256": "8b673986929ca62d0792d5c5fd078f570c709b0f7e75da309ac137e842272f48"
+    },
+    {
+      "path": "agent-service/specs/fixedModelProjection.spec.ts",
+      "sha256": "b8804e3b2998574987287d9d422a150b3834c33222eb404a88d72ac967a12023"
+    },
+    {
+      "path": "agent-service/specs/fixedTurnCompatibility.spec.ts",
+      "sha256": "a79f4c3505e64f11131679ecfc1695ee753d1e9783a989991a9185db10c716a1"
+    },
+    {
+      "path": "agent-service/specs/frameClarificationProjection.spec.ts",
+      "sha256": "56c13f48b1c2f4dfa823923ff8ad6cf0b26dd1126d27cb24901f15ff19a030a9"
+    },
+    {
+      "path": "agent-service/specs/historyAuthorization.spec.ts",
+      "sha256": "9eaa52937c5c647687d3d88fefba46aff168a7c7619feb3bd73e35a54560b1fa"
+    },
+    {
+      "path": "agent-service/specs/historyCalculationContext.spec.ts",
+      "sha256": "60437b00cd31c7261a781f1f2f2c0e2b9e199b1faf4842b99f81d4c872e4fb6f"
+    },
+    {
+      "path": "agent-service/specs/landedReceipt.spec.ts",
+      "sha256": "5a51c3d8b18a45e59b5072e1358949765fa6ea33b224b27c2d109ba2cf6d145e"
+    },
+    {
+      "path": "agent-service/specs/modelContext.spec.ts",
+      "sha256": "df3642f9c6c968ad3bee24b5231b01012b079b39eb09ff559627dc35d0dfbaa6"
+    },
+    {
+      "path": "agent-service/specs/modelProtocol.spec.ts",
+      "sha256": "5ac9d31bf0f92a8360c67e5d5cde092572b796b3b1765f1a5b9a3d6f57d46d78"
+    },
+    {
+      "path": "agent-service/specs/modelTimeout.spec.ts",
+      "sha256": "ad8e4908126d619d3e62b0145f577592a8b56b96ecc4731bc0cdfe19b72b1091"
+    },
+    {
+      "path": "agent-service/specs/prompts/businessSystemPrompt.spec.ts",
+      "sha256": "659d8a4ea399d19f25623f858f7c8e7c97f5e08a31b8ce276dee9f2a27b5e193"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/backend-contract.spec.ts",
+      "sha256": "b7d7027c45fcac26e22516872552eaf524612f10f66b689734043d655c416647"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/fixtures.ts",
+      "sha256": "26ad879e726964b89d8bfe34ddc0150fb780262207b34a6c063c7d171bda8915"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/host.spec.ts",
+      "sha256": "11ee8a4534d3392253e7f5f5106da5fa952049feb7a842205b090ab992ac5f61"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/plan.spec.ts",
+      "sha256": "b4bb4b1686856ac3562f2db36e0c54f1e8c38b2c3a416c5c4efde12bc3662815"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/service.spec.ts",
+      "sha256": "e6b3509afd1db343731d69954dafc5d372134a731a2971c619f2b8ee8022e9a5"
+    },
+    {
+      "path": "agent-service/specs/sessionLifecycle.spec.ts",
+      "sha256": "415fd9afc80b9d9bf2b095d5f61a5653621325594c5acf58f54c3fb9ad0da508"
+    },
+    {
+      "path": "agent-service/specs/toolRecovery.spec.ts",
+      "sha256": "03d7acf1a5b48cf0e1214aa501e639a13c919bbc578101106d5688f7aa4c504c"
+    },
+    {
+      "path": "agent-service/specs/tools.structuredCoverage.spec.ts",
+      "sha256": "2f0690ef301df447832769304a3bb09b7d95169b7ecbf77fbc55ae4aa03480ae"
+    },
+    {
+      "path": "agent-service/specs/typoConfirmationFlow.spec.ts",
+      "sha256": "c04f33439bd3fe6af36517083c5ba32c8a74bc09a432f8d08418206c5429ff01"
+    },
+    {
+      "path": "agent-service/src/answerEvidence.ts",
+      "sha256": "4187ca40e2eaeb37d9e5521edf1d79d426ce829b8dfeefe37966464f45e2c39f"
+    },
+    {
+      "path": "agent-service/src/answerStream.ts",
+      "sha256": "c81b9057ada70f931decfc47384e6e28e4c0ab93d23b8c71c57f66690cb52bd1"
+    },
+    {
+      "path": "agent-service/src/backendClient.ts",
+      "sha256": "2d5b7d10708291edc903b8baecf34d67e3fdb5d439fc6d4d0f7f230e01ec5066"
+    },
+    {
+      "path": "agent-service/src/business-context/adapters.ts",
+      "sha256": "4be54c349b34d227db9f483110aa37bc5531796e8e17596a21779a8f4abdc80d"
+    },
+    {
+      "path": "agent-service/src/business-context/capabilities.ts",
+      "sha256": "b70568e8bfe5ab9d1ea8c89a554cd0174565180e087f7403741587b794de39b8"
+    },
+    {
+      "path": "agent-service/src/business-context/clarificationOptions.ts",
+      "sha256": "cff3c87dc985b7e8c84963b2999d7a5f7c0d4321d8bd8ec01977dca9fef81df4"
+    },
+    {
+      "path": "agent-service/src/business-context/clarificationPresentation.ts",
+      "sha256": "e464fd71b22a1542d7178e6d5e66d2f3ff3189815eaaa41ca72372d707167b8a"
+    },
+    {
+      "path": "agent-service/src/business-context/continuation.ts",
+      "sha256": "84039ec8188b2af6cee7751cf5020eb9f055705f03efd5ffc158878a0e87ca1f"
+    },
+    {
+      "path": "agent-service/src/business-context/core.ts",
+      "sha256": "1f042a91e13722567f35c969908ccca795bb42e550f48e132f25190492ce03d2"
+    },
+    {
+      "path": "agent-service/src/business-context/fieldClarification.ts",
+      "sha256": "34a58afb200961d9f7ae296be18cf44680796db2c61e69c41a88385c0d131db6"
+    },
+    {
+      "path": "agent-service/src/business-context/fixedTurnArgs.ts",
+      "sha256": "8b38465ccf0c0005fc79be385433671c28aaa593b7c6a7aeffb490fa7528b5ef"
+    },
+    {
+      "path": "agent-service/src/business-context/historyReferences.ts",
+      "sha256": "85aed88c4a270e5eb37045168b81148cd9c11d688e1f4a04d11f75a457e9dade"
+    },
+    {
+      "path": "agent-service/src/business-context/inputError.ts",
+      "sha256": "089d126bd137bb1f59b5c441990f4f9a996f14b9cd3115679f76bfd6de2b32d0"
+    },
+    {
+      "path": "agent-service/src/business-context/inputEvidence.ts",
+      "sha256": "fb30fdc38f779bf50c01de1bf222b93dcc28dc9dd70686d37bbe91ee3ac4b2b8"
+    },
+    {
+      "path": "agent-service/src/business-context/metricMentions.ts",
+      "sha256": "4ee6ca4e044f0170d8d76154e1580edde6e376cc30d1a39c238dcee135caed82"
+    },
+    {
+      "path": "agent-service/src/business-context/modelView.ts",
+      "sha256": "c61f3af55167d5bb90de0770a4ce76a697af361a86dedd50dd4ff5bdb1b0951c"
+    },
+    {
+      "path": "agent-service/src/business-context/rankingEvidence.ts",
+      "sha256": "0c42441ab4f75b56ab4c66b2d45333fffe6d1f7219c96803300005c97122d806"
+    },
+    {
+      "path": "agent-service/src/business-context/resolutionFailure.ts",
+      "sha256": "cb1f895335c3320e2cc1e04b9147a35b348d37bee7ae7551178dc1f3a6cc4c3a"
+    },
+    {
+      "path": "agent-service/src/business-context/resolvers.ts",
+      "sha256": "bd089676928beaf88aad78276c47a13bcf3491d1cdbb4441190ecbf3bb87269b"
+    },
+    {
+      "path": "agent-service/src/business-context/service.ts",
+      "sha256": "fb5afd3b137068c17ac03d14c4311506eb1a0c95a284fd04aaadfcc36ff4151a"
+    },
+    {
+      "path": "agent-service/src/business-context/store.ts",
+      "sha256": "42bcccaf8f7c09ab6e5859360b8e1a77bd8916d3e9504884800e59c645a61072"
+    },
+    {
+      "path": "agent-service/src/business-context/turnArgs.ts",
+      "sha256": "728f92203e36223e2c86ac667b470cd0fd313dd6542b86748380096ce9c3dc4e"
+    },
+    {
+      "path": "agent-service/src/business-context/turnDialect.ts",
+      "sha256": "0ab07b2b2d393cb0749c62ccb04b769dcf0f67e60d101b2377a2d9c2c50e2be7"
+    },
+    {
+      "path": "agent-service/src/business-context/types.ts",
+      "sha256": "7273adfe2628cc1b648e577370ad86fdf331cf8ba302addc7921567ba7d34f22"
+    },
+    {
+      "path": "agent-service/src/businessSkills.ts",
+      "sha256": "cd84656797addc8937fea6d1610dcb3e90b42803186b659d6fc2d476f851ac1d"
+    },
+    {
+      "path": "agent-service/src/config.ts",
+      "sha256": "3a1b298524f76a7fc2857cd3fd7631221814fb8f2579c3280d8dd5878bb76e77"
+    },
+    {
+      "path": "agent-service/src/fixedTurnCompatibility.ts",
+      "sha256": "8f66f97303216a6e03048af93b679e4e2ded35b0080547e066dadffac34e12ab"
+    },
+    {
+      "path": "agent-service/src/harnessHost.ts",
+      "sha256": "b19910ceb7d994ac3529b371c7b7446d2908d92c3c451734cd5591da4bf2b869"
+    },
+    {
+      "path": "agent-service/src/legacySessions.ts",
+      "sha256": "94ff16d9ec0eae14c473d31fc5bec8a56e64356838f121f3fcf7b610336811fe"
+    },
+    {
+      "path": "agent-service/src/modelContext.ts",
+      "sha256": "146e477d203362af3bb9107ebadc97e8049b84f3db20939d5efc217fd41f6b3a"
+    },
+    {
+      "path": "agent-service/src/modelUsage.ts",
+      "sha256": "3b20fb3fbf9f8d10c9a39a33354f6487dcb6e6ad369a3f2c12ebb3d81e51420c"
+    },
+    {
+      "path": "agent-service/src/models.ts",
+      "sha256": "e30195f3d77d54ba392d0749890c0a863e45663df3e7b03958e7992bbe6f1309"
+    },
+    {
+      "path": "agent-service/src/nativeSessions.ts",
+      "sha256": "b2556ab8f18014bb0b8f65b8a2d247d9e47b37575986ca33aa60eba2cfbed112"
+    },
+    {
+      "path": "agent-service/src/prompts/businessSystemPrompt.ts",
+      "sha256": "a30928c6b5733877c448e279552b34c6a5a566ba9c046e69af6a9ec3b76e3c49"
+    },
+    {
+      "path": "agent-service/src/queryContext.ts",
+      "sha256": "c48e6930b6989d6215e024a7309545d9575f3e3f017ad1471379d30bef708b63"
+    },
+    {
+      "path": "agent-service/src/replyGuard.ts",
+      "sha256": "72e927824a28344b83c045c25c8145c61953f3ffc9e82112f7fbaa3f4e488ba6"
+    },
+    {
+      "path": "agent-service/src/requestContext.ts",
+      "sha256": "5170845606cce7cc8dfe186ed2ff8745357e0a78c6fd9b877430a7e2cd0d8df9"
+    },
+    {
+      "path": "agent-service/src/routes.ts",
+      "sha256": "62f7803d4bf44f1c42c52ef71f76fe1a169e498df5af0b5861fe9cc216920b38"
+    },
+    {
+      "path": "agent-service/src/semantic-task/calculation.ts",
+      "sha256": "9be40c581720f05e0aaf0d828099872ac747d5c1d6878499bbcc5d5e482dcb56"
+    },
+    {
+      "path": "agent-service/src/semantic-task/feedback.ts",
+      "sha256": "0dc208dc8bf3e6d512b14b702d9d23b952b1f6fd9bdd3c7ada69aa265e644afd"
+    },
+    {
+      "path": "agent-service/src/semantic-task/planService.ts",
+      "sha256": "de505178006df20cfe06eeed04705bb1024f161747492adbfa1dffe685723456"
+    },
+    {
+      "path": "agent-service/src/semantic-task/prompt.ts",
+      "sha256": "eaacffbdc74de6b88534bd0ab8dd3a676de9e83eaa2d38ddcc509c2c08355a4d"
+    },
+    {
+      "path": "agent-service/src/semantic-task/protocol.ts",
+      "sha256": "fd2801547c3290ec29fdc8719f7ada47a4873e65fba7c1c00ccb4c973f5fcce1"
+    },
+    {
+      "path": "agent-service/src/semantic-task/service.ts",
+      "sha256": "6fcf70b8552c7fecaacb3a646f629057b1f3195939e81c6f536daf82ccb580d0"
+    },
+    {
+      "path": "agent-service/src/semantic-task/store.ts",
+      "sha256": "3019c3603035b93402591ea1f8c0f40674d49e2aad5cbddbe11a73d41eefbd0e"
+    },
+    {
+      "path": "agent-service/src/semantic-task/tools.ts",
+      "sha256": "1462a63733b912798e2829b93ef942be7c6439b730825ddd7cb18c9897d7fa81"
+    },
+    {
+      "path": "agent-service/src/server.ts",
+      "sha256": "0d6c67c299328cb83f6f09f04168384848d2e17412cec036805261d89ba62085"
+    },
+    {
+      "path": "agent-service/src/sessionProjection.ts",
+      "sha256": "cb245505e627f12431c37611455152f5cc2cdb2560440f73f5b934fd0b9ac0d8"
+    },
+    {
+      "path": "agent-service/src/sm4ConfigCrypto.ts",
+      "sha256": "f397fb3457b536c588b9eee9f8a4f1e33ee1ffa5943376431be2827a56b043ac"
+    },
+    {
+      "path": "agent-service/src/toolAudit.ts",
+      "sha256": "74e7557a4939317a031c56ecb291933beb9714076a9c330dbf0a6b11f3c28c23"
+    },
+    {
+      "path": "agent-service/src/toolRecovery.ts",
+      "sha256": "1cf285d710a53c2651d093dda8e6a72eeed413f5fa3b63b3c93482f952ca009a"
+    },
+    {
+      "path": "agent-service/src/tools/answerPresent.ts",
+      "sha256": "c2038d8368e1278a85f212ca7e38327f211aff813595a6a6754a968b33661211"
+    },
+    {
+      "path": "agent-service/src/tools/businessCapability.ts",
+      "sha256": "a4c9799a4a275392cc9fa5462c4f03369e7ece9272e0a883ef46c6209f5e5e31"
+    },
+    {
+      "path": "agent-service/src/tools/businessContext.ts",
+      "sha256": "108304e47c87de5d33f13f0b8f27371004ca9411e5c865b93c10a74e4ed7ff4f"
+    },
+    {
+      "path": "agent-service/src/tools/catalog.ts",
+      "sha256": "2d8a04d2bd6f06e6f15e93e6ae1e58ffa8d7331d0d7c63d68757065eb59c2d1b"
+    },
+    {
+      "path": "agent-service/src/tools/dataAvailability.ts",
+      "sha256": "60313aab8ffea6feac48f58134a979635a4f93dad0124cb4f0578400d1ffe522"
+    },
+    {
+      "path": "agent-service/src/tools/index.ts",
+      "sha256": "7d11028e7ff3c36b42bfb0240c59e6150b2dff5ee78c219022451d2cd9b76c58"
+    },
+    {
+      "path": "agent-service/src/tools/metricCalculate.ts",
+      "sha256": "a59210c323b598d906ab1722846649551f0d8dc9b81ea1e266a04cbecf7dc088"
+    },
+    {
+      "path": "agent-service/src/tools/metricCatalogOverview.ts",
+      "sha256": "ebe838422374cbe06f4a448a9d55883c07b1cc54cc61a0a52ef0eaf0958e2cfe"
+    },
+    {
+      "path": "agent-service/src/tools/metricCatalogSearch.ts",
+      "sha256": "4115a1f839d08c1ce38c5430278373795222bb240de4c3e05fe905d3e8694dde"
+    },
+    {
+      "path": "agent-service/src/tools/orgCatalogSearch.ts",
+      "sha256": "2c06229c37fa9f2e8b9fa9459abced6d983dbfc0989086487b521f9e23cb0411"
+    },
+    {
+      "path": "agent-service/src/tools/readTools.ts",
+      "sha256": "046943e117e2697a369b95984b2b17ee2972f2471a189a30074221f422fb7b06"
+    },
+    {
+      "path": "agent-service/src/tools/shared.ts",
+      "sha256": "8a2a67c9c9236bc29a8e0caa8a28c0f10827a361d3fe3d5f44f475791a9726df"
+    },
+    {
+      "path": "agent-service/src/tools/structuredQuery.ts",
+      "sha256": "8cf322d82edc44c1563100e19e57666a5b7ffeb18060e5a3c6035392cc9fba52"
+    },
+    {
+      "path": "agent-service/src/tools/testUtils.ts",
+      "sha256": "07a3f4657f40cab4b04284a7e4b28d063ef5c5e416f918340c917d2636498055"
+    },
+    {
+      "path": "agent-service/src/tools/turnContract.ts",
+      "sha256": "0749166e543182ffe0e4f081c0eb4a10dd43fce579f9a34b013a7ab90ab192c6"
+    },
+    {
+      "path": "agent-service/src/types/sm-crypto.d.ts",
+      "sha256": "5b7b74bc1fc8cb668331a0fcc48d86390ccc25adb3cad4f77c5133394cb54ff7"
+    },
+    {
+      "path": "agent-service/tsconfig.build.json",
+      "sha256": "56bcc42b9cedc7661908ad28ebefb4985c4abc8097b6e4ed586c14b51b5e8d59"
+    },
+    {
+      "path": "agent-service/tsconfig.json",
+      "sha256": "abaaf5714059f3b0ca3a4612127e102bcbe91b8c9e4752fa6776d1a650603ef5"
+    },
+    {
+      "path": "agent-service/tsconfig.spec.json",
+      "sha256": "7009bb2d7b2af571a5e62cd45c0a43382f85b61257404113c50e7dbf99af193e"
+    },
+    {
+      "path": "backend-next/pyproject.toml",
+      "sha256": "5cf5ec17c9767f9b193d46e77a11efc07838cc82341fa8f052f10962d34699f4"
+    },
+    {
+      "path": "backend-next/src/ask_metric/__init__.py",
+      "sha256": "d8d2f260a48e2d7496b3d31e1aec3f473188b01348e1a69dd4a9646e6157ec66"
+    },
+    {
+      "path": "backend-next/src/ask_metric/__main__.py",
+      "sha256": "2e53a8b27db0a610994877c554f998d9d3e22bb9f020b690f45391ae3047cf03"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/__init__.py",
+      "sha256": "ac2c28350cbb67bb5528f3e139701223e4de49d4102abe6fc89da90ba5f38ae9"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/browser_session.py",
+      "sha256": "82d2d1eeac691187aa1044a304f4a294615d30d08239b9a5f8df684a9ca1f9d6"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/dependencies.py",
+      "sha256": "b3a901ccb65625ff87c3dbd260947858d4b4419d7eede60a23f861119ba07690"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/query_readiness.py",
+      "sha256": "f58de3433f2e29e26059346cd07f4d36233b58d28eeb0260201b1f823cd8af87"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/router.py",
+      "sha256": "28d5dc44ff0d5ba4de119d407d9af2019478bd723b7ab4c20413fd977bebc1a6"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/routes/__init__.py",
+      "sha256": "51bf83470168d705beb38744164cc071189699478cdb8ceebd28fd927f332148"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/routes/auth.py",
+      "sha256": "9ddc25264bccd329203de8c7705ffcd2993cd768e579fcc809f1ac1b87820e7b"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/routes/availability.py",
+      "sha256": "95dfdf4fdd213f8e78045e5ce0a6e9ab3f8402b454de59493e517be523e853a8"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/routes/business_context.py",
+      "sha256": "f5ec5fd81bc190e94d0173a4457879a9273b758c74ed9908aa370d4fca4db385"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/routes/catalogs.py",
+      "sha256": "af7474661dd2bafda21a42176fd83b271d3b5c41ce18c747dd7a29e595b0b961"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/routes/health.py",
+      "sha256": "22bc52fef739761d6213432841c4dfb600bf49bec66346d54a5202ec97420b52"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/routes/logging_admin.py",
+      "sha256": "0fe749c66faba153ef92a22d174c537f40a86f7603ab2acd246255bfa6b53cc1"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/routes/model_config.py",
+      "sha256": "a0935a0ff19acbcc6e5e56d04eaa83d9fc8a4f5fe19e6510e120db242a5b53b3"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/routes/tasks.py",
+      "sha256": "731a71a8c4bea9652656d361f30857c58d5a1e2a106c5fd022f275c1767ce288"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/__init__.py",
+      "sha256": "e7591ae75b51e7e04bd58bed76ceff3e98cda1e2a9bb3382179b4e2d0eabb548"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/actor_provider.py",
+      "sha256": "45bbaf392bc4b4daf49d9e9c4fe03ad8e9992398da2d0e0fdcd90b05fc5e9c30"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/analysis_selection.py",
+      "sha256": "7e7a616cad25c59b5362038c74c5a064182c8b07bfeeee2d958351d96f95c4a1"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/auth_service.py",
+      "sha256": "ae5cc1bbaf61703021960cab3d46e7820a22f75bfccfe7d955fa6a41d263a10d"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/calculation_service.py",
+      "sha256": "c10ad2410ed5f67b50f159b5023fdebb7ca87da9716e09fbb30c760c5d70bccc"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/catalog_references.py",
+      "sha256": "47d05676aeff9d067b93b2828750a8d0f7c25b8b91ce44bcb9c27b2d36bea38d"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/catalog_search.py",
+      "sha256": "c62d982aef25b69b261b1b50d39e5e91dcd7ffc04426942333b13308a3c3f972"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/catalog_sync.py",
+      "sha256": "6d5be07e7f08beedb3b49980f8e393c9f3878e101f5f580b1730f30144e74d4f"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/commands.py",
+      "sha256": "8a597921cda38de50d5e6216c595bf3aedeab9ad4aab38889d16ce5a963eeafe"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/data_availability.py",
+      "sha256": "ff6a7c35d0ef4525bb748ee1209aa7e65b63ea783285a186b5641328abaead21"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/field_resolution.py",
+      "sha256": "46d5a474d3103cd7e0b5cdabbb002d205a9aa5eb2032068435ef47c52c501b35"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/goal_facts.py",
+      "sha256": "7a836ffcd8fc92650e425973d8cd5477fe5644ee764532f1cfbfd66ec599d258"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/integration_identity.py",
+      "sha256": "b3fcb0a1d65e066d8cf39c10930deca742fcf2eb8d3f8c594012bc9bf962ae45"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/metric_alias_structure.py",
+      "sha256": "e91e7466ac1adc76cc0fc2cefba853d456e727f91ed508c865854baaaeb1627a"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/metric_candidates.py",
+      "sha256": "59eb3d2baacd3be9e2194c5a07e0fefdbfefdb3ce6e15e1b3bfc712563002f30"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/metric_units.py",
+      "sha256": "34cc752bb7980057a1da4dd354117c6fb3f0ec751cb3abcca65aa5a442765414"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/organization_query_scope.py",
+      "sha256": "2fb99d510845dd856e03a6d7c94e57ae80b7d2984039b3eecdea761f72814918"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/ports.py",
+      "sha256": "0d8d5cba90300907d2056719681a7300d13b21d46ffeb6a9f96518e7b174504a"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/query_execution_service.py",
+      "sha256": "8160183cbb5e20a7f8459451ec2eac9f340f4a31dd302d6a544ec34151230e90"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/query_scope.py",
+      "sha256": "7972893b5c1f27b5536d662935b8bcd9ab60ac22bcd58c7a19818baad8b1016c"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/requests.py",
+      "sha256": "16ade3c4364a5b97945534488697a122125c64b4f946da97c73f8c73ced0585d"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/result_answering.py",
+      "sha256": "c5f3950ce4611b53bb636fd41bfd1f7289f72a3e0ff63a5063618937653c035e"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/result_enrichment.py",
+      "sha256": "2f7971a67de17e9e2e85af12d6071e3400695cc8874bec2510fdc11b8611a219"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/result_processing.py",
+      "sha256": "209bf065f90a58eaba35a302e1260cb5f11d2e40d84fd96c627fcc5f1f5ec1f2"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/result_repository.py",
+      "sha256": "39db40dff9d52ec57a0963e006b52138ca01d50522d66163f427991f504aaecc"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/task_results.py",
+      "sha256": "48f5c170ba31acc04d92ecbb2fbb124af3fe5df4cb9b104841f64e56b61306f5"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/task_service.py",
+      "sha256": "b066f42cd902eac22b1b8eb4bab81e5e3c6be53c5863d70f3fad580055b898bf"
+    },
+    {
+      "path": "backend-next/src/ask_metric/core/__init__.py",
+      "sha256": "abb08e61a7fb0d501a8ddd4d9cb31982ba35450f48bfb3217390d79f0c5a1bb7"
+    },
+    {
+      "path": "backend-next/src/ask_metric/core/config.py",
+      "sha256": "6ee74cc733de41240e30d1a022edf79494c94b841974899d04fe33fe0fe534bc"
+    },
+    {
+      "path": "backend-next/src/ask_metric/core/config_crypto.py",
+      "sha256": "e2ab97024c7180fed3899ab2c21ccc0db6692fc7842d0981e66578ebbcd5045e"
+    },
+    {
+      "path": "backend-next/src/ask_metric/core/env_file.py",
+      "sha256": "8193a5c98eafc5b1d6d12c7272e444ea9229c475dc4b4ae1840e8bec7f8a2ba3"
+    },
+    {
+      "path": "backend-next/src/ask_metric/core/errors.py",
+      "sha256": "b098a90d7813f029916356252ab4bf24d8c2e15f5630d7e8b6ddcac492a7f52c"
+    },
+    {
+      "path": "backend-next/src/ask_metric/core/gm_crypto.py",
+      "sha256": "46c6e4f7cb6d4467035adc7903ef7f766c809bf451452e645eb27d1f398145bc"
+    },
+    {
+      "path": "backend-next/src/ask_metric/core/logging.py",
+      "sha256": "d1a79c637af81c111604512c1db7d036b693c319d0b64154de68a02086f39efd"
+    },
+    {
+      "path": "backend-next/src/ask_metric/core/request_context.py",
+      "sha256": "905ae2638f8aeec938fa865c52457aaa96b8362ab0f4a6a251ff1ef41303c4f7"
+    },
+    {
+      "path": "backend-next/src/ask_metric/core/security.py",
+      "sha256": "a8b1602bdfff6107c7fe054ec1bda4447db58542d16efc3715440c08a9382480"
+    },
+    {
+      "path": "backend-next/src/ask_metric/domain/__init__.py",
+      "sha256": "6f98f6591d8a6aa7b19a63de0b9b798490f5c4d76b40a56ec231373c6c667a29"
+    },
+    {
+      "path": "backend-next/src/ask_metric/domain/basic_query.py",
+      "sha256": "c4fc04fce7573cced4cfdc1e4d6f7260d6408db6bbbf419d59322b4aa228a0dd"
+    },
+    {
+      "path": "backend-next/src/ask_metric/domain/calculation.py",
+      "sha256": "7bda197ecb79db3b69caf2b8b5d4c69c29d0a68609fe56b9850a116db4e772af"
+    },
+    {
+      "path": "backend-next/src/ask_metric/domain/metric_matching.py",
+      "sha256": "9839d0cc89eaae5b183468776d2fff77dd999f3f7ce6495b98d2c96100bf1f14"
+    },
+    {
+      "path": "backend-next/src/ask_metric/domain/organization_scope.py",
+      "sha256": "969ca0b35930cfc2eaa9c9087d54908d8547375694185692b41f04a9dfcdca6a"
+    },
+    {
+      "path": "backend-next/src/ask_metric/domain/query_capabilities.py",
+      "sha256": "ddb23e79b81aa01cf24eaa02a3b96d1252a62ca586f60207089fdb0d1b3e50e3"
+    },
+    {
+      "path": "backend-next/src/ask_metric/domain/query_execution.py",
+      "sha256": "aa07e3f79eb3cc907237714d998568e4d5c3e077a1f21ca22ecda5d928be7561"
+    },
+    {
+      "path": "backend-next/src/ask_metric/domain/result_context.py",
+      "sha256": "a1b4d7a0d0dbec9ee1ebb7181f1f960279b849ba77ee641ceec411fb1d107d53"
+    },
+    {
+      "path": "backend-next/src/ask_metric/domain/semantics.py",
+      "sha256": "534e7fe44f296b844a3b1481fae420150315d53590bf8cabad3773e33d05b52e"
+    },
+    {
+      "path": "backend-next/src/ask_metric/domain/task.py",
+      "sha256": "555021a41032660d0c8f1469bdef2b0318c22617bab37099f6d98161f9ad45a0"
+    },
+    {
+      "path": "backend-next/src/ask_metric/domain/task_state_machine.py",
+      "sha256": "56fc5107d545707b6ff8112fbbcb0cd6c1f3883da14011dc1129c738e168f4d2"
+    },
+    {
+      "path": "backend-next/src/ask_metric/domain/time_expression.py",
+      "sha256": "0abb97cf6fbd9c3eb162562a23eadc36082703d1becbf3cd5b28841729f76a2c"
+    },
+    {
+      "path": "backend-next/src/ask_metric/domain/value_presentation.py",
+      "sha256": "e5f6ed4d2fe9255bbeb0a02855a1c4ba893ac011245213336bef35683eedfaee"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/__init__.py",
+      "sha256": "00bf844987b2daa2e6377501782a8fc83c29c7d87102c26eca4f372962fd57e4"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/db/__init__.py",
+      "sha256": "a0cd8e102aac8d827f4ead2da9a67e3824cd91f74f68292450c0c54f66fe0f65"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/db/base.py",
+      "sha256": "848059c9bd0c11e4e7f6d8d3fdb9d0b411a8ec4debdf8b4f5173da55da9d7b25"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/db/models.py",
+      "sha256": "597a204fa2c5e418f0e897d327ea11391d6ba624cf40c91f8eefbc30f7ea9ef1"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/db/org_hierarchy.py",
+      "sha256": "1baecf0430d70204f8c5c066ce7676d98465c1f3289a8777f9a61c563cfaa510"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/db/organization_scope.py",
+      "sha256": "97a44df1943cb35e7d24c34aeef8348f52ed70bee542ef559d60f810df78a6d1"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/db/readiness.py",
+      "sha256": "e05200213fb01ca96004f1343e5cddbe60cc07af73ebab5ff65a0b2cbf04c5bf"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/db/repositories.py",
+      "sha256": "6a57ce5dca6192657f7681fae6963403ec4b27db7c78782233ca6a2d856de9ac"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/db/schema_governance.py",
+      "sha256": "fc84e68dd6aa0e82696f5b4d83bb694c8c4c34bd4ef059a110b56e03123c0cc2"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/db/session.py",
+      "sha256": "cabac28f208f517453c653d8610fc5b09e6f4bb4a1c10d5ff76d78a3021a4333"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/db/unit_of_work.py",
+      "sha256": "81906798c74e11f3fd39e737654b4227793ddaf71183d81dd8807c8e24876747"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/discovery/__init__.py",
+      "sha256": "58d4d120f8d3340c7d196981dea1d019d245bbd41a26b2715a4cac069238ca82"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/discovery/nacos_registry.py",
+      "sha256": "77a63fde1a8b018a8a49ad4c3e6432723d5a9d166bff24da86cc2edf29278493"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/export/__init__.py",
+      "sha256": "6e9f3eec9ac28f0a9e7a04f12e10f351dbd5892595eecd7fdad34236f32d65ee"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/export/openxml.py",
+      "sha256": "def512960958b12e66acb15205d7532434e7aec12edfc76282a9992917501c3c"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/export/xlsx.py",
+      "sha256": "353a7155feb2b1981312ee1389044a543731d02d8df22a50fbf096c662ea9f1a"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/model/__init__.py",
+      "sha256": "c65476e6794d997850e7b606f71b7898bc92f07d8f6038fc93fe0a87d5dfec83"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/model/catalog_vectors.py",
+      "sha256": "44d66ef3b04bcf631f78a99316185d67f6a2028869f245baaadd6db91579a365"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/model/configuration.py",
+      "sha256": "522a3880cd007357dd84b143548dcc46ac0b092ab577ffc0bb73e19af4575fe8"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/model/provider.py",
+      "sha256": "1c75de32b1c9b30c485b21062bdfef8b1cee53e4822de2f835920db6e5fa6b0b"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/model/query_initialization.py",
+      "sha256": "22c4964c12fdccb4243823a375cc7e5552416c2f9b2e4c80a7c80fc8768395d7"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/query/__init__.py",
+      "sha256": "aa12ed8b569303e3cb070e2adeea7738ceb414a8c95278913f1528e066ec6201"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/query/factory.py",
+      "sha256": "ead580f99a2e97df45d6e970153a34c08a9419eddefbdf0cb6d34568635a5c40"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/query/inceptor.py",
+      "sha256": "c61f30a112fb0cf27cf037fad5c115083db437a4fc92dc8ff93dfcc08b82ae80"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/query/mysql.py",
+      "sha256": "ebb1c60b873eccfdf4fe089ebf99e38ca6e85a099b1753e3dcebc3d04c6bcdfa"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/query/sql_builder.py",
+      "sha256": "779eeac88e3c7e0e9df389517e925b9716068113d88505f0794d7dd6ff381f22"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/query/sql_safety.py",
+      "sha256": "c789d726c2047ae56c5869f5e5702b444308bf78913f8ca1569df96cddd987f4"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/semantic/__init__.py",
+      "sha256": "9b24643a95f845c02615c94c30e1276956c4dd389746a0c52c549300324bcaeb"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/semantic/catalogs.py",
+      "sha256": "318fdf94f1f8ced934cdd4848ce055909140e00b21e47621a54706be86aeca25"
+    },
+    {
+      "path": "backend-next/src/ask_metric/infrastructure/semantic/configuration.py",
+      "sha256": "1cba25a67d04f0d6c61bb70b778f18eb204f84f5dcfd6ee7e30440ac48c97ac7"
+    },
+    {
+      "path": "backend-next/src/ask_metric/main.py",
+      "sha256": "671cc9b6add4d9c55ef46927fa5ba5572261186a6c5d79330db73a4b9c66f1d9"
+    },
+    {
+      "path": "backend-next/tests/test_answer_blocks.py",
+      "sha256": "25e49bf04f279603f8ceed63f0bd8489c15ee7c0ba069ebe8860826330f60267"
+    },
+    {
+      "path": "backend-next/tests/test_availability_governance.py",
+      "sha256": "b2dff3a1797c68ca9f2e53c0bb109112fd8bf63a68f043479fa5b453b38d4137"
+    },
+    {
+      "path": "backend-next/tests/test_calculation_contract.py",
+      "sha256": "4002600e82bd452a5b2415c30696b49286013acbc25dbba682e12ced99350bfd"
+    },
+    {
+      "path": "backend-next/tests/test_calculation_sql_identity.py",
+      "sha256": "110c0a0847c38e3f63760de52bd679f80b1b700b0cedbaec3b178cdea504b386"
+    },
+    {
+      "path": "backend-next/tests/test_catalog_code_search.py",
+      "sha256": "a195112fb14d8aa5137fcff3369e76f792d00dfbbe8c76c1ded6b9336fc0790e"
+    },
+    {
+      "path": "backend-next/tests/test_error_envelope.py",
+      "sha256": "335d2f799629293a1504a46ba58c7efbaa1f21d78afd1b39cbb61685e337a526"
+    },
+    {
+      "path": "backend-next/tests/test_execution_replay.py",
+      "sha256": "2d1625fe9e6dd92a69bb9a7813763355c123d517c761c3a79d8427a8fcfa6698"
+    },
+    {
+      "path": "backend-next/tests/test_semantic_task_calendar.py",
+      "sha256": "37e47babae54d41dd8f2c6030a396a5c5c79bb110160f2f017bbc84e31fc4c3a"
+    },
+    {
+      "path": "backend-next/tests/test_structured_metric_reference.py",
+      "sha256": "2d3c163d296e679c024d71cb939d4bb37adb46be9bbe4248b55f84c596813745"
+    },
+    {
+      "path": "backend-next/tests/test_time_expression_discrete.py",
+      "sha256": "9c90a6e68f298eed6513f239db9fad297a321d629140b839f2742f2c461b011e"
+    },
+    {
+      "path": "backend-next/uv.lock",
+      "sha256": "62a8938cf87c56309840c70e1bc5c32e3fc8d00441156aaf95e204b9652a0cff"
+    },
+    {
+      "path": "backend-next/verification/benchmark_metric_candidates.py",
+      "sha256": "325d78ae0acd7adf84eeb9b7d508f6257b043dd9adc282d13d1fb7d03a3c0635"
+    },
+    {
+      "path": "backend-next/verification/mention_regression.py",
+      "sha256": "e9baacb9959fbb5b99d012438487d061d1f966e2a60bae6141101fbe139bb783"
+    },
+    {
+      "path": "backend-next/verification/test_business_context.py",
+      "sha256": "d5ca11d242a7cdfa93fd49c9ac1e06d8588fe16a3b7695b9dbfea02f133989b2"
+    },
+    {
+      "path": "backend-next/verification/test_calculation_snapshots.py",
+      "sha256": "9b60e9a0950b57b25f3d528ec9ca22f0c30233cb64aa45ae960645231049f6d4"
+    },
+    {
+      "path": "backend-next/verification/test_deploy_package.py",
+      "sha256": "be40c66a28c46ba840083dd025c6b1972e25472907999f23eaa393f668e3b53a"
+    },
+    {
+      "path": "backend-next/verification/test_execution_replay_authorization.py",
+      "sha256": "1d810213038d02d6aee46e3f16584c447be2e227900f808b34edc8d1fe1434f1"
+    },
+    {
+      "path": "backend-next/verification/test_metric_alias_structure.py",
+      "sha256": "442bb317f8ec8b45813992c5bce2309666198bb22c2896c55ba67f88d8eecf0d"
+    },
+    {
+      "path": "backend-next/verification/test_metric_candidates.py",
+      "sha256": "0912a66f4d26562370d12b313bf5171508a0a65bae86d62e04cecc498986bd45"
+    },
+    {
+      "path": "backend-next/verification/test_metric_catalog_schema_compat.py",
+      "sha256": "088814ce958a7e3786f8c4727bb4b4ec8f99ffcb3b74b8bd7ed23b101bccf64f"
+    },
+    {
+      "path": "backend-next/verification/test_metric_index_warmup.py",
+      "sha256": "374b18458cbdfc4d83535c1af90008d236fc65977cfd8e1c8fd0a7a7cb5e179c"
+    },
+    {
+      "path": "backend-next/verification/test_model_config_without_sql_templates.py",
+      "sha256": "89f178ecffa4dee8950b3119a727c65d44659fa385426464681335fe5b8b34d9"
+    },
+    {
+      "path": "backend-next/verification/test_organization_core_matching.py",
+      "sha256": "4ad4fffbdd8f9f07917485fd3f68ef75faeac36469e9469d082e6c53c2e1a4fd"
+    },
+    {
+      "path": "backend-next/verification/test_organization_own_level_resolution.py",
+      "sha256": "74fdef4a4528e3c66ac83201c3a34e4109a9255d565f8844af4fb3e2cc4a8970"
+    },
+    {
+      "path": "backend-next/verification/test_organization_query_scope.py",
+      "sha256": "aaacd9a221e11770c143e8dbf5eeff4f2fd63078f71de053c58a659d2bfe6114"
+    },
+    {
+      "path": "backend-next/verification/test_query_execution_resilience.py",
+      "sha256": "6ff615332338942d53130d99b4ba22ac45f2b1678a296944e2df57169983a11c"
+    },
+    {
+      "path": "backend-next/verification/test_query_intent_v2.py",
+      "sha256": "5c97788b88cc58ac7ec4ef8b7016614e00b4e378ec6312474079aa12a1da8f04"
+    },
+    {
+      "path": "backend-next/verification/test_query_ranking_contract_v2.py",
+      "sha256": "2fbd6a8dee642e31a4cb15e245d5559bead47f0ce340f9017344ed39624d1953"
+    },
+    {
+      "path": "backend-next/verification/test_rank_position_contract.py",
+      "sha256": "3152b5cf6064b19821e4dd3b22432cc8d64fc57eee5e638e2b84835796efa435"
+    },
+    {
+      "path": "backend-next/verification/test_saved_result_authorization.py",
+      "sha256": "152053c9efe7e509c844351eb9da6475962da882269c21e9486fd59f9bcef043"
+    },
+    {
+      "path": "backend-next/verification/test_semantic_plan.py",
+      "sha256": "d283382b18975be8143ad43a673e844a229a841ca8951034f1a59e65d5374676"
+    },
+    {
+      "path": "backend-next/verification/test_sql_builder_unified.py",
+      "sha256": "6569b8408b49b842b6d52356bd057a053e5e0e5687ccc74c30b582cf0cf6735a"
+    },
+    {
+      "path": "deploy/package/README.md",
+      "sha256": "d9778130002b649a43aab71fd7014387639fb0513756fdaac053f16b0d190d32"
+    },
+    {
+      "path": "deploy/package/runtime/agent.env.example",
+      "sha256": "50259aa6739b84efb4429437a6d4363435d1d274de45d031b164dc51b4af4deb"
+    },
+    {
+      "path": "frontend-vue/package-lock.json",
+      "sha256": "ac6d088565dacb1e53452008233eac4a30cfa91e3a4b49a993f940a9bab40d3f"
+    },
+    {
+      "path": "frontend-vue/package.json",
+      "sha256": "d480cbfd78e0c770acf47b3aed3910655a73d9150216bc1ab07ca8df028293dd"
+    },
+    {
+      "path": "frontend-vue/specs/components/chat/AgentMessageDiagnostics.spec.ts",
+      "sha256": "d743e08f78c6b1097fb81a82ad353d8ca705bc46f024cde83db5a759db392058"
+    },
+    {
+      "path": "frontend-vue/specs/components/chat/BackendNextChatPanel.spec.ts",
+      "sha256": "ee0145ab299c5f2de9ceaab37c73d52c9656923afa90132310df02094548a352"
+    },
+    {
+      "path": "frontend-vue/specs/components/chat/CalculationResult.spec.ts",
+      "sha256": "6bc1321eac1c6b8f4edb3c4fd63b2100d7b17c254f83ed45a2f269646f3a691f"
+    },
+    {
+      "path": "frontend-vue/specs/components/chat/ChatProvisionalAnswer.spec.ts",
+      "sha256": "c93f42aedd51bdf66dfc231595fde379659a5ad8cb42d53054c18ece8c372d76"
+    },
+    {
+      "path": "frontend-vue/specs/components/chat/ChatResultContent.spec.ts",
+      "sha256": "855bb76dc427624d2c00531d74aef734f2b6cfa6ede1e2bf2b9351c81d1538cf"
+    },
+    {
+      "path": "frontend-vue/specs/lib/agentApi.spec.ts",
+      "sha256": "9b0314fd1c88beb5f4699650fd26e888e77d430257bfda067d69b26bea373469"
+    },
+    {
+      "path": "frontend-vue/specs/lib/provisionalAnswer.spec.ts",
+      "sha256": "85dacf2ec898c95a3b72f8d744ec15e67f21f45cb9ae5d992cb755f9fdc19457"
+    },
+    {
+      "path": "frontend-vue/specs/lib/queryErrors.spec.ts",
+      "sha256": "6c96e060dafd5e26b3eb895c2e631b50c23cbdbf3a787c22e427b5ae8ddc137b"
+    },
+    {
+      "path": "frontend-vue/src/App.vue",
+      "sha256": "2e77bebb2b37b3e69d1b8e45e6f10883ab60c59e229dcbdefedb743908c1e5bf"
+    },
+    {
+      "path": "frontend-vue/src/components/AppShell.vue",
+      "sha256": "40fe710ff426ed6d9ae771a43d9d9a1b55300ec37f1a21570fdd89c103879ee1"
+    },
+    {
+      "path": "frontend-vue/src/components/ListPagination.vue",
+      "sha256": "3774a532300546aa66aac4e7a2e58dd5c2b8a2e1c986e878d403886feccf9a49"
+    },
+    {
+      "path": "frontend-vue/src/components/LogTextPreview.vue",
+      "sha256": "453f1a1d03b960e28416c6596f0cc43caf6126ec0c783e8c8ced9dfb37179374"
+    },
+    {
+      "path": "frontend-vue/src/components/ManagementListPanel.vue",
+      "sha256": "251fd74b1321aa0901f65715cde00b02192d034e2d2207fd5a0d3c18a10d19ef"
+    },
+    {
+      "path": "frontend-vue/src/components/MetricQuestionComposer.vue",
+      "sha256": "d63dff7144d528dda42ce5c58abd87b8965bca03bb50d625e897ffb8bd1a982b"
+    },
+    {
+      "path": "frontend-vue/src/components/PageHeader.vue",
+      "sha256": "c0b3f8ceae5a3b63b22531a0d8295480ff3b7527f6196487646409a1b5334b7b"
+    },
+    {
+      "path": "frontend-vue/src/components/chat/AgentMessageDiagnostics.vue",
+      "sha256": "bd005ee3214eb53c9e2a600b85b229f092c85dadf0744184252b27f0bb9f2c1c"
+    },
+    {
+      "path": "frontend-vue/src/components/chat/BackendNextChatPanel.vue",
+      "sha256": "92608c1e82f9b27d73143d67647b3d01047c5730ee153a2960dfdc9c9f5ced2f"
+    },
+    {
+      "path": "frontend-vue/src/components/chat/BackendNextDebugPanel.vue",
+      "sha256": "fee6ff8937f80aa8f0322c2d6f8b03f02660c2964ff25c57c50c4d47d49ae2e0"
+    },
+    {
+      "path": "frontend-vue/src/components/chat/CalculationResult.vue",
+      "sha256": "eb27df0b9436b9677c7724b2c64b3ef67483dcb2800f95f21c6dd3b2ca7f32ab"
+    },
+    {
+      "path": "frontend-vue/src/components/chat/CatalogQuestionComposer.vue",
+      "sha256": "9ef75d2b6ce530c6058a85ce621ab646592640489fa841f4e3c6400eaa8f3300"
+    },
+    {
+      "path": "frontend-vue/src/components/chat/ChatMarkdown.vue",
+      "sha256": "f9c9d069616d049088a51f18282bc1aa202b63feb4dd75aa0131c015538176b9"
+    },
+    {
+      "path": "frontend-vue/src/components/chat/ChatProvisionalAnswer.vue",
+      "sha256": "3495bfe6bbfb94114679dd40d98095173bc465915256486279011abf83022e1f"
+    },
+    {
+      "path": "frontend-vue/src/components/chat/ChatResultChart.vue",
+      "sha256": "830eb0e59c3f52e0a080f7c819ceca253fe52dd9f39dcfd70d40bad2401b2473"
+    },
+    {
+      "path": "frontend-vue/src/components/chat/ChatResultContent.vue",
+      "sha256": "f8ef17e84dc5727a903bea67c730419f2c3f2b444cd9ecd47976544a3fefa83e"
+    },
+    {
+      "path": "frontend-vue/src/components/chat/ClarificationChoices.vue",
+      "sha256": "b966975a1d59e34d4cc1a6335539243415b55f85d4ea6fdeb0960d68ccc8c3a8"
+    },
+    {
+      "path": "frontend-vue/src/components/chat/StructuredClarificationForm.vue",
+      "sha256": "adf5705ab99b7aee75f8e39fa37fd671ceb02c5656f9af953176989f61229218"
+    },
+    {
+      "path": "frontend-vue/src/components/ui/BaseAlert.vue",
+      "sha256": "007969af3b6b0c785a22af333a30fb5de182f657e7fa83565d668477b671fb60"
+    },
+    {
+      "path": "frontend-vue/src/components/ui/BaseBadge.vue",
+      "sha256": "a3d7f4f29c86855c4dbac32035453125410e91d00f5ed65f9b5bf666560678b4"
+    },
+    {
+      "path": "frontend-vue/src/components/ui/BaseButton.vue",
+      "sha256": "057baf260f5996dfc73db33551af7b32f834c425b73fa3b1a03f7cc306c4db29"
+    },
+    {
+      "path": "frontend-vue/src/components/ui/BaseDialog.vue",
+      "sha256": "46ed5a977a6a669396ec1492743922cd962416823c50a996200000ba5097bcb2"
+    },
+    {
+      "path": "frontend-vue/src/components/ui/BaseModal.vue",
+      "sha256": "76c8c77f654d750504760e58b7e5f09cedb7c548ac3be2e10b70da5ff7b6e450"
+    },
+    {
+      "path": "frontend-vue/src/components/ui/BaseSwitch.vue",
+      "sha256": "0a412eb74a7430375c76caabf3cf34742306a769e643656b7a75f3d469a21533"
+    },
+    {
+      "path": "frontend-vue/src/components/ui/ConfirmDialog.vue",
+      "sha256": "74c95ff378559cef73254e703266c4397a1f9f7165a2f1157e74a710eea62ace"
+    },
+    {
+      "path": "frontend-vue/src/components/ui/LoadingSkeleton.vue",
+      "sha256": "ae11dbc53b49406db495909ad62b54dc62d646e88d99eed69c0ccf0a01ea4631"
+    },
+    {
+      "path": "frontend-vue/src/composables/useAuth.ts",
+      "sha256": "b92479813603d02826b3ec47ada4eb13508d78b001e85bb6fd7c5dc69202d23d"
+    },
+    {
+      "path": "frontend-vue/src/composables/useManagementResource.ts",
+      "sha256": "5180f1086657fbda11b59a0eea9f0a08c69ef818eabdd60a4158f821b9b49dc6"
+    },
+    {
+      "path": "frontend-vue/src/composables/useQueryReadiness.ts",
+      "sha256": "987eaabad967246237e3821e03cf4ad2d6687aa98666e472366884cebe99f4fd"
+    },
+    {
+      "path": "frontend-vue/src/composables/useSidebarPreference.ts",
+      "sha256": "0fd8f8b1ca593304b7541169c9f917162d98e603db2b5d35af262be51e3be1eb"
+    },
+    {
+      "path": "frontend-vue/src/config/navigation.ts",
+      "sha256": "42e5d867844904b05d58d946a63f4967c52e57ef385478505a2989c65bd83c00"
+    },
+    {
+      "path": "frontend-vue/src/config/organizationBranding.ts",
+      "sha256": "71f723400906a46bbc25700317cb518136550c72c4edf04a3b998d6fd59b3770"
+    },
+    {
+      "path": "frontend-vue/src/env.d.ts",
+      "sha256": "53a91538bad93ad9b8be156f564456c2a5126bba3c15b206ba39c1f3acb7c8eb"
+    },
+    {
+      "path": "frontend-vue/src/lib/agentApi.ts",
+      "sha256": "f2122f082a2f50da6cfa3d59e7703340273f6ad1c9e2bca8675d1aad053455d5"
+    },
+    {
+      "path": "frontend-vue/src/lib/api.ts",
+      "sha256": "7ea8046f5244a9faa587d35d9f1e325edca0ceadec63bd65f89e4c616593436c"
+    },
+    {
+      "path": "frontend-vue/src/lib/assistantMarkdown.ts",
+      "sha256": "680ca7fb8cb6bcb3d5b1ed48d348e7a08e0a3d5a629b0785b517a4cc8ded6cb9"
+    },
+    {
+      "path": "frontend-vue/src/lib/assistantText.ts",
+      "sha256": "f70344290c6a32d3fca59db1b8cc96865e465617f8e9ca8859ef8c0b052872ff"
+    },
+    {
+      "path": "frontend-vue/src/lib/authSession.ts",
+      "sha256": "0556c97f5276750041b4f4da768bca874482af3ea8432af77b8f466e6eb2fb88"
+    },
+    {
+      "path": "frontend-vue/src/lib/catalogCache.ts",
+      "sha256": "beaf4958ae8865781a6e45d45ecc27922c4b916f282e31e5dfebb822d37a6333"
+    },
+    {
+      "path": "frontend-vue/src/lib/clarificationChoices.ts",
+      "sha256": "f949815cb513b58d7f4b27d30c6f095a899ee1f5ebaf76fb22e0e12460742e36"
+    },
+    {
+      "path": "frontend-vue/src/lib/clipboard.ts",
+      "sha256": "7d34e0f42d1de3dfa3767229a248543d89a9c25066642eff95df3203416b723e"
+    },
+    {
+      "path": "frontend-vue/src/lib/composerEntities.ts",
+      "sha256": "23bceb435208d41867d05c2cfcd3a915a991fc3130e3e03480a6ce18ba8d4db1"
+    },
+    {
+      "path": "frontend-vue/src/lib/conversationMessages.ts",
+      "sha256": "a71d57cc18eafaac095b6c85d2e3544a7e612804f0eb5b728552d640c591cdfd"
+    },
+    {
+      "path": "frontend-vue/src/lib/dataAvailability.ts",
+      "sha256": "a114d52e500524294ab6023f481b0042cbbb26e41ee20395e3c754aa63177d37"
+    },
+    {
+      "path": "frontend-vue/src/lib/gm.ts",
+      "sha256": "9f030a68def2cac9a5c8fd9a484f6e0e6a76f902771b4aac8e3fddf6fa6dd1d1"
+    },
+    {
+      "path": "frontend-vue/src/lib/provisionalAnswer.ts",
+      "sha256": "150047893ba25e7b1a3ed1fb6859a78db648c63ab8a3b6bf8ec6826b87cb39c0"
+    },
+    {
+      "path": "frontend-vue/src/lib/queryErrors.ts",
+      "sha256": "adb19aea1c4c4a7ed09553bd13be7ed65a5cf53a3a9add616f8e4527c2585150"
+    },
+    {
+      "path": "frontend-vue/src/lib/replyPresentation.ts",
+      "sha256": "503c2913412366ef96190e3a7200f9f4fd8f039f121fc95c07d629313aa6df18"
+    },
+    {
+      "path": "frontend-vue/src/lib/resultColumns.ts",
+      "sha256": "24515bc6cf833609c3e68972448e713caa3fca323e0a8b59b4a34bd47acaed3e"
+    },
+    {
+      "path": "frontend-vue/src/lib/resultPagination.ts",
+      "sha256": "971eea5745e5221191bcec884e2020b77ff97ef024bb83b2659fad4af8b7ee44"
+    },
+    {
+      "path": "frontend-vue/src/lib/resultVisualization.ts",
+      "sha256": "e1789eeb19f9682741a4f02177a84ae058e126d8240056c9fe0dcd116184d27e"
+    },
+    {
+      "path": "frontend-vue/src/lib/taskAdvance.ts",
+      "sha256": "fd1c642cf091b9798cec13cdda11f63d24725c4261db3f8dfe9ed825d550e0cc"
+    },
+    {
+      "path": "frontend-vue/src/lib/toolCallSummary.ts",
+      "sha256": "c9f2323c78c5f3c223e4a2121b3d4b3af85e9287916c7c19b50876be498abf5e"
+    },
+    {
+      "path": "frontend-vue/src/main.ts",
+      "sha256": "073bdc3903357619c001dbab0e20d92a16b3abbff9803ef8530b13081b889460"
+    },
+    {
+      "path": "frontend-vue/src/router/index.ts",
+      "sha256": "8f04a692bcf29a62beba8b081571bfe6d42d870a1582fcac81fd3d8c077b6a17"
+    },
+    {
+      "path": "frontend-vue/src/styles/main.css",
+      "sha256": "ecab584405ad90f67910b9cf1c08832f134453420c9b634ad7b548d97f20d6d4"
+    },
+    {
+      "path": "frontend-vue/src/types/api.ts",
+      "sha256": "adf0c952e34490522885d2d1c67b6873044b4086e1ff6fc70a1499b18e2d1e09"
+    },
+    {
+      "path": "frontend-vue/src/types/sm-crypto.d.ts",
+      "sha256": "4a8795447e447a54470b52b2a70c7c28e1293ce7656b2bd80a7db0c393f07eea"
+    },
+    {
+      "path": "frontend-vue/src/views/ChatView.vue",
+      "sha256": "23154bbd0e38b9f59fa2b44d07115a8cc26e061ec98226199ba92ee664ea2719"
+    },
+    {
+      "path": "frontend-vue/src/views/DatasetsView.vue",
+      "sha256": "a985ea93687f953b7b47149414c53c861997c4c9890cd144a5c674785d90f82a"
+    },
+    {
+      "path": "frontend-vue/src/views/LlmView.vue",
+      "sha256": "105bdfb43665e9f8592eec2f756c120f282cbf13cdde85d4d25bf7fc9f5f2bde"
+    },
+    {
+      "path": "frontend-vue/src/views/LoginView.vue",
+      "sha256": "4c81b52bbbb1da808bf5297b64097b1c67e293fafc0224db866cc874e9440c24"
+    },
+    {
+      "path": "frontend-vue/src/views/MetricsView.vue",
+      "sha256": "85fb2e73b15c782189ce4f0ee8032e23f3318cb9ed9ebbe3fdb73545ee8639f6"
+    },
+    {
+      "path": "frontend-vue/src/views/OrgsView.vue",
+      "sha256": "65d81c7ec369e103211f00b8a946eb3c7c82baaa72279bac89d6b8dae0b4e463"
+    },
+    {
+      "path": "frontend-vue/src/views/QueryRunsView.vue",
+      "sha256": "dd14f83932080f76258dc2a7358ff2498981c4a006c07bf84e6b486f5138a83f"
+    },
+    {
+      "path": "frontend-vue/tsconfig.app.json",
+      "sha256": "9d36cf37e3a67c133f4d9021e1167efac0e9694b3b71204071d86934d6909e63"
+    },
+    {
+      "path": "frontend-vue/tsconfig.json",
+      "sha256": "770b4140bbb581e2dfd9ea9946ffc9c75a1d86ba7d2db5f77c83e37cbdf9d808"
+    },
+    {
+      "path": "frontend-vue/tsconfig.node.json",
+      "sha256": "23830b680dc29241f70e7f9b8efa6f1d19753fdc561cd731e79de9b80fa84169"
+    },
+    {
+      "path": "frontend-vue/tsconfig.specs.json",
+      "sha256": "94dda461caec77154f2d92956990e65fde23171627ee50f26d3d12e367f9a3dc"
+    },
+    {
+      "path": "scripts/check_semantic_task_database.py",
+      "sha256": "dfd3ae932585418fdab1847a7c31971ffdee954dcf6dbf44f9ad4b45774794f8"
+    }
+  ]
+}

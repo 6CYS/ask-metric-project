@@ -1,0 +1,127 @@
+{
+  "date": "2026-10-14T03:20:32.221179+00:00",
+  "status": "offline regression passed; local services started",
+  "agent": {
+    "before_passed": 1221,
+    "passed": 1296,
+    "failed": 0,
+    "new_tests": 75,
+    "command": "NODE_OPTIONS=--require=/private/tmp/harness-fixed-entry-20261014/frontend-offline.cjs npm --offline test -- --reporter=json --outputFile=/private/tmp/harness-fixed-entry-20261014/agent-tests-final.json",
+    "typecheck": "passed",
+    "build": "passed"
+  },
+  "backend": {
+    "cwd": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/backend-next",
+    "command": ".venv/bin/python /private/tmp/harness-fixed-entry-20261014/backend-offline.py",
+    "equivalent_pytest_args": "tests verification -q -m \"not database\" -p no:cacheprovider",
+    "exit_code": 0,
+    "passed": 593,
+    "failed": 0,
+    "warning_count": 1,
+    "duration_seconds": 3.09,
+    "log": "/private/tmp/harness-fixed-entry-20261014/backend-tests.log",
+    "isolation": "dotenv disabled inside test process; all default DB URLs disposable SQLite; APP_ENV=test; Nacos/SSO disabled; INET connect/connect_ex blocked; pytest cache disabled"
+  },
+  "frontend": {
+    "cwd": "/private/tmp/harness-fixed-entry-20261014/frontend-workspace",
+    "dependency_mode": "existing dependencies linked; build output and caches in temporary workspace",
+    "network_guard": "/private/tmp/harness-fixed-entry-20261014/frontend-offline.cjs",
+    "test": {
+      "command": "NODE_OPTIONS=--require=/private/tmp/harness-fixed-entry-20261014/frontend-offline.cjs VITE_BACKEND_NEXT_BASE_URL= VITE_AGENT_SERVICE_BASE_URL= npm --offline test",
+      "exit_code": 0,
+      "files_passed": 18,
+      "tests_passed": 62,
+      "tests_failed": 0,
+      "log": "/private/tmp/harness-fixed-entry-20261014/frontend-tests.log"
+    },
+    "typecheck": {
+      "command": "NODE_OPTIONS=--require=/private/tmp/harness-fixed-entry-20261014/frontend-offline.cjs VITE_BACKEND_NEXT_BASE_URL= VITE_AGENT_SERVICE_BASE_URL= npm --offline run typecheck",
+      "exit_code": 0,
+      "log": "/private/tmp/harness-fixed-entry-20261014/frontend-typecheck.log"
+    },
+    "build": {
+      "command": "NODE_OPTIONS=--require=/private/tmp/harness-fixed-entry-20261014/frontend-offline.cjs VITE_BACKEND_NEXT_BASE_URL= VITE_AGENT_SERVICE_BASE_URL= npm --offline run build",
+      "exit_code": 0,
+      "log": "/private/tmp/harness-fixed-entry-20261014/frontend-build.log",
+      "modules_transformed": 3100,
+      "artifact": "/private/tmp/harness-fixed-entry-20261014/frontend-workspace/dist"
+    }
+  },
+  "total_offline_tests_passed": 1951,
+  "real_model_calls": 0,
+  "business_database_tests": 0,
+  "autonomous_analysis_restored": false,
+  "limitations": [
+    "Offline scripted SDK/adapter/contract tests do not establish real-model semantic quality or gateway strict decoding.",
+    "No real-model latency or SSE termination verification; the earlier interrupted stream cannot be declared fixed by Schema work alone.",
+    "Compatibility resumes trusted planned calls; effect_pending with unknown side effects is not replayed.",
+    "Local startup reuses backend with catalog warmup skipped and does not refresh business catalog/data."
+  ],
+  "local_startup": {
+    "checked_at": "2026-10-14T03:17:52.040134+00:00",
+    "model_requests_issued": 0,
+    "checks": [
+      {
+        "url": "http://127.0.0.1:5173/",
+        "http_status": 200,
+        "body": {
+          "html_available": true,
+          "vite_client": true
+        }
+      },
+      {
+        "url": "http://127.0.0.1:8010/health",
+        "http_status": 200,
+        "body": {
+          "status": "ok"
+        }
+      },
+      {
+        "url": "http://127.0.0.1:8010/health/ready",
+        "http_status": 200,
+        "body": {
+          "status": "ready"
+        }
+      },
+      {
+        "url": "http://127.0.0.1:8010/api/v1/query-readiness",
+        "http_status": 200,
+        "body": {
+          "status": "ready",
+          "message": "问数系统已就绪。",
+          "completed": 0,
+          "total": 0
+        }
+      },
+      {
+        "url": "http://127.0.0.1:8020/health",
+        "http_status": 200,
+        "body": {
+          "status": "ok"
+        }
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/v1/query-readiness",
+        "http_status": 200,
+        "body": {
+          "status": "ready",
+          "message": "问数系统已就绪。",
+          "completed": 0,
+          "total": 0
+        }
+      },
+      {
+        "url": "http://127.0.0.1:5173/agent-api/health",
+        "http_status": 200,
+        "body": {
+          "status": "ok"
+        }
+      }
+    ],
+    "services": {
+      "frontend": "existing project process PID66645",
+      "backend": "existing project process PID90484, initialize_catalog_on_startup=False",
+      "agent": "npm run dev, restarted updated source, PTY57089"
+    }
+  }
+}

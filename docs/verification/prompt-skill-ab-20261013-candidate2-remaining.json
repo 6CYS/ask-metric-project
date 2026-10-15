@@ -1,0 +1,2121 @@
+{
+  "phase": "after",
+  "environment": "configured_real_model_isolated_synthetic_backend",
+  "created_at": "2026-10-13T14:16:29.257Z",
+  "model": "deepseek-ai/DeepSeek-V4-Flash",
+  "model_called": true,
+  "model_max_tokens": 8192,
+  "model_extra_body": {
+    "enable_thinking": false
+  },
+  "compact_turn_args": false,
+  "real_database_verified": false,
+  "production_accessed": false,
+  "source_hashes": {
+    "src/prompts/businessSystemPrompt.ts": "eb0c5a8de904a23b3b08f4bbb55ee85ee263836da4024403acf1ec21a932e73f",
+    "src/tools/businessContext.ts": "a25f89dd39470616053da44228fbf81365c7436ddf2449e854a38b40e1078793",
+    "src/business-context/capabilities.ts": "84fe3306fa36ef5c9bc571f15edb9186303f204bf2bf0c55cfe9c22a304119cd",
+    "src/businessSkills.ts": "cd84656797addc8937fea6d1610dcb3e90b42803186b659d6fc2d476f851ac1d",
+    "skills/analysis-boundary/SKILL.md": "0c19d3a107be19c326d2b92eaa941ef5ec776474871da08c4f42338b45c9b5d4",
+    "skills/data-coverage/SKILL.md": "27a0f4a56bf899b256d972cae9efa3a4788b33254765fe81e93f6e18a60e048e",
+    "skills/metric-query/SKILL.md": "8c98e635f1727f5cb6ff0d08bec45161f15f4586bb16d9eaee3ab224b9eb386b",
+    "skills/result-calculation/SKILL.md": "6b902f5c1333a31c8d457423ab0e98a0e78e63a710088b647e5b67c857fdfb8e"
+  },
+  "script_hash": "fd1804bbf569bc3f0eb217dc2284195e6e472b8d4d1eb82fc819628999df2e31",
+  "session_data": "/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/pi-prompt-skill-ab-after-AjJSTO",
+  "original_evaluation_script_hash": "d3bf49afccf886ab279d3dad84bed1e70c261f38ff7642663dd0b2c5b5c4117a",
+  "instrumentation_revision": "explicit_assert_messages_checkpoint_resume",
+  "resume_from_case": "two_sources_union_count",
+  "fixed_sampling": "one run per version/scenario; preserve all failures; no reply fishing",
+  "scenarios": [
+    {
+      "name": "clear_first_and_date_followup",
+      "steps": [
+        {
+          "message": "查询合成机构甲 2026 年 7 月 31 日合成收入指标的数值。",
+          "expected": {
+            "kind": "query",
+            "orgs": [
+              "SYNTH_O1"
+            ],
+            "time": {
+              "start": "2026-07-31",
+              "end": "2026-07-31"
+            },
+            "selection": "exact"
+          }
+        },
+        {
+          "message": "把日期改成2026-08-31，其余条件不变。",
+          "expected": {
+            "kind": "query",
+            "orgs": [
+              "SYNTH_O1"
+            ],
+            "time": {
+              "start": "2026-08-31",
+              "end": "2026-08-31"
+            },
+            "selection": "exact"
+          }
+        }
+      ]
+    },
+    {
+      "name": "ambiguous_month_ranking_and_recovery",
+      "steps": [
+        {
+          "message": "对合成机构甲 2026 年 7 月合成收入指标进行排名。",
+          "expected": {
+            "kind": "clarify"
+          }
+        },
+        {
+          "message": "取该月最后有数据的日期，列出前3名，其他条件保持不变，请继续排名。",
+          "expected": {
+            "kind": "query",
+            "orgs": [
+              "SYNTH_O1"
+            ],
+            "time": {
+              "start": "2026-07-01",
+              "end": "2026-07-31"
+            },
+            "selection": "latest_in_range",
+            "ranking": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "unique_reference_without_count",
+      "seed": "single",
+      "preRead": [
+        "metric-query"
+      ],
+      "steps": [
+        {
+          "message": "对刚才查过的机构按原指标和日期列出前3名。",
+          "expected": {
+            "kind": "query",
+            "orgs": [
+              "SYNTH_O1"
+            ],
+            "time": {
+              "start": "2026-07-31",
+              "end": "2026-07-31"
+            },
+            "selection": "exact",
+            "ranking": 3,
+            "reference": "single"
+          }
+        }
+      ]
+    },
+    {
+      "name": "two_sources_union_count",
+      "seed": "multiple",
+      "preRead": [
+        "metric-query"
+      ],
+      "steps": [
+        {
+          "message": "把前两笔查询的三家机构合在一起，去重后按原指标和日期列出前3名。",
+          "expected": {
+            "kind": "query",
+            "orgs": [
+              "SYNTH_O1",
+              "SYNTH_O2",
+              "SYNTH_O3"
+            ],
+            "time": {
+              "start": "2026-07-31",
+              "end": "2026-07-31"
+            },
+            "selection": "exact",
+            "ranking": 3,
+            "reference": "union"
+          }
+        }
+      ]
+    },
+    {
+      "name": "saved_candidate_confirm_and_date_change",
+      "seed": "confirmation",
+      "preRead": [
+        "metric-query"
+      ],
+      "steps": [
+        {
+          "message": "可以，就按这个机构来，同时把日期改成2026-08-31，其他条件不变，请继续。",
+          "expected": {
+            "kind": "query",
+            "orgs": [
+              "SYNTH_O3"
+            ],
+            "time": {
+              "start": "2026-08-31",
+              "end": "2026-08-31"
+            },
+            "selection": "exact",
+            "ranking": 3,
+            "confirm": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "real_prime_and_historical_calculation",
+      "steps": [
+        {
+          "message": "查询合成机构甲和合成机构乙2026-07-31的合成收入指标原值。",
+          "expected": {
+            "kind": "query",
+            "orgs": [
+              "SYNTH_O1",
+              "SYNTH_O2"
+            ],
+            "time": {
+              "start": "2026-07-31",
+              "end": "2026-07-31"
+            },
+            "selection": "exact"
+          }
+        },
+        {
+          "message": "使用刚才查询的原值，按合成机构甲减合成机构乙计算差额，保留两位小数，列出两家原值和差额。",
+          "expected": {
+            "kind": "calculate"
+          }
+        }
+      ]
+    },
+    {
+      "name": "coverage_discovery",
+      "preRead": [
+        "data-coverage"
+      ],
+      "steps": [
+        {
+          "message": "合成机构甲2026年7月哪些指标有记录？",
+          "expected": {
+            "kind": "coverage"
+          }
+        }
+      ]
+    },
+    {
+      "name": "unsupported_cause_boundary",
+      "preRead": [
+        "analysis-boundary",
+        "result-calculation"
+      ],
+      "steps": [
+        {
+          "message": "请分析合成机构甲收入下降的业务原因，并预测下一季度走势。",
+          "expected": {
+            "kind": "unsupported"
+          }
+        }
+      ]
+    }
+  ],
+  "fixture_checks": [
+    {
+      "scenario": "clear_first_and_date_followup",
+      "turn": 1,
+      "passed": true,
+      "model_called": false,
+      "actual_registered_tools_exercised": true
+    },
+    {
+      "scenario": "clear_first_and_date_followup",
+      "turn": 2,
+      "passed": true,
+      "model_called": false,
+      "actual_registered_tools_exercised": true
+    },
+    {
+      "scenario": "ambiguous_month_ranking_and_recovery",
+      "turn": 1,
+      "passed": true,
+      "model_called": false,
+      "actual_registered_tools_exercised": true
+    },
+    {
+      "scenario": "ambiguous_month_ranking_and_recovery",
+      "turn": 2,
+      "passed": true,
+      "model_called": false,
+      "actual_registered_tools_exercised": true
+    },
+    {
+      "scenario": "unique_reference_without_count",
+      "turn": 1,
+      "passed": true,
+      "model_called": false,
+      "actual_registered_tools_exercised": true
+    },
+    {
+      "scenario": "two_sources_union_count",
+      "turn": 1,
+      "passed": true,
+      "model_called": false,
+      "actual_registered_tools_exercised": true
+    },
+    {
+      "scenario": "saved_candidate_confirm_and_date_change",
+      "turn": 1,
+      "passed": true,
+      "model_called": false,
+      "actual_registered_tools_exercised": true
+    },
+    {
+      "scenario": "real_prime_and_historical_calculation",
+      "turn": 1,
+      "passed": true,
+      "model_called": false,
+      "actual_registered_tools_exercised": true
+    },
+    {
+      "scenario": "real_prime_and_historical_calculation",
+      "turn": 2,
+      "passed": true,
+      "model_called": false,
+      "actual_registered_tools_exercised": true
+    },
+    {
+      "scenario": "coverage_discovery",
+      "turn": 1,
+      "passed": true,
+      "model_called": false,
+      "actual_registered_tools_exercised": true
+    },
+    {
+      "scenario": "unsupported_cause_boundary",
+      "turn": 1,
+      "passed": true,
+      "model_called": false,
+      "actual_registered_tools_exercised": true
+    }
+  ],
+  "summary": {
+    "cases": 5,
+    "turns": 6,
+    "achieved_turns": 6,
+    "tool_calls": 9,
+    "error_calls": 3,
+    "error_rate": 0.3333333333333333,
+    "expected_business_refusals": 1,
+    "ungrounded_condition_proposals": 0,
+    "ungrounded_condition_executions": 0,
+    "unnecessary_clarifications": 0,
+    "repeated_clarifications": 0,
+    "model_calls": 15
+  },
+  "turns": [
+    {
+      "scenario": "two_sources_union_count",
+      "turn": 1,
+      "passed": true,
+      "message": "把前两笔查询的三家机构合在一起，去重后按原指标和日期列出前3名。",
+      "expected": {
+        "kind": "query",
+        "orgs": [
+          "SYNTH_O1",
+          "SYNTH_O2",
+          "SYNTH_O3"
+        ],
+        "time": {
+          "start": "2026-07-31",
+          "end": "2026-07-31"
+        },
+        "selection": "exact",
+        "ranking": 3,
+        "reference": "union"
+      },
+      "tools": [
+        {
+          "id": "01a1359d83dfe8e3e34f8b7d6d2a9afd",
+          "name": "resolve_business_turn",
+          "args": {
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "前两笔查询的三家机构合在一起，去重",
+                "expectedCount": 3,
+                "mode": "set"
+              }
+            },
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldChanges": [
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": {
+                  "fromHistory": true,
+                  "sourceText": "前两笔查询的三家机构合在一起，去重",
+                  "sources": [
+                    {
+                      "frame": {
+                        "frameId": "3764de34-6d5f-4fe9-9b66-e6afc93b4880"
+                      },
+                      "field": "organizations"
+                    },
+                    {
+                      "frame": {
+                        "frameId": "3ad7c283-a5dd-42fd-a7f5-f03cb49de8d7"
+                      },
+                      "field": "organizations"
+                    }
+                  ],
+                  "combine": "union",
+                  "expectedCount": 3
+                }
+              }
+            ],
+            "executionMode": "execute"
+          }
+        },
+        {
+          "id": "01a1359de4505728abc7fbfd044a4493",
+          "name": "resolve_business_turn",
+          "args": {
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "前两笔查询的三家机构合在一起，去重",
+                "expectedCount": 3,
+                "mode": "set"
+              }
+            },
+            "capabilityHint": "metric_query",
+            "baseReference": "current",
+            "fieldChanges": [
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": {
+                  "fromHistory": true,
+                  "sourceText": "前两笔查询的三家机构合在一起，去重",
+                  "sources": [
+                    {
+                      "frame": {
+                        "frameId": "3764de34-6d5f-4fe9-9b66-e6afc93b4880"
+                      },
+                      "field": "organizations"
+                    },
+                    {
+                      "frame": {
+                        "frameId": "3ad7c283-a5dd-42fd-a7f5-f03cb49de8d7"
+                      },
+                      "field": "organizations"
+                    }
+                  ],
+                  "combine": "union",
+                  "expectedCount": 3
+                }
+              }
+            ],
+            "executionMode": "execute"
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "id": "01a1359d83dfe8e3e34f8b7d6d2a9afd",
+          "name": "resolve_business_turn",
+          "is_error": false,
+          "details": {
+            "kind": "business_context",
+            "status": "ARGUMENT_ERROR",
+            "retryable": true,
+            "error_code": "REFERENCE_IMPLIES_CONTINUATION"
+          },
+          "text": "{\"status\":\"ARGUMENT_ERROR\",\"error_code\":\"REFERENCE_IMPLIES_CONTINUATION\",\"field\":\"$base\",\"message\":\"机构/条件已按会话历史指代解析，说明用户在继续已有讨论。请改用 baseReference=current 重新解析：未变化字段省略继承；若用户明确表示另起话题，先向用户确认，不要按独立问题丢弃已确定条件。\",\"current_user_input\":\"把前两笔查询的三家机构合在一起，去重后按原指标和日期列出前3名。\",\"focus_preserved\":true,\"next_action\":\"correct_arguments\",\"scope\":\"argument_validation\",\"query_executed\":false,\"preserve_user_conditions\":true,\"reference_hint\":\"原焦点未改变不代表它就是用户所指来源。若字段来自历史引用，先用 FrameSelector 定位对应业务状态，再合并本轮变化；不要仅删除报错字段而默认继承焦点。\"}"
+        },
+        {
+          "id": "01a1359de4505728abc7fbfd044a4493",
+          "name": "resolve_business_turn",
+          "is_error": false,
+          "details": {
+            "kind": "metric_query_structured",
+            "task_id": "query-1",
+            "version": 1,
+            "result_id": "result-query-1",
+            "public_answer": "隔离合成查询已完成。",
+            "status": "succeeded",
+            "columns": [
+              "fact_id",
+              "task_id",
+              "field",
+              "value",
+              "unit",
+              "metric_code",
+              "metric_name",
+              "org_code",
+              "org_name",
+              "date",
+              "stat_date",
+              "metric_value"
+            ],
+            "rows": [
+              {
+                "fact_id": "fact:query-1:0:metric_value",
+                "task_id": "query-1",
+                "field": "metric_value",
+                "value": "300.00",
+                "unit": "元",
+                "metric_code": "SYNTH_M1",
+                "metric_name": "合成收入指标",
+                "org_code": "SYNTH_O3",
+                "org_name": "合成机构丙",
+                "date": "2026-07-31",
+                "stat_date": "2026-07-31",
+                "metric_value": "300.00"
+              },
+              {
+                "fact_id": "fact:query-1:1:metric_value",
+                "task_id": "query-1",
+                "field": "metric_value",
+                "value": "210.25",
+                "unit": "元",
+                "metric_code": "SYNTH_M1",
+                "metric_name": "合成收入指标",
+                "org_code": "SYNTH_O2",
+                "org_name": "合成机构乙",
+                "date": "2026-07-31",
+                "stat_date": "2026-07-31",
+                "metric_value": "210.25"
+              },
+              {
+                "fact_id": "fact:query-1:2:metric_value",
+                "task_id": "query-1",
+                "field": "metric_value",
+                "value": "125.50",
+                "unit": "元",
+                "metric_code": "SYNTH_M1",
+                "metric_name": "合成收入指标",
+                "org_code": "SYNTH_O1",
+                "org_name": "合成机构甲",
+                "date": "2026-07-31",
+                "stat_date": "2026-07-31",
+                "metric_value": "125.50"
+              }
+            ],
+            "row_count": 3,
+            "truncated": false,
+            "frame_id": "e6431f0f-fd2b-40a4-b080-b88ccc5f1d31",
+            "delivery": "business_evidence_v1",
+            "display_conditions": [
+              {
+                "label": "指标",
+                "value": "合成收入指标"
+              },
+              {
+                "label": "机构",
+                "value": "合成机构甲、合成机构乙 等 3 家"
+              },
+              {
+                "label": "日期",
+                "value": "2026-07-31"
+              },
+              {
+                "label": "排名",
+                "value": "前 3 名"
+              }
+            ]
+          },
+          "text": "{\"status\":\"succeeded\",\"task_id\":\"query-1\",\"version\":1,\"result_id\":\"result-query-1\",\"query_evidence\":{\"logical_dsl\":{\"conversation_id\":\"synthetic-prompt-skill-ab\",\"calculation_context\":{\"scope_id\":\"01a1359d-b99a-74dc-b040-69b1ab1aaa0e\",\"user_question\":\"把前两笔查询的三家机构合在一起，去重后按原指标和日期列出前3名。\"},\"metric_codes\":[\"SYNTH_M1\"],\"schema_version\":2,\"org_codes\":[\"SYNTH_O1\",\"SYNTH_O2\",\"SYNTH_O3\"],\"time\":{\"start\":\"2026-07-31\",\"end\":\"2026-07-31\"},\"selection\":\"exact\",\"operation\":{\"kind\":\"ranking\",\"position\":\"top\",\"top_n\":3}}},\"columns\":[\"fact_id\",\"task_id\",\"field\",\"value\",\"unit\",\"metric_code\",\"metric_name\",\"org_code\",\"org_name\",\"date\",\"stat_date\",\"metric_value\"],\"sample_rows\":[{\"fact_id\":\"fact:query-1:0:metric_value\",\"task_id\":\"query-1\",\"field\":\"metric_value\",\"value\":\"300.00\",\"unit\":\"元\",\"metric_code\":\"SYNTH_M1\",\"metric_name\":\"合成收入指标\",\"org_code\":\"SYNTH_O3\",\"org_name\":\"合成机构丙\",\"date\":\"2026-07-31\",\"stat_date\":\"2026-07-31\",\"metric_value\":\"300.00\"},{\"fact_id\":\"fact:query-1:1:metric_value\",\"task_id\":\"query-1\",\"field\":\"metric_value\",\"value\":\"210.25\",\"unit\":\"元\",\"metric_code\":\"SYNTH_M1\",\"metric_name\":\"合成收入指标\",\"org_code\":\"SYNTH_O2\",\"org_name\":\"合成机构乙\",\"date\":\"2026-07-31\",\"stat_date\":\"2026-07-31\",\"metric_value\":\"210.25\"},{\"fact_id\":\"fact:query-1:2:metric_value\",\"task_id\":\"query-1\",\"field\":\"metric_value\",\"value\":\"125.50\",\"unit\":\"元\",\"metric_code\":\"SYNTH_M1\",\"metric_name\":\"合成收入指标\",\"org_code\":\"SYNTH_O1\",\"org_name\":\"合成机构甲\",\"date\":\"2026-07-31\",\"stat_date\":\"2026-07-31\",\"metric_value\":\"125.50\"}],\"facts\":[{\"fact_id\":\"fact:query-1:0:metric_value\",\"task_id\":\"query-1\",\"field\":\"metric_value\",\"value\":\"300.00\",\"unit\":\"元\",\"metric_code\":\"SYNTH_M1\",\"metric_name\":\"合成收入指标\",\"org_code\":\"SYNTH_O3\",\"org_name\":\"合成机构丙\",\"date\":\"2026-07-31\"},{\"fact_id\":\"fact:query-1:1:metric_value\",\"task_id\":\"query-1\",\"field\":\"metric_value\",\"value\":\"210.25\",\"unit\":\"元\",\"metric_code\":\"SYNTH_M1\",\"metric_name\":\"合成收入指标\",\"org_code\":\"SYNTH_O2\",\"org_name\":\"合成机构乙\",\"date\":\"2026-07-31\"},{\"fact_id\":\"fact:query-1:2:metric_value\",\"task_id\":\"query-1\",\"field\":\"metric_value\",\"value\":\"125.50\",\"unit\":\"元\",\"metric_code\":\"SYNTH_M1\",\"metric_name\":\"合成收入指标\",\"org_code\":\"SYNTH_O1\",\"org_name\":\"合成机构甲\",\"date\":\"2026-07-31\"}],\"fact_count\":3,\"facts_truncated\":false,\"row_count\":3,\"truncated\":false,\"error_code\":null,\"message\":\"隔离合成查询已完成。\",\"display_hint\":\"明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。\",\"frame_id\":\"e6431f0f-fd2b-40a4-b080-b88ccc5f1d31\",\"result_ref\":\"query:query-1:result-query-1\",\"ready_frame_id\":\"eda07997-83d7-488f-af54-1d5e9311177c\",\"next_step\":\"条件已全部确定，查询已执行。请直接依据本回执组织回答，不要再向用户确认，也不要重复取数。\"}"
+        }
+      ],
+      "query_specs": [
+        {
+          "conversation_id": "synthetic-prompt-skill-ab",
+          "calculation_context": {
+            "scope_id": "01a1359d-b99a-74dc-b040-69b1ab1aaa0e",
+            "user_question": "把前两笔查询的三家机构合在一起，去重后按原指标和日期列出前3名。"
+          },
+          "metric_codes": [
+            "SYNTH_M1"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "SYNTH_O1",
+            "SYNTH_O2",
+            "SYNTH_O3"
+          ],
+          "time": {
+            "start": "2026-07-31",
+            "end": "2026-07-31"
+          },
+          "selection": "exact",
+          "operation": {
+            "kind": "ranking",
+            "position": "top",
+            "top_n": 3
+          }
+        }
+      ],
+      "calculation_specs": [],
+      "coverage_specs": [],
+      "answer": "已按照您的要求，将前两笔查询的三家机构（合成机构甲、乙、丙）合并去重后，按原指标（合成收入指标）和日期（2026-07-31）进行排名。\n\n按合成收入指标从高到低，前3名为：\n\n1. **合成机构丙** — 300.00 元\n2. **合成机构乙** — 210.25 元\n3. **合成机构甲** — 125.50 元\n\n三家机构均已列出（共3家，无重复）。",
+      "focus": {
+        "frameId": "e6431f0f-fd2b-40a4-b080-b88ccc5f1d31",
+        "sessionId": "01a1359d-b992-74dc-b040-69aade4f0a30",
+        "requestId": "two_sources_union_count-1",
+        "turnId": "01a1359d-b99a-74dc-b040-69b1ab1aaa0e",
+        "capability": "metric_query",
+        "operationFrameId": "eda07997-83d7-488f-af54-1d5e9311177c",
+        "parentFrameId": "066ebfef-3996-4b18-8f10-b871a19f9663",
+        "fields": {
+          "metrics": {
+            "rawValue": "合成收入指标",
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_M1"
+              ],
+              "names": [
+                "合成收入指标"
+              ]
+            },
+            "source": "inherited",
+            "resolver": "metric",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "referenceValues": [
+                "SYNTH_M1",
+                "合成收入指标"
+              ]
+            },
+            "sourceFrameId": "3ad7c283-a5dd-42fd-a7f5-f03cb49de8d7"
+          },
+          "organizations": {
+            "rawValue": {
+              "fromHistory": true,
+              "sourceText": "前两笔查询的三家机构合在一起，去重",
+              "sources": [
+                {
+                  "frame": {
+                    "frameId": "3764de34-6d5f-4fe9-9b66-e6afc93b4880"
+                  },
+                  "field": "organizations"
+                },
+                {
+                  "frame": {
+                    "frameId": "3ad7c283-a5dd-42fd-a7f5-f03cb49de8d7"
+                  },
+                  "field": "organizations"
+                }
+              ],
+              "combine": "union",
+              "expectedCount": 3
+            },
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_O1",
+                "SYNTH_O2",
+                "SYNTH_O3"
+              ],
+              "names": [
+                "合成机构甲",
+                "合成机构乙",
+                "合成机构丙"
+              ]
+            },
+            "source": "explicit",
+            "resolver": "organization",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "referenceSource": "session_history",
+              "referenceSourceFrames": [
+                "3764de34-6d5f-4fe9-9b66-e6afc93b4880",
+                "3ad7c283-a5dd-42fd-a7f5-f03cb49de8d7"
+              ],
+              "referenceSessionId": "01a1359d-b992-74dc-b040-69aade4f0a30",
+              "referenceField": "organizations",
+              "referenceSourceOperations": [
+                "aebd77dd-c9dd-48e0-b402-c96c06d11c10",
+                "d4b89a78-cbc0-4ab4-b792-9d1b81921d10"
+              ],
+              "historyReference": {
+                "fromHistory": true,
+                "sourceText": "前两笔查询的三家机构合在一起，去重",
+                "sources": [
+                  {
+                    "frame": {
+                      "frameId": "3764de34-6d5f-4fe9-9b66-e6afc93b4880"
+                    },
+                    "field": "organizations"
+                  },
+                  {
+                    "frame": {
+                      "frameId": "3ad7c283-a5dd-42fd-a7f5-f03cb49de8d7"
+                    },
+                    "field": "organizations"
+                  }
+                ],
+                "combine": "union",
+                "expectedCount": 3
+              },
+              "confirmedRawValues": {
+                "fromHistory": true,
+                "sourceText": "前两笔查询的三家机构合在一起，去重",
+                "sources": [
+                  {
+                    "frame": {
+                      "frameId": "3764de34-6d5f-4fe9-9b66-e6afc93b4880"
+                    },
+                    "field": "organizations"
+                  },
+                  {
+                    "frame": {
+                      "frameId": "3ad7c283-a5dd-42fd-a7f5-f03cb49de8d7"
+                    },
+                    "field": "organizations"
+                  }
+                ],
+                "combine": "union",
+                "expectedCount": 3
+              },
+              "referenceValues": [
+                "SYNTH_O1",
+                "SYNTH_O2",
+                "SYNTH_O3",
+                "合成机构甲",
+                "合成机构乙",
+                "合成机构丙"
+              ],
+              "turnIntentExpectedCount": 3
+            }
+          },
+          "time": {
+            "rawValue": "2026-07-31",
+            "resolvedValue": {
+              "start": "2026-07-31",
+              "end": "2026-07-31"
+            },
+            "source": "inherited",
+            "resolver": "date",
+            "resolutionStatus": "resolved",
+            "sourceFrameId": "3ad7c283-a5dd-42fd-a7f5-f03cb49de8d7"
+          },
+          "selection": {
+            "rawValue": "exact",
+            "resolvedValue": "exact",
+            "source": "inherited",
+            "resolver": "enum",
+            "resolutionStatus": "resolved",
+            "sourceFrameId": "3ad7c283-a5dd-42fd-a7f5-f03cb49de8d7"
+          },
+          "operation": {
+            "rawValue": {
+              "kind": "ranking",
+              "position": "top",
+              "top_n": 3
+            },
+            "resolvedValue": {
+              "kind": "ranking",
+              "position": "top",
+              "top_n": 3
+            },
+            "source": "inherited",
+            "resolver": "query_operation",
+            "resolutionStatus": "resolved",
+            "sourceFrameId": "3ad7c283-a5dd-42fd-a7f5-f03cb49de8d7"
+          }
+        },
+        "delta": {
+          "executionMode": "execute",
+          "fieldChanges": [
+            {
+              "fieldHint": "organizations",
+              "operation": "set",
+              "rawValue": {
+                "fromHistory": true,
+                "sourceText": "前两笔查询的三家机构合在一起，去重",
+                "sources": [
+                  {
+                    "frame": {
+                      "frameId": "3764de34-6d5f-4fe9-9b66-e6afc93b4880"
+                    },
+                    "field": "organizations"
+                  },
+                  {
+                    "frame": {
+                      "frameId": "3ad7c283-a5dd-42fd-a7f5-f03cb49de8d7"
+                    },
+                    "field": "organizations"
+                  }
+                ],
+                "combine": "union",
+                "expectedCount": 3
+              }
+            }
+          ],
+          "capabilityHint": "metric_query",
+          "baseReference": "current",
+          "fieldIntents": {
+            "organizations": {
+              "sourceText": "前两笔查询的三家机构合在一起，去重",
+              "expectedCount": 3,
+              "mode": "set"
+            }
+          }
+        },
+        "issues": [],
+        "status": "success",
+        "createdAt": "2026-10-13T14:15:05.814Z",
+        "resultRef": "query:query-1:result-query-1",
+        "resultSummary": {
+          "rowCount": 3,
+          "truncated": false
+        }
+      },
+      "ungrounded_proposals": [],
+      "measures": {
+        "tool_calls": 2,
+        "error_calls": 1,
+        "error_rate": 0.5,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 3,
+        "elapsed_ms": 16296
+      }
+    },
+    {
+      "scenario": "saved_candidate_confirm_and_date_change",
+      "turn": 1,
+      "passed": true,
+      "message": "可以，就按这个机构来，同时把日期改成2026-08-31，其他条件不变，请继续。",
+      "expected": {
+        "kind": "query",
+        "orgs": [
+          "SYNTH_O3"
+        ],
+        "time": {
+          "start": "2026-08-31",
+          "end": "2026-08-31"
+        },
+        "selection": "exact",
+        "ranking": 3,
+        "confirm": true
+      },
+      "tools": [
+        {
+          "id": "01a1359dfd1f4787064f198c2a8bce96",
+          "name": "resolve_business_turn",
+          "args": {
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "就按这个机构来",
+                "expectedCount": null,
+                "mode": "confirm"
+              }
+            },
+            "capabilityHint": "metric_query",
+            "baseReference": "current",
+            "fieldChanges": [
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": {
+                  "confirm": true,
+                  "evidence": {
+                    "decision": "accept",
+                    "sourceText": "可以，就按这个机构来"
+                  }
+                }
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026-08-31"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "id": "01a1359dfd1f4787064f198c2a8bce96",
+          "name": "resolve_business_turn",
+          "is_error": false,
+          "details": {
+            "kind": "metric_query_structured",
+            "task_id": "query-1",
+            "version": 1,
+            "result_id": "result-query-1",
+            "public_answer": "隔离合成查询已完成。",
+            "status": "succeeded",
+            "columns": [
+              "fact_id",
+              "task_id",
+              "field",
+              "value",
+              "unit",
+              "metric_code",
+              "metric_name",
+              "org_code",
+              "org_name",
+              "date",
+              "stat_date",
+              "metric_value"
+            ],
+            "rows": [
+              {
+                "fact_id": "fact:query-1:0:metric_value",
+                "task_id": "query-1",
+                "field": "metric_value",
+                "value": "300.00",
+                "unit": "元",
+                "metric_code": "SYNTH_M1",
+                "metric_name": "合成收入指标",
+                "org_code": "SYNTH_O3",
+                "org_name": "合成机构丙",
+                "date": "2026-08-31",
+                "stat_date": "2026-08-31",
+                "metric_value": "300.00"
+              }
+            ],
+            "row_count": 1,
+            "truncated": false,
+            "frame_id": "6dfbec51-d65f-4768-9359-f74d3569cf09",
+            "delivery": "business_evidence_v1",
+            "display_conditions": [
+              {
+                "label": "指标",
+                "value": "合成收入指标"
+              },
+              {
+                "label": "机构",
+                "value": "合成机构丙"
+              },
+              {
+                "label": "日期",
+                "value": "2026-08-31"
+              },
+              {
+                "label": "排名",
+                "value": "前 3 名"
+              }
+            ]
+          },
+          "text": "{\"status\":\"succeeded\",\"task_id\":\"query-1\",\"version\":1,\"result_id\":\"result-query-1\",\"query_evidence\":{\"logical_dsl\":{\"conversation_id\":\"synthetic-prompt-skill-ab\",\"calculation_context\":{\"scope_id\":\"01a1359d-f94b-74dc-b040-69d4776a3083\",\"user_question\":\"可以，就按这个机构来，同时把日期改成2026-08-31，其他条件不变，请继续。\"},\"metric_codes\":[\"SYNTH_M1\"],\"schema_version\":2,\"org_codes\":[\"SYNTH_O3\"],\"time\":{\"start\":\"2026-08-31\",\"end\":\"2026-08-31\"},\"selection\":\"exact\",\"operation\":{\"kind\":\"ranking\",\"position\":\"top\",\"top_n\":3}}},\"columns\":[\"fact_id\",\"task_id\",\"field\",\"value\",\"unit\",\"metric_code\",\"metric_name\",\"org_code\",\"org_name\",\"date\",\"stat_date\",\"metric_value\"],\"sample_rows\":[{\"fact_id\":\"fact:query-1:0:metric_value\",\"task_id\":\"query-1\",\"field\":\"metric_value\",\"value\":\"300.00\",\"unit\":\"元\",\"metric_code\":\"SYNTH_M1\",\"metric_name\":\"合成收入指标\",\"org_code\":\"SYNTH_O3\",\"org_name\":\"合成机构丙\",\"date\":\"2026-08-31\",\"stat_date\":\"2026-08-31\",\"metric_value\":\"300.00\"}],\"facts\":[{\"fact_id\":\"fact:query-1:0:metric_value\",\"task_id\":\"query-1\",\"field\":\"metric_value\",\"value\":\"300.00\",\"unit\":\"元\",\"metric_code\":\"SYNTH_M1\",\"metric_name\":\"合成收入指标\",\"org_code\":\"SYNTH_O3\",\"org_name\":\"合成机构丙\",\"date\":\"2026-08-31\"}],\"fact_count\":1,\"facts_truncated\":false,\"row_count\":1,\"truncated\":false,\"error_code\":null,\"message\":\"隔离合成查询已完成。\",\"display_hint\":\"明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。\",\"frame_id\":\"6dfbec51-d65f-4768-9359-f74d3569cf09\",\"result_ref\":\"query:query-1:result-query-1\",\"ready_frame_id\":\"e8ec1e66-ee0f-490e-b757-0eef898260d7\",\"next_step\":\"条件已全部确定，查询已执行。请直接依据本回执组织回答，不要再向用户确认，也不要重复取数。\"}"
+        }
+      ],
+      "query_specs": [
+        {
+          "conversation_id": "synthetic-prompt-skill-ab",
+          "calculation_context": {
+            "scope_id": "01a1359d-f94b-74dc-b040-69d4776a3083",
+            "user_question": "可以，就按这个机构来，同时把日期改成2026-08-31，其他条件不变，请继续。"
+          },
+          "metric_codes": [
+            "SYNTH_M1"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "SYNTH_O3"
+          ],
+          "time": {
+            "start": "2026-08-31",
+            "end": "2026-08-31"
+          },
+          "selection": "exact",
+          "operation": {
+            "kind": "ranking",
+            "position": "top",
+            "top_n": 3
+          }
+        }
+      ],
+      "calculation_specs": [],
+      "coverage_specs": [],
+      "answer": "已按您的要求完成查询：\n\n- **机构**：合成机构丙\n- **指标**：合成收入指标\n- **日期**：2026-08-31\n- **取数方式**：指定当日\n- **排名**：前3名\n\n查询结果为：合成机构丙在 2026-08-31 的合成收入指标为 **300.00 元**。\n\n由于目标机构为单一合成机构丙，其前3名排名仅返回该机构一条数据（排名范围内仅此一项记录）。如有其他需要，请继续告诉我。",
+      "focus": {
+        "frameId": "6dfbec51-d65f-4768-9359-f74d3569cf09",
+        "sessionId": "01a1359d-f942-74dc-b040-69ca39060918",
+        "requestId": "saved_candidate_confirm_and_date_change-1",
+        "turnId": "01a1359d-f94b-74dc-b040-69d4776a3083",
+        "capability": "metric_query",
+        "operationFrameId": "e8ec1e66-ee0f-490e-b757-0eef898260d7",
+        "parentFrameId": "2c6e33cf-b652-4867-bb73-afc8eb2c143f",
+        "fields": {
+          "metrics": {
+            "rawValue": "合成收入指标",
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_M1"
+              ],
+              "names": [
+                "合成收入指标"
+              ]
+            },
+            "source": "inherited",
+            "resolver": "metric",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "referenceValues": [
+                "SYNTH_M1",
+                "合成收入指标"
+              ]
+            },
+            "sourceFrameId": "6e8fcbdc-c357-4447-9ecc-9014ced935dd"
+          },
+          "organizations": {
+            "rawValue": "合成简称",
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_O3"
+              ],
+              "names": [
+                "合成机构丙"
+              ]
+            },
+            "source": "confirmed",
+            "sourceFrameId": "6e8fcbdc-c357-4447-9ecc-9014ced935dd",
+            "resolver": "organization",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "confirmed": true,
+              "confirmedRawValues": "合成简称",
+              "pendingRawValues": [
+                "SYNTH_O3"
+              ],
+              "confirmationTurnId": "01a1359d-f94b-74dc-b040-69d4776a3083",
+              "referenceValues": [
+                "SYNTH_O3",
+                "合成机构丙"
+              ]
+            }
+          },
+          "time": {
+            "rawValue": "2026-08-31",
+            "resolvedValue": {
+              "start": "2026-08-31",
+              "end": "2026-08-31"
+            },
+            "source": "explicit",
+            "resolver": "date",
+            "resolutionStatus": "resolved"
+          },
+          "selection": {
+            "rawValue": "exact",
+            "resolvedValue": "exact",
+            "source": "inherited",
+            "resolver": "enum",
+            "resolutionStatus": "resolved",
+            "sourceFrameId": "6e8fcbdc-c357-4447-9ecc-9014ced935dd"
+          },
+          "operation": {
+            "rawValue": {
+              "kind": "ranking",
+              "position": "top",
+              "top_n": 3
+            },
+            "resolvedValue": {
+              "kind": "ranking",
+              "position": "top",
+              "top_n": 3
+            },
+            "source": "inherited",
+            "resolver": "query_operation",
+            "resolutionStatus": "resolved",
+            "sourceFrameId": "6e8fcbdc-c357-4447-9ecc-9014ced935dd"
+          }
+        },
+        "delta": {
+          "executionMode": "execute",
+          "fieldChanges": [
+            {
+              "fieldHint": "organizations",
+              "operation": "set",
+              "rawValue": {
+                "confirm": true,
+                "evidence": {
+                  "decision": "accept",
+                  "sourceText": "可以，就按这个机构来"
+                }
+              }
+            },
+            {
+              "fieldHint": "time",
+              "operation": "set",
+              "rawValue": "2026-08-31"
+            }
+          ],
+          "capabilityHint": "metric_query",
+          "baseReference": "current",
+          "fieldIntents": {
+            "organizations": {
+              "sourceText": "就按这个机构来",
+              "expectedCount": null,
+              "mode": "confirm"
+            }
+          }
+        },
+        "issues": [],
+        "status": "success",
+        "createdAt": "2026-10-13T14:15:32.239Z",
+        "resultRef": "query:query-1:result-query-1",
+        "resultSummary": {
+          "rowCount": 1,
+          "truncated": false
+        }
+      },
+      "ungrounded_proposals": [],
+      "measures": {
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 26599
+      }
+    },
+    {
+      "scenario": "real_prime_and_historical_calculation",
+      "turn": 1,
+      "passed": true,
+      "message": "查询合成机构甲和合成机构乙2026-07-31的合成收入指标原值。",
+      "expected": {
+        "kind": "query",
+        "orgs": [
+          "SYNTH_O1",
+          "SYNTH_O2"
+        ],
+        "time": {
+          "start": "2026-07-31",
+          "end": "2026-07-31"
+        },
+        "selection": "exact"
+      },
+      "tools": [
+        {
+          "id": "01a1359e5e50722cf6dda53a80d139ea",
+          "name": "resolve_business_turn",
+          "args": {
+            "fieldIntents": {
+              "metrics": {
+                "sourceText": "合成收入指标",
+                "expectedCount": null,
+                "mode": "set"
+              },
+              "organizations": {
+                "sourceText": "合成机构甲和合成机构乙",
+                "expectedCount": 2,
+                "mode": "set"
+              },
+              "time": {
+                "sourceText": "2026-07-31",
+                "expectedCount": null,
+                "mode": "set"
+              },
+              "selection": {
+                "sourceText": "2026-07-31",
+                "expectedCount": null,
+                "mode": "set"
+              }
+            },
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": [
+                  "合成机构甲",
+                  "合成机构乙"
+                ]
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026-07-31"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "exact"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "id": "01a1359e5e50722cf6dda53a80d139ea",
+          "name": "resolve_business_turn",
+          "is_error": false,
+          "details": {
+            "kind": "metric_query_structured",
+            "task_id": "query-1",
+            "version": 1,
+            "result_id": "result-query-1",
+            "public_answer": "隔离合成查询已完成。",
+            "status": "succeeded",
+            "columns": [
+              "fact_id",
+              "task_id",
+              "field",
+              "value",
+              "unit",
+              "metric_code",
+              "metric_name",
+              "org_code",
+              "org_name",
+              "date",
+              "stat_date",
+              "metric_value"
+            ],
+            "rows": [
+              {
+                "fact_id": "fact:query-1:0:metric_value",
+                "task_id": "query-1",
+                "field": "metric_value",
+                "value": "210.25",
+                "unit": "元",
+                "metric_code": "SYNTH_M1",
+                "metric_name": "合成收入指标",
+                "org_code": "SYNTH_O2",
+                "org_name": "合成机构乙",
+                "date": "2026-07-31",
+                "stat_date": "2026-07-31",
+                "metric_value": "210.25"
+              },
+              {
+                "fact_id": "fact:query-1:1:metric_value",
+                "task_id": "query-1",
+                "field": "metric_value",
+                "value": "125.50",
+                "unit": "元",
+                "metric_code": "SYNTH_M1",
+                "metric_name": "合成收入指标",
+                "org_code": "SYNTH_O1",
+                "org_name": "合成机构甲",
+                "date": "2026-07-31",
+                "stat_date": "2026-07-31",
+                "metric_value": "125.50"
+              }
+            ],
+            "row_count": 2,
+            "truncated": false,
+            "frame_id": "aaafa7ed-d26b-4114-9477-1dce68e39ffb",
+            "delivery": "business_evidence_v1",
+            "display_conditions": [
+              {
+                "label": "指标",
+                "value": "合成收入指标"
+              },
+              {
+                "label": "机构",
+                "value": "合成机构甲、合成机构乙"
+              },
+              {
+                "label": "日期",
+                "value": "2026-07-31"
+              }
+            ]
+          },
+          "text": "{\"status\":\"succeeded\",\"task_id\":\"query-1\",\"version\":1,\"result_id\":\"result-query-1\",\"query_evidence\":{\"logical_dsl\":{\"conversation_id\":\"synthetic-prompt-skill-ab\",\"calculation_context\":{\"scope_id\":\"01a1359e-6134-74dc-b040-69e954670d8d\",\"user_question\":\"查询合成机构甲和合成机构乙2026-07-31的合成收入指标原值。\"},\"source_question\":\"查询合成机构甲和合成机构乙2026-07-31的合成收入指标原值。\",\"source_metric_bindings\":[{\"start\":24,\"end\":30,\"text\":\"合成收入指标\",\"codes\":[\"SYNTH_M1\"]}],\"metric_codes\":[\"SYNTH_M1\"],\"schema_version\":2,\"org_codes\":[\"SYNTH_O1\",\"SYNTH_O2\"],\"time\":{\"start\":\"2026-07-31\",\"end\":\"2026-07-31\"},\"selection\":\"exact\",\"operation\":{\"kind\":\"value\"}}},\"columns\":[\"fact_id\",\"task_id\",\"field\",\"value\",\"unit\",\"metric_code\",\"metric_name\",\"org_code\",\"org_name\",\"date\",\"stat_date\",\"metric_value\"],\"sample_rows\":[{\"fact_id\":\"fact:query-1:0:metric_value\",\"task_id\":\"query-1\",\"field\":\"metric_value\",\"value\":\"210.25\",\"unit\":\"元\",\"metric_code\":\"SYNTH_M1\",\"metric_name\":\"合成收入指标\",\"org_code\":\"SYNTH_O2\",\"org_name\":\"合成机构乙\",\"date\":\"2026-07-31\",\"stat_date\":\"2026-07-31\",\"metric_value\":\"210.25\"},{\"fact_id\":\"fact:query-1:1:metric_value\",\"task_id\":\"query-1\",\"field\":\"metric_value\",\"value\":\"125.50\",\"unit\":\"元\",\"metric_code\":\"SYNTH_M1\",\"metric_name\":\"合成收入指标\",\"org_code\":\"SYNTH_O1\",\"org_name\":\"合成机构甲\",\"date\":\"2026-07-31\",\"stat_date\":\"2026-07-31\",\"metric_value\":\"125.50\"}],\"facts\":[{\"fact_id\":\"fact:query-1:0:metric_value\",\"task_id\":\"query-1\",\"field\":\"metric_value\",\"value\":\"210.25\",\"unit\":\"元\",\"metric_code\":\"SYNTH_M1\",\"metric_name\":\"合成收入指标\",\"org_code\":\"SYNTH_O2\",\"org_name\":\"合成机构乙\",\"date\":\"2026-07-31\"},{\"fact_id\":\"fact:query-1:1:metric_value\",\"task_id\":\"query-1\",\"field\":\"metric_value\",\"value\":\"125.50\",\"unit\":\"元\",\"metric_code\":\"SYNTH_M1\",\"metric_name\":\"合成收入指标\",\"org_code\":\"SYNTH_O1\",\"org_name\":\"合成机构甲\",\"date\":\"2026-07-31\"}],\"fact_count\":2,\"facts_truncated\":false,\"row_count\":2,\"truncated\":false,\"error_code\":null,\"message\":\"隔离合成查询已完成。\",\"display_hint\":\"明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。\",\"frame_id\":\"aaafa7ed-d26b-4114-9477-1dce68e39ffb\",\"result_ref\":\"query:query-1:result-query-1\",\"ready_frame_id\":\"2fe89777-83e1-4bbf-9a18-c95b730c42fa\",\"next_step\":\"条件已全部确定，查询已执行。请直接依据本回执组织回答，不要再向用户确认，也不要重复取数。\"}"
+        }
+      ],
+      "query_specs": [
+        {
+          "conversation_id": "synthetic-prompt-skill-ab",
+          "calculation_context": {
+            "scope_id": "01a1359e-6134-74dc-b040-69e954670d8d",
+            "user_question": "查询合成机构甲和合成机构乙2026-07-31的合成收入指标原值。"
+          },
+          "source_question": "查询合成机构甲和合成机构乙2026-07-31的合成收入指标原值。",
+          "source_metric_bindings": [
+            {
+              "start": 24,
+              "end": 30,
+              "text": "合成收入指标",
+              "codes": [
+                "SYNTH_M1"
+              ]
+            }
+          ],
+          "metric_codes": [
+            "SYNTH_M1"
+          ],
+          "schema_version": 2,
+          "org_codes": [
+            "SYNTH_O1",
+            "SYNTH_O2"
+          ],
+          "time": {
+            "start": "2026-07-31",
+            "end": "2026-07-31"
+          },
+          "selection": "exact",
+          "operation": {
+            "kind": "value"
+          }
+        }
+      ],
+      "calculation_specs": [],
+      "coverage_specs": [],
+      "answer": "查询已完成，结果如下：\n\n**合成收入指标原值（2026-07-31）**\n\n| 机构 | 指标值 |\n|------|--------|\n| 合成机构甲 | 125.50 元 |\n| 合成机构乙 | 210.25 元 |\n\n两家机构的合成收入指标原值已获取，如需进一步查看或计算，请告诉我。",
+      "focus": {
+        "frameId": "aaafa7ed-d26b-4114-9477-1dce68e39ffb",
+        "sessionId": "01a1359e-6133-74dc-b040-69e736d4797a",
+        "requestId": "real_prime_and_historical_calculation-1",
+        "turnId": "01a1359e-6134-74dc-b040-69e954670d8d",
+        "capability": "metric_query",
+        "operationFrameId": "2fe89777-83e1-4bbf-9a18-c95b730c42fa",
+        "fields": {
+          "metrics": {
+            "rawValue": [
+              "合成收入指标"
+            ],
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_M1"
+              ],
+              "names": [
+                "合成收入指标"
+              ]
+            },
+            "source": "explicit",
+            "resolver": "metric",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "extractedRawValues": [
+                "合成收入指标"
+              ],
+              "referenceValues": [
+                "SYNTH_M1",
+                "合成收入指标"
+              ],
+              "questionText": "查询合成机构甲和合成机构乙2026-07-31的合成收入指标原值。",
+              "mentionResolutions": [
+                {
+                  "text": "合成收入指标",
+                  "start": 24,
+                  "end": 30,
+                  "status": "resolved",
+                  "value": {
+                    "codes": [
+                      "SYNTH_M1"
+                    ],
+                    "names": [
+                      "合成收入指标"
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "organizations": {
+            "rawValue": [
+              "合成机构甲",
+              "合成机构乙"
+            ],
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_O1",
+                "SYNTH_O2"
+              ],
+              "names": [
+                "合成机构甲",
+                "合成机构乙"
+              ]
+            },
+            "source": "explicit",
+            "resolver": "organization",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "referenceValues": [
+                "SYNTH_O1",
+                "SYNTH_O2",
+                "合成机构甲",
+                "合成机构乙"
+              ],
+              "turnIntentExpectedCount": 2
+            }
+          },
+          "time": {
+            "rawValue": "2026-07-31",
+            "resolvedValue": {
+              "start": "2026-07-31",
+              "end": "2026-07-31"
+            },
+            "source": "explicit",
+            "resolver": "date",
+            "resolutionStatus": "resolved"
+          },
+          "selection": {
+            "rawValue": "exact",
+            "resolvedValue": "exact",
+            "source": "explicit",
+            "resolver": "enum",
+            "resolutionStatus": "resolved"
+          },
+          "operation": {
+            "source": "explicit",
+            "resolutionStatus": "missing"
+          }
+        },
+        "delta": {
+          "executionMode": "execute",
+          "fieldChanges": [
+            {
+              "fieldHint": "metrics",
+              "operation": "set",
+              "rawValue": {
+                "fromQuestion": true,
+                "mentionIndexes": [
+                  1
+                ]
+              }
+            },
+            {
+              "fieldHint": "organizations",
+              "operation": "set",
+              "rawValue": [
+                "合成机构甲",
+                "合成机构乙"
+              ]
+            },
+            {
+              "fieldHint": "time",
+              "operation": "set",
+              "rawValue": "2026-07-31"
+            },
+            {
+              "fieldHint": "selection",
+              "operation": "set",
+              "rawValue": "exact"
+            }
+          ],
+          "capabilityHint": "metric_query",
+          "baseReference": null,
+          "fieldIntents": {
+            "metrics": {
+              "sourceText": "合成收入指标",
+              "expectedCount": null,
+              "mode": "set"
+            },
+            "organizations": {
+              "sourceText": "合成机构甲和合成机构乙",
+              "expectedCount": 2,
+              "mode": "set"
+            },
+            "time": {
+              "sourceText": "2026-07-31",
+              "expectedCount": null,
+              "mode": "set"
+            },
+            "selection": {
+              "sourceText": "2026-07-31",
+              "expectedCount": null,
+              "mode": "set"
+            }
+          }
+        },
+        "issues": [],
+        "status": "success",
+        "createdAt": "2026-10-13T14:15:37.229Z",
+        "parentFrameId": "92b5795d-ba9a-4c43-9805-b8d6bf9440cf",
+        "resultRef": "query:query-1:result-query-1",
+        "resultSummary": {
+          "rowCount": 2,
+          "truncated": false
+        }
+      },
+      "ungrounded_proposals": [],
+      "measures": {
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 24929
+      }
+    },
+    {
+      "scenario": "real_prime_and_historical_calculation",
+      "turn": 2,
+      "passed": true,
+      "message": "使用刚才查询的原值，按合成机构甲减合成机构乙计算差额，保留两位小数，列出两家原值和差额。",
+      "expected": {
+        "kind": "calculate"
+      },
+      "tools": [
+        {
+          "id": "01a1359e8c7c76e1c15e639ac2d06631",
+          "name": "resolve_business_turn",
+          "args": {
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "合成机构甲和合成机构乙",
+                "expectedCount": null,
+                "mode": "set"
+              }
+            },
+            "capabilityHint": "metric_calculate",
+            "baseReference": null,
+            "fieldChanges": [
+              {
+                "fieldHint": "expressions",
+                "operation": "set",
+                "rawValue": [
+                  {
+                    "name": "diff",
+                    "label": "合成机构甲减合成机构乙差额",
+                    "expression": "a-b",
+                    "decimal_places": 2
+                  }
+                ]
+              },
+              {
+                "fieldHint": "bindings",
+                "operation": "set",
+                "rawValue": {
+                  "a": {
+                    "fact_id": "fact:query-1:1:metric_value"
+                  },
+                  "b": {
+                    "fact_id": "fact:query-1:0:metric_value"
+                  }
+                }
+              },
+              {
+                "fieldHint": "scope_policy",
+                "operation": "set",
+                "rawValue": "cross_org"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        },
+        {
+          "id": "01a1359ef4ff7d6b5d5cd29abd834454",
+          "name": "resolve_business_turn",
+          "args": {
+            "fieldIntents": {},
+            "capabilityHint": "metric_calculate",
+            "baseReference": null,
+            "fieldChanges": [
+              {
+                "fieldHint": "expressions",
+                "operation": "set",
+                "rawValue": [
+                  {
+                    "name": "diff",
+                    "label": "合成机构甲减合成机构乙差额",
+                    "expression": "a-b",
+                    "decimal_places": 2
+                  }
+                ]
+              },
+              {
+                "fieldHint": "bindings",
+                "operation": "set",
+                "rawValue": {
+                  "a": {
+                    "fact_id": "fact:query-1:1:metric_value"
+                  },
+                  "b": {
+                    "fact_id": "fact:query-1:0:metric_value"
+                  }
+                }
+              },
+              {
+                "fieldHint": "scope_policy",
+                "operation": "set",
+                "rawValue": "cross_org"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "id": "01a1359e8c7c76e1c15e639ac2d06631",
+          "name": "resolve_business_turn",
+          "is_error": false,
+          "details": {
+            "kind": "business_context",
+            "status": "ARGUMENT_ERROR",
+            "retryable": true,
+            "error_code": "FIELD_INTENT_INVALID"
+          },
+          "text": "{\"status\":\"ARGUMENT_ERROR\",\"error_code\":\"FIELD_INTENT_INVALID\",\"field\":\"organizations\",\"message\":\"目标声明字段须属于当前能力Schema；非requireTurnIntent字段无需额外声明，当前能力没有声明要求时传{}，不复制来源能力的旧声明。检查mode、sourceText、expectedCount三键：expectedCount未指定数量时为null；inherit时sourceText和expectedCount均为null；修改或确认时sourceText取本轮相应原文。null须为真正的空值。原焦点未改变。\",\"current_user_input\":\"使用刚才查询的原值，按合成机构甲减合成机构乙计算差额，保留两位小数，列出两家原值和差额。\",\"focus_preserved\":true,\"next_action\":\"correct_arguments\",\"scope\":\"argument_validation\",\"query_executed\":false,\"preserve_user_conditions\":true,\"reference_hint\":\"原焦点未改变不代表它就是用户所指来源。若字段来自历史引用，先用 FrameSelector 定位对应业务状态，再合并本轮变化；不要仅删除报错字段而默认继承焦点。\"}"
+        },
+        {
+          "id": "01a1359ef4ff7d6b5d5cd29abd834454",
+          "name": "resolve_business_turn",
+          "is_error": false,
+          "details": {
+            "kind": "metric_calculate",
+            "status": "succeeded",
+            "calculation_id": "synthetic-calc",
+            "task_id": "query-1",
+            "scope_id": "01a1359e-c297-74dc-b040-69fa9efdee88",
+            "inputs": {
+              "a": {
+                "fact_id": "fact:query-1:1:metric_value",
+                "task_id": "query-1",
+                "field": "metric_value",
+                "value": "125.50",
+                "unit": "元",
+                "metric_code": "SYNTH_M1",
+                "metric_name": "合成收入指标",
+                "org_code": "SYNTH_O1",
+                "org_name": "合成机构甲",
+                "date": "2026-07-31"
+              },
+              "b": {
+                "fact_id": "fact:query-1:0:metric_value",
+                "task_id": "query-1",
+                "field": "metric_value",
+                "value": "210.25",
+                "unit": "元",
+                "metric_code": "SYNTH_M1",
+                "metric_name": "合成收入指标",
+                "org_code": "SYNTH_O2",
+                "org_name": "合成机构乙",
+                "date": "2026-07-31"
+              }
+            },
+            "results": [
+              {
+                "name": "diff",
+                "label": "合成机构甲减合成机构乙差额",
+                "expression": "a-b",
+                "decimal_places": 2,
+                "value": "-84.75",
+                "display_value": "-84.75",
+                "unit": "元",
+                "variables": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "public_answer": "合成机构甲原值125.50元，合成机构乙原值210.25元。甲减乙差额：-84.75元。",
+            "frame_id": "437ed8a5-5500-46ae-9b3b-9ccd3f57494b",
+            "delivery": "business_evidence_v1",
+            "display_conditions": []
+          },
+          "text": "{\"status\":\"succeeded\",\"calculation_id\":\"synthetic-calc\",\"task_id\":\"query-1\",\"scope_id\":\"01a1359e-c297-74dc-b040-69fa9efdee88\",\"inputs\":{\"a\":{\"fact_id\":\"fact:query-1:1:metric_value\",\"task_id\":\"query-1\",\"field\":\"metric_value\",\"value\":\"125.50\",\"unit\":\"元\",\"metric_code\":\"SYNTH_M1\",\"metric_name\":\"合成收入指标\",\"org_code\":\"SYNTH_O1\",\"org_name\":\"合成机构甲\",\"date\":\"2026-07-31\"},\"b\":{\"fact_id\":\"fact:query-1:0:metric_value\",\"task_id\":\"query-1\",\"field\":\"metric_value\",\"value\":\"210.25\",\"unit\":\"元\",\"metric_code\":\"SYNTH_M1\",\"metric_name\":\"合成收入指标\",\"org_code\":\"SYNTH_O2\",\"org_name\":\"合成机构乙\",\"date\":\"2026-07-31\"}},\"results\":[{\"name\":\"diff\",\"label\":\"合成机构甲减合成机构乙差额\",\"expression\":\"a-b\",\"decimal_places\":2,\"value\":\"-84.75\",\"display_value\":\"-84.75\",\"unit\":\"元\",\"variables\":[\"a\",\"b\"]}],\"public_answer\":\"合成机构甲原值125.50元，合成机构乙原值210.25元。甲减乙差额：-84.75元。\",\"frame_id\":\"437ed8a5-5500-46ae-9b3b-9ccd3f57494b\",\"result_ref\":\"snapshot:1be734615b4b235db20b60692b555ddec4ebf6d58fa09bf0bee1641702d0194a\",\"ready_frame_id\":\"84dfb6e4-43c0-454f-9727-401dc2d9f7a7\",\"next_step\":\"条件已全部确定，查询已执行。请直接依据本回执组织回答，不要再向用户确认，也不要重复取数。\"}"
+        }
+      ],
+      "query_specs": [],
+      "calculation_specs": [
+        {
+          "expressions": [
+            {
+              "name": "diff",
+              "label": "合成机构甲减合成机构乙差额",
+              "expression": "a-b",
+              "decimal_places": 2
+            }
+          ],
+          "bindings": {
+            "a": {
+              "fact_id": "fact:query-1:1:metric_value"
+            },
+            "b": {
+              "fact_id": "fact:query-1:0:metric_value"
+            }
+          },
+          "scope_policy": "cross_org",
+          "conversation_id": "synthetic-prompt-skill-ab",
+          "scope_id": "01a1359e-c297-74dc-b040-69fa9efdee88",
+          "source_policy": "conversation_snapshots",
+          "user_question": "使用刚才查询的原值，按合成机构甲减合成机构乙计算差额，保留两位小数，列出两家原值和差额。"
+        }
+      ],
+      "coverage_specs": [],
+      "answer": "计算已完成，结果如下：\n\n**合成收入指标（2026-07-31）**\n\n| 机构 | 原值 |\n|------|------|\n| 合成机构甲 | 125.50 元 |\n| 合成机构乙 | 210.25 元 |\n\n**差额：合成机构甲 − 合成机构乙 = -84.75 元**\n\n（保留两位小数）",
+      "focus": {
+        "frameId": "437ed8a5-5500-46ae-9b3b-9ccd3f57494b",
+        "sessionId": "01a1359e-6133-74dc-b040-69e736d4797a",
+        "requestId": "real_prime_and_historical_calculation-2",
+        "turnId": "01a1359e-c297-74dc-b040-69fa9efdee88",
+        "capability": "metric_calculate",
+        "operationFrameId": "84dfb6e4-43c0-454f-9727-401dc2d9f7a7",
+        "fields": {
+          "expressions": {
+            "rawValue": [
+              {
+                "name": "diff",
+                "label": "合成机构甲减合成机构乙差额",
+                "expression": "a-b",
+                "decimal_places": 2
+              }
+            ],
+            "resolvedValue": [
+              {
+                "name": "diff",
+                "label": "合成机构甲减合成机构乙差额",
+                "expression": "a-b",
+                "decimal_places": 2
+              }
+            ],
+            "source": "explicit",
+            "resolver": "calculation_expressions",
+            "resolutionStatus": "resolved"
+          },
+          "bindings": {
+            "rawValue": {
+              "a": {
+                "fact_id": "fact:query-1:1:metric_value"
+              },
+              "b": {
+                "fact_id": "fact:query-1:0:metric_value"
+              }
+            },
+            "resolvedValue": {
+              "a": {
+                "fact_id": "fact:query-1:1:metric_value"
+              },
+              "b": {
+                "fact_id": "fact:query-1:0:metric_value"
+              }
+            },
+            "source": "explicit",
+            "resolver": "calculation_bindings",
+            "resolutionStatus": "resolved"
+          },
+          "constants": {
+            "source": "explicit",
+            "resolutionStatus": "missing"
+          },
+          "scope_policy": {
+            "rawValue": "cross_org",
+            "resolvedValue": "cross_org",
+            "source": "explicit",
+            "resolver": "enum",
+            "resolutionStatus": "resolved"
+          }
+        },
+        "delta": {
+          "executionMode": "execute",
+          "fieldChanges": [
+            {
+              "fieldHint": "expressions",
+              "operation": "set",
+              "rawValue": [
+                {
+                  "name": "diff",
+                  "label": "合成机构甲减合成机构乙差额",
+                  "expression": "a-b",
+                  "decimal_places": 2
+                }
+              ]
+            },
+            {
+              "fieldHint": "bindings",
+              "operation": "set",
+              "rawValue": {
+                "a": {
+                  "fact_id": "fact:query-1:1:metric_value"
+                },
+                "b": {
+                  "fact_id": "fact:query-1:0:metric_value"
+                }
+              }
+            },
+            {
+              "fieldHint": "scope_policy",
+              "operation": "set",
+              "rawValue": "cross_org"
+            }
+          ],
+          "capabilityHint": "metric_calculate",
+          "baseReference": null,
+          "fieldIntents": {}
+        },
+        "issues": [],
+        "status": "success",
+        "createdAt": "2026-10-13T14:16:12.874Z",
+        "parentFrameId": "a51937b0-9f92-43c4-b1a2-52ea553d8e04",
+        "resultRef": "snapshot:1be734615b4b235db20b60692b555ddec4ebf6d58fa09bf0bee1641702d0194a",
+        "resultSummary": {
+          "rowCount": 0,
+          "truncated": false
+        }
+      },
+      "ungrounded_proposals": [],
+      "measures": {
+        "tool_calls": 2,
+        "error_calls": 1,
+        "error_rate": 0.5,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 0,
+        "calculation_count": 1,
+        "coverage_count": 0,
+        "model_calls": 3,
+        "elapsed_ms": 18323
+      }
+    },
+    {
+      "scenario": "coverage_discovery",
+      "turn": 1,
+      "passed": true,
+      "message": "合成机构甲2026年7月哪些指标有记录？",
+      "expected": {
+        "kind": "coverage"
+      },
+      "tools": [
+        {
+          "id": "01a1359f06c30ae20eca180866232ce3",
+          "name": "resolve_business_turn",
+          "args": {
+            "fieldIntents": {},
+            "capabilityHint": "data_availability",
+            "baseReference": null,
+            "fieldChanges": [
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构甲"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月"
+              },
+              {
+                "fieldHint": "dimension",
+                "operation": "set",
+                "rawValue": "metrics"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        },
+        {
+          "id": "01a1359f1626cff71f74857d6b0ba6bd",
+          "name": "resolve_business_turn",
+          "args": {
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "合成机构甲",
+                "expectedCount": null,
+                "mode": "set"
+              }
+            },
+            "capabilityHint": "data_availability",
+            "baseReference": null,
+            "fieldChanges": [
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构甲"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月"
+              },
+              {
+                "fieldHint": "dimension",
+                "operation": "set",
+                "rawValue": "metrics"
+              }
+            ],
+            "executionMode": "execute"
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "id": "01a1359f06c30ae20eca180866232ce3",
+          "name": "resolve_business_turn",
+          "is_error": false,
+          "details": {
+            "kind": "business_context",
+            "status": "ARGUMENT_ERROR",
+            "retryable": true,
+            "error_code": "FIELD_INTENT_REQUIRED"
+          },
+          "text": "{\"status\":\"ARGUMENT_ERROR\",\"error_code\":\"FIELD_INTENT_REQUIRED\",\"field\":\"organizations\",\"message\":\"必须在fieldIntents声明机构本轮是inherit、set或confirm等操作，附sourceText和expectedCount；未重新指定用inherit/null/null。显式指代或数量要求必须set并落实来源，不能用空修改继承不同目标。原焦点未改变。\",\"current_user_input\":\"合成机构甲2026年7月哪些指标有记录？\",\"focus_preserved\":true,\"next_action\":\"correct_arguments\",\"scope\":\"argument_validation\",\"query_executed\":false,\"preserve_user_conditions\":true,\"reference_hint\":\"原焦点未改变不代表它就是用户所指来源。若字段来自历史引用，先用 FrameSelector 定位对应业务状态，再合并本轮变化；不要仅删除报错字段而默认继承焦点。\"}"
+        },
+        {
+          "id": "01a1359f1626cff71f74857d6b0ba6bd",
+          "name": "resolve_business_turn",
+          "is_error": false,
+          "details": {
+            "kind": "data_availability",
+            "status": "succeeded",
+            "request": {
+              "dimension": "metrics",
+              "org_codes": [
+                "SYNTH_O1"
+              ],
+              "start": "2026-07-01",
+              "end": "2026-07-31"
+            },
+            "mode": "metrics",
+            "metric_count": 1,
+            "org_count": 1,
+            "org_names": [
+              "合成机构甲"
+            ],
+            "items": [
+              {
+                "metric_code": "SYNTH_M1",
+                "metric_name": "合成收入指标"
+              }
+            ],
+            "groups": [
+              {
+                "date_count": 1,
+                "earliest": "2026-07-31",
+                "latest": "2026-07-31",
+                "dates": [
+                  "2026-07-31"
+                ],
+                "has_more": false
+              }
+            ],
+            "page": 1,
+            "page_size": 20,
+            "has_more": false,
+            "notice": "合成记录覆盖不证明每天有记录或数值有效。",
+            "public_answer": "合成机构甲，2026-07-01至2026-07-31，共有1个指标有记录。第1页指标：合成收入指标。\n合成记录覆盖不证明每天有记录或数值有效。",
+            "frame_id": "cb218945-6782-447a-819b-5d38b8d375eb",
+            "delivery": "business_evidence_v1",
+            "display_conditions": [
+              {
+                "label": "机构",
+                "value": "合成机构甲"
+              },
+              {
+                "label": "日期",
+                "value": "2026-07-01 至 2026-07-31"
+              }
+            ]
+          },
+          "text": "{\"status\":\"succeeded\",\"request\":{\"dimension\":\"metrics\",\"org_codes\":[\"SYNTH_O1\"],\"start\":\"2026-07-01\",\"end\":\"2026-07-31\"},\"mode\":\"metrics\",\"metric_count\":1,\"org_count\":1,\"org_names\":[\"合成机构甲\"],\"items\":[{\"metric_code\":\"SYNTH_M1\",\"metric_name\":\"合成收入指标\"}],\"groups\":[{\"date_count\":1,\"earliest\":\"2026-07-31\",\"latest\":\"2026-07-31\",\"dates\":[\"2026-07-31\"],\"has_more\":false}],\"page\":1,\"page_size\":20,\"has_more\":false,\"notice\":\"合成记录覆盖不证明每天有记录或数值有效。\",\"frame_id\":\"cb218945-6782-447a-819b-5d38b8d375eb\",\"result_ref\":\"snapshot:b4876abec448dd3f486edcad3540da0a827ebbf82ae48cd3c69111a3395aa9bd\",\"ready_frame_id\":\"5c6d3fad-3e5e-404e-a3cb-bba1c90448d2\",\"next_step\":\"条件已全部确定，查询已执行。请直接依据本回执组织回答，不要再向用户确认，也不要重复取数。\"}"
+        }
+      ],
+      "query_specs": [],
+      "calculation_specs": [],
+      "coverage_specs": [
+        {
+          "dimension": "metrics",
+          "org_codes": [
+            "SYNTH_O1"
+          ],
+          "start": "2026-07-01",
+          "end": "2026-07-31"
+        }
+      ],
+      "answer": "合成机构甲在2026年7月有记录的指标是：\n\n- **合成收入指标**（SYNTH_M1）\n\n需要注意的是，该指标在7月内只有 2026-07-31 这一天有记录，这不代表每天都有数据或数值一定有效。",
+      "focus": {
+        "frameId": "cb218945-6782-447a-819b-5d38b8d375eb",
+        "sessionId": "01a1359f-0a2b-74dc-b040-6a14fc0bb532",
+        "requestId": "coverage_discovery-1",
+        "turnId": "01a1359f-0a2e-74dc-b040-6a1a4c9ce4f1",
+        "capability": "data_availability",
+        "operationFrameId": "5c6d3fad-3e5e-404e-a3cb-bba1c90448d2",
+        "fields": {
+          "metrics": {
+            "source": "explicit",
+            "resolutionStatus": "missing"
+          },
+          "organizations": {
+            "rawValue": "合成机构甲",
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_O1"
+              ],
+              "names": [
+                "合成机构甲"
+              ]
+            },
+            "source": "explicit",
+            "resolver": "organization",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "referenceValues": [
+                "SYNTH_O1",
+                "合成机构甲"
+              ]
+            }
+          },
+          "time": {
+            "rawValue": "2026年7月",
+            "resolvedValue": {
+              "start": "2026-07-01",
+              "end": "2026-07-31"
+            },
+            "source": "explicit",
+            "resolver": "date",
+            "resolutionStatus": "resolved"
+          },
+          "dimension": {
+            "rawValue": "metrics",
+            "resolvedValue": "metrics",
+            "source": "explicit",
+            "resolver": "enum",
+            "resolutionStatus": "resolved"
+          },
+          "match": {
+            "source": "explicit",
+            "resolutionStatus": "missing"
+          },
+          "page": {
+            "source": "explicit",
+            "resolutionStatus": "missing"
+          },
+          "page_size": {
+            "source": "explicit",
+            "resolutionStatus": "missing"
+          }
+        },
+        "delta": {
+          "executionMode": "execute",
+          "fieldChanges": [
+            {
+              "fieldHint": "organizations",
+              "operation": "set",
+              "rawValue": "合成机构甲"
+            },
+            {
+              "fieldHint": "time",
+              "operation": "set",
+              "rawValue": "2026年7月"
+            },
+            {
+              "fieldHint": "dimension",
+              "operation": "set",
+              "rawValue": "metrics"
+            }
+          ],
+          "capabilityHint": "data_availability",
+          "baseReference": null,
+          "fieldIntents": {
+            "organizations": {
+              "sourceText": "合成机构甲",
+              "expectedCount": null,
+              "mode": "set"
+            }
+          }
+        },
+        "issues": [],
+        "status": "success",
+        "createdAt": "2026-10-13T14:16:21.139Z",
+        "parentFrameId": "b151c4ae-4325-4c25-abe9-b52d8014e2d3",
+        "resultRef": "snapshot:b4876abec448dd3f486edcad3540da0a827ebbf82ae48cd3c69111a3395aa9bd",
+        "resultSummary": {
+          "rowCount": 0,
+          "truncated": false
+        }
+      },
+      "ungrounded_proposals": [],
+      "measures": {
+        "tool_calls": 2,
+        "error_calls": 1,
+        "error_rate": 0.5,
+        "expected_business_refusals": 0,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 1,
+        "model_calls": 3,
+        "elapsed_ms": 5128
+      }
+    },
+    {
+      "scenario": "unsupported_cause_boundary",
+      "turn": 1,
+      "passed": true,
+      "message": "请分析合成机构甲收入下降的业务原因，并预测下一季度走势。",
+      "expected": {
+        "kind": "unsupported"
+      },
+      "tools": [
+        {
+          "id": "01a1359ee8094539a57410bcc4edfd4a",
+          "name": "business_capability_explain",
+          "args": {
+            "capability": "cause_analysis"
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "id": "01a1359ee8094539a57410bcc4edfd4a",
+          "name": "business_capability_explain",
+          "is_error": false,
+          "details": {
+            "kind": "business_capability_explain",
+            "status": "unsupported",
+            "public_answer": "当前尚未提供业务动因及客户流失归因能力，无法完成这项分析。可以查询已有指标，或按您给定的公式计算；如需改为这些查询，请明确要查看的内容。",
+            "delivery": "business_evidence_v1"
+          },
+          "text": "当前尚未提供业务动因及客户流失归因能力，无法完成这项分析。可以查询已有指标，或按您给定的公式计算；如需改为这些查询，请明确要查看的内容。"
+        }
+      ],
+      "query_specs": [],
+      "calculation_specs": [],
+      "coverage_specs": [],
+      "answer": "你希望分析合成机构甲收入下降的业务原因并预测下一季度走势。\n\n需要说明的是：当前系统暂不支持**业务归因分析**（如收入下降的成因诊断）和**未来趋势预测**能力。我能做的是：\n\n- **查询经营指标**：比如甲机构各期收入的具体数值、排名或变化额；\n- **有界计算**：在你给定明确公式时，基于已查询的正式数值做求差、比率等计算；\n- **覆盖发现与历史结果查看**。\n\n如果你的目标可以调整为这些受支持的能力，请告诉我具体想看什么，例如：\n- 甲机构近几期的收入是多少，下降了多少？\n- 和哪些同期或同类机构对比？\n- 需要基于已有数值做哪些计算？\n\n我会按你的明确需求继续处理。",
+      "ungrounded_proposals": [],
+      "measures": {
+        "tool_calls": 1,
+        "error_calls": 0,
+        "error_rate": 0,
+        "expected_business_refusals": 1,
+        "ungrounded_condition_proposals": 0,
+        "ungrounded_condition_executions": 0,
+        "unnecessary_clarifications": 0,
+        "repeated_clarifications": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 6412
+      }
+    }
+  ]
+}

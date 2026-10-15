@@ -14,13 +14,23 @@ export interface AgentServiceConfig {
   /** FastAPI 后端内网地址，agent 工具调用经由此处并透传用户 Bearer */
   backendBaseUrl: string;
   backendTimeoutMs: number;
-  modelTimeoutMs?: number;
-  /** 从发出请求到收到第一段模型输出的时限；超出后按重试策略自动重试。 */
+  /** 首次有效输出后，相邻有效输出的最大空闲时间；不限制整次调用总时长。 */
+  modelStreamIdleTimeoutMs?: number;
+  /** 从发出请求到收到第一段有效模型输出的时限；超出后按重试策略自动重试。 */
   modelFirstResponseTimeoutMs?: number;
   /** 模型重试策略：默认只重试一次，避免超时按指数退避静默拖满两分钟 */
   modelRetry: { enabled: boolean; maxRetries: number; baseDelayMs: number };
   /** 临时回答流式展示；最终内容仍由原生快照投影。 */
   answerStreaming?: boolean;
+  /** 仅精简模型工具参数；内部业务 Delta 与持久化协议保持一致。 */
+  compactTurnArgs?: boolean;
+  /** 候选协议仅用于显式启用后创建的新会话；旧Session保持原协议。 */
+  businessProtocol?: "fixed_v1" | "semantic_v2";
+  /** 仅影响新 operation；普通取值的宿主交付，observe 只记资格不省模型调用。 */
+  directQueryDelivery?: "off" | "observe" | "on";
+  /** 发送副本的回执视图；raw 保留原始工具内容，持久记录始终不变。 */
+  modelContextView?: "raw" | "compact_v1";
+  semanticPromptVariant?: "full" | "compact_v1";
   model: {
     baseUrl: string;
     name: string;
@@ -84,6 +94,14 @@ function parseBoolean(raw: string | undefined, fallback: boolean, name: string):
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceConfig {
+  const businessProtocol = env.AGENT_BUSINESS_PROTOCOL?.trim() || "semantic_v2";
+  if (!["fixed_v1", "semantic_v2"].includes(businessProtocol)) throw new Error("AGENT_BUSINESS_PROTOCOL 必须为 fixed_v1 或 semantic_v2");
+  const directQueryDelivery = env.AGENT_DIRECT_QUERY_DELIVERY?.trim() || "on";
+  if (!["off", "observe", "on"].includes(directQueryDelivery)) throw new Error("AGENT_DIRECT_QUERY_DELIVERY 必须为 off、observe 或 on");
+  const modelContextView = env.AGENT_MODEL_CONTEXT_VIEW?.trim() || "compact_v1";
+  if (!["raw", "compact_v1"].includes(modelContextView)) throw new Error("AGENT_MODEL_CONTEXT_VIEW 必须为 raw 或 compact_v1");
+  const semanticPromptVariant = env.AGENT_SEMANTIC_PROMPT_VARIANT?.trim() || "compact_v1";
+  if (!["full", "compact_v1"].includes(semanticPromptVariant)) throw new Error("AGENT_SEMANTIC_PROMPT_VARIANT 必须为 full 或 compact_v1");
   // 存在任一密文时必须先加载主密钥；密钥缺失或密文被篡改时拒绝启动
   const sensitiveNames = ["AGENT_MODEL_API_KEY"] as const;
   const needsKey = sensitiveNames.some((name) => isEncryptedConfigValue(env[name]));
@@ -94,12 +112,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceCo
   const apiKey = resolve(requireEnv(env, "AGENT_MODEL_API_KEY"));
   const contextWindow = parsePositiveInt(env.AGENT_MODEL_CONTEXT_WINDOW, 128_000, "AGENT_MODEL_CONTEXT_WINDOW");
   const maxTokens = parsePositiveInt(env.AGENT_MODEL_MAX_TOKENS, 8_192, "AGENT_MODEL_MAX_TOKENS");
-  // 原生 SDK 默认 3 次重试 + 1s/2s/4s 退避，最坏 30s×4≈2 分钟无反馈；这里收紧为一次快速重试。
+  // 收紧原生 SDK 的重试次数，避免未响应时多次重试拉长无反馈等待。
   const modelRetry = {
     enabled: parseBoolean(env.AGENT_MODEL_RETRY_ENABLED, true, "AGENT_MODEL_RETRY_ENABLED"),
     maxRetries: parsePositiveInt(env.AGENT_MODEL_MAX_RETRIES, 1, "AGENT_MODEL_MAX_RETRIES"),
     baseDelayMs: parsePositiveInt(env.AGENT_MODEL_RETRY_BASE_DELAY_MS, 1_000, "AGENT_MODEL_RETRY_BASE_DELAY_MS"),
   };
+  // 新配置优先；旧总时限变量仅兼容为空闲时限，已有部署无需先修改环境文件。
+  const modelStreamIdleTimeoutName = env.AGENT_MODEL_STREAM_IDLE_TIMEOUT_MS?.trim()
+    ? "AGENT_MODEL_STREAM_IDLE_TIMEOUT_MS" : "AGENT_MODEL_TIMEOUT_MS";
   const compaction = {
     enabled: parseBoolean(env.AGENT_COMPACTION_ENABLED, true, "AGENT_COMPACTION_ENABLED"),
     reserveTokens: parsePositiveInt(env.AGENT_COMPACTION_RESERVE_TOKENS, 16_384, "AGENT_COMPACTION_RESERVE_TOKENS"),
@@ -117,11 +138,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceCo
     port: parsePositiveInt(env.AGENT_SERVICE_PORT, 8020, "AGENT_SERVICE_PORT"),
     backendBaseUrl: (env.BACKEND_BASE_URL ?? "http://127.0.0.1:8010").replace(/\/+$/, ""),
     backendTimeoutMs: parsePositiveInt(env.BACKEND_TIMEOUT_MS, 120_000, "BACKEND_TIMEOUT_MS"),
-    modelTimeoutMs: parsePositiveInt(env.AGENT_MODEL_TIMEOUT_MS, 30_000, "AGENT_MODEL_TIMEOUT_MS"),
+    modelStreamIdleTimeoutMs: parsePositiveInt(env[modelStreamIdleTimeoutName], 30_000, modelStreamIdleTimeoutName),
     modelFirstResponseTimeoutMs: parsePositiveInt(env.AGENT_MODEL_FIRST_RESPONSE_TIMEOUT_MS, 30_000,
       "AGENT_MODEL_FIRST_RESPONSE_TIMEOUT_MS"),
     modelRetry,
     answerStreaming: parseBoolean(env.AGENT_ANSWER_STREAMING, false, "AGENT_ANSWER_STREAMING"),
+    compactTurnArgs: parseBoolean(env.AGENT_COMPACT_TURN_ARGS, false, "AGENT_COMPACT_TURN_ARGS"),
+    businessProtocol: businessProtocol as "fixed_v1" | "semantic_v2",
+    directQueryDelivery: directQueryDelivery as "off" | "observe" | "on",
+    modelContextView: modelContextView as "raw" | "compact_v1",
+    semanticPromptVariant: semanticPromptVariant as "full" | "compact_v1",
     model: {
       baseUrl: requireEnv(env, "AGENT_MODEL_BASE_URL").replace(/\/+$/, ""),
       name: requireEnv(env, "AGENT_MODEL_NAME"),

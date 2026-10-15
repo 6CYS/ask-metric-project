@@ -32,6 +32,12 @@ export function archiveClarificationResponse(response?: ChatResponse): ChatRespo
   return { ...response, answer: clarificationTranscript(response.clarification, response.answer), clarification: null }
 }
 
+/** 口径 chips 一经点选即归档：清除交互字段，仅最新答案卡片可再次切换。 */
+export function archiveTimeVariantsResponse(response?: ChatResponse): ChatResponse | undefined {
+  if (!response?.time_variants?.length) return response
+  return { ...response, time_variants: undefined }
+}
+
 /** 同一任务可以多次澄清，仅最后一条未结束的澄清允许交互。 */
 export function activeClarificationMessageIds(messages: BackendNextConversationMessage[], tasks: BackendNextConversationTask[]) {
   // 会话可能保留多个旧草稿，输入框只能补充最新任务，不能回退到较早的待澄清任务。

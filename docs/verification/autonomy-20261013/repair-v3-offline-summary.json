@@ -1,0 +1,40 @@
+{
+  "agent": {
+    "passed": 1284,
+    "failed": 0,
+    "report": "repair-v3-offline-agent-tests.json"
+  },
+  "typecheck": "passed",
+  "build": "passed",
+  "diff_check": "passed",
+  "retained_cases": {
+    "previous_passed_retained": 1223,
+    "previous_cases_missing": 0,
+    "new_cases": 61,
+    "candidate_only_failures": 0
+  },
+  "backend_analysis": {
+    "passed": 35,
+    "failed": 0
+  },
+  "scripted_native_host_scenarios": {
+    "passed": 4,
+    "failed": 0,
+    "real_model": false
+  },
+  "real_model_budget": {
+    "user_approved_total": 28,
+    "v2_used": 12,
+    "v3_hard_limit": 16
+  },
+  "v2_real_result": {
+    "passed": 0,
+    "failed": 2,
+    "preserved": true,
+    "all_streams_terminated": true
+  },
+  "v3_real_status": "running",
+  "runtime_source_snapshot": "source-snapshots/candidate-v3-manifest.json",
+  "existing_database_modified": false,
+  "deployed": false
+}

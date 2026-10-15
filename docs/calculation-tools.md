@@ -9,7 +9,8 @@ Agent 先通过 `resolve_business_turn` 创建 `metric_query` Frame，再用 `ex
 `simpleeval 1.0.8 + Decimal` 运算，返回结果、公式和输入证据。页面直接展示工具结果，
 模型只组织文字。公式的业务含义仍须核对，分母不明确时应澄清。
 
-新提问不读取历史模型上下文或历史引用；当前未完成任务通过任务及澄清编号补充条件。
+当前计算可引用同会话已验证的历史查询快照；来源由用户目标明确选择，不能直接用聊天文本中的金额。新计算的归属与输入查询轮次分开，具体设计见 [历史快照接续计算](history-snapshot-calculation.md)。
+历史回执保留有界的 `fact_refs` 身份索引；已有匹配引用时可直接创建计算 Frame，无需先让模型调用历史回读工具。后端仍重新鉴权读取原值，引用缺失或不完整时沿用受控回读流程。
 归因执行仍不支持，计算工具不用于生成无证据的业务动因。
 
 本文的 Agent 接线与验收范围以 [原生业务 skill 与组合计算](business-skills-runtime.md) 为准。
@@ -62,14 +63,14 @@ Agent 先通过 `resolve_business_turn` 创建 `metric_query` Frame，再用 `ex
 - 普通问题通过 `channel_context.calculation_context`，基础查询通过顶层
   `calculation_context` 传入 `scope_id`、`user_question`。由 Agent 服务绑定，不作为模型工具
   参数；新提问生成新范围，明确澄清延续原范围。
-- `POST /api/v1/calculations`：Bearer 认证、必填 `Idempotency-Key`；工具参数外再传
-  `conversation_id`、`scope_id`。校验归属、范围、任务状态、过期、当前目录和机构权限。
-  幂等重放前仍复核权限；同一键更换内容返回 409。
+- `POST /api/v1/calculations`：Bearer 认证、必填 `Idempotency-Key`；工具参数外由宿主传
+  `conversation_id`、`scope_id`、`source_policy=conversation_snapshots` 与本轮 `user_question`。旧调用默认 `current_scope`；新模式允许同会话历史快照，仍校验归属、任务状态、过期、当前目录和机构权限。
+  幂等重放前仍复核权限；同一会话和请求键定位同一条计算消息，同键更换内容（包括来源任务）返回 409，不同会话可各自使用相同键。
 - 返回 `calculation_id`、`task_id`、`results`、`inputs`、精度和舍入方式。
   `results[].value` 为内部数值，`display_value` 和 `unit` 可直接展示。
 - `query_tasks.state_json.result_artifact.result.facts` 保存原值引用，`calculations` 保存
   计算记录，同时添加 `calculation_result` 聊天消息。多个来源查询参与时，归档到编号排序
-  最前的来源任务；每项任务最多 50 条计算记录。
+  最前的来源任务；每项任务最多 50 条计算记录。消息主键由会话和请求键共同确定，payload 保存请求指纹及结果；任务归档位置不参与重复请求定位。
 
 **没有新增数据库表或列，没有结构迁移。** 计算不重新查业务库，需要最新值时重新查询。
 旧结果没有计算引用，查看和导出不受影响；新计算须重新查询。
@@ -94,7 +95,7 @@ Agent 先通过 `resolve_business_turn` 创建 `metric_query` Frame，再用 `ex
 2. 两日期差额及增长率：以上期为分母，零分母明确报错。
 3. 三家机构平均后乘用户给出的 1.2：系数有原句来源，业务值不作常数。
 4. 缺指标、日期或分母时澄清；金额加户数拒绝；截断或缺指标不做完整汇总。
-5. 刷新、重启后保留证据，新提问不能复用旧引用，其他用户或权限撤销后不能计算。
+5. 刷新、重启后保留证据；新计算可复用明确选择且仍合法的同会话快照，其他会话/用户或权限撤销后不能计算。
 6. 删除进行中的会话后不重建文件；模拟后端清理失败，重启后仍能重试删除。
 
 本地测试分别覆盖表达式、内存 SQLite 查询/计算链路、固定模型响应工具循环和前端内存渲染。

@@ -1,0 +1,161 @@
+{
+  "scope": "snapshot-comparable files and explicit task additions; not a full worktree rollback package",
+  "files": [
+    {
+      "path": "agent-service/scripts/check-missing-conditions-model.ts",
+      "before_sha256": "ae65580a648c41b14d80f1e134a42fb88762566821d919fca4aa00924f8f0dc1",
+      "after_sha256": "39332b4837a1036100df3f8262bb37e2fa9bccc52b18ebc576a7200edad25f90",
+      "basis": "task_snapshot"
+    },
+    {
+      "path": "agent-service/scripts/model-evidence-assertions.ts",
+      "before_sha256": null,
+      "after_sha256": "5573b2ba009a44b6bb36e78d86ca493687052125c2292617ce520f8a3e69360d",
+      "basis": "added_in_current_task"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/backend-contract.spec.ts",
+      "before_sha256": "d301123e91fab75dbdd5cf501abb381de4b04786b83c309b1066d90d9cf22a37",
+      "after_sha256": "098c1bde94c951d4addcdd6cdfd22f8026d39c9d947eb6aa39a84c82f6ec772e",
+      "basis": "task_snapshot"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/clarification.spec.ts",
+      "before_sha256": null,
+      "after_sha256": "3b441d790073482a84653ecb0468cd2b528a6052f4ffe7aa5f5457caafee6bdc",
+      "basis": "added_in_current_task"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/contextBoundaries.spec.ts",
+      "before_sha256": null,
+      "after_sha256": "8c754e6cd741975cbf5a3ceb78db8faa5411031f5ece6a4160de780aea539084",
+      "basis": "added_in_current_task"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/display.spec.ts",
+      "before_sha256": null,
+      "after_sha256": "0e4ae047276c7520daa88cc2757f991eecaef6c9daf8d0758542e99904b415f6",
+      "basis": "added_in_current_task"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/fixtures.ts",
+      "before_sha256": "26ad879e726964b89d8bfe34ddc0150fb780262207b34a6c063c7d171bda8915",
+      "after_sha256": "bba1abc01e81c956a1a0ec4618d4581c56dfd75d75786d26109892b12ac452ce",
+      "basis": "task_snapshot"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/historyRead.spec.ts",
+      "before_sha256": null,
+      "after_sha256": "0f1d2502287fbe8ddc6f4be74acd23ea1ccac2e1e75585fcd4c39f380ba4d42f",
+      "basis": "added_in_current_task"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/plan.spec.ts",
+      "before_sha256": "715f23364617c77985cb7861da3c4fdced0617a6b1a9bfe7e24257fd8ffae6ea",
+      "after_sha256": "cbb6645c8f77b1121df08b241c91a4a67771f549c5393d7dbba5c60d6a7ac283",
+      "basis": "task_snapshot"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/projectionIsolation.spec.ts",
+      "before_sha256": null,
+      "after_sha256": "16eae909a250c23a6c8133a517b72f2b589c4ab10019e2b8c94cbeb44b905ae6",
+      "basis": "added_in_current_task"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/service.spec.ts",
+      "before_sha256": "e6b3509afd1db343731d69954dafc5d372134a731a2971c619f2b8ee8022e9a5",
+      "after_sha256": "d1ac8d0e199f529a5d58f4fe48401885a5a1ed741ad7331c5fde69ab7569db2c",
+      "basis": "task_snapshot"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/sourceCorrection.spec.ts",
+      "before_sha256": null,
+      "after_sha256": "00afa141b36b38e89fd9623b80f85a5daa58cd52bb291da34e03cdb3cdc187e2",
+      "basis": "added_in_current_task"
+    },
+    {
+      "path": "agent-service/src/backendClient.ts",
+      "before_sha256": "2d5b7d10708291edc903b8baecf34d67e3fdb5d439fc6d4d0f7f230e01ec5066",
+      "after_sha256": "dc32eaf027b828e25337a33b7e94da03c57d4093648224611b81af8f6588f06b",
+      "basis": "task_snapshot"
+    },
+    {
+      "path": "agent-service/src/harnessHost.ts",
+      "before_sha256": "1f8af56429d4fc547102b0f5c4d2569e89d39b5f6f21dc01fab2dc16b4d5c9bd",
+      "after_sha256": "6d4210ac59b77c937f6cbf071063ad6418595b290be1027e85cf3817a86a9ae9",
+      "basis": "task_snapshot"
+    },
+    {
+      "path": "agent-service/src/semantic-task/display.ts",
+      "before_sha256": null,
+      "after_sha256": "b51ed72756c37ef6307d934bc9109608a6b3021a7837cee2255da03428177710",
+      "basis": "added_in_current_task"
+    },
+    {
+      "path": "agent-service/src/semantic-task/feedback.ts",
+      "before_sha256": "0dc208dc8bf3e6d512b14b702d9d23b952b1f6fd9bdd3c7ada69aa265e644afd",
+      "after_sha256": "5acc0a5b73e949b0db063ca49bf20606cb050a66b7d71ebd18c0e90e087374d4",
+      "basis": "task_snapshot"
+    },
+    {
+      "path": "agent-service/src/semantic-task/planService.ts",
+      "before_sha256": "17b7455d12a423d663938fed28116fab6080d70cec98fd7ee9064f8aa476696e",
+      "after_sha256": "ecfa0e18c8449181dfe277b3ea8c8b1af1e77fb04e0872866b212d443f9df467",
+      "basis": "task_snapshot"
+    },
+    {
+      "path": "agent-service/src/semantic-task/prompt.ts",
+      "before_sha256": "ace578d123519ec7d7acbba9f8c9defaed96e824ce3b32d250cb665053102b38",
+      "after_sha256": "fb032d5092dd3fdb9dd7ae513ecd84d6351ad892b5c91f242add871020ecaafb",
+      "basis": "task_snapshot"
+    },
+    {
+      "path": "agent-service/src/semantic-task/protocol.ts",
+      "before_sha256": "fd2801547c3290ec29fdc8719f7ada47a4873e65fba7c1c00ccb4c973f5fcce1",
+      "after_sha256": "f2541c8e3288b26b077fcd699a746436b828c95fff3d3b60851af5484458e3ab",
+      "basis": "task_snapshot"
+    },
+    {
+      "path": "agent-service/src/semantic-task/service.ts",
+      "before_sha256": "52a5f8ac1ff2766e832a32255889b3f2d2c97b6a8774f8b7aa7c6a8922a3353f",
+      "after_sha256": "f907d52f013a2c906cec6a5edc97113a17321403e7cda0a4ef56bd69026abfb2",
+      "basis": "task_snapshot"
+    },
+    {
+      "path": "agent-service/src/semantic-task/store.ts",
+      "before_sha256": "3aa620475568fc9982a0ee2c650f35df0e0523bf47137d2c0f3eed6eb435b4eb",
+      "after_sha256": "b99ca6d974574536ca52edac4feb9c0e138ab9975072d23894aa05ffc4657354",
+      "basis": "task_snapshot"
+    },
+    {
+      "path": "agent-service/src/semantic-task/tools.ts",
+      "before_sha256": "ece876a328cf62cc60d60df4f5182fb0570452f85de15886fcaae96babb21157",
+      "after_sha256": "0c09a362df188b53a8e9333deaa79ae1b96e358d0d022845d02474edbd0837ea",
+      "basis": "task_snapshot"
+    },
+    {
+      "path": "agent-service/src/semantic-task/transition.ts",
+      "before_sha256": null,
+      "after_sha256": "660cda39def10c49aa4d6d6aebca04048abfe127a5dcef36a098f4446846f266",
+      "basis": "added_in_current_task"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/routes/business_context.py",
+      "before_sha256": "f5ec5fd81bc190e94d0173a4457879a9273b758c74ed9908aa370d4fca4db385",
+      "after_sha256": "7b4ee0928fe8ba3f2f7cad823b9049840536bbd3482f31c5f951dd684a415d69",
+      "basis": "task_snapshot"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/semantic_transition.py",
+      "before_sha256": null,
+      "after_sha256": "07e1bf5b1cbbab08defbd0a4af18e40801e95b577c66924f8540ac61100e87ff",
+      "basis": "added_in_current_task"
+    },
+    {
+      "path": "backend-next/verification/test_semantic_transition.py",
+      "before_sha256": null,
+      "after_sha256": "48d1d91430a3d4a2d745dcdb54ff000e69d54185648b607e7aa2decda76123a7",
+      "basis": "added_in_current_task"
+    }
+  ]
+}

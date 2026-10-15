@@ -1,0 +1,95 @@
+{
+  "task_start_files_checked": 615,
+  "existing_index_unchanged": true,
+  "removed_files": [],
+  "files": {
+    "agent-service/README.md": {
+      "before_sha256": "971ed2dfac159ee2a6bf3bfb448f84de7e533471f0018a54912c389e77048d2e",
+      "after_sha256": "3083f8c5947dbcf1c476eb282cf77b25f03eb076729ebec5df0ca8bba3cb05a6"
+    },
+    "agent-service/specs/business-context/argumentCorrections.spec.ts": {
+      "before_sha256": "afc93917b924e4af0d1731440ca7af7ad48d393a640a397488da3314a63c21af",
+      "after_sha256": "643db9b443db4c0d6525ffe151d6ff38733805e3b600a95960948b7760e2efac"
+    },
+    "agent-service/specs/business-context/compactTurnContract.spec.ts": {
+      "before_sha256": "f737311ba170a5a3fe6250389d9d0391b2d6be2faf6fa1fca64ef7a4f22903e5",
+      "after_sha256": "170c23bee25786da483990018240df05cde6addcc668f8724b79d7ea1d22d764"
+    },
+    "agent-service/specs/business-context/confirmationContinuation.spec.ts": {
+      "before_sha256": null,
+      "after_sha256": "6c0ba111fa9aa0911451b60540256f30ece02c2b7eda3c4458570aec743b479a"
+    },
+    "agent-service/specs/business-context/fieldIntents.spec.ts": {
+      "before_sha256": "688e387881458b41abcfbeacc18aa83dbe50c0b68ea4b772f5c3f3fd29781cad",
+      "after_sha256": "0dfbcfd2db9c5af416d455456c28f60abd9b3aa1ba2bb871ca372301a8254cbe"
+    },
+    "agent-service/specs/business-context/historyReference.spec.ts": {
+      "before_sha256": "b7e3a26708922187c19f3ca62b4952e952a68635b85f4a392ef332f18aebc1bf",
+      "after_sha256": "ced319c364c4c369d9d3a4044bac4deefa2ef24841b95306156b4ce4c3ce4db5"
+    },
+    "agent-service/specs/business-context/queryIntentV2.spec.ts": {
+      "before_sha256": "61d9d66d92e5ffa334deb04da58cb43935f667eacbef3f77c81c27d99ccdb7ba",
+      "after_sha256": "5bfbc0b3c4da96ca014642963c663e27b6e312a6c675ab5e4291634d14bf7583"
+    },
+    "agent-service/specs/business-context/rankingEvidence.spec.ts": {
+      "before_sha256": null,
+      "after_sha256": "ac5e89fcbb1cb4155afe060a849e6c3eb435420c83d4ce5af5369f20a758fcc4"
+    },
+    "agent-service/specs/typoConfirmationFlow.spec.ts": {
+      "before_sha256": null,
+      "after_sha256": "8bc41810527eeea38f6134fa7b6d2685c182b0c8d62bcbd5a138001ad05916ca"
+    },
+    "agent-service/src/business-context/capabilities.ts": {
+      "before_sha256": "a1f1debbc364857412d87d1bf9114668bb22a42cb39c8a07cefbf856078209c7",
+      "after_sha256": "b70568e8bfe5ab9d1ea8c89a554cd0174565180e087f7403741587b794de39b8"
+    },
+    "agent-service/src/business-context/core.ts": {
+      "before_sha256": "432a7da98ccd22a7ae62c2df545d245a3de3143bc2a618610134fd2afce7e5bd",
+      "after_sha256": "1f042a91e13722567f35c969908ccca795bb42e550f48e132f25190492ce03d2"
+    },
+    "agent-service/src/business-context/modelView.ts": {
+      "before_sha256": "34e84cf0bd24b2ca9cf5f4419687d7279e26d909469fd1b99457396ca9dd6061",
+      "after_sha256": "788a95e9d7cb25a73d79bab1effec90b8d0c4904fb0707596f0cbf31390fe0c6"
+    },
+    "agent-service/src/business-context/rankingEvidence.ts": {
+      "before_sha256": null,
+      "after_sha256": "7fa5681b253ddac0c0df7f350b3135ff90033197708bdd98d516aec02d5f2de9"
+    },
+    "agent-service/src/business-context/resolvers.ts": {
+      "before_sha256": "df106fbfdad4b92f2c6643574f87e54575be7a4eab9385206eb64691572b874d",
+      "after_sha256": "bd089676928beaf88aad78276c47a13bcf3491d1cdbb4441190ecbf3bb87269b"
+    },
+    "agent-service/src/business-context/service.ts": {
+      "before_sha256": "4c7e0fa3b4b8cd74ac7643abe8ade6536c730c2f0659be2520e314e8be0cf731",
+      "after_sha256": "fb5afd3b137068c17ac03d14c4311506eb1a0c95a284fd04aaadfcc36ff4151a"
+    },
+    "agent-service/src/business-context/types.ts": {
+      "before_sha256": "f51e6977c42aa60d1f8dad84a04a429fb505c4043fd5a2960c7b3343d7e0d8b0",
+      "after_sha256": "7273adfe2628cc1b648e577370ad86fdf331cf8ba302addc7921567ba7d34f22"
+    },
+    "agent-service/src/prompts/businessSystemPrompt.ts": {
+      "before_sha256": "4023832ec7fd658b7bc814b55c385b63f654aac76fde5c7407febd5e3f30bc62",
+      "after_sha256": "9fe8ec35a2c998e2509d69123ee3d76f1bbc8466cdcb2442a42cd090cd324468"
+    },
+    "agent-service/src/tools/businessContext.ts": {
+      "before_sha256": "db94702aa721ae554f5ab07c6bbd81bfddd5b7dcd939a2ae0955862f7e1f9fe1",
+      "after_sha256": "f804dd655ede38b53c4ca49d4d3834588b9929b2c57b0d725c60320e9d7754cf"
+    },
+    "backend-next/src/ask_metric/application/metric_candidates.py": {
+      "before_sha256": "d536cc70d8b5af95a7922ecff35acbe029baf2e15a3645d88984c8875038ae18",
+      "after_sha256": "59eb3d2baacd3be9e2194c5a07e0fefdbfefdb3ce6e15e1b3bfc712563002f30"
+    },
+    "backend-next/verification/test_metric_candidates.py": {
+      "before_sha256": "2bea3b321bf1a3441c35b67fdca41e6ec32114a04cee88a79f15b03183dd7ab5",
+      "after_sha256": "0912a66f4d26562370d12b313bf5171508a0a65bae86d62e04cecc498986bd45"
+    },
+    "docs/business-context-reference-recovery.md": {
+      "before_sha256": "54f95ae6f950403609bdc9a84042314142680aef0cae57af3fed1d3f2f470c51",
+      "after_sha256": "cfbe3cda8ab8fb3e596112cb6e8f4c1fae1556ac6cab3593e49b8aac3b25e17a"
+    },
+    "docs/business-skills-runtime.md": {
+      "before_sha256": "85905495d13de3f3d11c093cba698b9c25686dd2b855b8139d9b2188ec28d7a4",
+      "after_sha256": "eba92cfab0c391f1ae26deb9abbd412f62eacfe81c89968102964c50c85f15c6"
+    }
+  }
+}

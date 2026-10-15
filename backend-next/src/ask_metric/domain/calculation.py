@@ -46,6 +46,9 @@ class CalculationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     conversation_id: str = Field(min_length=1, max_length=128)
     scope_id: str = Field(min_length=1, max_length=128)
+    # 旧调用仍限同轮；新宿主显式开启同会话快照，并绑定当前用户原文。
+    source_policy: Literal["current_scope", "conversation_snapshots"] = "current_scope"
+    user_question: str | None = Field(default=None, min_length=1, max_length=8000)
     scope_policy: Literal["same_org_date", "cross_date", "cross_org", "explicit"] = "same_org_date"
     expressions: list[CalculationExpression] = Field(min_length=1, max_length=10)
     bindings: dict[Name, FactBinding] = Field(min_length=1, max_length=100)

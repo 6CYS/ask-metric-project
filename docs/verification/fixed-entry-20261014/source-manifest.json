@@ -1,0 +1,135 @@
+{
+  "basis": "task-start snapshot; preserves pre-existing dirty/staged work",
+  "changed_existing": [
+    "agent-service/.env.example",
+    "agent-service/README.md",
+    "agent-service/specs/business-context/compactTurnContract.spec.ts",
+    "agent-service/specs/conversationReplyTurn.spec.ts",
+    "agent-service/specs/harnessHost.test.ts",
+    "agent-service/specs/prompts/businessSystemPrompt.spec.ts",
+    "agent-service/specs/routes.test.ts",
+    "agent-service/specs/typoConfirmationFlow.spec.ts",
+    "agent-service/src/business-context/modelView.ts",
+    "agent-service/src/harnessHost.ts",
+    "agent-service/src/modelContext.ts",
+    "agent-service/src/prompts/businessSystemPrompt.ts",
+    "agent-service/src/tools/businessContext.ts",
+    "agent-service/src/tools/index.ts",
+    "deploy/package/runtime/agent.env.example",
+    "docs/business-context-reference-recovery.md",
+    "docs/business-skills-runtime.md",
+    "docs/pi-business-context.md"
+  ],
+  "added": [
+    "agent-service/src/business-context/fixedTurnArgs.ts",
+    "agent-service/src/fixedTurnCompatibility.ts",
+    "agent-service/specs/business-context/fixedTurnArgs.spec.ts",
+    "agent-service/specs/fixedTurnCompatibility.spec.ts",
+    "agent-service/specs/fixedModelProjection.spec.ts",
+    "agent-service/specs/fixedBusinessCapabilities.spec.ts",
+    "docs/fixed-business-turn-interface.md"
+  ],
+  "removed": [],
+  "files": {
+    "agent-service/.env.example": {
+      "before_sha256": "80d4ea9ce3fba322977e0a5b1eaa3f1836319b23a5e27d48f1b4e46c8857cdf0",
+      "after_sha256": "9151147267f6403e046e6911a9ceadac6f154d64cbc960d5c02c52b339aa8c18"
+    },
+    "agent-service/README.md": {
+      "before_sha256": "3083f8c5947dbcf1c476eb282cf77b25f03eb076729ebec5df0ca8bba3cb05a6",
+      "after_sha256": "5be554bcc006c23f952cae04921aaafce0f8a6d388c16355aefb6ca40eae3a04"
+    },
+    "agent-service/specs/business-context/compactTurnContract.spec.ts": {
+      "before_sha256": "170c23bee25786da483990018240df05cde6addcc668f8724b79d7ea1d22d764",
+      "after_sha256": "f4a62c989ab1595eaa97ea9f902ddc7dfcc32db3bfac8204f4e969b7166b03d0"
+    },
+    "agent-service/specs/business-context/fixedTurnArgs.spec.ts": {
+      "before_sha256": null,
+      "after_sha256": "266844c82be90bd1a84c290389976a74d28c4748ca535deac2686db67ff126df"
+    },
+    "agent-service/specs/conversationReplyTurn.spec.ts": {
+      "before_sha256": "9825ed012d6e28a4f244f87182cac7ead8c4d683871fb578947219eebb9b4173",
+      "after_sha256": "692e036d69b637702887aec3dc2f6f9f2e9d3466bb73609616e4d8f150a4b7d8"
+    },
+    "agent-service/specs/fixedBusinessCapabilities.spec.ts": {
+      "before_sha256": null,
+      "after_sha256": "8b673986929ca62d0792d5c5fd078f570c709b0f7e75da309ac137e842272f48"
+    },
+    "agent-service/specs/fixedModelProjection.spec.ts": {
+      "before_sha256": null,
+      "after_sha256": "b8804e3b2998574987287d9d422a150b3834c33222eb404a88d72ac967a12023"
+    },
+    "agent-service/specs/fixedTurnCompatibility.spec.ts": {
+      "before_sha256": null,
+      "after_sha256": "a79f4c3505e64f11131679ecfc1695ee753d1e9783a989991a9185db10c716a1"
+    },
+    "agent-service/specs/harnessHost.test.ts": {
+      "before_sha256": "9f95734556580bfb8eb7d9418216caa90bcd169d3f2c5a03ee47ebb1b768243c",
+      "after_sha256": "508c8f89b8a95b0ced12ce3c8e262ff1c676a7600348edde94b72fdcb23619bd"
+    },
+    "agent-service/specs/prompts/businessSystemPrompt.spec.ts": {
+      "before_sha256": "374f2ff7281e0044c23093eb8c25b4deff4bcd6ae5c2fb33cbe628e4d274cc01",
+      "after_sha256": "659d8a4ea399d19f25623f858f7c8e7c97f5e08a31b8ce276dee9f2a27b5e193"
+    },
+    "agent-service/specs/routes.test.ts": {
+      "before_sha256": "ab8f82f17cd4edb245126e0b1b5df1f78b0727af691b563199de44afa06d7d4f",
+      "after_sha256": "d1fc54072127b66ccda15ae2c8094b7e67935e85a70e5ee7c6c2848289371998"
+    },
+    "agent-service/specs/typoConfirmationFlow.spec.ts": {
+      "before_sha256": "8bc41810527eeea38f6134fa7b6d2685c182b0c8d62bcbd5a138001ad05916ca",
+      "after_sha256": "c04f33439bd3fe6af36517083c5ba32c8a74bc09a432f8d08418206c5429ff01"
+    },
+    "agent-service/src/business-context/fixedTurnArgs.ts": {
+      "before_sha256": null,
+      "after_sha256": "8b38465ccf0c0005fc79be385433671c28aaa593b7c6a7aeffb490fa7528b5ef"
+    },
+    "agent-service/src/business-context/modelView.ts": {
+      "before_sha256": "788a95e9d7cb25a73d79bab1effec90b8d0c4904fb0707596f0cbf31390fe0c6",
+      "after_sha256": "c61f3af55167d5bb90de0770a4ce76a697af361a86dedd50dd4ff5bdb1b0951c"
+    },
+    "agent-service/src/fixedTurnCompatibility.ts": {
+      "before_sha256": null,
+      "after_sha256": "8f66f97303216a6e03048af93b679e4e2ded35b0080547e066dadffac34e12ab"
+    },
+    "agent-service/src/harnessHost.ts": {
+      "before_sha256": "073611cb52ac268b7152b6ff83977a0255439453ae849fe4911ae91682e88daa",
+      "after_sha256": "00e4f1705d6b62d3be19a365203d36e8e127b08c0aea948f44e1fd61f41777c8"
+    },
+    "agent-service/src/modelContext.ts": {
+      "before_sha256": "8b94ddb01ca17aa76380f63968a20547e98b4d4890606d02d5700a2a6cb1279b",
+      "after_sha256": "146e477d203362af3bb9107ebadc97e8049b84f3db20939d5efc217fd41f6b3a"
+    },
+    "agent-service/src/prompts/businessSystemPrompt.ts": {
+      "before_sha256": "9fe8ec35a2c998e2509d69123ee3d76f1bbc8466cdcb2442a42cd090cd324468",
+      "after_sha256": "a30928c6b5733877c448e279552b34c6a5a566ba9c046e69af6a9ec3b76e3c49"
+    },
+    "agent-service/src/tools/businessContext.ts": {
+      "before_sha256": "f804dd655ede38b53c4ca49d4d3834588b9929b2c57b0d725c60320e9d7754cf",
+      "after_sha256": "e255452a174cf60a6bc8da168af783d9ef5b4d4adf7f6f6fc8b1af947409e488"
+    },
+    "agent-service/src/tools/index.ts": {
+      "before_sha256": "b79695415f7d5d1cf3021f539857beef50052d57904d478fbc91793a23f404c8",
+      "after_sha256": "7d11028e7ff3c36b42bfb0240c59e6150b2dff5ee78c219022451d2cd9b76c58"
+    },
+    "deploy/package/runtime/agent.env.example": {
+      "before_sha256": "adf98514b18b0364a96d54a7257a462935d967b4883af4ae4b40a15e44b9a2af",
+      "after_sha256": "7edc0049a8354f7f3e46f4bdc13949aa7403bb93874a252dc98af2872f3664f8"
+    },
+    "docs/business-context-reference-recovery.md": {
+      "before_sha256": "cfbe3cda8ab8fb3e596112cb6e8f4c1fae1556ac6cab3593e49b8aac3b25e17a",
+      "after_sha256": "33ba5228189b062ef6240993aceb2c163df372d78008a5c008c9a2924adff093"
+    },
+    "docs/business-skills-runtime.md": {
+      "before_sha256": "eba92cfab0c391f1ae26deb9abbd412f62eacfe81c89968102964c50c85f15c6",
+      "after_sha256": "1da2e6bf7d11488602eecd7bcc246efd69b4dbcc6b4f1185867daa120b99881e"
+    },
+    "docs/fixed-business-turn-interface.md": {
+      "before_sha256": null,
+      "after_sha256": "795292d69611983e86f0193f243dbc236e64a683ca080cbb3bc476317b697380"
+    },
+    "docs/pi-business-context.md": {
+      "before_sha256": "8593cdc059cb7e0f50af4c185f338ebc7354cc64cf006b2b6530dab07f4a50fe",
+      "after_sha256": "477e56c9526962c08ea539e1a68b3a67cf4674b1209ab0182a4401c14ff0985d"
+    }
+  }
+}

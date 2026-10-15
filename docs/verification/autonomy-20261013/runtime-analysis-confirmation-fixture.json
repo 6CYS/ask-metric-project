@@ -1,0 +1,82 @@
+{
+  "provenance": "Actual NativeAnalysisStore pending-frame confirmation calls with synthetic candidate identities.",
+  "confirmed_constraints": {
+    "schema_version": 1,
+    "conversation_id": "conversation-a",
+    "analysis_id": "476a7d65-ae1e-4dfc-9f28-e0d7d0763bc4",
+    "constraint_version": 2,
+    "source_question": "第一个",
+    "source_question_sha256": "a944aae4921362da92db6c6677768a857cf31eb9e373cefa30e4760c8fc0bd2b",
+    "source_history": [
+      {
+        "source_question": "分析样本行贷款余额当日数、存款余额",
+        "source_question_sha256": "66806234a2528467b41f69c232e2c020172532f50f3b5dbf5bfd772f5d8fae98"
+      },
+      {
+        "source_question": "第一个",
+        "source_question_sha256": "a944aae4921362da92db6c6677768a857cf31eb9e373cefa30e4760c8fc0bd2b"
+      }
+    ],
+    "metric_source_question": "分析样本行贷款余额当日数、存款余额",
+    "source_metric_bindings": [
+      {
+        "start": 5,
+        "end": 12,
+        "text": "贷款余额当日数",
+        "codes": [
+          "metric-old"
+        ]
+      },
+      {
+        "start": 13,
+        "end": 17,
+        "text": "存款余额",
+        "codes": [
+          "metric-a"
+        ]
+      }
+    ],
+    "fixed_metric_updates": [
+      {
+        "target_id": "target-1",
+        "mode": "replace",
+        "codes": [
+          "metric-old",
+          "metric-a"
+        ],
+        "source_span": {
+          "start": 0,
+          "end": 3,
+          "text": "第一个"
+        }
+      }
+    ],
+    "targets": [
+      {
+        "target_id": "target-1",
+        "org_codes": [
+          "org-a"
+        ],
+        "time": {
+          "start": "2026-03-31",
+          "end": "2026-03-31"
+        },
+        "fixed_metric_codes": [
+          "metric-old",
+          "metric-a"
+        ],
+        "allowed_metric_codes": [],
+        "metric_selection_policy": "catalog"
+      }
+    ],
+    "requirements": [
+      {
+        "requirement_id": "r1",
+        "target_ids": [
+          "target-1"
+        ],
+        "description": "两个指标"
+      }
+    ]
+  }
+}

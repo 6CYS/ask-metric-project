@@ -1,0 +1,1811 @@
+--- a/agent-service/README.md
++++ b/agent-service/README.md
+@@ -66,7 +66,7 @@
+ 无法无损转换的非规范旧参数不会被静默补值或丢值，历史副本保留原样，在途参数由原生校验拒绝。
+ 
+ `set` 的具名字段说明来自现有能力注册表，值仍由业务服务按当前能力校验；机构集合和下辖范围应传范围对象。
+-参数纠错须保留同一来源，并重新提交本轮全部有效变化，`retain` 不能替代本轮新值。
++参数纠错须保留同一来源及本轮全部有效变化，`retain` 不能替代本轮新值。已核验的候选确认独立保存；恢复回执的 `pending_changes` 区分有依据的待修变化与允许明确继承旧值的错误提案，不能靠省略字段绕过恢复。正式指标错字的自动纠正、原文审计与排名证据校验见[确认与恢复契约](../docs/business-context-reference-recovery.md)。
+ 空授权范围、不支持的查询组合和不支持的覆盖查询范围返回 `retryable=false`；宿主结束本轮业务动作并交付原因，下一用户轮可继续新请求。
+ 这项确定失败修复和后端完整日期表达解析修复对两种开关均生效，关闭参数开关只回退模型参数格式。
+ 
+--- a/agent-service/specs/business-context/argumentCorrections.spec.ts
++++ b/agent-service/specs/business-context/argumentCorrections.spec.ts
+@@ -68,7 +68,8 @@
+     const input = f.delta(selection, ranking);
+     const original = structuredClone(input);
+     let error: unknown;
+-    try {await f.service.resolve(input, f.identity, f.context);} catch (caught) {error = caught;}
++    try {await f.service.resolve(input, f.identity,
++      {...f.context, originalMessage: ranking ? question : question.replace("排名前3名", "")});} catch (caught) {error = caught;}
+     expect(error).toBeInstanceOf(BusinessInputError);
+     expect(error).toMatchObject({code: "FIELD_COMBINATION_INVALID", field: "selection", corrections: [{
+       field: "selection", reason, allowedValues: allowed, inputSchema: {anyOf: [{type: "string", enum: allowed}, fieldClarificationInputSchema]},
+@@ -120,7 +121,8 @@
+   it.each(["exact", "latest_in_range"])("离散日期普通取值保留既有合法%s规则", async selection => {
+     const time = {start: "2026-06-30", end: "2026-07-31", dates: ["2026-06-30", "2026-07-31"]};
+     const f = await fixture(time);
+-    const frame = await f.service.resolve(f.delta(selection, false), f.identity, f.context);
++    const frame = await f.service.resolve(f.delta(selection, false), f.identity,
++      {...f.context, originalMessage: question.replace("排名前3名", "")});
+     expect(frame.status).toBe("ready");
+     expect(frame.fields.time?.resolvedValue).toEqual(time);
+     expect(frame.fields.selection?.resolvedValue).toBe(selection);
+@@ -129,7 +131,8 @@
+   it.each([{selection: "exact", ranking: true}, {selection: "all_in_range", ranking: false}])(
+     "离散日期不支持的组合仍终止，不建议删去用户目标：$selection/$ranking", async ({selection, ranking}) => {
+       const f = await fixture({start: "2026-06-30", end: "2026-07-31", dates: ["2026-06-30", "2026-07-31"]});
+-      await expect(f.service.resolve(f.delta(selection, ranking), f.identity, f.context)).rejects.toThrow("UNSUPPORTED_QUERY_COMBINATION");
++      await expect(f.service.resolve(f.delta(selection, ranking), f.identity,
++        {...f.context, originalMessage: ranking ? question : question.replace("排名前3名", "")})).rejects.toThrow("UNSUPPORTED_QUERY_COMBINATION");
+       expect(await f.store.list()).toEqual([]);
+       expect(f.backend.basicQueries).not.toHaveBeenCalled();
+     });
+@@ -208,7 +211,8 @@
+   it.each(invalidCases)("只报告允许组合，无业务查询或自动修正：$name", async ({selection, ranking, reason, allowed}) => {
+     const f = await fixture();
+     const delta = f.delta(selection, ranking);
+-    const result = await runTool(createResolveBusinessTurnTool({compactTurnArgs}), compactTurnArgs ? toCompactTurnArgs(delta) : delta, f.request);
++    const result = await runTool(createResolveBusinessTurnTool({compactTurnArgs}), compactTurnArgs ? toCompactTurnArgs(delta) : delta,
++      {...f.request, originalMessage: ranking ? question : question.replace("排名前3名", "")});
+     const receipt = receiptJson(result);
+     expect(receipt).toMatchObject({status: "ARGUMENT_ERROR", error_code: "FIELD_COMBINATION_INVALID", field: "selection",
+       scope: "argument_validation", query_executed: false, preserve_user_conditions: true, focus_preserved: true, next_action: "correct_arguments",
+--- a/agent-service/specs/business-context/compactTurnContract.spec.ts
++++ b/agent-service/specs/business-context/compactTurnContract.spec.ts
+@@ -175,14 +175,19 @@
+ 
+     it.each([
+       {name: "名称中的排名不自动产生排序", operation: {kind: "value"}},
+-      // 正式失败样本：模型显式错加top1是合法结构，表达优化不能偷偷改写其语义。
+-      {name: "真实错加排名参数仍按原值执行", operation: {kind: "ranking", position: "top", top_n: 1}},
++      {name: "真实错加排名参数不能凭合法形状执行", operation: {kind: "ranking", position: "top", top_n: 1}},
+     ])("$name", async ({operation}) => {
+       const f = await fixture(compactTurnArgs);
+       const request = f.turn(`查询合成甲农商行${dateText}的指标“${metricNames[2]}”`);
+       const resolved = await resolve(f, initialInputs("合成甲农商行", operation)[format], request);
+-      expect(resolved.receipt.status).toBe("READY");
+-      expect(await execute(f, resolved.receipt.frameId, request)).toMatchObject({metric_codes: ["M3"], org_codes: ["O1"], operation});
++      if (operation.kind === "ranking") {
++        expect(resolved.receipt.status).toBe("NEEDS_CLARIFICATION");
++        expect((await f.frames.get(String(resolved.receipt.frameId)))?.fields.operation?.resolutionStatus).toBe("ambiguous");
++        expect(f.backend.basicQueries).not.toHaveBeenCalled();
++      } else {
++        expect(resolved.receipt.status).toBe("READY");
++        expect(await execute(f, resolved.receipt.frameId, request)).toMatchObject({metric_codes: ["M3"], org_codes: ["O1"], operation});
++      }
+     });
+ 
+     it("未知字段与非法字段值仍走原业务参数错误，不写Frame或查询", async () => {
+--- /dev/null
++++ b/agent-service/specs/business-context/confirmationContinuation.spec.ts
+@@ -0,0 +1,282 @@
++import {mkdtempSync, rmSync} from "node:fs";
++import {tmpdir} from "node:os";
++import {join} from "node:path";
++import {afterEach, describe, expect, it, vi} from "vitest";
++import {NativeSessionStore} from "../../src/nativeSessions.js";
++import {NativeFrameStore} from "../../src/business-context/store.js";
++import {BusinessContextService} from "../../src/business-context/service.js";
++import {createCapabilities} from "../../src/business-context/capabilities.js";
++import {createFieldResolvers} from "../../src/business-context/resolvers.js";
++import {frameClarificationOptions, modelFrame} from "../../src/business-context/modelView.js";
++import {toCompactTurnArgs} from "../../src/business-context/turnArgs.js";
++import {createExecuteBusinessFrameTool, createResolveBusinessTurnTool} from "../../src/tools/businessContext.js";
++import {MemoryCommandBridge, receiptJson, runTool, testRequestContext} from "../../src/tools/testUtils.js";
++import type {BackendClient} from "../../src/backendClient.js";
++import type {BusinessFrame, ContextDelta, FieldResolution, FieldTurnIntent} from "../../src/business-context/types.js";
++
++const cleanup: Array<() => Promise<void>> = [];
++afterEach(async () => {for (const close of cleanup.splice(0)) await close(); vi.restoreAllMocks();});
++const inherited: FieldTurnIntent = {mode: "inherit", sourceText: null, expectedCount: null};
++const july = {start: "2026-07-01", end: "2026-07-31"};
++const august = {start: "2026-08-01", end: "2026-08-31"};
++
++async function fixture(compact: boolean, point: boolean, knownScope = false, reply = "合成利润金额") {
++  vi.spyOn(console, "info").mockImplementation(() => {});
++  const path = mkdtempSync(join(tmpdir(), "confirmation-continuation-"));
++  let sessions = new NativeSessionStore(path);
++  const session = await sessions.create("synthetic-confirmation-user");
++  cleanup.push(async () => {await sessions.close(); rmSync(path, {recursive: true, force: true});});
++  let store = new NativeFrameStore(session);
++  const orgText = knownScope ? "合成机构甲和合成机构乙" : "模糊机构";
++  const originalMessage = `查询模糊利润 ${orgText} 2026年7月`;
++  const backend = {
++    resolveBusinessField: vi.fn(async (entity: string, raw: string[]): Promise<FieldResolution> => {
++      if (entity === "date") return {status: "resolved", value: raw[0] === "2026年8月" ? august : july};
++      if (entity === "metric") return raw[0] === "M1"
++        ? {status: "resolved", value: {codes: ["M1"], names: ["合成利润金额当日数"]}}
++        : {status: "needs_confirmation", candidates: [{code: "M1", value: "合成利润金额当日数",
++          metadata: {kind: "base", source_metric_code: "LOCAL:合成利润金额", base_name: "合成利润金额"}}]};
++      if (raw[0] === "模糊机构") return {status: "needs_confirmation", candidates: [{code: "O1", value: "合成机构甲"}]};
++      const codes = raw.map(value => value === "合成机构乙" || value === "O2" ? "O2" : "O1");
++      return {status: "resolved", value: {codes, names: codes.map(code => code === "O1" ? "合成机构甲" : "合成机构乙")}};
++    }),
++    createAgentQueryContext: vi.fn(async () => ({conversation_id: "synthetic-conversation"})),
++    basicQueries: vi.fn(async () => ({result: {status: "succeeded", task_id: "synthetic-task", columns: [], rows: [], row_count: 0}})),
++    getTask: vi.fn(async () => ({version: 1, result: {result_id: "synthetic-result"}})),
++  };
++  const service = new BusinessContextService(store, createCapabilities(), createFieldResolvers());
++  const first = await service.resolve({capabilityHint: "metric_query", baseReference: null, executionMode: "resolve_more",
++    ...(knownScope ? {fieldIntents: {organizations: {mode: "set", sourceText: orgText, expectedCount: 2} as FieldTurnIntent}} : {}),
++    fieldChanges: [
++      {fieldHint: "metrics", operation: "set", rawValue: "模糊利润"},
++      {fieldHint: "organizations", operation: "set", rawValue: knownScope ? ["合成机构甲", "合成机构乙"] : "模糊机构"},
++      {fieldHint: "time", operation: "set", rawValue: "2026年7月"},
++      {fieldHint: "selection", operation: "set", rawValue: knownScope ? "latest_in_range" : {clarify: true, sourceText: "2026年7月"}},
++    ]}, {sessionId: session.metadata.id, turnId: "initial", requestId: "initial"},
++  {originalMessage, currentDate: "2026-10-14", turnId: "initial", resolveCatalog: backend.resolveBusinessField});
++  const option = frameClarificationOptions(first).flatMap(group => group.options).find(item => item.field === "metrics")!;
++  const request = () => testRequestContext(backend as unknown as BackendClient, new MemoryCommandBridge(), {
++    frames: store, sessionId: session.metadata.id, operationId: "reply", requestId: "reply", originalMessage: reply,
++    ...(point ? {clarificationSelection: {frame_id: first.frameId, option_ids: [option.id]}} : {}),
++  });
++  const tool = createResolveBusinessTurnTool({compactTurnArgs: compact});
++  const run = (delta: ContextDelta) => runTool(tool, compact ? toCompactTurnArgs(delta) : delta, request());
++  const failedDelta: ContextDelta = {capabilityHint: "metric_query", baseReference: {frameId: first.frameId}, executionMode: "execute",
++    fieldIntents: {organizations: {mode: "confirm", sourceText: orgText, expectedCount: null}}, fieldChanges: [
++      {fieldHint: "metrics", operation: "set", rawValue: {confirm: true}},
++      {fieldHint: "organizations", operation: "set", rawValue: {confirm: true, evidence: {decision: "accept", sourceText: orgText}}},
++      {fieldHint: "selection", operation: "set", rawValue: {clarify: true, sourceText: "2026年7月"}},
++    ]};
++  const failed = async (delta = failedDelta) => {
++    const receipt = receiptJson(await run(delta));
++    const focus = await store.get((await store.state()).focusFrameId!);
++    expect(focus?.recovery).toBeDefined();
++    return {receipt, recovery: focus!};
++  };
++  const continued = (recovery: BusinessFrame): ContextDelta => ({capabilityHint: "metric_query", baseReference: {frameId: recovery.frameId},
++    executionMode: "execute", fieldChanges: [], fieldIntents: {organizations: inherited, selection: inherited}});
++  const reopen = async () => {
++    await sessions.close(); sessions = new NativeSessionStore(path);
++    store = new NativeFrameStore(await sessions.open("synthetic-confirmation-user", session.metadata));
++  };
++  return {first, backend, run, request, failed, failedDelta, continued, reopen, get store() {return store;}};
++}
++
++describe.each([false, true])("确认恢复结构化续接：compact=%s", compact => {
++  it.each([false, true])("仅指标确认后取消无依据额外动作，保留其它澄清：point=%s", async point => {
++    const f = await fixture(compact, point);
++    const {receipt, recovery} = await f.failed();
++    expect(receipt).toMatchObject({status: "ARGUMENT_ERROR", error_code: "FIELD_INTENT_EVIDENCE_INVALID",
++      retry_reference: {frameId: recovery.frameId}, pending_fields: ["organizations", "selection"], confirmed_fields: ["metrics"],
++      pending_changes: [{field: "organizations", operation: "set", may_retain: true}, {field: "selection", operation: "set", may_retain: true}]});
++    expect(modelFrame(recovery, "reply", compact)).toMatchObject({retry_reference: {frameId: recovery.frameId},
++      pending_fields: ["organizations", "selection"], confirmed_fields: ["metrics"]});
++    expect(recovery.operationFrameId).toBe(f.first.operationFrameId);
++    expect((await f.store.get(f.first.frameId))?.fields.metrics?.resolutionStatus).toBe("needs_confirmation");
++    f.backend.resolveBusinessField.mockClear();
++    const result = receiptJson(await f.run(f.continued(recovery)));
++    expect(result).toMatchObject({status: "NEEDS_CLARIFICATION", issues: [{field: "organizations"}, {field: "selection"}]});
++    const saved = (await f.store.get(String(result.frameId)))!;
++    expect(saved).toMatchObject({parentFrameId: recovery.frameId, turnId: "reply",
++      fields: {metrics: {resolutionStatus: "resolved", resolvedValue: {codes: ["M1"]}, sourceFrameId: recovery.frameId},
++        organizations: {resolutionStatus: "needs_confirmation"}, time: {resolvedValue: july}, selection: {resolutionStatus: "ambiguous"}}});
++    expect(saved.recovery).toBeUndefined();
++    expect(f.backend.resolveBusinessField).not.toHaveBeenCalled();
++    expect((await f.store.state()).focusFrameId).toBe(saved.frameId);
++    expect(f.backend.basicQueries).not.toHaveBeenCalled();
++  });
++
++  it("刷新后仍保留确认、恢复来源与可取消字段", async () => {
++    const f = await fixture(compact, true);
++    const {recovery} = await f.failed();
++    await f.reopen();
++    expect((await f.store.get(recovery.frameId))?.recovery).toEqual(recovery.recovery);
++    const result = receiptJson(await f.run(f.continued(recovery)));
++    expect(result.status).toBe("NEEDS_CLARIFICATION");
++    expect((await f.store.get(String(result.frameId)))?.fields.metrics?.resolvedValue).toMatchObject({codes: ["M1"]});
++  });
++
++  it("点选仅绑定指标，肯定展示文字不能顺带确认其它机构", async () => {
++    const f = await fixture(compact, true, false, "是");
++    const {recovery} = await f.failed();
++    expect(recovery.fields.organizations?.resolutionStatus).toBe("needs_confirmation");
++    const result = receiptJson(await f.run(f.continued(recovery)));
++    expect(result.status).toBe("NEEDS_CLARIFICATION");
++    expect((await f.store.get(String(result.frameId)))?.fields.organizations?.resolutionStatus).toBe("needs_confirmation");
++  });
++
++  it("自然回复不能只凭模型affirmation保存整份候选", async () => {
++    const f = await fixture(compact, false, false, "没问题");
++    const before = await f.store.state();
++    const failed = receiptJson(await f.run({...f.failedDelta, fieldChanges: [
++      {fieldHint: "metrics", operation: "set", rawValue: {confirm: true, evidence: {decision: "accept", sourceText: "没问题"}}},
++      ...f.failedDelta.fieldChanges.slice(1),
++    ]}));
++    expect(failed.status).toBe("ARGUMENT_ERROR");
++    expect(await f.store.state()).toEqual(before);
++    expect((await f.store.get(f.first.frameId))?.fields.metrics?.resolutionStatus).toBe("needs_confirmation");
++  });
++
++  it("省略全部pending不能自动放弃其它失败提案", async () => {
++    const f = await fixture(compact, true);
++    const {recovery} = await f.failed();
++    const before = await f.store.state();
++    const delta = {...f.continued(recovery), fieldIntents: {organizations: inherited}};
++    const result = receiptJson(await f.run(delta));
++    expect(result).toMatchObject({status: "ARGUMENT_ERROR", error_code: "TURN_CHANGES_PENDING", field: "selection",
++      pending_fields: ["organizations", "selection"]});
++    expect(await f.store.state()).toEqual(before);
++    expect(f.backend.basicQueries).not.toHaveBeenCalled();
++  });
++
++  it.each([false, true])("本轮真实日期变化不能被inherit/retain吞掉：retain=%s", async retain => {
++    const f = await fixture(compact, true, false, "合成利润金额，日期改成2026年8月");
++    const delta = {...f.failedDelta, fieldChanges: [...f.failedDelta.fieldChanges, {fieldHint: "time", operation: "set" as const, rawValue: "2026年8月"}]};
++    const {recovery} = await f.failed(delta);
++    const bad = {...f.continued(recovery), fieldIntents: {organizations: inherited, selection: inherited, time: inherited},
++      fieldChanges: retain ? [{fieldHint: "time", operation: "retain" as const}] : []};
++    const result = receiptJson(await f.run(bad));
++    expect(result).toMatchObject({status: "ARGUMENT_ERROR", error_code: "TURN_CHANGES_PENDING", field: "time",
++      pending_changes: expect.arrayContaining([expect.objectContaining({field: "time", operation: "set", source_text: "2026年8月", may_retain: false})])});
++    const corrected = {...f.continued(recovery), fieldChanges: [{fieldHint: "time", operation: "set" as const, rawValue: "2026年8月"}]};
++    const saved = receiptJson(await f.run(corrected));
++    expect(saved.status).toBe("NEEDS_CLARIFICATION");
++    expect((await f.store.get(String(saved.frameId)))?.fields.time?.resolvedValue).toEqual(august);
++    expect(f.backend.basicQueries).not.toHaveBeenCalled();
++  });
++
++  it("机构真实变化不能靠合法inherit或retain取消，修正后保留新机构", async () => {
++    const f = await fixture(compact, true, false, "合成利润金额，机构改成合成机构乙");
++    const delta: ContextDelta = {...f.failedDelta,
++      fieldIntents: {organizations: {mode: "set", sourceText: "合成机构乙", expectedCount: 1}}, fieldChanges: [
++        {fieldHint: "metrics", operation: "set", rawValue: {confirm: true}},
++        {fieldHint: "organizations", operation: "set", rawValue: "合成机构乙"},
++        {fieldHint: "time", operation: "set", rawValue: "2026年7月"},
++      ]};
++    const {recovery} = await f.failed(delta);
++    for (const fieldChanges of [[], [{fieldHint: "organizations", operation: "retain" as const}]]) {
++      const rejected = receiptJson(await f.run({...f.continued(recovery), fieldIntents: {organizations: inherited, time: inherited}, fieldChanges}));
++      expect(rejected).toMatchObject({status: "ARGUMENT_ERROR", error_code: "TURN_CHANGES_PENDING", field: "organizations"});
++    }
++    const result = receiptJson(await f.run({...f.continued(recovery), fieldIntents: {...delta.fieldIntents, time: inherited},
++      fieldChanges: [{fieldHint: "organizations", operation: "set", rawValue: "合成机构乙"}]}));
++    expect(result.status).toBe("NEEDS_CLARIFICATION");
++    expect((await f.store.get(String(result.frameId)))?.fields.organizations).toMatchObject({resolvedValue: {codes: ["O2"]},
++      metadata: {turnIntentExpectedCount: 1}});
++  });
++
++  it("失败提案中的本轮数量不能在恢复时用null或新数量删掉", async () => {
++    const sourceText = "合成机构甲和合成机构乙共两家";
++    const f = await fixture(compact, true, false, `合成利润金额，机构改成${sourceText}`);
++    const input: ContextDelta = {...f.failedDelta, fieldIntents: {organizations: {mode: "set", sourceText, expectedCount: 2}},
++      fieldChanges: [{fieldHint: "metrics", operation: "set", rawValue: {confirm: true}},
++        {fieldHint: "organizations", operation: "set", rawValue: ["合成机构甲", "合成机构乙"]},
++        {fieldHint: "time", operation: "set", rawValue: "2026年7月"}]};
++    const {recovery} = await f.failed(input);
++    const corrected: ContextDelta = {...f.continued(recovery), fieldIntents: {
++      organizations: {mode: "set", sourceText, expectedCount: null}, time: inherited},
++      fieldChanges: [{fieldHint: "organizations", operation: "set", rawValue: "合成机构乙"}]};
++    const conflict = receiptJson(await f.run({...corrected, fieldIntents: {...corrected.fieldIntents,
++      organizations: {mode: "set", sourceText, expectedCount: 1}}}));
++    expect(conflict).toMatchObject({status: "ARGUMENT_ERROR", error_code: "FIELD_INTENT_COUNT_CONFLICT"});
++    const incomplete = receiptJson(await f.run(corrected));
++    expect(incomplete.status).toBe("NEEDS_CLARIFICATION");
++    expect((await f.store.get(String(incomplete.frameId)))?.fields.organizations).toMatchObject({resolutionStatus: "not_found",
++      metadata: {turnIntentExpectedCount: 2, referenceIssue: {expectedCount: 2, actualCount: 1}}});
++    expect(f.backend.basicQueries).not.toHaveBeenCalled();
++  });
++
++  it.each([null, 99])("已有全量数量不变，无依据额外数量%j不会锁入恢复，可执行一次", async expectedCount => {
++    const f = await fixture(compact, true, true);
++    const {recovery} = await f.failed({...f.failedDelta, fieldIntents: {organizations: {
++      ...f.failedDelta.fieldIntents!.organizations!, expectedCount}}});
++    expect(recovery.recovery?.pendingChanges?.find(item => item.field === "organizations")?.expectedCount).toBeUndefined();
++    const result = receiptJson(await f.run(f.continued(recovery)));
++    expect(result.status).toBe("READY");
++    expect((await f.store.get(String(result.frameId)))?.fields.organizations).toMatchObject({resolvedValue: {codes: ["O1", "O2"]},
++      metadata: {turnIntentExpectedCount: 2}});
++    await runTool(createExecuteBusinessFrameTool(), {frameId: result.frameId}, f.request());
++    expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
++    expect((f.backend.basicQueries.mock.calls as unknown[][])[0]?.[0]).toMatchObject({org_codes: ["O1", "O2"], metric_codes: ["M1"], time: july});
++  });
++
++  it("旧无provenance草稿仍要求明确处理，显式retain兼容且不吞省略项", async () => {
++    const f = await fixture(compact, true);
++    const {recovery} = await f.failed();
++    const legacy = structuredClone(recovery);
++    legacy.frameId = "legacy-recovery"; legacy.parentFrameId = recovery.frameId;
++    delete (legacy.recovery as unknown as Record<string, unknown>).pendingChanges;
++    await f.store.save(legacy, (await f.store.state()).version, "legacy-recovery");
++    const omitted = receiptJson(await f.run(f.continued(legacy)));
++    expect(omitted).toMatchObject({status: "ARGUMENT_ERROR", error_code: "TURN_CHANGES_PENDING",
++      pending_fields: ["organizations", "selection"]});
++    const explicit = receiptJson(await f.run({...f.continued(legacy), fieldChanges: [
++      {fieldHint: "organizations", operation: "retain"}, {fieldHint: "selection", operation: "retain"},
++    ]}));
++    expect(explicit.status).toBe("NEEDS_CLARIFICATION");
++  });
++
++  it("不能切回旧Frame或更换点选来源以绕过待修提案", async () => {
++    const f = await fixture(compact, true);
++    const {recovery} = await f.failed();
++    const before = await f.store.state();
++    const old = receiptJson(await f.run({...f.continued(recovery), baseReference: {frameId: f.first.frameId}}));
++    expect(old).toMatchObject({status: "ARGUMENT_ERROR", error_code: "TURN_RECOVERY_REFERENCE_REQUIRED",
++      retry_reference: {frameId: recovery.frameId}, pending_fields: ["organizations", "selection"]});
++    expect(await f.store.state()).toEqual(before);
++    const badSelection = {...f.request(), clarificationSelection: {frame_id: "foreign-frame", option_ids: ["metrics:0:code:M1"]}};
++    const invalid = receiptJson(await runTool(createResolveBusinessTurnTool({compactTurnArgs: compact}),
++      compact ? toCompactTurnArgs(f.continued(recovery)) : f.continued(recovery), badSelection));
++    expect(invalid.status).toBe("NEEDS_CLARIFICATION");
++    expect((await f.store.get(String(invalid.frameId)))?.fields.organizations?.resolutionStatus).toBe("needs_confirmation");
++    expect(f.backend.basicQueries).not.toHaveBeenCalled();
++  });
++
++  it.each(["foreign_session", "old_frame"])("失效点选%s不回退到自然文字匹配其它Frame", async source => {
++    const f = await fixture(compact, true);
++    const other = await fixture(compact, true);
++    const optionId = frameClarificationOptions(other.first).flatMap(group => group.options).find(item => item.field === "metrics")!.id;
++    let base = f.first;
++    if (source === "old_frame") {
++      const keepPending: ContextDelta = {capabilityHint: "metric_query", baseReference: {frameId: f.first.frameId},
++        executionMode: "resolve_more", fieldChanges: [], fieldIntents: {organizations: inherited}};
++      const latest = receiptJson(await runTool(createResolveBusinessTurnTool({compactTurnArgs: compact}),
++        compact ? toCompactTurnArgs(keepPending) : keepPending,
++        {...f.request(), clarificationSelection: {frame_id: other.first.frameId, option_ids: [optionId]}}));
++      base = (await f.store.get(String(latest.frameId)))!;
++    }
++    const selection = {frame_id: source === "foreign_session" ? other.first.frameId : f.first.frameId, option_ids: [optionId]};
++    const delta: ContextDelta = {capabilityHint: "metric_query", baseReference: {frameId: base.frameId}, executionMode: "execute",
++      fieldIntents: {organizations: inherited}, fieldChanges: [{fieldHint: "metrics", operation: "set", rawValue: {confirm: true}}]};
++    const result = receiptJson(await runTool(createResolveBusinessTurnTool({compactTurnArgs: compact}),
++      compact ? toCompactTurnArgs(delta) : delta, {...f.request(), originalMessage: "合成利润金额", clarificationSelection: selection}));
++    expect(result.status).toBe("NEEDS_CLARIFICATION");
++    const saved = (await f.store.get(String(result.frameId)))!;
++    expect(saved.fields.metrics?.resolutionStatus).toBe("needs_confirmation");
++    expect(saved.fields.organizations?.resolutionStatus).toBe("needs_confirmation");
++    expect(saved.fields.time?.resolvedValue).toEqual(july);
++    expect(saved.sessionId).not.toBe(other.first.sessionId);
++    expect(f.backend.basicQueries).not.toHaveBeenCalled();
++    expect(other.backend.basicQueries).not.toHaveBeenCalled();
++  });
++});
+--- a/agent-service/specs/business-context/fieldIntents.spec.ts
++++ b/agent-service/specs/business-context/fieldIntents.spec.ts
+@@ -53,7 +53,7 @@
+   const basicQueries = vi.fn();
+   const request = testRequestContext({resolveBusinessField: resolveCatalog, basicQueries} as unknown as BackendClient,
+     new MemoryCommandBridge(), {sessionId: session.metadata.id, operationId: "current", requestId: "current", frames: store,
+-      originalMessage: "对以上三家机构进行排名"});
++      originalMessage: "对以上三家机构进行排名，查看前2名"});
+   const delta: ContextDelta = {capabilityHint: "metric_query", baseReference: "current", executionMode: "resolve_more", fieldChanges: []};
+   const reference = {fromHistory: true, sourceText: "以上三家机构", combine: "union", sources: saved.map(frame => ({frame: {frameId: frame.frameId}, field: "organizations"}))};
+   return {store, service, saved, resolveCatalog, request, delta, reference, basicQueries};
+--- a/agent-service/specs/business-context/historyReference.spec.ts
++++ b/agent-service/specs/business-context/historyReference.spec.ts
+@@ -362,7 +362,8 @@
+   const receipt = receiptJson(await runTool(createResolveBusinessTurnTool(), {...f.change, baseReference: "current",
+     fieldChanges: [{fieldHint: "organizations", operation: "set", rawValue: historyInput([1, 2], "它们")}]},
+     {...f.request, originalMessage: "把它们一起排名"}));
+-  expect(receipt.status).toBe("READY");
++  expect(receipt.status).toBe("NEEDS_CLARIFICATION");
++  expect((await f.store.get(String(receipt.frameId)))?.fields.operation?.resolutionStatus).toBe("ambiguous");
+   expect((await f.store.get(String(receipt.frameId)))?.fields.organizations?.resolvedValue).toEqual({
+     codes: ["organization:合成机构1", "organization:合成机构2"], names: ["合成机构1", "合成机构2"]});
+ });
+--- a/agent-service/specs/business-context/queryIntentV2.spec.ts
++++ b/agent-service/specs/business-context/queryIntentV2.spec.ts
+@@ -155,7 +155,8 @@
+   const delta = {...f.delta, fieldChanges: f.delta.fieldChanges.map(change => change.fieldHint === "selection"
+     ? {...change, rawValue: selection} : change.fieldHint === "operation" && !ranking
+       ? {...change, rawValue: {kind: "value"}} : change)};
+-  const receipt = receiptJson(await runTool(createResolveBusinessTurnTool(), delta, f.request));
++  const request = {...f.request, originalMessage: ranking ? question : question.replace("前3名", "")};
++  const receipt = receiptJson(await runTool(createResolveBusinessTurnTool(), delta, request));
+   expect(receipt.status).toBe("READY");
+   await runTool(createExecuteBusinessFrameTool(), {frameId: receipt.frameId}, f.request);
+   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
+@@ -174,7 +175,7 @@
+     {...f.identity, turnId: "t3", requestId: "r3"}, {...f.context, turnId: "t3", originalMessage: "不排名全部列出"});
+   expect(plain.fields.operation?.resolvedValue).toEqual({kind: "value"});
+   const independent = await f.service.resolve({...f.delta, fieldChanges: f.delta.fieldChanges.filter(c => c.fieldHint !== "operation")},
+-    {...f.identity, turnId: "t4", requestId: "r4"}, f.context);
++    {...f.identity, turnId: "t4", requestId: "r4"}, {...f.context, originalMessage: question.replace("前3名", "")});
+   expect(independent.fields.operation?.resolutionStatus).toBe("missing"); expect(independent.status).toBe("ready");
+ });
+ it.each([
+--- /dev/null
++++ b/agent-service/specs/business-context/rankingEvidence.spec.ts
+@@ -0,0 +1,252 @@
++import {mkdtempSync, rmSync} from "node:fs";
++import {tmpdir} from "node:os";
++import {join} from "node:path";
++import {afterEach, describe, expect, it, vi} from "vitest";
++import {createCapabilities} from "../../src/business-context/capabilities.js";
++import {createFieldResolvers} from "../../src/business-context/resolvers.js";
++import {NativeSessionStore} from "../../src/nativeSessions.js";
++import {NativeFrameStore} from "../../src/business-context/store.js";
++import {toCompactTurnArgs} from "../../src/business-context/turnArgs.js";
++import {createExecuteBusinessFrameTool, createResolveBusinessTurnTool} from "../../src/tools/businessContext.js";
++import {MemoryCommandBridge, receiptJson, runTool, testRequestContext} from "../../src/tools/testUtils.js";
++import type {BackendClient} from "../../src/backendClient.js";
++import type {ContextDelta, FieldResolution, ResolvedField, ResolverContext} from "../../src/business-context/types.js";
++
++const schema = createCapabilities().get("metric_query").fields.operation!;
++const resolver = createFieldResolvers().getResolver(schema);
++const ranking = (position: "top" | "bottom", top_n: number) => ({kind: "ranking", position, top_n});
++const previous = (value: unknown): ResolvedField => ({source: "resolved", resolutionStatus: "resolved", resolvedValue: value});
++const resolve = (raw: unknown, originalMessage: string, prior?: ResolvedField, extra: Partial<ResolverContext> = {}): Promise<FieldResolution> =>
++  resolver.resolve(raw, schema, {originalMessage, currentDate: "2026-10-14", turnId: "current", inputSource: "explicit",
++    resolveCatalog: async () => ({status: "not_found"}), ...(prior ? {previous: prior} : {}), ...extra});
++
++describe("排名业务依据独立于参数形状", () => {
++  it.each([3, 10, 37])("只说排名不能默认前%d名", async count => {
++    const result = await resolve(ranking("top", count), "查询这些机构的存款排名");
++    expect(result).toMatchObject({status: "ambiguous", metadata: {userInputIssue: true}});
++    expect(result.value).not.toHaveProperty("top_n");
++  });
++
++  it.each([
++    ["查看前3名", "top", 3], ["查看后十二名", "bottom", 12], ["查看 TOP 7", "top", 7],
++    ["查看 bottom 二十", "bottom", 20], ["查看最高的五家", "top", 5], ["查看前一百名", "top", 100],
++    ["查看后2位", "bottom", 2], ["看最多的两家", "top", 2],
++  ] as const)("明确榜单依据 %s", async (text, position, count) => {
++    expect(await resolve(ranking(position, count), text)).toMatchObject({status: "resolved", value: ranking(position, count)});
++  });
++
++  it.each(["2026年7月31日这十家机构的排名", "查看前三个月的机构排名", "十家机构排名"])("日期、范围数量不能变成榜单条数：%s", async text => {
++    expect(await resolve(ranking("top", 10), text)).toMatchObject({status: "ambiguous"});
++  });
++
++  it.each(["前5名改成前3名", "不是前10名而是前3名", "不要前10名，改为前3名"])("更正必须绑定最终目标：%s", async text => {
++    expect(await resolve(ranking("top", 3), text)).toMatchObject({status: "resolved", value: ranking("top", 3)});
++    await expect(resolve(ranking("top", 10), text)).rejects.toMatchObject({code: "QUERY_OPERATION_EVIDENCE_MISMATCH"});
++  });
++
++  it("相互竞争的榜单目标不能选择其中一项执行", async () => {
++    expect(await resolve(ranking("top", 5), "看前5名和后3名")).toMatchObject({status: "ambiguous"});
++    expect(await resolve(ranking("top", 3), "取消排名，同时看前3名")).toMatchObject({status: "ambiguous"});
++    expect(await resolve(ranking("top", 5), "前5名改成3")).toMatchObject({status: "ambiguous"});
++  });
++
++  it("已选历史操作可以保留未改变的数量和方向，不能借日期数字换条数", async () => {
++    const prior = previous(ranking("top", 4));
++    expect(await resolve(ranking("top", 4), "日期换成5月31日", prior)).toMatchObject({status: "resolved"});
++    expect(await resolve(ranking("top", 4), "前4名，日期改成5月31日", prior)).toMatchObject({status: "resolved"});
++    expect(await resolve(ranking("bottom", 4), "改看后面", prior)).toMatchObject({status: "resolved"});
++    await expect(resolve(ranking("top", 5), "日期换成5月31日", prior)).rejects.toMatchObject({code: "QUERY_OPERATION_EVIDENCE_MISMATCH"});
++  });
++
++  it.each(["改前101名", "改前0名", "不要前4名", "取消前4名"])("显式无效或否定榜单不回退旧排名：%s", async text => {
++    expect(await resolve(ranking("top", 4), text, previous(ranking("top", 4)))).toMatchObject({status: "ambiguous"});
++  });
++
++  it("否定仅识别操作语法，机构或指标文本不改变榜单方向和条数", async () => {
++    expect(await resolve(ranking("top", 4), "不良贷款余额前4名")).toMatchObject({status: "resolved"});
++    expect(await resolve(ranking("top", 4), "查看前4名，机构改成前3路支行")).toMatchObject({status: "resolved"});
++    expect(await resolve({kind: "value"}, "返回3家机构的数据")).toMatchObject({status: "resolved"});
++    expect(await resolve(ranking("top", 4), "机构改为3家", previous(ranking("top", 4)))).toMatchObject({status: "resolved"});
++    await expect(resolve(ranking("top", 3), "机构改为3家", previous(ranking("top", 4))))
++      .rejects.toMatchObject({code: "QUERY_OPERATION_EVIDENCE_MISMATCH"});
++  });
++
++  it("未知方向时保留用户明确数量，下一轮只补方向可继续", async () => {
++    const first = await resolve(ranking("top", 10), "排名只取五名");
++    expect(first).toMatchObject({status: "ambiguous", value: {kind: "ranking", top_n: 5}});
++    expect(first.value).not.toHaveProperty("position");
++    expect(await resolve(ranking("bottom", 5), "看后面", {source: "explicit", resolutionStatus: first.status,
++      resolvedValue: first.value, ...(first.metadata ? {metadata: first.metadata} : {})})).toMatchObject({status: "resolved", value: ranking("bottom", 5)});
++    const saved: ResolvedField = {source: "explicit", resolutionStatus: first.status,
++      resolvedValue: first.value, ...(first.metadata ? {metadata: first.metadata} : {})};
++    for (const wrong of [{kind: "value"}, {kind: "rank_position"}]) {
++      await expect(resolve(wrong, "看后面", saved)).rejects.toMatchObject({code: "QUERY_OPERATION_EVIDENCE_MISMATCH"});
++    }
++    expect(await resolve({kind: "rank_position"}, "继续", saved)).toMatchObject({status: "ambiguous", value: {kind: "ranking", top_n: 5}});
++  });
++
++  it("位次、普通取值和取消排名不能偷换用户目标", async () => {
++    expect(await resolve({kind: "rank_position"}, "这家机构排第几名？")).toMatchObject({status: "resolved"});
++    expect(await resolve({kind: "rank_position"}, "看机构排名")).toMatchObject({status: "ambiguous"});
++    expect(await resolve({kind: "value"}, "看机构排名")).toMatchObject({status: "ambiguous"});
++    expect(await resolve({kind: "value"}, "查询存款余额")).toMatchObject({status: "resolved"});
++    expect(await resolve({kind: "value"}, "取消排名，只查数值", previous(ranking("top", 4)))).toMatchObject({status: "resolved"});
++    expect(await resolve({kind: "value"}, "不排名全部列出", previous(ranking("top", 4)))).toMatchObject({status: "resolved"});
++    await expect(resolve({kind: "value"}, "继续", previous(ranking("top", 4)))).rejects.toMatchObject({code: "QUERY_OPERATION_EVIDENCE_MISMATCH"});
++    expect(await resolve({kind: "rank_position"}, "日期改为上月末", previous({kind: "rank_position"}))).toMatchObject({status: "resolved"});
++  });
++
++  it("正式指标名称中的排名和数字不构成查询操作", async () => {
++    const text = "查询机构甲信贷客户数量排名当日数", metric = "信贷客户数量排名当日数";
++    const start = text.indexOf(metric);
++    expect(await resolve({kind: "value"}, text, undefined, {resolveMetricMentions: async () => ({mentions: [{text: metric,
++      start, end: start + metric.length, resolution: {status: "resolved", value: {codes: ["M"], names: [metric]}}}]})}))
++      .toMatchObject({status: "resolved", value: {kind: "value"}});
++    const pending = {resolveMetricMentions: async () => ({mentions: [{text: metric, start, end: start + metric.length,
++      resolution: {status: "needs_confirmation" as const, candidates: [{code: "M1", value: metric}, {code: "M2", value: `${metric}乙`}]}}]})};
++    expect(await resolve({kind: "value"}, text, undefined, pending)).toMatchObject({status: "resolved"});
++    expect(await resolve(ranking("top", 5), `${text}前5名`, undefined, pending)).toMatchObject({status: "resolved"});
++  });
++});
++
++const cleanup: Array<() => Promise<void>> = [];
++afterEach(async () => {for (const close of cleanup.splice(0)) await close(); vi.restoreAllMocks();});
++
++async function fixture(text = "查询合成甲行2026年7月31日合成余额当日数排名") {
++  vi.spyOn(console, "info").mockImplementation(() => {});
++  const path = mkdtempSync(join(tmpdir(), "ranking-evidence-"));
++  const sessions = new NativeSessionStore(path), owner = "synthetic-ranking-user";
++  const session = await sessions.create(owner);
++  cleanup.push(async () => {await sessions.close(); rmSync(path, {recursive: true, force: true});});
++  const store = new NativeFrameStore(session);
++  const backend = {
++    resolveBusinessField: vi.fn(async (entity: string, names: string[]) => ({status: "resolved", value: entity === "date"
++      ? {start: "2026-07-31", end: "2026-07-31"} : {codes: [entity === "metric" ? "M" : "O"], names}})),
++    createAgentQueryContext: vi.fn(async () => ({conversation_id: "synthetic-conversation"})),
++    basicQueries: vi.fn(async () => ({result: {status: "succeeded", task_id: "synthetic-task", columns: [], rows: [], row_count: 0}})),
++    getTask: vi.fn(async () => ({version: 1, result: {result_id: "synthetic-result"}})),
++  };
++  const request = testRequestContext(backend as unknown as BackendClient, new MemoryCommandBridge(), {
++    sessionId: session.metadata.id, operationId: "initial", requestId: "initial", originalMessage: text, frames: store,
++  });
++  const delta: ContextDelta = {capabilityHint: "metric_query", baseReference: null, executionMode: "execute",
++    fieldIntents: {organizations: {mode: "set", sourceText: "合成甲行", expectedCount: null}}, fieldChanges: [
++      {fieldHint: "metrics", operation: "set", rawValue: "合成余额当日数"},
++      {fieldHint: "organizations", operation: "set", rawValue: "合成甲行"},
++      {fieldHint: "time", operation: "set", rawValue: "2026年7月31日"},
++      {fieldHint: "operation", operation: "set", rawValue: ranking("top", 10)},
++    ]};
++  return {path, sessions, session, owner, store, backend, request, delta};
++}
++
++describe.each([false, true])("排名依据通过真实字段入口（compact=%s）", compactTurnArgs => {
++  const tool = () => createResolveBusinessTurnTool({compactTurnArgs});
++  const call = async (delta: ContextDelta, request: ReturnType<typeof testRequestContext>) =>
++    receiptJson(await runTool(tool(), compactTurnArgs ? toCompactTurnArgs(delta) : delta, request));
++  const followup = (fieldChanges: ContextDelta["fieldChanges"]): ContextDelta => ({capabilityHint: "metric_query", baseReference: "current", executionMode: "execute",
++    fieldIntents: {organizations: {mode: "inherit", sourceText: null, expectedCount: null}}, fieldChanges});
++
++  it.each(["排名", "排名只取五名"])("合法形状的猜测保存已知条件，服务重开仅补缺失项：%s", async suffix => {
++    const f = await fixture(`查询合成甲行2026年7月31日合成余额当日数${suffix}`);
++    const first = await call(f.delta, f.request);
++    expect(first.status).toBe("NEEDS_CLARIFICATION");
++    const pending = (await f.store.get(String(first.frameId)))!;
++    expect(pending.fields.metrics?.resolvedValue).toEqual({codes: ["M"], names: ["合成余额当日数"]});
++    expect(pending.fields.organizations?.resolvedValue).toEqual({codes: ["O"], names: ["合成甲行"]});
++    expect(pending.fields.time?.resolvedValue).toEqual({start: "2026-07-31", end: "2026-07-31"});
++    expect(pending.fields.operation?.resolvedValue).toEqual(suffix === "排名" ? {} : {kind: "ranking", top_n: 5});
++    await runTool(createExecuteBusinessFrameTool(), {frameId: first.frameId}, f.request);
++    expect(f.backend.basicQueries).not.toHaveBeenCalled();
++    await f.sessions.close();
++    const restarted = new NativeSessionStore(f.path);
++    cleanup.unshift(async () => {await restarted.close();});
++    const restored = new NativeFrameStore(await restarted.open(f.owner, f.session.metadata));
++    expect((await restored.get(pending.frameId))?.fields.operation).toEqual(pending.fields.operation);
++    const next = {...f.request, frames: restored, originalMessage: suffix === "排名" ? "查看前3名" : "查看后面", operationId: "followup", requestId: "followup"};
++    const expected = suffix === "排名" ? ranking("top", 3) : ranking("bottom", 5);
++    const ready = await call(followup([{fieldHint: "operation", operation: "set", rawValue: expected}]), next);
++    expect(ready.status).toBe("READY");
++    const saved = (await restored.get(String(ready.frameId)))!;
++    for (const field of ["metrics", "organizations", "time"]) expect(saved.fields[field]?.resolvedValue).toEqual(pending.fields[field]?.resolvedValue);
++    await runTool(createExecuteBusinessFrameTool(), {frameId: ready.frameId}, next);
++    await runTool(createExecuteBusinessFrameTool(), {frameId: ready.frameId}, next);
++    expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
++    expect((f.backend.basicQueries.mock.calls as unknown[][])[0]![0]).toMatchObject({metric_codes: ["M"], org_codes: ["O"], operation: expected});
++  });
++
++  it.each(["omit", "clear", "value"])("未确定排名不能通过%s取消目标", async mode => {
++    const f = await fixture();
++    const delta = {...f.delta, fieldChanges: f.delta.fieldChanges.filter(item => item.fieldHint !== "operation")};
++    if (mode !== "omit") delta.fieldChanges.push(mode === "clear" ? {fieldHint: "operation", operation: "clear"}
++      : {fieldHint: "operation", operation: "set", rawValue: {kind: "value"}});
++    const result = await call(delta, f.request);
++    expect(result.status).toBe("NEEDS_CLARIFICATION");
++    expect((await f.store.get(String(result.frameId)))?.fields.operation?.resolutionStatus).toBe("ambiguous");
++    expect(f.backend.basicQueries).not.toHaveBeenCalled();
++  });
++
++  it.each(["omit", "value"])("已明确前N被%s吞掉时纠正参数，不重复询问用户", async mode => {
++    const f = await fixture("查询合成甲行2026年7月31日合成余额当日数前3名");
++    const delta = {...f.delta, fieldChanges: f.delta.fieldChanges.filter(item => item.fieldHint !== "operation")};
++    if (mode === "value") delta.fieldChanges.push({fieldHint: "operation", operation: "set", rawValue: {kind: "value"}});
++    expect(await call(delta, f.request)).toMatchObject({status: "ARGUMENT_ERROR", error_code: "QUERY_OPERATION_EVIDENCE_MISMATCH",
++      corrections: [{field: "operation", reason: "invalid", inputSchema: expect.any(Object)}]});
++    expect(await f.store.list()).toEqual([]);
++    expect(f.backend.basicQueries).not.toHaveBeenCalled();
++  });
++
++  it("已选历史排名只在有依据时改变，retain或clear不抹去新目标，明确取消可执行", async () => {
++    const f = await fixture("查询合成甲行2026年7月31日合成余额当日数前4名");
++    const first = await call({...f.delta, fieldChanges: f.delta.fieldChanges.map(item => item.fieldHint === "operation" ? {...item, rawValue: ranking("top", 4)} : item)}, f.request);
++    expect(first.status).toBe("READY");
++    const date = {...f.request, originalMessage: "日期改成2026年7月31日", operationId: "date", requestId: "date"};
++    const inherited = await call(followup([]), date);
++    expect(inherited.status).toBe("READY");
++    expect((await f.store.get(String(inherited.frameId)))?.fields.operation?.resolvedValue).toEqual(ranking("top", 4));
++    for (const mode of ["retain", "clear"] as const) {
++      const next = {...f.request, originalMessage: "改看后面", operationId: mode, requestId: mode};
++      const result = await call(followup([{fieldHint: "operation", operation: mode}]), next);
++      expect(result.status).toBe("ARGUMENT_ERROR");
++      expect(f.backend.basicQueries).not.toHaveBeenCalled();
++    }
++    const cancel = {...f.request, originalMessage: "取消排名，只取数值", operationId: "cancel", requestId: "cancel"};
++    const plain = await call(followup([{fieldHint: "operation", operation: "clear"}]), cancel);
++    expect(plain.status).toBe("READY");
++    await runTool(createExecuteBusinessFrameTool(), {frameId: plain.frameId}, cancel);
++    expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
++    expect((f.backend.basicQueries.mock.calls as unknown[][])[0]![0]).toMatchObject({operation: {kind: "value"}});
++  });
++
++  it.each([
++    {reply: "当日数排名", expected: "READY", ranking: false},
++    {reply: "当日数排名，另外排名", expected: "NEEDS_CLARIFICATION", ranking: false},
++    {reply: "当日数排名，另外查看前3名", expected: "READY", ranking: true},
++  ])("候选口径词只消除已确认术语，不吞独立目标：$reply", async ({reply, expected, ranking: hasRanking}) => {
++    const text = "查询合成甲行2026年7月31日合成余额", metric = "合成余额";
++    const f = await fixture(text), start = text.indexOf(metric);
++    const initial = {...f.request, backend: {...f.backend, matchMetricQuestion: async () => ({mentions: [{text: metric, start, end: start + metric.length,
++      resolution: {status: "needs_confirmation", candidates: [
++        {code: "M-RANK", value: "合成余额当日数排名", metadata: {value_basis: "当日数排名"}},
++        {code: "M-VALUE", value: "合成余额当日数", metadata: {value_basis: "当日数"}},
++      ]}}]})} as unknown as BackendClient};
++    const pending = await call({...f.delta, fieldChanges: f.delta.fieldChanges.filter(item => item.fieldHint !== "operation")
++      .map(item => item.fieldHint === "metrics" ? {...item, rawValue: {fromQuestion: true}} : item)}, initial);
++    expect(pending.status).toBe("NEEDS_CLARIFICATION");
++    const next = {...initial, originalMessage: reply, operationId: "confirm", requestId: "confirm",
++      backend: {...f.backend, matchMetricQuestion: async () => ({mentions: []})} as unknown as BackendClient};
++    const receipt = await call(followup([{fieldHint: "metrics", operation: "set", rawValue: {confirm: true}},
++      ...(hasRanking ? [{fieldHint: "operation", operation: "set" as const, rawValue: ranking("top", 3)}] : [])]), next);
++    expect(receipt.status).toBe(expected);
++    const frame = (await f.store.get(String(receipt.frameId)))!;
++    expect(frame.fields.metrics?.resolvedValue).toEqual({codes: ["M-RANK"], names: ["合成余额当日数排名"]});
++    if (expected === "NEEDS_CLARIFICATION") {
++      expect(frame.fields.operation?.resolutionStatus).toBe("ambiguous");
++      expect(f.backend.basicQueries).not.toHaveBeenCalled();
++    } else {
++      await runTool(createExecuteBusinessFrameTool(), {frameId: frame.frameId}, next);
++      expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
++      expect((f.backend.basicQueries.mock.calls as unknown[][])[0]![0]).toMatchObject({metric_codes: ["M-RANK"],
++        operation: hasRanking ? ranking("top", 3) : {kind: "value"}});
++    }
++  });
++});
+--- /dev/null
++++ b/agent-service/specs/typoConfirmationFlow.spec.ts
+@@ -0,0 +1,198 @@
++import {mkdtempSync, rmSync} from "node:fs";
++import {tmpdir} from "node:os";
++import {join} from "node:path";
++import {afterEach, describe, expect, it, vi} from "vitest";
++import {createAssistantMessageEventStream, createModels, createProvider,
++  type AssistantMessage, type Model, type ProviderStreams} from "@earendil-works/pi-ai";
++import {BACKGROUND_CONTEXT} from "@earendil-works/pi-agent-core";
++import type {AgentServiceConfig} from "../src/config.js";
++import type {BackendClient} from "../src/backendClient.js";
++import type {ContextDelta} from "../src/business-context/types.js";
++import {HarnessHost} from "../src/harnessHost.js";
++import {NativeSessionStore} from "../src/nativeSessions.js";
++import {NativeFrameStore} from "../src/business-context/store.js";
++import {clarificationOptions} from "../src/business-context/clarificationOptions.js";
++import {toCompactTurnArgs} from "../src/business-context/turnArgs.js";
++import {createAskMetricTools} from "../src/tools/index.js";
++import {TEST_ACTOR} from "../src/tools/testUtils.js";
++import {projectEntries} from "../src/sessionProjection.js";
++
++type Reply = {text: string} | {args: Record<string, unknown>};
++type Script = Array<Reply | ((messages: unknown[]) => Reply)>;
++const cleanup: Array<() => Promise<void>> = [];
++afterEach(async () => {while (cleanup.length) await cleanup.pop()!(); vi.restoreAllMocks();});
++const inherit = {mode: "inherit" as const, sourceText: null, expectedCount: null};
++const rawMetric = "客户存款余款当日数";
++const formalMetric = "客户存款余额当日数";
++const correction = {match: "fuzzy_correction", understood_as: "客户存款余额",
++  correction: {original: "客户存款余款", canonical: "客户存款余额", value_basis: "当日数", score: 0.8333}};
++
++/** 只返回编排好的原生模型事件，任何阶段都不会创建 HTTP 模型请求。 */
++async function setup(compact: boolean, pending: boolean) {
++  vi.spyOn(console, "info").mockImplementation(() => {});
++  const dir = mkdtempSync(join(tmpdir(), "typo-confirmation-host-"));
++  const script: Script = [];
++  let calls = 0;
++  const model: Model<"openai-completions"> = {id: "offline-script", name: "offline-script", api: "openai-completions",
++    provider: "offline", baseUrl: "http://offline.invalid", reasoning: false, input: ["text"],
++    cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}, contextWindow: 128_000, maxTokens: 8192};
++  const respond: ProviderStreams["streamSimple"] = (_model, context) => {
++    const next = script[calls++];
++    if (!next) throw new Error("OFFLINE_SCRIPT_EXHAUSTED");
++    const reply = typeof next === "function" ? next(context.messages) : next;
++    const message: AssistantMessage = {role: "assistant", api: model.api, provider: model.provider, model: model.id,
++      content: "text" in reply ? [{type: "text", text: reply.text}]
++        : [{type: "toolCall", id: `script-${calls}`, name: "resolve_business_turn", arguments: reply.args}],
++      stopReason: "text" in reply ? "stop" : "toolUse", timestamp: Date.now(),
++      usage: {input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
++        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0}}};
++    const stream = createAssistantMessageEventStream();
++    queueMicrotask(() => {
++      stream.push({type: "start", partial: message});
++      stream.push({type: "done", reason: message.stopReason === "toolUse" ? "toolUse" : "stop", message});
++      stream.end(message);
++    });
++    return stream;
++  };
++  const models = createModels();
++  models.setProvider(createProvider({id: "offline", name: "offline", auth: {apiKey: {name: "offline", resolve: async () => ({auth: {}})}},
++    models: [model], api: {stream: respond, streamSimple: respond}}));
++  const config = {host: "127.0.0.1", port: 0, backendBaseUrl: "http://127.0.0.1:1", backendTimeoutMs: 1000, dataDir: dir,
++    compactTurnArgs: compact, model: {baseUrl: "http://offline.invalid", name: model.id, apiKey: "", authHeader: "Authorization",
++      authPrefix: "Bearer", userMessageSuffix: "", extraBody: {}, contextWindow: 128_000, maxTokens: 8192},
++    compaction: {enabled: false, reserveTokens: 16_384, keepRecentTokens: 20_000},
++    modelRetry: {enabled: false, maxRetries: 0, baseDelayMs: 1}} as AgentServiceConfig;
++  const store = new NativeSessionStore(dir);
++  const host = new HarnessHost(config, () => ({models, model}), store, createAskMetricTools({compactTurnArgs: compact}));
++  cleanup.push(async () => {await host.close(); await store.close(); rmSync(dir, {recursive: true, force: true});});
++  const session = await host.createSession(TEST_ACTOR);
++  const frames = new NativeFrameStore(session.session);
++  let queryCount = 0;
++  const basicQueries = vi.fn(async (_query: unknown) => ({result: {status: "succeeded", task_id: `synthetic-query-${++queryCount}`,
++    columns: [], rows: [], row_count: 0}}));
++  const backend = {
++    matchMetricQuestion: vi.fn(async (question: string) => {
++      const start = question.indexOf(rawMetric);
++      if (start < 0) return {mentions: []};
++      return {mentions: [{text: rawMetric, start, end: start + rawMetric.length, group: {id: "g1"}, resolution: pending
++        ? {status: "needs_confirmation", candidates: [{code: "M", value: formalMetric,
++          metadata: {kind: "base", source_metric_code: "SRC", base_name: "客户存款余额", group: "g1"}}]}
++        : {status: "resolved", value: {codes: ["M"], names: [formalMetric]}, metadata: correction}}]};
++    }),
++    resolveBusinessField: vi.fn(async (entity: string, names: string[]) => entity === "date"
++      ? {status: "resolved", value: names[0]?.includes("9月") ? {start: "2026-09-30", end: "2026-09-30"}
++        : names[0]?.includes("8月") ? {start: "2026-08-31", end: "2026-08-31"}
++        : names[0]?.includes("31日") ? {start: "2026-07-31", end: "2026-07-31"}
++        : {start: "2026-07-01", end: "2026-07-31"}}
++      : entity === "organization" && pending
++        ? {status: "needs_confirmation", candidates: [{code: "O", value: "合成甲银行（本级）"}]}
++        : {status: "resolved", value: {codes: ["O"], names: ["合成甲银行（本级）"]}}),
++    createAgentQueryContext: async () => ({conversation_id: "synthetic-conversation"}), basicQueries,
++    getTask: async (taskId: string) => ({task_id: taskId, status: "SUCCEEDED", version: 1, result: {result_id: `result-${taskId}`}}),
++  } as unknown as BackendClient;
++  const call = (delta: ContextDelta): Reply => ({args: (compact ? toCompactTurnArgs(delta) : delta) as unknown as Record<string, unknown>});
++  const ask = (requestId: string, message: string, selection?: {frame_id: string; option_ids: string[]}, target = session) => host.runPrompt(target,
++    {protocol_version: 3, request_id: requestId, message, ...(selection ? {clarification_selection: selection} : {})}, {actor: TEST_ACTOR, backend});
++  const latest = async () => {
++    const state = await frames.state();
++    return (await frames.get(state.focusFrameId!))!;
++  };
++  const projected = async () => projectEntries(await session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT));
++  return {script, host, session, frames, call, ask, latest, projected, basicQueries, calls: () => calls};
++}
++
++describe.each([false, true])("纠错、确认与宿主落地闭环（compact=%s）", compact => {
++  it("后端已核验纠错直接查询，日期追问及重开保留原文绑定和纠错依据", async () => {
++    const f = await setup(compact, false);
++    const original = `查询合成甲行2026年7月31日${rawMetric}`;
++    const binding = {text: rawMetric, start: original.indexOf(rawMetric), end: original.indexOf(rawMetric) + rawMetric.length, codes: ["M"]};
++    const mention = {...binding, status: "resolved", value: {codes: ["M"], names: [formalMetric]}, metadata: correction};
++    const {codes: _codes, ...mentionResolution} = mention;
++    f.script.push(f.call({capabilityHint: "metric_query", baseReference: null, executionMode: "execute",
++      fieldIntents: {organizations: {mode: "set", sourceText: "合成甲行", expectedCount: null}}, fieldChanges: [
++        {fieldHint: "metrics", operation: "set", rawValue: {fromQuestion: true}},
++        {fieldHint: "organizations", operation: "set", rawValue: "合成甲行"},
++        {fieldHint: "time", operation: "set", rawValue: "2026年7月31日"},
++      ]}), {text: "查询完成，当前没有匹配记录。"});
++    expect(await f.ask("initial", original)).toMatchObject({ok: true, outcome: {kind: "settled", outcome: {status: "completed"}}});
++    expect(f.basicQueries).toHaveBeenCalledTimes(1);
++    expect(f.basicQueries.mock.calls[0]?.[0]).toMatchObject({metric_codes: ["M"], org_codes: ["O"],
++      time: {start: "2026-07-31", end: "2026-07-31"}, source_question: original,
++      source_metric_bindings: [binding]});
++    expect((await f.latest()).fields.metrics?.metadata?.mentionResolutions).toMatchObject([mentionResolution]);
++    f.script.push(f.call({capabilityHint: "metric_query", baseReference: "current", executionMode: "execute",
++      fieldIntents: {organizations: inherit}, fieldChanges: [{fieldHint: "time", operation: "set", rawValue: "2026年8月31日"}]}),
++    {text: "日期已更新，当前没有匹配记录。"});
++    expect(await f.ask("date-followup", "日期改为2026年8月31日")).toMatchObject({ok: true, outcome: {kind: "settled", outcome: {status: "completed"}}});
++    expect(f.basicQueries).toHaveBeenCalledTimes(2);
++    expect(f.basicQueries.mock.calls[1]?.[0]).toMatchObject({metric_codes: ["M"], org_codes: ["O"],
++      time: {start: "2026-08-31", end: "2026-08-31"}, source_question: original, source_metric_bindings: [binding]});
++    const saved = await f.latest();
++    expect(saved.fields.metrics?.metadata?.mentionResolutions).toMatchObject([mentionResolution]);
++    const answer = (await f.projected()).at(-1);
++    expect(answer?.role === "assistant" ? answer.text : "").not.toContain("请确认");
++    await f.host.closeSession(f.session.sessionId);
++    const reopened = (await f.host.openSession(TEST_ACTOR, f.session.sessionId))!;
++    const reopenedFields = (await new NativeFrameStore(reopened.session).get(saved.frameId))?.fields;
++    expect(reopenedFields).toEqual(saved.fields);
++    expect(reopenedFields?.metrics?.metadata?.mentionResolutions).toMatchObject([mentionResolution]);
++    f.script.push(f.call({capabilityHint: "metric_query", baseReference: "current", executionMode: "execute",
++      fieldIntents: {organizations: inherit}, fieldChanges: [{fieldHint: "time", operation: "set", rawValue: "2026年9月30日"}]}),
++    {text: "日期已更新，当前没有匹配记录。"});
++    expect(await f.ask("reopened-followup", "日期改为2026年9月30日", undefined, reopened))
++      .toMatchObject({ok: true, outcome: {kind: "settled", outcome: {status: "completed"}}});
++    expect(f.basicQueries).toHaveBeenCalledTimes(3);
++    expect(f.basicQueries.mock.calls[2]?.[0]).toMatchObject({metric_codes: ["M"], org_codes: ["O"],
++      time: {start: "2026-09-30", end: "2026-09-30"}, source_question: original, source_metric_bindings: [binding]});
++  });
++
++  it("仅点选指标后的额外错误动作可纠正，宿主交付剩余歧义且不循环或默认Top10", async () => {
++    const f = await setup(compact, true);
++    f.script.push(f.call({capabilityHint: "metric_query", baseReference: null, executionMode: "resolve_more",
++      fieldIntents: {organizations: {mode: "set", sourceText: "合成甲行", expectedCount: null}}, fieldChanges: [
++        {fieldHint: "metrics", operation: "set", rawValue: {fromQuestion: true}},
++        {fieldHint: "organizations", operation: "set", rawValue: "合成甲行"},
++        {fieldHint: "time", operation: "set", rawValue: "2026年7月"},
++        {fieldHint: "selection", operation: "set", rawValue: {clarify: true, sourceText: "2026年7月"}},
++        {fieldHint: "operation", operation: "set", rawValue: {kind: "ranking", position: "top", top_n: 10}},
++      ]}));
++    expect(await f.ask("initial", `查询合成甲行2026年7月${rawMetric}排名`))
++      .toMatchObject({ok: true, outcome: {kind: "settled", outcome: {status: "completed"}}});
++    const pending = await f.latest();
++    expect(pending.fields.operation?.resolutionStatus).toBe("ambiguous");
++    expect(pending.fields.operation?.resolvedValue).not.toMatchObject({kind: "ranking", top_n: 10});
++    const metric = clarificationOptions(pending, {metrics: "指标", organizations: "机构"})
++      .flatMap(group => group.options).find(option => option.field === "metrics")!;
++    expect(metric).toBeDefined();
++    f.script.push(f.call({capabilityHint: "metric_query", baseReference: {frameId: pending.frameId}, executionMode: "execute",
++      fieldIntents: {organizations: {mode: "confirm", sourceText: "合成甲行", expectedCount: null}}, fieldChanges: [
++        {fieldHint: "metrics", operation: "set", rawValue: {confirm: true}},
++        {fieldHint: "organizations", operation: "set", rawValue: {confirm: true}},
++        {fieldHint: "selection", operation: "set", rawValue: {clarify: true, sourceText: "2026年7月"}},
++      ]}), messages => {
++      const receipt = [...messages].reverse().find(raw => (raw as {role?: string}).role === "toolResult") as
++        {content: Array<{text?: string}>};
++      const recovery = JSON.parse(receipt.content.find(block => block.text)?.text ?? "{}");
++      expect(recovery.pending_fields).toEqual(expect.arrayContaining(["organizations", "selection"]));
++      return f.call({capabilityHint: "metric_query", baseReference: recovery.retry_reference, executionMode: "execute",
++        fieldIntents: {organizations: inherit, selection: inherit}, fieldChanges: []});
++    });
++    expect(await f.ask("metric-confirmation", "客户存款余额", {frame_id: pending.frameId, option_ids: [metric.id]}))
++      .toMatchObject({ok: true, outcome: {kind: "settled", outcome: {status: "completed"}}});
++    const saved = await f.latest();
++    expect(saved.status).toBe("clarifying");
++    expect(saved.fields.metrics?.resolvedValue).toEqual({codes: ["M"], names: [formalMetric]});
++    expect(saved.fields.organizations?.resolutionStatus).toBe("needs_confirmation");
++    expect(saved.fields.selection?.resolutionStatus).toBe("ambiguous");
++    expect(saved.fields.operation?.resolutionStatus).toBe("ambiguous");
++    expect(saved.recovery).toBeUndefined();
++    expect(f.calls()).toBe(3);
++    expect(f.basicQueries).not.toHaveBeenCalled();
++    const answer = (await f.projected()).at(-1);
++    const reply = answer?.role === "assistant" ? answer.text ?? "" : "";
++    expect(reply).toContain("合成甲银行");
++    expect(reply).not.toContain("相同参数重复");
++    expect(reply).not.toContain("您说的「客户存款");
++    expect(reply).not.toContain("前 10");
++  });
++});
+--- a/agent-service/src/business-context/capabilities.ts
++++ b/agent-service/src/business-context/capabilities.ts
+@@ -1,6 +1,7 @@
+ import { CapabilityRegistry } from "./core.js";
+ import type { FieldInputCorrection, FieldSchema, QueryOperation, ValidationIssue } from "./types.js";
+ import {historyFieldReferenceSchema} from "./historyReferences.js";
++import {resolveRankingEvidence} from "./rankingEvidence.js";
+ 
+ const field = (label: string, resolver: string, required = true): FieldSchema => ({label, resolver, required,
+   inheritable: true, clearable: true});
+@@ -15,7 +16,7 @@
+     comparison_organizations: field("位次比较总体", "organization", false),
+     selection: enumeration("时间范围取数方式", ["exact", "latest_in_range", "all_in_range"]),
+     operation: field("查询操作", "query_operation", false),
+-  }, completeFields(fields, delta) {
++  }, async completeFields(fields, delta, context, base) {
+     const time = fields.time;
+     const range = time?.resolvedValue as {start?: string; end?: string} | undefined;
+     // 已校验的单日没有范围选取歧义。仅补缺省，不覆盖显式选择、清除或多日语义。
+@@ -23,6 +24,31 @@
+       && range?.start && range.start === range.end
+       && !delta.fieldChanges.some(change => change.fieldHint === "selection" && change.operation !== "retain")) {
+       fields.selection = {rawValue: "exact", resolvedValue: "exact", source: "resolved", resolver: "enum", resolutionStatus: "resolved"};
++    }
++    const change = delta.fieldChanges.find(item => item.fieldHint === "operation");
++    const operation = fields.operation!;
++    const metrics = fields.metrics;
++    const metricTerms: string[] = [];
++    if (metrics?.metadata?.confirmationTurnId === context.turnId && metrics.metadata.confirmed === true) {
++      const value = metrics.resolvedValue as {codes?: string[]; names?: string[]};
++      metricTerms.push(...value.names ?? []);
++      for (const candidate of base?.fields.metrics?.candidates ?? []) {
++        if (candidate.code && value.codes?.includes(candidate.code) && typeof candidate.metadata?.value_basis === "string") {
++          metricTerms.push(candidate.metadata.value_basis);
++        }
++      }
++    }
++    // set 已由同一 Resolver 核验；缺省、继承、清除也不能吞掉本轮排序目标。未决部分继续保留。
++    const recheckConfirmation = metricTerms.length > 0 && change?.operation === "set"
++      && operation.resolutionStatus === "ambiguous" && operation.metadata?.rankingEvidence;
++    if (change?.operation !== "set" && ["missing", "resolved"].includes(operation.resolutionStatus) || recheckConfirmation) {
++      const previous = base?.capability === "metric_query" ? base.fields.operation : undefined;
++      const resolution = await resolveRankingEvidence(recheckConfirmation ? operation.rawValue as QueryOperation : operation.resolutionStatus === "resolved"
++        ? operation.resolvedValue as QueryOperation : {kind: "value"}, registry.get("metric_query").fields.operation!,
++      {...context, ...(previous ? {previous} : {})}, metricTerms);
++      if (resolution.status !== "resolved" || recheckConfirmation) fields.operation = {...operation, source: operation.resolutionStatus === "missing" ? "explicit" : operation.source,
++        resolver: "query_operation", resolutionStatus: resolution.status, resolvedValue: resolution.value,
++        metadata: resolution.metadata ?? {}};
+     }
+   }, validate(fields) {
+     const issues: ValidationIssue[] = [];
+@@ -84,7 +110,7 @@
+     question: "在这个日期范围内，您希望取哪个日期的数据？若需按多个日期分别查看，也请说明具体方式。",
+   };
+   operation.userClarification = {question: "您希望查询关注对象在比较总体中的位次，还是查看前后若干名的榜单？请补充尚未确定的比较范围或榜单条件。"};
+-  operation.description = "按业务目标区分：value=普通取值；ranking=前后 N 名榜单，position/top_n 分别来自用户表达或可信继承；rank_position=关注对象在比较总体中的位次，无需 TopN 或用户填写排序方向。位次中 organizations 是关注对象，comparison_organizations 是受治理比较总体，服务端按指标正式排序规则在整个总体中计算后筛选关注对象；不能将关注对象当总体，也不能把总体数量当 top_n。比较总体没有可信来源时保存其它条件，仅澄清缺失总体；不自动扩展下级或猜集合。日期范围不自动决定统计时点，仍保留 selection 口径校验。省略仅适用于没有独立排序目标或继承既有操作。指标名称中的排名或名次口径不等于额外排序要求。取消排名用 {kind:'value'}，已有比较总体须同时明确清除，避免丢失条件。";
++  operation.description = "按业务目标区分：value=普通取值；ranking=前后 N 名榜单，position/top_n 分别来自用户表达或可信继承，服务端核验其原文数量和方向依据，未知时保存条件并澄清，不默认榜单条数；rank_position=关注对象在比较总体中的位次，无需 TopN 或用户填写排序方向。位次中 organizations 是关注对象，comparison_organizations 是受治理比较总体，服务端按指标正式排序规则在整个总体中计算后筛选关注对象；不能将关注对象当总体，也不能把总体数量当 top_n。比较总体没有可信来源时保存其它条件，仅澄清缺失总体；不自动扩展下级或猜集合。日期范围不自动决定统计时点，仍保留 selection 口径校验。省略仅适用于没有独立排序目标或继承既有操作。指标名称中的排名或名次口径不等于额外排序要求。取消排名用 {kind:'value'}，已有比较总体须同时明确清除，避免丢失条件。";
+   operation.inputSchema = {oneOf: [
+     {type: "object", required: ["kind"], properties: {kind: {const: "value"}}, additionalProperties: false},
+     {type: "object", required: ["kind", "position", "top_n"], properties: {kind: {const: "ranking"}, position: {enum: ["top", "bottom"]}, top_n: {type: "integer", minimum: 1, maximum: 100}}, additionalProperties: false},
+@@ -120,7 +146,7 @@
+         );
+       }
+       if (name === "metrics") {
+-        definition.description = "新指标传 {fromQuestion:true}，由服务端对完整原文识别并保留全部匹配项，不自行提取名称或改写错字。只涉及部分已识别指标时，mentionIndexes 使用本轮匹配清单的1基 index；清单每轮重新抽取，不跨轮复用。沿用历史则省略或 retain。回复已保存候选按统一确认契约提交，服务端按用户回复或点选匹配并展示清单；不罗列或挑选候选。待确认项按服务端保存的基础指标及来源分组，同一基础指标的多口径按既有分组一并确认，不按整个候选总数合并或拆组；只给基础指标而口径未定时不默认。";
++        definition.description = "新指标传 {fromQuestion:true}，模型保留完整原文，由服务端识别并保留全部匹配项；服务端仅在目录和口径证据可核验时纠正名称并保留原文及正式指标来源，模型不自行提取名称或改写错字。只涉及部分已识别指标时，mentionIndexes 使用本轮匹配清单的1基 index；清单每轮重新抽取，不跨轮复用。沿用历史则省略或 retain。回复已保存候选按统一确认契约提交，服务端按用户回复或点选匹配并展示清单；不罗列或挑选候选。待确认项按服务端保存的基础指标及来源分组，同一基础指标的多口径按既有分组一并确认，不按整个候选总数合并或拆组；只给基础指标而口径未定时不默认。";
+         (definition.inputSchema.anyOf as unknown[]).push({type: "object", required: ["fromQuestion"], properties: {
+           fromQuestion: {const: true}, mentionIndexes: {type: "array", minItems: 1, maxItems: 100, uniqueItems: true, items: {type: "integer", minimum: 1}},
+         }, additionalProperties: false}, {type: "object", required: ["mentionIndexes"], properties: {
+--- a/agent-service/src/business-context/core.ts
++++ b/agent-service/src/business-context/core.ts
+@@ -322,7 +322,8 @@
+       inputErrors.map(error => error.field).join(","), inputErrors.map(error => `${error.field}: ${error.correction}`).join("\n"),
+       undefined, awaiting?.recovery, inputErrors.flatMap(error => error.corrections ?? []));
+   }
+-  schema.completeFields?.(fields, delta);
++  // 结构错误先交回调用方，避免语义补全掩盖未声明或重复字段的诊断。
++  if (!issues.length) await schema.completeFields?.(fields, delta, context, base);
+   return {fields, issues};
+ }
+ 
+--- a/agent-service/src/business-context/modelView.ts
++++ b/agent-service/src/business-context/modelView.ts
+@@ -115,11 +115,25 @@
+   });
+ }
+ 
++/** 恢复回执与上下文同源，公开剩余处理动作，已确认字段不再交给模型重填。 */
++export function modelRecovery(frame: BusinessFrame) {
++  if (!frame.recovery) return {};
++  const recovery = frame.recovery;
++  return {retry_reference: {frameId: frame.frameId}, pending_fields: [...recovery.pendingFields],
++    pending_changes: recovery.pendingFields.map(field => {
++      const change = recovery.pendingChanges?.find(item => item.field === field);
++      return {field, operation: change?.operation ?? "unknown", ...(change?.sourceText ? {source_text: change.sourceText} : {}),
++        ...(change?.expectedCount !== undefined ? {expected_count: change.expectedCount} : {}),
++        may_retain: change?.mayRetain ?? true, inherit_allowed: change?.mayRetain === true};
++    }), confirmed_fields: Object.entries(frame.fields).filter(([, field]) => field.resolutionStatus === "resolved"
++      && field.metadata?.confirmationTurnId === recovery.turnId).map(([name]) => name)};
++}
++
+ /** 模型视图只给决策所需的字段；完整溯源留在 Frame Store，按引用读取。 */
+ export function modelFrame(frame: BusinessFrame, currentTurnId: string, compactTurnArgs = false) {
+   const current = frame.turnId === currentTurnId;
+   return {frameId: frame.frameId, parentFrameId: frame.parentFrameId, capability: frame.capability,
+-    currentTurn: current,
++    currentTurn: current, ...modelRecovery(frame),
+     ...(frame.status === "draft" && frame.errorCode === "TEMPORARY_ERROR" ? {errorCode: frame.errorCode,
+       retry_reference: {frameId: frame.frameId}, instruction: "服务暂时不可用，需重试时沿用此引用和原字段，不要求用户重述条件。"} : {}),
+     status: frame.status, ...(compactTurnArgs ? {mode: frame.delta.executionMode} : {executionMode: frame.delta.executionMode}),
+--- /dev/null
++++ b/agent-service/src/business-context/rankingEvidence.ts
+@@ -0,0 +1,148 @@
++import {BusinessInputError} from "./inputError.js";
++import {normalizeInputEvidence} from "./inputEvidence.js";
++import {withFieldClarification} from "./fieldClarification.js";
++import type {FieldResolution, FieldSchema, QueryOperation, ResolverContext} from "./types.js";
++
++type Position = "top" | "bottom";
++interface VerifiedRanking {position?: Position; top_n?: number}
++const NUMBER = "(?:[0-9]+|[零〇一二两三四五六七八九十百]+)";
++
++/** 只识别榜单条数的数值表达；日期和机构集合数量不在这里推断为TopN。 */
++function integer(text: string): number | undefined {
++  if (/^\d+$/.test(text)) return Number(text);
++  if (!/^(?:[零〇一二两三四五六七八九]|[一二两三四五六七八九]?十[一二三四五六七八九]?|一?百)$/u.test(text)) return undefined;
++  const digits: Record<string, number> = {零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9};
++  let total = 0, digit = 0;
++  for (const char of text) {
++    if (char === "十" || char === "百") {total += (digit || 1) * (char === "十" ? 10 : 100); digit = 0;}
++    else if (digits[char] !== undefined) digit = digits[char]!;
++    else return undefined;
++  }
++  return total + digit;
++}
++
++function negated(text: string, start: number, end: number): boolean {
++  const prefix = text.slice(0, start).split(/[，。；！？,;!?]/).at(-1) ?? "";
++  return /(?:不要|不用|不是|不看|不查|不取|不再|别|无需|取消)/u.test(prefix)
++    || /^(?:不要|取消|不查|不看|不是)/u.test(text.slice(end));
++}
++
++function anchors(original: string) {
++  const normalized = normalizeInputEvidence(original);
++  // 明确替换只消费最终目标；并列目标仍保留为竞争证据，不能任选其中一组。
++  const changes = [...normalized.matchAll(/改(?:成|为)|换(?:成|为)|而是/g)];
++  const change = changes.at(-1);
++  const tail = change ? normalized.slice(change.index! + change[0].length) : "";
++  const list = new RegExp(`(top|bottom|前|后|最高|最低|最多|最少)(?:的)?(${NUMBER})(名|家|位|条|个|项)?`, "giu");
++  const bounded = (match: RegExpMatchArray, value: string): boolean => {
++    const rest = value.slice(match.index! + match[0].length);
++    return !/^(?:个)?(?:月|年|日|季度|星期|周|小时|分钟)/u.test(rest)
++      && (!!match[3] || /^(?:$|[，。；！？、,;!?.]|和|及)/u.test(rest));
++  };
++  const first = [...tail.matchAll(list)][0];
++  const replacesRanking = !!change && (!!first && first.index === 0 && bounded(first, tail)
++    || new RegExp(`^${NUMBER}(?:名|家|位|条|项)(?:$|[，。；！？、,;!?.])|^(?:位次|排第几)`, "u").test(tail));
++  const unclearReplacement = !!change && new RegExp(`^${NUMBER}(?:$|[，。；！？,;!?])`, "u").test(tail);
++  const text = replacesRanking ? normalized.slice(change!.index!) : normalized;
++  const positions = new Set<Position>(), counts = new Set<number>();
++  let invalidCount = false, excludedRanking = false;
++  const direction = (word: string): Position => /^(?:后|最低|最少|bottom)/i.test(word) ? "bottom" : "top";
++  for (const match of text.matchAll(list)) {
++    const end = match.index! + match[0].length;
++    if (!bounded(match, text)) continue;
++    if (negated(text, match.index!, end)) {excludedRanking = true; continue;}
++    positions.add(direction(match[1]!));
++    const count = integer(match[2]!);
++    if (count !== undefined && count >= 1 && count <= 100) counts.add(count);
++    else invalidCount = true;
++  }
++  for (const match of text.matchAll(/前面|后面|从高到低|从低到高|降序|升序/gu)) {
++    if (!negated(text, match.index!, match.index! + match[0].length)) {
++      positions.add(/后面|从低到高|升序/u.test(match[0]) ? "bottom" : "top");
++    } else excludedRanking = true;
++  }
++  const countOnly = new RegExp(`(?:只取|取|显示|展示|列出|返回|选出|榜单取|排名取|改成|改为|换成|换为)(${NUMBER})(名|家|位|条|项)`, "gu");
++  for (const match of text.matchAll(countOnly)) {
++    const prefix = text.slice(0, match.index!).split(/[，。；！？,;!?]/).at(-1) ?? "";
++    const rest = text.slice(match.index! + match[0].length);
++    // 非榜单语境的“返回三家机构”是集合数量；不能据它改变 TopN。
++    if (!/排名|排序|榜单/u.test(prefix) && !(match[2] === "名" && /^(?:$|[，。；！？,;!?])/u.test(rest))) continue;
++    const count = integer(match[1]!);
++    if (negated(text, match.index!, match.index! + match[0].length)) {excludedRanking = true; continue;}
++    if (count !== undefined && count >= 1 && count <= 100) counts.add(count);
++    else invalidCount = true;
++  }
++  const cancel = /取消(?:排名|排序|榜单)|(?:不要|不用|无需|不再|不)(?:排名|排序|榜单)|只(?:查|看|要)(?:数值|取值)|改(?:为|成)(?:普通)?取值/u.test(text);
++  const positionRequest = /(?:排(?:在)?第?几|第几名|位次|名次(?:是|为|多少)|排名(?:是|为)?(?:多少|第?几))/u.test(text);
++  const rankingRequest = positions.size > 0 || counts.size > 0 || invalidCount || excludedRanking || /排名|排序|榜单|名次|位次|排第几/u.test(text);
++  return {positions, counts, cancel, positionRequest, rankingRequest, unclearReplacement, invalidCount, excludedRanking};
++}
++
++async function operationText(context: ResolverContext, metricTerms: string[]): Promise<string> {
++  let text = context.originalMessage;
++  if (context.resolveMetricMentions && anchors(text).rankingRequest) {
++    const matched = await context.resolveMetricMentions();
++    const chars = Array.from(text);
++    // 正式指标名称及其待确认口径可以含排名/数字；不能再解释成独立操作。
++    for (const mention of matched.mentions) if (mention.resolution.status === "resolved"
++      || mention.resolution.candidates?.some(candidate => typeof candidate.code === "string")) {
++      for (let index = mention.start; index < mention.end; index += 1) chars[index] = " ";
++    }
++    text = chars.join("");
++  }
++  // 本轮确认选中的正式名称/口径来自已保存候选，短回复也无需再次当成排序目标。
++  text = normalizeInputEvidence(text);
++  for (const term of [...metricTerms].sort((a, b) => b.length - a.length)) {
++    const value = normalizeInputEvidence(term);
++    if (value) text = text.replaceAll(value, " ");
++  }
++  return text;
++}
++
++/** 本轮证据或宿主选定历史决定业务值；模型给出的合法枚举、数字本身不构成依据。 */
++export async function resolveRankingEvidence(operation: QueryOperation, schema: FieldSchema, context: ResolverContext, metricTerms: string[] = []): Promise<FieldResolution> {
++  const proof = anchors(await operationText(context, metricTerms));
++  const prior = context.previous?.resolvedValue as Partial<QueryOperation> | undefined;
++  const saved = context.previous?.metadata?.rankingEvidence as (VerifiedRanking & {verified?: boolean}) | undefined;
++  const source = context.previous?.resolutionStatus === "resolved" && prior?.kind === "ranking"
++    ? prior as VerifiedRanking : saved?.verified === true ? saved : {};
++  const historical: VerifiedRanking = {...(source.position === "top" || source.position === "bottom" ? {position: source.position} : {}),
++    ...(Number.isInteger(source.top_n) && source.top_n! >= 1 && source.top_n! <= 100 ? {top_n: source.top_n!} : {})};
++  const partial = (verified: VerifiedRanking = {}): FieldResolution => ({status: "ambiguous", value: {
++    ...(verified.position !== undefined || verified.top_n !== undefined ? {kind: "ranking"} : {}), ...verified},
++    metadata: {userInputIssue: true, userClarificationQuestion: schema.userClarification?.question,
++      rankingEvidence: {verified: true, ...verified}}});
++  const competing = proof.positions.size > 1 || proof.counts.size > 1 || proof.unclearReplacement
++    || proof.cancel && (proof.positions.size > 0 || proof.counts.size > 0 || proof.positionRequest);
++  if (competing) return partial();
++  const current: VerifiedRanking = {...(proof.positions.size ? {position: [...proof.positions][0]!} : {}),
++    ...(proof.counts.size ? {top_n: [...proof.counts][0]!} : {})};
++  if (proof.invalidCount) return partial(current.position ? {position: current.position} : {});
++  if (proof.excludedRanking) return partial();
++  const verified: VerifiedRanking = {...historical, ...current};
++  const mismatch = (expected: string): never => {
++    const message = `本轮明确依据或所选历史要求${expected}。请据此修正 operation；参数枚举合法并不授权修改业务目标，不从日期或机构数量推断榜单条件。原焦点未改变。`;
++    throw new BusinessInputError("QUERY_OPERATION_EVIDENCE_MISMATCH", "operation", message, undefined, undefined,
++      [withFieldClarification(schema, {field: "operation", reason: "invalid", message, ...(schema.inputSchema ? {inputSchema: schema.inputSchema} : {})})]);
++  };
++  if (operation.kind === "value") {
++    if (proof.cancel && !proof.positions.size && !proof.counts.size || !proof.rankingRequest && (!prior?.kind || prior.kind === "value")) {
++      return {status: "resolved", value: operation};
++    }
++    if (proof.positionRequest) return mismatch("查询关注对象在比较总体中的位次（rank_position）");
++    if (verified.position && verified.top_n) return mismatch(`查看${verified.position === "top" ? "前" : "后"} ${verified.top_n} 名榜单`);
++    return partial(verified);
++  }
++  if (operation.kind === "rank_position") {
++    return proof.positionRequest && !proof.positions.size && !proof.counts.size
++      || !proof.rankingRequest && context.previous?.resolutionStatus === "resolved" && prior?.kind === "rank_position"
++      ? {status: "resolved", value: operation} : verified.position && verified.top_n
++        ? mismatch(`查看${verified.position === "top" ? "前" : "后"} ${verified.top_n} 名榜单`) : partial(verified);
++  }
++  if (proof.positionRequest || proof.cancel && !proof.positions.size && !proof.counts.size) return partial();
++  const position = [...proof.positions][0] ?? historical.position;
++  const top_n = [...proof.counts][0] ?? historical.top_n;
++  if (position === undefined || top_n === undefined) return partial({...(position ? {position} : {}), ...(top_n ? {top_n} : {})});
++  if (operation.position !== position || operation.top_n !== top_n) return mismatch(`查看${position === "top" ? "前" : "后"} ${top_n} 名榜单`);
++  return {status: "resolved", value: operation, metadata: {rankingEvidence: {verified: true, position, top_n}}};
++}
+--- a/agent-service/src/business-context/resolvers.ts
++++ b/agent-service/src/business-context/resolvers.ts
+@@ -3,6 +3,7 @@
+ import type { MetricMention } from "./metricMentions.js";
+ import { BusinessInputError } from "./inputError.js";
+ import { hasInputEvidence } from "./inputEvidence.js";
++import {resolveRankingEvidence} from "./rankingEvidence.js";
+ 
+ const invalid = (): FieldResolution => ({status: "invalid"});
+ const resolved = (value: unknown): FieldResolution => ({status: "resolved", value});
+@@ -17,6 +18,7 @@
+   return {text: mention.text, start: mention.start, end: mention.end, status: mention.resolution.status,
+     ...(mention.resolution.value ? {value: mention.resolution.value as {codes: string[]; names: string[]}} : {}),
+     ...(mention.resolution.candidates ? {candidates: mention.resolution.candidates} : {}),
++    ...(mention.resolution.metadata ? {metadata: structuredClone(mention.resolution.metadata)} : {}),
+     ...(mention.group ? {group: {id: mention.group.id}} : {})};
+ }
+ /** 同组只暴露首个未决片段的候选：同一组基础指标候选不重复出现，用户确认一次即可。 */
+@@ -32,6 +34,7 @@
+ const resolvedEntry = (entry: MentionResolution, code: string, name: string): MentionResolution => ({
+   text: entry.text, start: entry.start, end: entry.end, status: "resolved", value: {codes: [code], names: [name]},
+   ...(entry.group ? {group: entry.group} : {}),
++  ...(entry.metadata ? {metadata: structuredClone(entry.metadata)} : {}),
+ });
+ /** remove 的 mentionIndexes 引用上一论 Frame mention 清单序号（从1开始），按清单大小校验。 */
+ function mentionIndexSelection(raw: unknown, size: number): number[] {
+@@ -388,12 +391,12 @@
+         `rawValue 必须使用 Schema 枚举 ${JSON.stringify(values)}。${schema.description ?? ""}请根据用户语义修正调用，不要求用户填写内部枚举；保留完整业务名称，不能把名称中的限定词移作控制参数。原焦点未改变。`);
+     }});
+   registry.register({name: "query_operation", supports: schema => schema.resolver === "query_operation",
+-    async resolve(raw) {
++    async resolve(raw, schema, context) {
+       const value = raw as import("./types.js").QueryOperation | undefined;
+-      if (value?.kind === "value" && Object.keys(value).length === 1) return resolved(value);
+-      if (value?.kind === "rank_position" && Object.keys(value).length === 1) return resolved(value);
++      if (value?.kind === "value" && Object.keys(value).length === 1) return resolveRankingEvidence(value, schema, context);
++      if (value?.kind === "rank_position" && Object.keys(value).length === 1) return resolveRankingEvidence(value, schema, context);
+       if (value?.kind === "ranking" && ["top", "bottom"].includes(value.position) && Number.isInteger(value.top_n)
+-        && value.top_n >= 1 && value.top_n <= 100 && Object.keys(value).every(key => ["kind", "position", "top_n"].includes(key))) return resolved(value);
++        && value.top_n >= 1 && value.top_n <= 100 && Object.keys(value).every(key => ["kind", "position", "top_n"].includes(key))) return resolveRankingEvidence(value, schema, context);
+       throw new BusinessInputError("QUERY_OPERATION_INVALID", "operation", "按 operation 判别联合提交 value 普通取值、ranking 前后 N 名榜单，或 rank_position 关注对象在比较总体中的位次；位次不接收 TopN 参数。不能丢弃用户的排名目标。原焦点未改变。");
+     }});
+   registry.register({name: "integer", supports: schema => schema.resolver === "integer",
+--- a/agent-service/src/business-context/service.ts
++++ b/agent-service/src/business-context/service.ts
+@@ -1,9 +1,11 @@
+ import { createHash, randomUUID } from "node:crypto";
++import {Type, validateToolArguments} from "@earendil-works/pi-ai";
+ import { CapabilityRegistry, FieldResolverRegistry, mergeFields, resolveFrame, validateFrame, inheritableFrame, validateFieldIntents, applyFieldIntentConstraints, preflightFieldRecovery, fieldLabels } from "./core.js";
+ import type { BusinessFrame, ContextDelta, FieldInputCorrection, FrameStore, ResolverContext } from "./types.js";
+ import { BusinessInputError } from "./inputError.js";
+ import {withFieldClarification} from "./fieldClarification.js";
+ import {clarificationOptions, selectOptions} from "./clarificationOptions.js";
++import {hasInputEvidence} from "./inputEvidence.js";
+ 
+ /** 旧排名契约用 asc/desc 表达数值方向，名次类指标会取反；这类 Frame 须在新回合按新契约重建。 */
+ function legacyRankingOrder(operation: unknown): boolean {
+@@ -38,8 +40,8 @@
+       return await this.resolveAtomic(delta, identity, context);
+     } catch (error) {
+       if (!(error instanceof BusinessInputError) || error.recovery) throw error;
+-      // 点选是宿主绑定的用户输入，不能因为模型重填了无关字段而丢失；只保存确认，不执行失败提案。
+-      const preserved = await this.preserveBoundConfirmation(delta, identity, context);
++      // 已核验的选择不能因无关字段参数失败而丢失；只保存确认，不执行失败提案。
++      const preserved = await this.preserveBoundConfirmation(delta, identity, context, error.field.split(","));
+       if (!preserved) throw error;
+       throw new BusinessInputError(error.code, error.field, error.correction,
+         {frameId: preserved.frameId}, error.recovery, error.corrections);
+@@ -134,10 +136,15 @@
+     }
+     if (!declaredSchema) validateFieldIntents(schema, delta, context);
+     if (base?.recovery) {
+-      const submitted = new Set(delta.fieldChanges.map(change => change.fieldHint));
+-      const pending = base.recovery.pendingFields.filter(name => !submitted.has(name));
++      const pending = base.recovery.pendingFields.filter(name => {
++        const change = delta.fieldChanges.find(item => item.fieldHint === name);
++        const saved = base.recovery!.pendingChanges?.find(item => item.field === name);
++        if (change) return change.operation === "retain" && saved?.mayRetain === false;
++        // 只把已校验的显式 inherit 作为撤销无依据提案；不能凭省略抹掉本轮真实变化。
++        return !(saved?.mayRetain === true && delta.fieldIntents?.[name]?.mode === "inherit");
++      });
+       if (pending.length) throw new BusinessInputError("TURN_CHANGES_PENDING", pending.join(","),
+-        "已核验的候选选择已保存，但上次未通过校验的其它字段尚未处理。请对 pending_fields 逐一提交修正；本轮没有改动的字段须显式 retain。完成本轮全部变化校验之前不会执行查询。",
++        "已核验的选择已保存。按 pending_changes 处理剩余提案：有本轮依据的新值须修正并落实；允许保留旧值的项可显式 inherit 或 retain，不能仅省略所有待修字段。完成校验前不会执行查询。",
+         {frameId: base.frameId});
+     }
+     // 旧排名把父机构与实际目标混用，不能静默继承为新契约的普通取值。
+@@ -173,7 +180,19 @@
+         const merged = await mergeFields(schema, base, delta, this.resolvers, context);
+         if (merged.issues.length) throw new BusinessInputError("FIELD_CHANGES_INVALID", "$fields", "fieldChanges 含未声明或重复字段。请按目标能力 Schema 修正字段，不要切换业务目标来绕过错误；原焦点未改变。");
+         frame.fields = merged.fields;
+-        applyFieldIntentConstraints(schema, merged.fields, delta, base);
++        let constrained = delta;
++        for (const saved of base?.recovery?.pendingChanges ?? []) {
++          if (saved.mayRetain || saved.expectedCount === undefined) continue;
++          const intent = delta.fieldIntents?.[saved.field];
++          if (intent?.expectedCount !== undefined && intent.expectedCount !== null && intent.expectedCount !== saved.expectedCount) {
++            throw new BusinessInputError("FIELD_INTENT_COUNT_CONFLICT", saved.field,
++              "恢复同一本轮变化须保留 pending_changes 中已核验的目标数量；不能用新数量或null删除约束。原条件及确认已保留。");
++          }
++          // 只补已保存约束供集合校验，模型原始 Delta 与其来源声明保持不变。
++          constrained = {...constrained, fieldIntents: {...constrained.fieldIntents, [saved.field]: {
++            mode: intent?.mode ?? "inherit", sourceText: intent?.sourceText ?? null, expectedCount: saved.expectedCount}}};
++        }
++        applyFieldIntentConstraints(schema, merged.fields, constrained, base);
+         const validation = validateFrame(schema, merged.fields, merged.issues);
+         const businessMissing = validation.issues.some(issue => issue.reason === "missing"
+           && schema.fields[issue.field]?.required && !schema.fields[issue.field]?.missingIsArgumentError);
+@@ -232,8 +251,9 @@
+     this.trace(saved);
+     return saved;
+   }
+-  /** 点选只绑定到同会话、同来源的旧候选，编码仍经原 Resolver 复核；草稿闸门覆盖其余失败字段。 */
+-  private async preserveBoundConfirmation(delta: ContextDelta, identity: TurnIdentity, context: ResolverContext): Promise<BusinessFrame | undefined> {
++  /** 选择只绑定同会话、同来源的旧候选，编码仍经原 Resolver 复核；草稿闸门覆盖其余失败字段。 */
++  private async preserveBoundConfirmation(delta: ContextDelta, identity: TurnIdentity, context: ResolverContext,
++    invalidFields: string[]): Promise<BusinessFrame | undefined> {
+     if (!context.replyEvidence || delta.baseReference === null) return undefined;
+     const state = await this.store.state();
+     let base: BusinessFrame | undefined;
+@@ -254,11 +274,15 @@
+       (base!.fields[group.field]?.metadata?.candidateTurnId ?? base!.turnId) !== context.turnId);
+     if (!pending.length) return undefined;
+     const evidence = await context.replyEvidence(base.frameId);
+-    const ids = [...(evidence.optionIds ?? [])];
+-    if (!ids.length || ids.some(id => !pending.some(group => group.options.some(option => option.id === id)))) return undefined;
+-    const selected = selectOptions(pending, {...evidence, codes: [], optionIds: ids});
+-    if (!selected.length || selected.length !== new Set(ids).size) return undefined;
++    const boundIds = [...(evidence.optionIds ?? [])];
++    if (boundIds.some(id => !pending.some(group => group.options.some(option => option.id === id)))) return undefined;
++    // 自然文本也只从规范清单唯一对应；不使用失败提案中模型填写的 affirmation。
++    const selected = selectOptions(pending, boundIds.length ? {reply: "", optionIds: boundIds} : evidence);
++    const ids = selected.map(option => option.id);
++    if (!ids.length || boundIds.some(id => !ids.includes(id))) return undefined;
+     const selectedFields = new Set(selected.map(option => option.field));
++    // 选择之外的参数失败可以单独保存选择；数量等本字段校验失败不能另存一个绕过失败的确认。
++    if (invalidFields.some(name => selectedFields.has(name))) return undefined;
+     const confirmation: ContextDelta = {capabilityHint: base.capability, baseReference: {frameId: base.frameId},
+       executionMode: "resolve_more", fieldChanges: [...selectedFields].map(fieldHint => ({fieldHint, operation: "set", rawValue: {confirm: true}}))};
+     const merged = await mergeFields(schema, base, confirmation, this.resolvers, context);
+@@ -270,11 +294,38 @@
+       ...delta.fieldChanges.filter(change => change.operation !== "retain").map(change => change.fieldHint),
+       ...Object.entries(delta.fieldIntents ?? {}).filter(([, intent]) => intent.mode !== "inherit").map(([name]) => name),
+     ])].filter(name => !selectedFields.has(name) && Object.hasOwn(schema.fields, name));
++    const pendingChanges = pendingFields.map(name => {
++      const change = delta.fieldChanges.find(item => item.fieldHint === name);
++      const intent = delta.fieldIntents?.[name];
++      const raw = change?.rawValue;
++      const object = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : undefined;
++      const evidence = object?.evidence as {sourceText?: unknown} | undefined;
++      const sources = [intent?.sourceText, object?.sourceText, evidence?.sourceText,
++        // 枚举是程序控制值，缺少原文锚定不能据此判断用户没有改变业务选择。
++        ...(typeof raw === "string" && !schema.fields[name]!.validation?.enum?.includes(raw) ? [raw] : []),
++        ...(Array.isArray(raw) ? raw : [])].filter((value): value is string => typeof value === "string" && !!value.trim());
++      const sourceText = sources.find(value => hasInputEvidence(context.originalMessage, value));
++      let expectedCount: number | undefined;
++      if (sourceText && intent && typeof intent.expectedCount === "number") {
++        try {
++          const definition = schema.fields[name]!;
++          validateFieldIntents({...schema, fields: {[name]: definition}}, {...delta,
++            fieldChanges: change ? [change] : [], fieldIntents: {[name]: intent}}, context);
++          if (definition.inputSchema) validateToolArguments({name: "recovery_field", description: "恢复字段结构",
++            parameters: Type.Object({raw: Type.Unsafe(definition.inputSchema)}, {additionalProperties: false})},
++          {type: "toolCall", name: "recovery_field", id: "recovery", arguments: {raw}});
++          expectedCount = intent.expectedCount;
++        } catch { /* 非法声明或字段形状不成为新的恢复数量约束。 */ }
++      }
++      return {field: name, operation: change?.operation === "retain" ? "inherit" as const : change?.operation ?? intent!.mode,
++        ...(sourceText ? {sourceText} : {}), ...(expectedCount !== undefined ? {expectedCount} : {}),
++        mayRetain: sources.length > 0 && sourceText === undefined};
++    });
+     const id = randomUUID();
+     const frame: BusinessFrame = {frameId: id, ...identity, capability: base.capability,
+       operationFrameId: base.operationFrameId, parentFrameId: base.frameId, fields: merged.fields,
+       delta: confirmation, status: "draft", errorCode: "TURN_ARGUMENTS_PENDING",
+-      recovery: {turnId: identity.turnId, pendingFields, selectionFrameId: base.frameId, optionIds: [...new Set(ids)].sort()},
++      recovery: {turnId: identity.turnId, pendingFields, pendingChanges, selectionFrameId: base.frameId, optionIds: [...new Set(ids)].sort()},
+       issues: validateFrame(schema, merged.fields, merged.issues).issues,
+       createdAt: new Date().toISOString()};
+     const saved = await this.store.save(frame, state.version,
+--- a/agent-service/src/business-context/types.ts
++++ b/agent-service/src/business-context/types.ts
+@@ -38,6 +38,8 @@
+   candidates?: unknown[];
+   /** 同一基础指标下的各口径片段共用组号：确认一次基础指标即确定整组。 */
+   group?: {id: string};
++  /** 后端匹配/纠错来源，保留原文到正式身份的审计依据，不是执行权限。 */
++  metadata?: Record<string, unknown>;
+ }
+ export interface FrameSelector {
+   frameId?: string;
+@@ -100,8 +102,10 @@
+   fields: Record<string, ResolvedField>;
+   delta: ContextDelta;
+   issues: ValidationIssue[];
+-  /** 已核验点选可以单独保存；失败提案的其余字段必须显式完成修正，才能解除执行闸门。 */
+-  recovery?: {turnId: string; pendingFields: string[]; selectionFrameId: string; optionIds: string[]};
++  /** 已核验选择单独保存；有本轮依据的变化须落实，无依据的额外动作可明确继承取消。 */
++  recovery?: {turnId: string; pendingFields: string[]; selectionFrameId: string; optionIds: string[];
++    /** 旧快照可缺省；缺少来源记录时不推断 inherit，可沿用显式 retain 的旧恢复契约。 */
++    pendingChanges?: Array<{field: string; operation: FieldTurnIntent["mode"]; sourceText?: string; mayRetain: boolean; expectedCount?: number}>};
+   status: "draft" | "clarifying" | "ready" | "executing" | "success" | "failed";
+   resultRef?: string;
+   resultSummary?: { rowCount?: number; truncated?: boolean; fields?: Record<string, unknown> };
+@@ -140,7 +144,7 @@
+   capability: string;
+   fields: Record<string, FieldSchema>;
+   tool: string;
+-  completeFields?: (fields: Record<string, ResolvedField>, delta: ContextDelta) => void;
++  completeFields?: (fields: Record<string, ResolvedField>, delta: ContextDelta, context: ResolverContext, base?: BusinessFrame) => void | Promise<void>;
+   validate?: (fields: Record<string, ResolvedField>) => ValidationIssue[];
+ }
+ /** 排名只表达前 N / 后 N；名次类指标的实际排序方向由后端按目录属性决定。 */
+--- a/agent-service/src/prompts/businessSystemPrompt.ts
++++ b/agent-service/src/prompts/businessSystemPrompt.ts
+@@ -20,7 +20,7 @@
+ - 理解用户对已保存候选的确认，同意与条件修改可在同句中提交。确认的 fieldIntents.sourceText 保留本轮同意或明确选择的完整原文；用户以名称或编号选择时保留该原文，不能以未出现在本轮的候选标签替代。语义接受的 evidence 保留本轮完整同意表达，不截去否定或转折，适用于每个待确认项均唯一的已保存提案；候选事实、来源及各项唯一性由服务端验证，同一项有多个候选须用户明确选择。fieldIntents只声明意图，不能替代字段确认契约要求的evidence。无候选的口头同意不能生成业务条件。
+ 
+ ## 纠错与完成
+-- 提交前按上述依据核对所选业务目标的必要选择，有依据则构造正常值；缺少必要业务选择且无法唯一确定时，使用 Schema 声明的澄清输入保存已知条件，由服务端提出缺项问题，不自行填写问题或候选。同次保存全部必要未决选择，不能只标一项澄清却给其它无依据字段填正常值。连续多日范围已定不等于取数口径已定；榜单与位次分别按各自契约判断缺项，不向位次查询索要榜单条数。参数失败后有依据则按回执修正，并保留该失败调用承载的全部变化与原来源，不让用户重填已提供的信息。服务端已绑定的点选及恢复进度以最新回执为准，只修复仍未处理的字段，不重新确认其它未被选择的候选，也不把旧条件抄成本轮修改。
++- 提交前按上述依据核对所选业务目标的必要选择，有依据则构造正常值；缺少必要业务选择且无法唯一确定时，使用 Schema 声明的澄清输入保存已知条件，由服务端提出缺项问题，不自行填写问题或候选。同次保存全部必要未决选择，不能只标一项澄清却给其它无依据字段填正常值。连续多日范围已定不等于取数口径已定；榜单与位次分别按各自契约判断缺项，不向位次查询索要榜单条数。参数失败后按回执修正，保留该失败调用承载的全部有效变化与原来源，不让用户重填已提供的信息。已绑定确认与恢复进度以最新回执为准：按 pending_changes 修复仍有本轮依据的变化，明确允许保留旧值的错误提案可声明继承或 retain；不能仅省略全部待修字段。不重新确认其它未被选择的候选，也不把旧条件抄成本轮修改。
+ - 按回执区分参数纠错、业务澄清和能力限制。需要澄清时只询问未决条件并结束本轮；条件完整且可执行时继续完成目标，不重复确认。用户要查询或计算结果且信息充分时，实际执行并取得正式回执，读取历史或说明拟提交不代表完成。不能删除条件、扩大范围或更换目标以规避失败。
+ - 以实际回执判断完成。历史聊天文本不能充当当前业务数值；取数、结果读取和计算分别取得或验证正式证据。输入取数成功不代表后续计算完成，局部结果和未解决失败须如实说明。能力暂不支持时说明限制，替代目标由用户选择。
+ 
+--- a/agent-service/src/tools/businessContext.ts
++++ b/agent-service/src/tools/businessContext.ts
+@@ -12,7 +12,7 @@
+ import { createBusinessTools } from "../business-context/adapters.js";
+ import { createMetricReadTool } from "./readTools.js";
+ import { BusinessInputError } from "../business-context/inputError.js";
+-import { displayConditions, frameClarificationOptions, modelFields } from "../business-context/modelView.js";
++import { displayConditions, frameClarificationOptions, modelFields, modelRecovery } from "../business-context/modelView.js";
+ import { renderClarificationOptions } from "../business-context/clarificationOptions.js";
+ import { metricMentions } from "../business-context/metricMentions.js";
+ import { historicalOperations, inheritableFrame, resolveFrame } from "../business-context/core.js";
+@@ -140,8 +140,11 @@
+     field: error.field, message: error.correction, current_user_input: originalMessage, focus_preserved: true,
+     next_action: "correct_arguments", scope: "argument_validation", query_executed: false, preserve_user_conditions: true,
+     ...(error.corrections?.length ? {corrections: error.corrections} : {}),
++    ...(preservedFrame ? modelRecovery(preservedFrame) : {}),
+     ...(error.baseReference ? {retry_reference: error.baseReference,
+-      reference_hint: "修正字段参数时保留此 baseReference；未改变的历史字段省略或 retain，不得改用当前焦点。"}
++      reference_hint: preservedFrame?.recovery
++        ? "沿用 retry_reference，按 pending_changes 完成剩余项；inherit_allowed=true 才能用 inherit，may_retain=true 可显式 retain。已确认字段省略继承。"
++        : "修正字段参数时保留此 baseReference；未改变的历史字段省略或 retain，不得改用当前焦点。"}
+       : {reference_hint: "原焦点未改变不代表它就是用户所指来源。若字段来自历史引用，先用 FrameSelector 定位对应业务状态，再合并本轮变化；不要仅删除报错字段而默认继承焦点。"})},
+     {kind: "business_context", status: "ARGUMENT_ERROR", retryable: true, error_code: error.code});
+   const code = error instanceof BackendApiError ? error.code ?? `BACKEND_${error.status}` : error instanceof Error ? error.message : "BUSINESS_CONTEXT_ERROR";
+@@ -208,12 +211,14 @@
+     ...(typeof request.backend.matchMetricQuestion === "function" ? {resolveMetricMentions: (question?: string) => metricMentions(request, question)} : {}),
+     // 用户回复的依据：原文、原文的目录识别编码、针对该待确认 Frame 的前端点选。
+     async replyEvidence(frameId: string) {
++      const selection = request.clarificationSelection;
++      // 点选限定本次确认范围；“是”等展示文字不能顺带确认未点选的其它候选。
++      if (selection) return {reply: "", codes: [], optionIds: selection.frame_id === frameId ? selection.option_ids : []};
+       const matched = typeof request.backend.matchMetricQuestion === "function" ? await metricMentions(request) : {mentions: []};
+-      const selection = request.clarificationSelection;
+       return {reply: request.originalMessage,
+         codes: matched.mentions.filter(mention => mention.resolution.status === "resolved")
+           .flatMap(mention => (mention.resolution.value as {codes: string[]}).codes),
+-        optionIds: selection?.frame_id === frameId ? selection.option_ids : []};
++        optionIds: []};
+     },
+     // 模型明确指代来源；服务端只读定位并复核当前授权，不按词语或最近数量猜测。
+     async resolveFieldReference(input: HistoryFieldReferenceInput, targetField: string, inputSource?: "explicit" | "inherited", previous?: ResolvedField): Promise<FieldResolution> {
+@@ -383,7 +388,7 @@
+             display_conditions: displayConditions(frame),
+             ...(status === "NEEDS_CLARIFICATION" ? clarificationDetails(frame) : {})});
+       } catch (error) {
+-        const preserved = error instanceof BusinessInputError && error.recovery && error.baseReference
++        const preserved = error instanceof BusinessInputError && error.baseReference
+           ? await request.frames?.get(error.baseReference.frameId) : undefined;
+         return errorReceipt(error, request.originalMessage, preserved?.sessionId === request.sessionId ? preserved : undefined);
+       }
+--- a/backend-next/src/ask_metric/application/metric_candidates.py
++++ b/backend-next/src/ask_metric/application/metric_candidates.py
+@@ -1,9 +1,9 @@
+ """目录指标识别：完整名称最长优先，结构化目录按“基础指标 + 口径”组合识别。
+ 
+ 只有目录数据和用户能确定指标：完整名称、基础指标加口径的精确组合直接确定；
+-缺口径、口径没说完、基础指标不确定时一律交用户确认。拼音完全相同且唯一对应一个
+-词条的片段与精确匹配一同参与最长匹配；其余模糊召回只针对基础指标（及无结构的
+-完整名称），召回分数只决定是否提示候选和候选顺序，不决定采用。
++缺口径、口径没说完、基础指标不确定时交用户确认。拼音完全相同且唯一对应一个
++词条的片段与精确匹配一同参与最长匹配；基础指标单字纠错须通过全目录竞争、语义
++限定和精确口径校验才可采用。其余模糊召回只决定是否提示候选和候选顺序。
+ """
+ 
+ import re
+@@ -30,6 +30,20 @@
+ _CANDIDATE_LIMIT = 5
+ # 别名命中两侧、共用后半段向前回看的最大字数。
+ _CONTEXT_WINDOW = 8
++_CORRECTION_MIN_LENGTH = 5
++_CORRECTION_MIN_SCORE = .8
++_CORRECTION_MIN_MARGIN = .15
++# 数量、期限、单位、否定和范围属于用户条件，不因目录只剩一个相近词条就改写。
++_NUMBER = r"[零〇一二三四五六七八九十百千万亿两壹贰叁肆伍陆柒捌玖拾佰仟]+"
++_PROTECTED_TERMS = re.compile(
++    rf"百分之(?:\d+(?:\.\d+)?|{_NUMBER})|\d+(?:\.\d+)?|第{_NUMBER}"
++    rf"|{_NUMBER}(?=年|月|日|天|周|季|期|倍|成|个|户|笔|次|项|名|家|岁|级)"
++    r"|百分之|百分比|百分率|占比|比率|比例|%|‰"
++    r"|不包含|未包含|不包括|未包括|不含|未含|包含|包括|剔除|排除|除外|纳入|不|未|非|无|含"
++    r"|不低于|不少于|不超过|不高于|以上|以下|以内|以外|至少|至多|超过|低于|高于|[<>≤≥=]"
++    r"|人民币|美元|欧元|港元|日元|[万亿千百]?元|[万亿千百]?户"
++    r"|年度|季度|月度|日均|月均|年均|年|月|日|天|周|季|累计|平均|总|净|毛|全部|部分|内|外"
++)
+ 
+ _Key = tuple[str, str]  # ("base", 源指标编码) 或 ("metric", 无结构指标编码)
+ 
+@@ -449,6 +463,50 @@
+             if counts[key] >= 2
+         ]
+ 
++    def base_correction(self, text: str) -> dict | None:
++        """全词条、全身份竞争；不使用召回截断、口径过滤后的候选数推定唯一。"""
++        if len(text) < _CORRECTION_MIN_LENGTH:
++            return None
++        phonetic = _phonetic(text)
++        best_by_key: dict[_Key, tuple[float, float, float, int, _Term]] = {}
++        for term in self.terms:
++            character_score = Levenshtein.normalized_similarity(text, term.text)
++            pinyin_score = Levenshtein.normalized_similarity(phonetic, term.phonetic)
++            score = max(character_score, pinyin_score)
++            distance = Levenshtein.distance(text, term.text)
++            candidate = (score, character_score, pinyin_score, distance, term)
++            previous = best_by_key.get(term.key)
++            if previous is None or (score, character_score) > previous[:2]:
++                best_by_key[term.key] = candidate
++        ranked = sorted(best_by_key.items(), key=lambda entry: (-entry[1][0], entry[0]))
++        if not ranked:
++            return None
++        key, (score, character_score, pinyin_score, distance, term) = ranked[0]
++        runner_up = ranked[1] if len(ranked) > 1 else None
++        runner_up_score = runner_up[1][0] if runner_up else 0.0
++        margin = score - runner_up_score
++        if (key[0] != "base" or len(term.text) < _CORRECTION_MIN_LENGTH or distance != 1
++                or character_score < _CORRECTION_MIN_SCORE
++                or margin + 1e-9 < _CORRECTION_MIN_MARGIN
++                or term.text.startswith(text) or term.text.endswith(text)
++                or text.startswith(term.text) or text.endswith(term.text)
++                or _PROTECTED_TERMS.findall(text) != _PROTECTED_TERMS.findall(term.text)):
++            return None
++        return {
++            "source_metric_code": key[1], "formal_base_name": self.base_names[key[1]],
++            "matched_term": term.text, "normalized_base_text": text,
++            "method": "single_character_edit", "edit_distance": distance,
++            "score": round(score, 4), "character_score": round(character_score, 4),
++            "pinyin_score": round(pinyin_score, 4), "runner_up_score": round(runner_up_score, 4),
++            "margin": round(margin, 4), "min_score": _CORRECTION_MIN_SCORE,
++            "min_margin": _CORRECTION_MIN_MARGIN,
++            "competition_scope": "all_enabled_catalog_terms",
++            "dictionary_identity_count": len(ranked), "dictionary_term_count": len(self.terms),
++            "runner_up": ({"kind": runner_up[0][0], "identity": runner_up[0][1],
++                           "name": self.display(runner_up[0]), "score": round(runner_up_score, 4)}
++                          if runner_up else None),
++        }
++
+ 
+ def _is_pause(text: str, positions: list[int], index: int, boundary: int) -> bool:
+     """归一化位置 index 处用户是否停顿：句首句末、下一实体、被剔除的标点空白或连接词。"""
+@@ -696,7 +754,9 @@
+ 
+     def _candidate_group(self, start: int, end: int, boundary: int,
+                          scores: dict[_Key, float]) -> None:
+-        """基础指标不确定：只提示候选，由用户确认。"""
++        """高置信纠错单独校验；其余基础指标候选仍由用户确认。"""
++        if self._correct_base(start, end, boundary):
++            return
+         ranked = sorted(scores, key=lambda key: (-scores[key], key))
+         base_sources = frozenset(value for kind, value in ranked if kind == "base")
+         members = (self.index._read_chain(self.text, self.positions, end, boundary, base_sources)
+@@ -736,6 +796,40 @@
+             "metadata": {"issue": "base_uncertain"},
+         }, "fuzzy_base")
+ 
++    def _correct_base(self, start: int, end: int, boundary: int) -> bool:
++        correction = self.index.base_correction(self.text[start:end])
++        if correction is None:
++            return False
++        source = correction["source_metric_code"]
++        members = self.index._read_chain(self.text, self.positions, end, boundary, {source})
++        if not members or any(partial for *_, partial in members):
++            return False
++        selected = []
++        for _, _, canons, _ in members:
++            codes = self.index.codes_for({source}, canons)
++            if len(canons) != 1 or len(codes) != 1:
++                return False
++            code = next(iter(codes))
++            item = self.index.items[code]
++            # 正式名称撞码或源结构不一致时，不能借模糊纠错绕过精确识别的歧义门禁。
++            if (self.index.full_terms[normalize_semantic_text(item.name)] != {code}
++                    or normalize_semantic_text(item.base_name or "")
++                    != normalize_semantic_text(correction["formal_base_name"])):
++                return False
++            selected.append(item)
++        group = self._group(source)
++        original_base = self.question[self.positions[start]:self.positions[end - 1] + 1]
++        for position, ((member_start, member_end, _, _), item) in enumerate(
++                zip(members, selected, strict=True)):
++            metadata = {"match": "fuzzy_correction",
++                        "understood_as": correction["formal_base_name"],
++                        "correction": {**correction, "original_base_text": original_base,
++                                       "formal_metric": {"code": item.code, "name": item.name,
++                                                         "value_basis": item.value_basis}}}
++            self._emit(start if position == 0 else member_start, member_end,
++                       self._resolved([item.code], **metadata), "fuzzy_base_basis", group)
++        return True
++
+ 
+ @lru_cache(maxsize=2)
+ def _index(snapshot: tuple) -> MetricCandidateIndex:
+--- a/backend-next/verification/test_metric_candidates.py
++++ b/backend-next/verification/test_metric_candidates.py
+@@ -92,7 +92,7 @@
+     ("查询省联社2026年3月31日贷款讯额当日数", "D"),
+     ("本月每天的存款平均值是多少", "S"),
+     ("存在风险的客户占全部客户多少比例", "R"),
+-    # 只差一个字但读音不同：保守策略下一律交用户确认。
++    # 无结构目录无法独立核验基础身份和口径，非同音纠错仍交用户确认。
+     ("合成客户风险比例", "R"),
+ ])
+ def test_non_homophone_typo_and_description_remain_candidates(question, expected):
+@@ -116,6 +116,128 @@
+     resolution = result[0]["resolution"]
+     assert resolution["value"]["codes"] == [expected]
+     assert resolution["metadata"]["match"] == "homophone"
++
++
++@pytest.mark.parametrize("base,raw", [
++    ("净利润金额", "净利润金融"),
++    ("合成交易金额", "合成交易金件"),
++    ("业务签约数量", "业务签签约数量"),
++    ("服务收费金额", "服务费金额"),
++])
++def test_high_confidence_base_typo_resolves_with_exact_basis_and_audit(base, raw):
++    items = structured("SYNTH", base, ["当日数", "较上期增幅"])
++    question = "📈 甲机构2035年4月 " + raw + "当日数是多少"
++    mentions = MetricCandidateIndex(items).mentions(question)
++    assert summary(mentions) == [(raw + "当日数", "resolved", ["SYNTH:当日数"])]
++    mention = mentions[0]
++    assert question[mention["start"]:mention["end"]] == mention["text"]
++    metadata = mention["resolution"]["metadata"]
++    assert metadata["match"] == "fuzzy_correction"
++    assert metadata["understood_as"] == base
++    correction = metadata["correction"]
++    assert correction["original_base_text"] == raw
++    assert correction["formal_base_name"] == base
++    assert correction["method"] == "single_character_edit"
++    assert correction["edit_distance"] == 1
++    assert correction["character_score"] >= .8
++    assert correction["margin"] >= .15
++    assert correction["competition_scope"] == "all_enabled_catalog_terms"
++    assert correction["dictionary_identity_count"] == 1
++    assert correction["formal_metric"] == {
++        "code": "SYNTH:当日数", "name": base + "当日数", "value_basis": "当日数",
++    }
++    # 执行层重扫原句认可同一纠错，不能换口径或多查一个指标。
++    _verify_metric_coverage(question, ["SYNTH:当日数"], items)
++    assert_coverage_rejected(question, ["SYNTH:较上期增幅"], items, None,
++                             "METRIC_TARGETS_INCOMPLETE")
++
++
++def test_high_confidence_typo_keeps_all_explicit_metrics_and_shared_bases():
++    items = [
++        *structured("A", "净利润金额", ["当日数", "较上期增幅"]),
++        *structured("B", "客户活跃数量", ["当日数"]),
++    ]
++    question = "净利润金融当日数、较上期增幅；客户活跃数款当日数"
++    mentions = MetricCandidateIndex(items).mentions(question)
++    assert summary(mentions) == [
++        ("净利润金融当日数", "resolved", ["A:当日数"]),
++        ("较上期增幅", "resolved", ["A:较上期增幅"]),
++        ("客户活跃数款当日数", "resolved", ["B:当日数"]),
++    ]
++    assert mentions[0]["group"]["id"] == mentions[1]["group"]["id"]
++    assert mentions[2]["group"]["id"] != mentions[0]["group"]["id"]
++    codes = ["A:当日数", "A:较上期增幅", "B:当日数"]
++    _verify_metric_coverage(question, codes, items)
++    assert_coverage_rejected(question, codes[:-1], items, None, "METRIC_TARGETS_INCOMPLETE")
++
++
++@pytest.mark.parametrize("base,raw", [
++    ("合成12月期限金额", "合成13月期限金额"),
++    ("合成十二月期限金额", "合成十三月期限金额"),
++    ("合成不含税交易金额", "合成含税交易金额"),
++    ("合成境内交易金额", "合成境外交易金额"),
++    ("合成美元收入金额", "合成欧元收入金额"),
++    ("合成日均交易金额", "合成月均交易金额"),
++    ("合成交易占比金额", "合成交易占款金额"),
++    ("合成万元交易金额", "合成万户交易金额"),
++    ("合成百分之三金额", "合成百分之四金额"),
++])
++def test_base_typo_never_rewrites_explicit_semantic_qualifiers(base, raw):
++    items = structured("SYNTH", base, ["当日数"])
++    mentions = MetricCandidateIndex(items).mentions(raw + "当日数")
++    assert mentions and all(m["resolution"]["status"] != "resolved" for m in mentions)
++    assert_coverage_rejected(raw + "当日数", ["SYNTH:当日数"], items, None)
++
++
++@pytest.mark.parametrize("base,raw,bases", [
++    ("盈余金额", "盈余金件", ["当日数"]),
++    ("合成交易金额", "合成交易金", ["当日数"]),
++    ("合成交易收入金额", "合成交异收款金额", ["当日数"]),
++    ("净利润金额", "净利润金融", ["较上期增幅", "较上期增量"]),
++])
++def test_base_typo_stays_pending_for_short_or_multiple_edits_or_partial_basis(base, raw, bases):
++    suffix = "较上期增" if len(bases) > 1 else "当日数"
++    mentions = MetricCandidateIndex(structured("SYNTH", base, bases)).mentions(raw + suffix)
++    assert mentions and all(m["resolution"]["status"] != "resolved" for m in mentions)
++
++
++def test_base_typo_competition_is_checked_before_basis_filter_and_candidate_truncation(monkeypatch):
++    items = [
++        *structured("A", "净利润金额", ["当日数"]),
++        *structured("B", "净利润金数", ["较上期增幅"]),
++    ]
++    index = MetricCandidateIndex(items)
++    original_recall = index.recall
++    # 模拟检索截断后只见 A；不同口径的 B 仍参与完整目录身份竞争。
++    monkeypatch.setattr(index, "recall", lambda *args, **kwargs: [
++        hit for hit in original_recall(*args, **kwargs) if hit["key"] == ("base", "A")
++    ])
++    mention = index.mentions("净利润金融当日数")[0]
++    assert mention["resolution"]["status"] == "needs_confirmation"
++    assert [c["code"] for c in mention["resolution"]["candidates"]] == ["A:当日数"]
++    assert_coverage_rejected("净利润金融当日数", ["A:当日数"], items, None)
++
++
++def test_base_typo_close_runner_up_is_not_auto_selected():
++    items = [
++        *structured("A", "合成交易收入金额", ["当日数"]),
++        *structured("B", "合成交易收入净金额", ["当日数"]),
++    ]
++    mentions = MetricCandidateIndex(items).mentions("合成交易收入金融当日数")
++    assert mentions and all(m["resolution"]["status"] != "resolved" for m in mentions)
++
++
++@pytest.mark.parametrize("conflict", ["same_name_source", "same_basis_code", "unstructured_name"])
++def test_base_typo_rejects_conflicting_formal_identities(conflict):
++    items = structured("A", "净利润金额", ["当日数"])
++    if conflict == "same_name_source":
++        items += structured("B", "净利润金额", ["当日数"])
++    elif conflict == "same_basis_code":
++        items.append(items[0].model_copy(update={"code": "DUPLICATE"}))
++    else:
++        items.append(MetricCatalogItem(code="PLAIN", name="净利润金额当日数"))
++    mentions = MetricCandidateIndex(items).mentions("净利润金融当日数")
++    assert mentions and all(m["resolution"]["status"] != "resolved" for m in mentions)
+ 
+ 
+ def test_homophone_of_two_different_codes_needs_confirmation():
+@@ -379,8 +501,8 @@
+ 
+ def test_uncertain_base_shares_one_candidate_group_across_value_bases():
+     index = MetricCandidateIndex(deposit_catalog())
+-    mentions = index.mentions("对公日均存钱余额当日数和较同期增幅")
+-    assert [m["text"] for m in mentions] == ["对公日均存钱余额当日数", "较同期增幅"]
++    mentions = index.mentions("对公日常存钱余额当日数和较同期增幅")
++    assert [m["text"] for m in mentions] == ["对公日常存钱余额当日数", "较同期增幅"]
+     assert all(m["resolution"]["status"] == "needs_confirmation" for m in mentions)
+     assert len({m["group"]["id"] for m in mentions}) == 1
+     first, second = (m["resolution"]["candidates"] for m in mentions)
+@@ -395,15 +517,17 @@
+ 
+ 
+ @pytest.mark.parametrize("prefix", ["", "乙机构2037年2月", "查询丙机构 2041 年 11 月 "])
+-@pytest.mark.parametrize("base,raw_base", [
+-    ("净利润金额", "净利润金融"),
+-    ("盈余金额", "盈余金件"),
+-    ("债券投资余额", "债券投向余额"),
+-    ("销售收入总额", "销售收入总款"),
+-    ("服务收费金额", "服务费金额"),
+-    ("客户签约数量", "客户签签约数量"),
+-])
+-def test_fuzzy_span_uses_complete_catalog_term_and_basis_boundary(prefix, base, raw_base):
++@pytest.mark.parametrize("base,raw_base,auto_corrected", [
++    ("净利润金额", "净利润金融", True),
++    ("盈余金额", "盈余金件", False),
++    ("债券投资余额", "债券投向余额", True),
++    ("销售收入总额", "销售收入总款", True),
++    ("服务收费金额", "服务费金额", True),
++    ("客户签约数量", "客户签签约数量", True),
++])
++def test_fuzzy_span_uses_complete_catalog_term_and_basis_boundary(
++    prefix, base, raw_base, auto_corrected,
++):
+     items = structured("SYNTH", base, ["期内累计", "较基期增幅"])
+     question = prefix + raw_base + "期内累计进行比较"
+     mentions = MetricCandidateIndex(items).mentions(question)
+@@ -412,14 +536,16 @@
+     assert mention["text"] == raw_base + "期内累计"
+     assert question[mention["start"]:mention["end"]] == mention["text"]
+     assert mention["source"]["kind"] == "fuzzy_base_basis"
+-    assert mention["resolution"]["status"] == "needs_confirmation"
+-    assert [candidate["code"] for candidate in mention["resolution"]["candidates"]] == [
+-        "SYNTH:期内累计",
+-    ]
+-    # 召回不等于接受：完整口径仍须通过用户确认绑定正式指标编码。
+-    with pytest.raises(ApplicationError) as unresolved:
++    if auto_corrected:
++        assert mention["resolution"]["status"] == "resolved"
++        assert mention["resolution"]["value"]["codes"] == ["SYNTH:期内累计"]
+         _verify_metric_coverage(question, ["SYNTH:期内累计"], items)
+-    assert unresolved.value.code == "METRIC_TARGETS_UNRESOLVED"
++    else:
++        assert mention["resolution"]["status"] == "needs_confirmation"
++        assert [candidate["code"] for candidate in mention["resolution"]["candidates"]] == [
++            "SYNTH:期内累计",
++        ]
++        assert_coverage_rejected(question, ["SYNTH:期内累计"], items, None)
+     _verify_metric_coverage(question, ["SYNTH:期内累计"], items, [
+         binding(question, raw_base + "期内累计", ["SYNTH:期内累计"]),
+     ])
+@@ -435,11 +561,12 @@
+     assert [mention["text"] for mention in mentions] == [
+         "净利润金融当日数", "较上月增幅", "服务费金额当日数",
+     ]
+-    assert all(mention["resolution"]["status"] == "needs_confirmation" for mention in mentions)
++    assert all(mention["resolution"]["status"] == "resolved" for mention in mentions)
+     assert mentions[0]["group"]["id"] == mentions[1]["group"]["id"]
+     assert mentions[2]["group"]["id"] != mentions[0]["group"]["id"]
+-    assert [[candidate["code"] for candidate in mention["resolution"]["candidates"]]
+-            for mention in mentions] == [["A:当日数"], ["A:较上月增幅"], ["B:当日数"]]
++    assert [mention["resolution"]["value"]["codes"] for mention in mentions] == [
++        ["A:当日数"], ["A:较上月增幅"], ["B:当日数"],
++    ]
+ 
+ 
+ def test_fuzzy_span_keeps_equal_candidates_and_original_unicode_whitespace():
+@@ -459,10 +586,13 @@
+     }
+ 
+ 
+-def test_alias_inside_longer_mistyped_text_is_not_silently_selected():
++def test_alias_inside_longer_mistyped_text_uses_complete_corrected_identity():
+     # “对公日均”是别名，但原文紧接着的“存钱余额”说明用户在说更长的名称。
+     mentions = MetricCandidateIndex(deposit_catalog()).mentions("对公日均存钱余额当日数")
+-    assert all(m["resolution"]["status"] != "resolved" for m in mentions)
++    assert summary(mentions) == [("对公日均存钱余额当日数", "resolved", ["CORP:当日数"])]
++    assert mentions[0]["resolution"]["metadata"]["correction"]["formal_base_name"] == (
++        "对公日均存款余额"
++    )
+     assert all("对公日均" != m["text"] for m in mentions)
+ 
+ 
+--- a/docs/business-context-reference-recovery.md
++++ b/docs/business-context-reference-recovery.md
+@@ -61,6 +61,10 @@
+ 
+ 可修复的结构、原文或枚举错误继续返回 `ARGUMENT_ERROR`，保留已选来源，不保存失败字段。恢复提示区分沿用、历史引用及有效候选确认。
+ 
++同一调用中已由用户回复或点选唯一绑定的有效候选，仍按原 Resolver 和数量契约复核并独立保存。恢复草稿与模型回执同时提供 `retry_reference`、`confirmed_fields`、`pending_fields`、`pending_changes`；待修项带操作、本轮原文依据及 `may_retain`/`inherit_allowed`。有本轮依据的新日期、机构或数量必须修正并落实；只有来源明确不属于本轮的额外错误提案才允许显式声明 `inherit` 或 `retain` 撤销。不能仅省略全部待修字段，也不能回到旧快照绕过草稿；旧快照没有此来源记录时保留显式处理路径。合法的本轮数量约束在恢复中继续核验，不能用 `null` 删除。
++
++点选只投向本会话保存的指定来源与选项；失效或其它会话的点选不会回退为文字投票，单独选择一项也不会顺带确认其它候选。原始回复仍保留给真实新条件的解析。重复失败停止保护保持生效，确认后的正常续接通过程序状态与结构化回执完成。
++
+ 没有候选的确认、同轮自行确认，以及未决字段没有候选且模型重放不属于本轮的引用原文，返回 `NEEDS_CLARIFICATION`、`next_action=ask_user`、`retryable=false`。回执绑定原 Frame，原焦点与字段不落盘改写；宿主结束本轮，不继续自动解析。用户随后提供明确条件可继承原指标、日期与操作继续执行。
+ 
+ 对可信旧字段的上述恢复判定，在普通参数校验前进行只读预检，避免旧引用与本轮确认话语不一致先触发参数纠错、遮住澄清终态。预检不解析历史、不调用目录、不写 Frame；新名称、有效当前引用的声明错误及必填声明缺失仍由原参数校验处理。
+@@ -85,6 +89,14 @@
+ 
+ 单日范围且未显式修改取数方式时，使用既有能力声明补齐 `exact`；明确清除、非法值或显式澄清不被覆盖。多日范围不会自动选月末或最后有数日。用户明确要求的逐日排名、离散日期排名仍受原有能力限制，返回业务终态，不能通过修改取数方式或换查询能力绕过。
+ 
++排名方向和条数由服务端核验本轮表达或所选可信历史，不从模型提供的枚举、日期或机构数量推断。缺少条数时保存已知条件并澄清，不补前 10 名；仅补充数量或方向时保留已核验的另一项。省略、继承、清除及普通取值默认同样经过语义完成校验，不能吞掉明确的排名目标。完整输入与参数冲突返回参数纠错；未决业务条件保存后提问。正式指标名称中的排名、名次和数字不作为额外操作证据。
++
++## 正式指标错字纠正
++
++精准名称与既有同音匹配路径保留。新增纠正只适用于已识别完整基础指标、明确统计口径、与正式词条仅一字编辑差异的输入：归一化基础词至少 5 字，字符相似度至少 0.8，与全部启用目录词条及正式指标身份中的竞争项相似度差至少 0.15，且各明确口径只能映射一个正式编码。竞争判断使用完整目录，不以展示候选数量代替唯一性。数值、否定、包含范围、单位币种及统计口径等语义差异不按普通错字自动改写。
++
++这些分数是保守的匹配阈值，不是概率或准确率承诺。短词、缩写、多个近似正式指标、重复编码映射或缺失口径继续确认。解析结果保留原始 mention 文本和区间、正式名称与编码，以及纠正方法、相似度、竞争项和阈值；后续 Frame 继承与会话重开仍保留这些信息。模型继续提交完整原文，由后端作受治理纠正，不能自行生成指标编码或补统计口径。
++
+ 重试不再按不同参数错误累计三次即停止。宿主从本轮原生工具记录比较“工具、参数、失败内容”：不同参数或不同诊断可继续修正；相同失败提案重复出现即终止，包括交错读取与 A/B/A 循环。可信解析或执行终态清除旧失败段，避免成功结果被先前错误覆盖。既有每次操作 24 次工具调用预算继续生效，重启不重新计数。
+ 
+ ## 兼容与验证边界
+--- a/docs/business-skills-runtime.md
++++ b/docs/business-skills-runtime.md
+@@ -34,6 +34,8 @@
+ 机构指代由模型结合当前会话理解并选择结构化来源，服务端核对来源、状态、权限和用户明确的数量。整笔历史业务通过明确的 `baseReference` 继承未变字段；特定字段单独取自历史或多个来源组合时，提交对应字段的结构化引用。唯一来源不因没有数量词而额外澄清；来源不唯一或数量不符时保存已知条件再询问。示例只解释判断分支，不定义默认机构、时间口径、排名条数或固定回答。
+ 
+ 用户已明确条件而模型遗漏或格式不合法时，根据原文及纠错回执修正参数；用户未提供且不能唯一确定的业务选择，通过已声明的澄清输入保存状态，不能为了满足必填 Schema 补默认值。两类情况共用现有工具契约，不改变字段、权限、候选确认或执行校验。
++
++正式指标的保守错字纠正由后端目录匹配实施，保留原文与正式编码的映射证据；确认恢复与排名方向、条数由程序核验，并在 Frame 中保存续接进度。阈值、歧义边界与恢复结构见[确认与恢复契约](business-context-reference-recovery.md)。Skill 不代替这些校验，也不要求新增分析规划流程。
+ 
+ 合法枚举或纠错回执的 `allowedValues` 仅表示接口可接受的值域，即使只剩一个合法值，也不能证明用户已经选择。新增业务控制值必须有本轮原文、已选可信来源或 Schema 明确无损派生的依据。工具参数说明从能力注册表生成始终必需和可选变化两类目标声明清单：必需字段即使未变仍声明继承；可选字段仅在本轮实际设置、确认、清除或移除时必须声明，省略或 retain 且未变时可不声明，已选来源及原数量约束仍保留。没有必需声明且未修改可选字段时传空对象，不复制来源能力的声明。显式声明继续核验结构、原文、数量与实际修改。确认声明保留本轮同意或明确选择的原文；用户本轮以名称或编号选择时保留该表达，不能用未出现在本轮的候选标签代替。
+ 

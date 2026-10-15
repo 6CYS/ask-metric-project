@@ -1,4 +1,5 @@
 import type {BusinessFrame, FieldCandidate, MentionResolution, ResolvedField} from "./types.js";
+import {hasInputEvidence} from "./inputEvidence.js";
 
 /**
  * 待确认候选的唯一清单：系统据此向用户展示编号，也据此把用户回复对应到候选。
@@ -21,6 +22,8 @@ export interface ReplyEvidence {
   codes?: Iterable<string>;
   /** 前端点选的选项标识（仅限当前待确认 Frame）。 */
   optionIds?: Iterable<string>;
+  /** 模型只报告用户是否同意已保存提案；原文锚定及候选唯一性仍由服务端校验。 */
+  affirmation?: {decision: "accept"; sourceText: string};
 }
 
 const PENDING = new Set(["needs_confirmation", "ambiguous"]);
@@ -56,7 +59,7 @@ function groupTitle(fieldLabel: string, text: string | undefined, options: Field
   if (options.length && options.every(option => typeof option.metadata?.value_basis === "string")) {
     return `请选择${subject}的口径：`;
   }
-  return `${subject}对应多个${fieldLabel}，请选择：`;
+  return options.length === 1 ? `请确认${subject}对应的${fieldLabel}：` : `${subject}对应多个${fieldLabel}，请选择：`;
 }
 
 /** 按能力字段顺序生成全局连续编号的清单；字段内按待确认项分组，保持候选保存顺序。 */
@@ -89,7 +92,26 @@ export function clarificationOptions(frame: BusinessFrame, fieldLabels: Record<s
 /** 规范清单的文字形式，追加在澄清消息后；用户可回复序号或名称。 */
 export function renderClarificationOptions(groups: ClarificationGroup[], unclear = false): string {
   if (!groups.length) return "";
-  const lines = unclear ? ["未能从回复中确定您选择的是哪一项，请回复下列序号或名称："] : ["请回复下列序号或名称："];
+  // 首推确认：后端或模型建议通道标出首选候选时该候选置顶、话术改为确认式；
+  // 编号仍来自同一规范清单（clarificationOptions），前端点选与回复对应不受影响。
+  const preferredOf = (group: ClarificationGroup) => group.options.filter(option => option.candidate.preferred === true);
+  if (!unclear && groups.some(group => preferredOf(group).length === 1)) {
+    const lines: string[] = [];
+    for (const group of groups) {
+      const [first] = preferredOf(group);
+      if (!first) {
+        lines.push(group.title, ...group.options.map(option => `${option.no}. ${option.label}`));
+        continue;
+      }
+      const rest = group.options.filter(option => option !== first);
+      lines.push(`您是指「${first.label}」吗？`, "回复“是”直接确认；或选择以下其他机构：",
+        ...[first, ...rest].map(option => `${option.no}. ${option.label}`));
+    }
+    return lines.join("\n");
+  }
+  const singleProposal = groups.every(group => group.options.length === 1);
+  const lines = unclear ? ["未能从回复中确定您选择的是哪一项，请回复下列序号或名称："]
+    : [singleProposal ? "请确认以下候选，同意可回复“是”，或回复序号、名称：" : "请回复下列序号或名称："];
   for (const group of groups) {
     lines.push(group.title, ...group.options.map(option => `${option.no}. ${option.label}`));
   }
@@ -139,6 +161,20 @@ function textMatchLength(option: ClarificationOption, reply: string): number {
  */
 export function selectOptions(groups: ClarificationGroup[], evidence: ReplyEvidence): ClarificationOption[] {
   const options = groups.flatMap(group => group.options);
+  const reply = normalize(evidence.reply);
+  // 兼容旧肯定回复；新语义证据允许复合话语，否定不能因包含候选名称/序号而被反向确认。
+  const affirmative = /^(?:是|是的|对|对的|可以|好|好的|同意|确认|没错|就是这个|就这个)[。.!！]*$/.test(reply);
+  const declined = /(?:不是|不要|不选|不对|不同意|不确认|并非|拒绝|取消)/.test(reply)
+    || /(?:^|[，,。;；!?！？])(?:不|没|否)(?:$|[，,。;；!?！？])/.test(reply);
+  if (!affirmative && declined) return [];
+  const semanticAcceptance = evidence.affirmation?.decision === "accept"
+    && hasInputEvidence(evidence.reply, evidence.affirmation.sourceText);
+  if ((affirmative || semanticAcceptance) && groups.length) {
+    if (groups.every(group => group.options.length === 1)) return options;
+    // 首推确认的“是”：每组恰有一个首选候选时视为确认首选，与确认式话术的承诺一致。
+    const preferred = groups.map(group => group.options.filter(option => option.candidate.preferred === true));
+    if (preferred.every(chosen => chosen.length === 1)) return preferred.flat();
+  }
   const votes = new Map<string, Set<string>>();
   const vote = (option: ClarificationOption) => {
     const key = `${option.field}:${option.item}`;
@@ -149,7 +185,6 @@ export function selectOptions(groups: ClarificationGroup[], evidence: ReplyEvide
   options.filter(option => ids.has(option.id)).forEach(vote);
   const codes = new Set(evidence.codes ?? []);
   options.filter(option => option.candidate.code && codes.has(option.candidate.code)).forEach(vote);
-  const reply = normalize(evidence.reply);
   for (const group of groups) {
     const lengths = group.options.map(option => textMatchLength(option, reply));
     const longest = Math.max(0, ...lengths);

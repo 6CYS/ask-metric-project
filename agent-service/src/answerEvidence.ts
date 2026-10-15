@@ -21,12 +21,23 @@ export interface BusinessEvidence {
 
 export function businessEvidence(details: unknown): BusinessEvidence | undefined {
   if (!details || typeof details !== "object") return undefined;
+  const semantic = details as {protocol_version?: number; state?: {evidence?: unknown}};
+  if (semantic.protocol_version === 2) return businessEvidence(semantic.state?.evidence);
   const value = details as BusinessEvidence;
   if (typeof value.status !== "string") return undefined;
   if (value.kind === "metric_read" && !value.result_id && !["error", "failed"].includes(value.status.toLowerCase())) return undefined;
   if (value.delivery === "business_evidence_v1") return value;
   // 兼容已持久化的旧会话回执；新工具在注册处声明交付契约。
   return ["metric_ask", "metric_read", "metric_query_structured", "metric_catalog_overview", "data_availability", "metric_calculate"].includes(value.kind) ? value : undefined;
+}
+
+/** 复合步骤证据保留各自身份，不能只取批次最后一项。 */
+export function businessEvidences(details: unknown): BusinessEvidence[] {
+  if (!details || typeof details !== "object") return [];
+  const value = details as {protocol_version?: number; state?: {evidence?: unknown}; kind?: string; results?: unknown[]};
+  if (value.protocol_version === 2) return businessEvidences(value.state?.evidence);
+  if (value.kind === "semantic_results") return (value.results ?? []).flatMap(businessEvidences);
+  const evidence = businessEvidence(details); return evidence ? [evidence] : [];
 }
 
 export function evidenceAnswer(evidence: BusinessEvidence): string {
@@ -108,7 +119,7 @@ export function currentTurnEvidence(messages: {role?: string; details?: unknown}
   let start = messages.length - 1;
   while (start >= 0 && messages[start]?.role !== "user") start -= 1;
   return messages.slice(start + 1).filter(message => message.role === "toolResult")
-    .map(message => businessEvidence(message.details)).filter(item => item !== undefined)
+    .flatMap(message => businessEvidences(message.details))
     .map((evidence, index) => ({ref: `e${index + 1}`, evidence}));
 }
 

@@ -1,0 +1,88 @@
+{
+  "scope": "Final frozen fixed business entry schema, deterministic adapter, trusted saved legacy planned bridge, Host hooks and model-history projection; read-only source review plus offline synthetic checks",
+  "conclusion": "No reproducible bypass, unintended coercion, new-request legacy acceptance, duplicate replay authorization, or private legacy union exposure found in the reviewed current OpenAI-compatible path.",
+  "findings": [],
+  "source_stable": true,
+  "source_changed": [],
+  "source_sha256": {
+    "src/fixedTurnCompatibility.ts": "8f66f97303216a6e03048af93b679e4e2ded35b0080547e066dadffac34e12ab",
+    "src/harnessHost.ts": "00e4f1705d6b62d3be19a365203d36e8e127b08c0aea948f44e1fd61f41777c8",
+    "src/modelContext.ts": "146e477d203362af3bb9107ebadc97e8049b84f3db20939d5efc217fd41f6b3a",
+    "src/business-context/modelView.ts": "c61f3af55167d5bb90de0770a4ce76a697af361a86dedd50dd4ff5bdb1b0951c",
+    "src/business-context/fixedTurnArgs.ts": "8b38465ccf0c0005fc79be385433671c28aaa593b7c6a7aeffb490fa7528b5ef",
+    "src/tools/businessContext.ts": "e255452a174cf60a6bc8da168af783d9ef5b4d4adf7f6f6fc8b1af947409e488"
+  },
+  "verification": {
+    "independent_adapter": {
+      "passed": 40,
+      "failed": 0,
+      "schema_json_bytes": 28141,
+      "log": "/private/tmp/harness-fixed-entry-20261014/fixed-adapter-final-audit.log",
+      "report": "/private/tmp/harness-fixed-entry-20261014/fixed-adapter-final-audit.json"
+    },
+    "independent_bridge_projection_units": {
+      "passed": 28,
+      "failed": 0,
+      "exit_code": 0,
+      "network_guard": "/private/tmp/harness-fixed-entry-20261014/frontend-offline.cjs",
+      "report": "/private/tmp/harness-fixed-entry-20261014/fixed-bridge-review-unit.json"
+    },
+    "owner_final_target_evidence_read": {
+      "passed": 194,
+      "failed": 0,
+      "report": "/private/tmp/harness-fixed-entry-20261014/host-final-target.json",
+      "note": "194 includes overlapping unit/Host cases; do not sum with independent 28 as unique tests."
+    }
+  },
+  "reviewed_boundaries": [
+    {
+      "boundary": "fixed schema/adapter",
+      "source": "src/business-context/fixedTurnArgs.ts",
+      "evidence": "Three closed root capability branches; required outer keys; strict equality rejects native validator coercion; variables remain typed arrays and decimal strings; preserved sources/count/confirm/history roles; 40 synthetic positive/negative probes pass."
+    },
+    {
+      "boundary": "saved old operation admission",
+      "source": "src/fixedTurnCompatibility.ts:20",
+      "evidence": "Capture only open main/run operations with matching persisted request association, non-fixed marker, native tools batch and planned call; original legacy raw arguments captured without rewriting native records."
+    },
+    {
+      "boundary": "exact execution identity and one-time capability",
+      "source": "src/fixedTurnCompatibility.ts:59",
+      "evidence": "Execution requires request operationId plus invocation operationId, saved callId and original native-validated args; whitelist deleted before invocation. Wrong ids/args and repeat calls rejected in both legacy dialect tests."
+    },
+    {
+      "boundary": "unknown effects and completed calls",
+      "source": "src/fixedTurnCompatibility.ts:31",
+      "evidence": "effect_pending/completed are not captured; both dialect negative tests pass. Local installed SDK uses tool.replay ?? never at runtime/drive/tools.js:338."
+    },
+    {
+      "boundary": "new model requests",
+      "source": "src/harnessHost.ts:411",
+      "evidence": "before_request clears whitelist; new admitted requests persist toolProtocol=fixed_v1 at line852. Owner actual SDK tests show fresh legacy proposals produce error results with zero Frame/query."
+    },
+    {
+      "boundary": "actual public payload",
+      "source": "src/harnessHost.ts:430",
+      "evidence": "before_payload applies fixedPublicToolDefinitions before compaction/branch-summary early return; both current supported OpenAI parameter shapes are replaced with fixedTurnParameters and the original payload is not mutated."
+    },
+    {
+      "boundary": "history projection",
+      "source": "src/modelContext.ts:17",
+      "evidence": "Lossless calls become fixed args only in model send copy; unsupported old calls/results are paired historical data; duplicate call ids become opaque; original messages unchanged. Known receipt controls projected while original business text/facts remain unchanged."
+    },
+    {
+      "boundary": "actual SDK reopen evidence",
+      "source": "specs/harnessHost.test.ts:100",
+      "evidence": "Owner final target contains both legacy dialects: persisted planned checkpoint then actual close/reopen/resume, synthetic backend query exactly once, second resume zero, native original args intact, later new request fixed_v1. Two fresh legacy-output tests preserve raw legacy proposal and assert zero query/Frame."
+    }
+  ],
+  "model_calls": 0,
+  "external_database_connections": 0,
+  "business_source_edits": 0,
+  "limits": [
+    "Offline synthetic backend and fake provider only; real SDK execution does not imply real model or data-lake acceptance.",
+    "No real gateway, constrained-decoding, real DB, browser or deployment validation.",
+    "Effect-pending rejection checked by bridge unit guards and installed SDK policy; no unknown real external side effect was replayed.",
+    "Complete Agent regression is owned by root and was not rerun in this review."
+  ]
+}

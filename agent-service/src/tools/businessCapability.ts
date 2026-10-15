@@ -17,7 +17,7 @@ const parameters = Type.Object({
 export function createBusinessCapabilityTool(): AgentHarnessTool<AskMetricRequestContext, typeof parameters> {
   return {
     name: "business_capability_explain", label: "说明当前能力", parameters,
-    description: "用途：说明尚未提供的归因、异常诊断、预测、血缘或综合分析能力。不适用：受支持的基础取数和有界计算。前提：用户确实请求未支持能力，无需先查数；也允许直接说明限制。返回：能力边界与可选替代目标，结束本轮，替代目标须由用户选择。",
+    description: "用途：说明尚未提供的归因、异常诊断、预测、血缘或综合报告能力，并结束本轮。仅在用户实际请求此类分析时适用；受支持的基础取值、排名或有界公式计算不因此拒绝，指标名称里的增幅、排名等统计口径不代表额外分析任务。无需先取数来证明能力缺失，也可直接说明限制。返回边界与可选目标，是否改目标由用户选择。",
     execute: async (_id, params) => {
       const answer = `当前尚未提供${capabilities[params.capability]}能力，无法完成这项分析。可以查询已有指标，或按您给定的公式计算；如需改为这些查询，请明确要查看的内容。`;
       return {content: [{type: "text", text: answer}], details: {

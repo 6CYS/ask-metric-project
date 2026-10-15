@@ -1,0 +1,140 @@
+{
+  "created_at": "2026-10-15T08:26:44.908Z",
+  "source": "baseline-diagnostic.json",
+  "corpus_sha256": "31f12c5239a377e1e15078cd2ef82a22ba3fdcaedc40f75bdfef98e2f663d0d5",
+  "complete_planned_matrix": false,
+  "planned_tasks": 1,
+  "finished_tasks": 1,
+  "classifications": {
+    "shared_pass": 0,
+    "candidate_only_failure": 0,
+    "baseline_only_failure": 0,
+    "shared_failure": 0,
+    "missing_candidate": 1
+  },
+  "all_tasks": {
+    "baseline": {
+      "tasks": 1,
+      "passed_tasks": 1,
+      "turns": 5,
+      "passed_turns": 5,
+      "model_calls": 11,
+      "sql_executions": 4,
+      "unknown_usage_calls": 0,
+      "input_tokens": 80840,
+      "output_tokens": 1125,
+      "cache_read_tokens": 35072,
+      "noncache_input_tokens": 45768,
+      "total_tokens": 81965,
+      "task_input_median": 80840,
+      "task_calls_median": 11,
+      "restore_zero_sql": true,
+      "failures": []
+    },
+    "candidate": {
+      "tasks": 0,
+      "passed_tasks": 0,
+      "turns": 0,
+      "passed_turns": 0,
+      "model_calls": 0,
+      "sql_executions": 0,
+      "unknown_usage_calls": 0,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cache_read_tokens": null,
+      "noncache_input_tokens": null,
+      "total_tokens": null,
+      "task_input_median": null,
+      "task_calls_median": null,
+      "restore_zero_sql": true,
+      "failures": []
+    },
+    "input_reduction": null,
+    "total_token_reduction": null,
+    "call_reduction": null
+  },
+  "paired_successful_ordinary": {
+    "pairs": 0,
+    "baseline": {
+      "tasks": 0,
+      "passed_tasks": 0,
+      "turns": 0,
+      "passed_turns": 0,
+      "model_calls": 0,
+      "sql_executions": 0,
+      "unknown_usage_calls": 0,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cache_read_tokens": null,
+      "noncache_input_tokens": null,
+      "total_tokens": null,
+      "task_input_median": null,
+      "task_calls_median": null,
+      "restore_zero_sql": true,
+      "failures": []
+    },
+    "candidate": {
+      "tasks": 0,
+      "passed_tasks": 0,
+      "turns": 0,
+      "passed_turns": 0,
+      "model_calls": 0,
+      "sql_executions": 0,
+      "unknown_usage_calls": 0,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cache_read_tokens": null,
+      "noncache_input_tokens": null,
+      "total_tokens": null,
+      "task_input_median": null,
+      "task_calls_median": null,
+      "restore_zero_sql": true,
+      "failures": []
+    },
+    "input_reduction": null,
+    "total_token_reduction": null,
+    "call_reduction": null
+  },
+  "regression_gate": {
+    "passed": false,
+    "no_candidate_only_failure": true,
+    "no_unknown_usage": true,
+    "shared_failures_are_preserved_diagnostics": true,
+    "all_shared_pass_business_result_hashes_equal": true,
+    "restore_zero_sql": true
+  },
+  "pairs": [
+    {
+      "key": "ordinary-multiturn:1",
+      "group": "ordinary",
+      "classification": "missing_candidate",
+      "baseline": {
+        "tasks": 1,
+        "passed_tasks": 1,
+        "turns": 5,
+        "passed_turns": 5,
+        "model_calls": 11,
+        "sql_executions": 4,
+        "unknown_usage_calls": 0,
+        "input_tokens": 80840,
+        "output_tokens": 1125,
+        "cache_read_tokens": 35072,
+        "noncache_input_tokens": 45768,
+        "total_tokens": 81965,
+        "task_input_median": 80840,
+        "task_calls_median": 11,
+        "restore_zero_sql": true,
+        "failures": []
+      },
+      "candidate": null,
+      "exact_result_hashes_equal": null,
+      "terminal_states_equal": null
+    }
+  ],
+  "limitations": [
+    "Current authorized development database and configured real model; no production access.",
+    "Real backend positive authorization and session ownership checked. Revocation and nested-source negative authorization use separate isolated tests; real account permissions were not changed.",
+    "No supplier cache flush; AB/BA alternation reduces ordering bias, cache cost must be reported separately.",
+    "Independent fixed query references validate precise numeric, NULL, unit, row order and target identities; final prose needs separate semantic assertions/manual review for unsupported claims."
+  ]
+}

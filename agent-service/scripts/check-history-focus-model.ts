@@ -11,12 +11,14 @@ import {NativeSessionStore} from "../src/nativeSessions.js";
 import {NativeFrameStore} from "../src/business-context/store.js";
 import {BusinessContextService} from "../src/business-context/service.js";
 import {createCapabilities} from "../src/business-context/capabilities.js";
+import {resolveFrame} from "../src/business-context/core.js";
 import {createFieldResolvers} from "../src/business-context/resolvers.js";
 import {createAskMetricTools} from "../src/tools/index.js";
+import {projectEntries} from "../src/sessionProjection.js";
 import type {BackendClient, BackendUser, BasicQuerySpec} from "../src/backendClient.js";
-import type {FieldResolution} from "../src/business-context/types.js";
+import type {FieldResolution, HistoryFieldReferenceInput} from "../src/business-context/types.js";
 
-interface Step {message: string; source: number; org?: string; orgs?: string[]; date?: string; query?: boolean; reopen?: boolean; read?: boolean; clarify?: boolean}
+interface Step {message: string; source: number; org?: string; orgs?: string[]; date?: string; query?: boolean; reopen?: boolean; read?: boolean; clarify?: boolean; historySourceRequests?: string[]}
 const cases: Array<{name: string; fresh?: boolean; unseeded?: boolean; steps: Step[]}> = [
   {name: "ordinal", steps: [{message: "把第一次我问的问题中组织机构更换为合成机构乙，查询出数据", source: 0, org: "O2"}]},
   {name: "relative", steps: [{message: "沿用上一笔之前那笔的条件，只把机构换成合成机构乙，查一下。", source: 1, org: "O2"}]},
@@ -26,8 +28,9 @@ const cases: Array<{name: string; fresh?: boolean; unseeded?: boolean; steps: St
     {message: "现在只把机构换成合成机构乙，查一下。", source: 0, org: "O2"},
   ]},
   {name: "current", steps: [{message: "把机构换成合成机构乙，其他条件保留，查询数据。", source: 2, org: "O2"}]},
-  // 机构话语指代：“上述两家”原样直传，服务端按会话历史解析为最近讨论的去重机构（合成机构甲、合成机构丙）。
-  {name: "org_reference", steps: [{message: "上述两家机构，2026-05-31的数据分别是多少？", source: 2, orgs: ["O1", "O3"], date: "2026-05-31"}]},
+  // 模型选择明确的历史字段来源；服务端复核来源及授权，不能按“最近几家”猜测。
+  {name: "org_reference", steps: [{message: "把第一笔和第二笔查过的机构合在一起，查2026-05-31的数据。", source: 2,
+    orgs: ["O1", "O3"], date: "2026-05-31", historySourceRequests: ["seed-0", "seed-1"]}]},
   {name: "replay", steps: [
     {message: "重新显示第一次查询的已有结果，不要重新查询数据。", source: 0, org: "O1", query: false, read: true, reopen: true},
     {message: "把机构换成合成机构乙，其他条件不变，查一下。", source: 0, org: "O2"},
@@ -56,7 +59,7 @@ if (!process.argv.includes("--live")) {
   const dir = await mkdtemp(join(tmpdir(), "pi-history-focus-"));
   const config = {...loadConfig(), dataDir: dir};
   const sessions = new NativeSessionStore(dir);
-  const host = new HarnessHost(config, authorized => createAskMetricModels(config, authorized), sessions, createAskMetricTools());
+  const host = new HarnessHost(config, authorized => createAskMetricModels(config, authorized), sessions, createAskMetricTools({compactTurnArgs: config.compactTurnArgs}));
   const actor: BackendUser = {id: "synthetic-history", username: "synthetic", display_name: "合成验收", org_code: "O1", org_name: "合成机构甲", role_code: "USER"};
   const metrics: Record<string, string> = {合成指标甲: "M1", 合成指标乙: "M2", 合成指标丙: "M3"};
   const orgs: Record<string, string> = {合成机构甲: "O1", 合成机构乙: "O2", 合成机构丙: "O3"};
@@ -130,16 +133,40 @@ if (!process.argv.includes("--live")) {
           const readsBefore = reads.length;
           const turnStarted = performance.now();
           const outcome = await host.runPrompt(hosted, {protocol_version: 3, request_id: `${test.name}-${index}`, message}, {actor, backend});
-          assert.equal(outcome.ok, true, `turn ${index + 1}: prompt completed`);
-          const currentEntries = await hosted.lane.findEntries({order: "newestFirst"}, BACKGROUND_CONTEXT);
-          const last = currentEntries.find(entry => entry.type === "message" && entry.message.role === "assistant");
-          assert.ok(last?.type === "message" && last.message.role === "assistant");
-          assert.equal(last.message.stopReason, "stop", last.message.errorMessage ?? `turn ${index + 1}: assistant must finish`);
-          assert.ok(last.message.content.some(c => c.type === "text" && c.text.trim()), "assistant answer is required");
+          assert.ok(outcome.ok && outcome.outcome.kind === "settled" && outcome.outcome.outcome.status === "completed",
+            `turn ${index + 1}: prompt must complete`);
+          const currentEntries = await hosted.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
+          const userIndex = currentEntries.map(entry => entry.type === "message" && entry.message.role === "user").lastIndexOf(true);
+          assert.ok(userIndex >= 0, "current user turn is required");
+          // 普通回答由带 terminate 的工具回执交付；原生助手停在 toolUse，也能投影出完整正文。
+          const answer = projectEntries(currentEntries.slice(userIndex))
+            .filter(projected => projected.role === "assistant" && projected.text.trim()).at(-1);
+          assert.ok(answer?.role === "assistant" && !answer.error && answer.text.trim(), "current assistant answer is required");
           assert.equal(queries.length - before, step.query === false ? 0 : 1, `turn ${index + 1}: business query count`);
           if (step.read) assert.ok(reads.slice(readsBefore).includes(`seed-${step.source}`), "历史结果必须经过鉴权读取");
           const state = await frames.state();
           const focus = state.focusFrameId ? await frames.get(state.focusFrameId) : undefined;
+          if (step.historySourceRequests) {
+            const currentCalls = currentEntries.slice(userIndex).flatMap(entry => entry.type === "message" && entry.message.role === "assistant"
+              ? entry.message.content.flatMap(block => block.type === "toolCall" && block.name === "resolve_business_turn" ? [block.arguments] : []) : []);
+            const references = currentCalls.flatMap(args => {
+              const input = args as {fieldChanges?: Array<{fieldHint: string; rawValue?: unknown}>; set?: Record<string, unknown>};
+              const raw = input.fieldChanges?.find(change => change.fieldHint === "organizations")?.rawValue ?? input.set?.organizations;
+              return raw && typeof raw === "object" && (raw as {fromHistory?: unknown}).fromHistory === true
+                ? [raw as HistoryFieldReferenceInput] : [];
+            });
+            const reference = references.find(input => input.combine === "union");
+            assert.ok(reference, "机构并集必须使用结构化历史来源");
+            assert.ok(message.includes(reference.sourceText), "引用依据须来自本轮原文");
+            const allFrames = await frames.list();
+            const sourceRequests = await Promise.all(reference.sources.map(async source => {
+              assert.equal(source.field, "organizations");
+              const resolved = resolveFrame(source.frame, state, allFrames, focus!.turnId);
+              assert.equal(resolved.status, "resolved");
+              return (await frames.get(resolved.frameId!))?.requestId;
+            }));
+            assert.deepEqual([...new Set(sourceRequests)].sort(), [...step.historySourceRequests].sort(), "必须引用用户指定的两笔，不能按最近数量取机构");
+          }
           assert.deepEqual(focus?.fields.metrics?.resolvedValue, {codes: expected.metrics.map(name => metrics[name]), names: expected.metrics});
           const expectedOrgs = step.orgs ?? [step.org!];
           assert.deepEqual((focus?.fields.organizations?.resolvedValue as {codes: string[]})?.codes, expectedOrgs);

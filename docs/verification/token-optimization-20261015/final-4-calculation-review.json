@@ -1,0 +1,147 @@
+{
+  "scope": "Read-only all final-4 calculation receipts and final prose. No additional model/database calls; all money mentions checked, amounts excluded.",
+  "rows": [
+    {
+      "version": "baseline",
+      "session_id": "01a13efb-ae70-7064-bdb2-3d1954883223",
+      "native_sha256": "63766d65eb07b997a71610b849f20860a3e3c86fe7838686d81b9638b37e773b",
+      "model_calls": 4,
+      "unique_formal_calculations": 1,
+      "formal_calculation_count_recorded": 1,
+      "all_calculation_statuses": [
+        "succeeded"
+      ],
+      "one_expected_scalar_result": true,
+      "exact_decimal_june_minus_may": true,
+      "unit_matches_reference": true,
+      "final_prose_money_mentions": [
+        {
+          "unit": "万元",
+          "exact_scaled_match": false,
+          "display_rounding_match": true
+        },
+        {
+          "unit": "万元",
+          "exact_scaled_match": false,
+          "display_rounding_match": true
+        },
+        {
+          "unit": "万元",
+          "exact_scaled_match": false,
+          "display_rounding_match": true
+        },
+        {
+          "unit": "元",
+          "exact_scaled_match": true,
+          "display_rounding_match": true
+        },
+        {
+          "unit": "万元",
+          "exact_scaled_match": false,
+          "display_rounding_match": true
+        }
+      ],
+      "all_final_amounts_supported_by_formal_values": true,
+      "final_exact_yuan_difference_present": true,
+      "final_direction_correct": true,
+      "both_requested_dates_present": true,
+      "final_amount_label_bindings": [
+        {
+          "label": "2026年5月31日",
+          "correct_labeled_value_and_unit": true
+        },
+        {
+          "label": "2026年6月30日",
+          "correct_labeled_value_and_unit": true
+        },
+        {
+          "label": "六月末减五月末",
+          "correct_labeled_value_and_unit": true
+        }
+      ],
+      "all_final_amount_labels_correct": true,
+      "final_body_sha256": "5b81a3f782baa9996a2cdfe8c247fe0583900c378f0f02e81d1fe566b679a00e",
+      "final_body_redacted": "无锡农村商业银行股份有限公司对公协定存款余额当日数：\n\n- **[数值]年[数值]月[数值]日**：[数值]万元\n- **[数值]年[数值]月[数值]日**：[数值]万元\n- **六月末减五月末金额差额**：[数值]万元（即[数值]元）\n\n**变化方向说明**：六月末对公协定存款余额较五月末增加[数值]万元，余额呈上升态势。",
+      "failed_interpretation_receipts": [
+        [
+          "TIME_SCOPE_CONFLICT",
+          "CALCULATION_NOT_DETERMINED"
+        ],
+        [
+          "PLAN_TARGET_BINDING_CONFLICT",
+          "CALCULATION_NOT_DETERMINED"
+        ]
+      ],
+      "passed": true
+    },
+    {
+      "version": "candidate",
+      "session_id": "01a13efc-1636-7064-bdb2-3d3cd8637043",
+      "native_sha256": "c5fd03b19b6428ceeba5da26be80e7d5f8f4bb0baff237feb6f6bffb649f740d",
+      "model_calls": 3,
+      "unique_formal_calculations": 1,
+      "formal_calculation_count_recorded": 1,
+      "all_calculation_statuses": [
+        "succeeded"
+      ],
+      "one_expected_scalar_result": true,
+      "exact_decimal_june_minus_may": true,
+      "unit_matches_reference": true,
+      "final_prose_money_mentions": [
+        {
+          "unit": "万元",
+          "exact_scaled_match": false,
+          "display_rounding_match": true
+        },
+        {
+          "unit": "万元",
+          "exact_scaled_match": false,
+          "display_rounding_match": true
+        },
+        {
+          "unit": "万元",
+          "exact_scaled_match": false,
+          "display_rounding_match": true
+        },
+        {
+          "unit": "元",
+          "exact_scaled_match": true,
+          "display_rounding_match": true
+        },
+        {
+          "unit": "万元",
+          "exact_scaled_match": false,
+          "display_rounding_match": true
+        }
+      ],
+      "all_final_amounts_supported_by_formal_values": true,
+      "final_exact_yuan_difference_present": true,
+      "final_direction_correct": true,
+      "both_requested_dates_present": true,
+      "final_amount_label_bindings": [
+        {
+          "label": "2026年5月31日",
+          "correct_labeled_value_and_unit": true
+        },
+        {
+          "label": "2026年6月30日",
+          "correct_labeled_value_and_unit": true
+        },
+        {
+          "label": "六月末减五月末",
+          "correct_labeled_value_and_unit": true
+        }
+      ],
+      "all_final_amount_labels_correct": true,
+      "final_body_sha256": "30cb26c22b354eba94103e1a88bf4981ce25f3000e9f8ad0ce174e36f05082e5",
+      "final_body_redacted": "根据查询结果：\n\n- **[数值]年[数值]月[数值]日**，无锡农村商业银行对公协定存款余额当日数为 **[数值]万元**。\n- **[数值]年[数值]月[数值]日**，无锡农村商业银行对公协定存款余额当日数为 **[数值]万元**。\n\n**六月末减五月末的金额差额**为 **[数值]万元**（即[数值]元）。\n\n**变化方向**：六月末对公协定存款余额较五月末**上升**，增加了约[数值]万元。",
+      "failed_interpretation_receipts": [
+        [
+          "CALCULATION_REQUIRED"
+        ]
+      ],
+      "passed": true
+    }
+  ],
+  "passed": true
+}

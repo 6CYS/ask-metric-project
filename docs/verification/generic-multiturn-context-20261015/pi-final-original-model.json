@@ -1,0 +1,1956 @@
+{
+  "environment": "real_model_synthetic_catalog_in_memory_SQL",
+  "real_database": false,
+  "source_root": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/agent-service",
+  "source_hashes": {
+    "src/harnessHost.ts": "6d4210ac59b77c937f6cbf071063ad6418595b290be1027e85cf3817a86a9ae9",
+    "src/semantic-task/store.ts": "956194bf92ceebd4ebe5120e7028007b6f2c0aab23438ee08a91132c6dadaa9e",
+    "src/semantic-task/service.ts": "e86b46d26878caeba7c7d0c166ef5eb3d0c6e9e71825766fd7e305fd9fe1a376",
+    "src/semantic-task/planService.ts": "ea099cc8c1a2b4be9ff53082ff6f0142e9f2b363d283578f69098a1850703c83",
+    "src/semantic-task/tools.ts": "67bfea1d2273677ccf5fa7c2f39b96b77f01900e627dc9ad31c4e998e3281a2d",
+    "src/semantic-task/protocol.ts": "f2541c8e3288b26b077fcd699a746436b828c95fff3d3b60851af5484458e3ab",
+    "src/semantic-task/feedback.ts": "5acc0a5b73e949b0db063ca49bf20606cb050a66b7d71ebd18c0e90e087374d4",
+    "src/semantic-task/prompt.ts": "fb032d5092dd3fdb9dd7ae513ecd84d6351ad892b5c91f242add871020ecaafb",
+    "src/semantic-task/transition.ts": "660cda39def10c49aa4d6d6aebca04048abfe127a5dcef36a098f4446846f266",
+    "src/semantic-task/display.ts": "b51ed72756c37ef6307d934bc9109608a6b3021a7837cee2255da03428177710",
+    "scripts/check-missing-conditions-model.ts": "1a0397176b8358e969e8cdace12c5f8fd502af48c185b552bf818cc331a1b9f4",
+    "scripts/model-evidence-assertions.ts": "35f2be546ea5dd4352ebf057872a7c41aaf6a9ece9715d637b2a298e500ef69e",
+    "scripts/missing-conditions-fixture.py": "e16d5bf8f51929443d8506771542a12e5ea2f4a82c213aef38ff0edab291eac1",
+    "scripts/semantic-task-fixture.py": "c86739c627293ea0bbfd8d2226d7b95030ff3d95e1dc4cfe4bb5dfcafcdc0814",
+    "../backend-next/src/ask_metric/application/goal_facts.py": "7a836ffcd8fc92650e425973d8cd5477fe5644ee764532f1cfbfd66ec599d258",
+    "../backend-next/src/ask_metric/application/semantic_transition.py": "07e1bf5b1cbbab08defbd0a4af18e40801e95b577c66924f8540ac61100e87ff",
+    "../backend-next/src/ask_metric/application/analysis_selection.py": "dde4780045a5564003c6023fecbce9a42061cc7a7ace6954f927d294c689b2a8",
+    "../backend-next/src/ask_metric/api/routes/business_context.py": "9bddf2fcc9dca40016203bbccafacfff3278e12ca5fea7e075d97887192314a9"
+  },
+  "model": "deepseek-ai/DeepSeek-V4-Flash",
+  "gateway_origin": "https://api.siliconflow.cn",
+  "model_settings": {
+    "max_tokens": 8192,
+    "context_window": 128000,
+    "extra_body": {
+      "enable_thinking": false
+    },
+    "retry": {
+      "enabled": true,
+      "maxRetries": 1,
+      "baseDelayMs": 1000
+    },
+    "first_response_timeout_ms": 30000,
+    "stream_idle_timeout_ms": 120000
+  },
+  "native_session_directory": "/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/missing-conditions-model-fTy3uE",
+  "repetitions": 1,
+  "scenario_file": "../docs/verification/generic-multiturn-context-20261015/model-cases.json",
+  "planned_turns": 29,
+  "gateway_blocked": false,
+  "total": 9,
+  "passed": 9,
+  "turns": [
+    {
+      "scenario": "completed-followups",
+      "repetition": 1,
+      "turn": 1,
+      "message": "查询合成机构甲2026年5月31日的对公协定存款余额当日数",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_DEPOSIT:D",
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [
+        "MODEL_TRANSPORT_ERROR"
+      ],
+      "status": "succeeded",
+      "elapsed_ms": 43350,
+      "model_calls": 3,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "succeeded",
+            "state": {
+              "task_ref": "d9b83edd-08bd-430d-840a-a525d9b327a4",
+              "task_status": "completed",
+              "completion": "full",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "30937166-08dc-4844-89d2-51e79690616c",
+                  "status": "succeeded",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 2026年5月31日 / 对公协定存款余额当日数",
+                  "aliases": [
+                    "合成机构甲 / 2026年5月31日 / 对公协定存款余额当日数",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "对公协定存款余额当日数",
+                    "2026年5月31日对公协定存款余额当日数",
+                    "合成机构甲2026年5月31日对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ],
+              "evidence": {
+                "kind": "metric_query_structured",
+                "task_id": "query-1",
+                "version": 1,
+                "result_id": "result-query-1",
+                "public_answer": "2026-05-31，合成机构甲的对公协定存款余额当日数为30元。",
+                "status": "succeeded",
+                "columns": [
+                  "metric_code",
+                  "metric_name",
+                  "unit",
+                  "org_code",
+                  "org_name",
+                  "metric_value",
+                  "stat_date"
+                ],
+                "rows": [
+                  {
+                    "metric_code": "SYNTH_DEPOSIT:D",
+                    "metric_name": "对公协定存款余额当日数",
+                    "unit": "元",
+                    "org_code": "SYNTH_O1",
+                    "org_name": "合成机构甲",
+                    "metric_value": 30,
+                    "stat_date": "2026-05-31"
+                  }
+                ],
+                "row_count": 1,
+                "truncated": false,
+                "frame_id": "454d9259-5bc6-48ea-83be-b9af2e1f4689",
+                "delivery": "business_evidence_v1",
+                "payloads": [
+                  {
+                    "status": "succeeded",
+                    "task_id": "query-1",
+                    "version": 1,
+                    "result_id": "result-query-1",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "sample_rows": [
+                      {
+                        "metric_code": "SYNTH_DEPOSIT:D",
+                        "metric_name": "对公协定存款余额当日数",
+                        "unit": "元",
+                        "org_code": "SYNTH_O1",
+                        "org_name": "合成机构甲",
+                        "metric_value": 30,
+                        "stat_date": "2026-05-31"
+                      }
+                    ],
+                    "facts": [
+                      {
+                        "fact_id": "fact:query-1:0:metric_value",
+                        "task_id": "query-1",
+                        "field": "metric_value",
+                        "value": "30",
+                        "unit": "元",
+                        "metric_code": "SYNTH_DEPOSIT:D",
+                        "org_code": "SYNTH_O1",
+                        "date": "2026-05-31"
+                      }
+                    ],
+                    "fact_count": 1,
+                    "facts_truncated": false,
+                    "row_count": 1,
+                    "truncated": false,
+                    "error_code": null,
+                    "message": null,
+                    "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                    "frame_id": "454d9259-5bc6-48ea-83be-b9af2e1f4689",
+                    "result_ref": "query:query-1:result-query-1"
+                  }
+                ]
+              }
+            },
+            "issues": [],
+            "continuation": {
+              "actor": "pi",
+              "action": "answer"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiZjYzMWU5NWUwMzk1MDZmZjdiNjk2YzE1YzgxNWQ3ZWI2Zjc1ZWRmMDQyYWNmZDgwYjYyZGM0OTI5YzA4NzJhMSIsImNvZGVzIjpbIlNZTlRIX0RFUE9TSVQ6RCJdLCJjb252ZXJzYXRpb24iOiJzeW50aGV0aWMtc2VtYW50aWMiLCJnb2FsX2hhc2giOiI3Y2MzNzBmMDdjMjZjNDM0MGQxMWNiYWVmYWQ5ZTJkZGZiYzgzMDM3ZDYzZDg3NmUxM2NiMDJiNGJmOWU0ZTcyIiwib3duZXIiOiJzeW50aGV0aWMtc2VtYW50aWMiLCJzY29wZSI6eyJtZXRyaWNfY29kZXMiOlsiU1lOVEhfREVQT1NJVDpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX08xIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNS0zMSIsInN0YXJ0IjoiMjAyNi0wNS0zMSJ9fSwic2Vzc2lvbiI6IjAxYTEzZTU3LTdkMTMtNzBhNy05NzQ5LTRiN2VkZDU5YTg4MyIsInYiOjF9.588aqkj7alF7eJkRWAopL9UIiomzU53sbZhy66S99bk",
+            "conversation_id": "synthetic-semantic",
+            "calculation_context": {
+              "scope_id": "01a13e57-7d19-70a7-9749-4b811e9d49b0:1510b58c-309c-4bcf-8e13-880d3bde2d0a",
+              "user_question": "查询合成机构甲2026年5月31日的对公协定存款余额当日数"
+            },
+            "metric_codes": [
+              "SYNTH_DEPOSIT:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_O1"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-05-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "frames": [
+        {
+          "frame_id": "f3be6e0c-cf93-4d4e-917a-45a9f0235ad8",
+          "fields_sha256": "58c366e72e1a3cd90756a5acb8b1612b441231a769e5bd6df70c79401d0ba51c",
+          "frame_sha256": "f2db1246354114d77bc316f33e756444ac402f6bdda9acebda99bf1e357f941f",
+          "capability": "metric_query"
+        },
+        {
+          "frame_id": "454d9259-5bc6-48ea-83be-b9af2e1f4689",
+          "parent_frame_id": "89635049-fe74-46f5-ab32-82a333e24e8e",
+          "fields_sha256": "58c366e72e1a3cd90756a5acb8b1612b441231a769e5bd6df70c79401d0ba51c",
+          "frame_sha256": "dde168f0d5247b321fba653c01db622e265c1f4a6730b949ff7e26365945d58f",
+          "result_ref": "query:query-1:result-query-1",
+          "capability": "metric_query"
+        }
+      ],
+      "preserved_frame_count": 2,
+      "completion": "full",
+      "answer": "模型服务响应超时，请稍后重试。已确认的查询条件仍保留，无需重复输入。\n\n已完成查询。**合成机构甲**在**2026年5月31日**的**对公协定存款余额当日数**为 **30元**。"
+    },
+    {
+      "scenario": "completed-followups",
+      "repetition": 1,
+      "turn": 2,
+      "message": "2026年6月30日",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_DEPOSIT:D",
+        "org": "SYNTH_O1",
+        "day": "2026-06-30"
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 10899,
+      "model_calls": 2,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "current"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年6月30日"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "succeeded",
+            "state": {
+              "task_ref": "58bb6ea7-08f2-4eee-a252-370957c0c62a",
+              "task_status": "completed",
+              "completion": "full",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "6fd528a1-53b9-4f4e-a394-9067a32b626e",
+                  "status": "succeeded",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 2026年6月30日 / 对公协定存款余额当日数",
+                  "aliases": [
+                    "合成机构甲 / 2026年6月30日 / 对公协定存款余额当日数",
+                    "合成机构甲",
+                    "2026年6月30日",
+                    "对公协定存款余额当日数",
+                    "2026年6月30日对公协定存款余额当日数",
+                    "合成机构甲2026年6月30日对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ],
+              "evidence": {
+                "kind": "metric_query_structured",
+                "task_id": "query-2",
+                "version": 1,
+                "result_id": "result-query-2",
+                "public_answer": "2026-06-30，合成机构甲的对公协定存款余额当日数为30元。",
+                "status": "succeeded",
+                "columns": [
+                  "metric_code",
+                  "metric_name",
+                  "unit",
+                  "org_code",
+                  "org_name",
+                  "metric_value",
+                  "stat_date"
+                ],
+                "rows": [
+                  {
+                    "metric_code": "SYNTH_DEPOSIT:D",
+                    "metric_name": "对公协定存款余额当日数",
+                    "unit": "元",
+                    "org_code": "SYNTH_O1",
+                    "org_name": "合成机构甲",
+                    "metric_value": 30,
+                    "stat_date": "2026-06-30"
+                  }
+                ],
+                "row_count": 1,
+                "truncated": false,
+                "frame_id": "197b5c6a-1d59-4a70-a1a7-f872b6a97860",
+                "delivery": "business_evidence_v1",
+                "payloads": [
+                  {
+                    "status": "succeeded",
+                    "task_id": "query-2",
+                    "version": 1,
+                    "result_id": "result-query-2",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "sample_rows": [
+                      {
+                        "metric_code": "SYNTH_DEPOSIT:D",
+                        "metric_name": "对公协定存款余额当日数",
+                        "unit": "元",
+                        "org_code": "SYNTH_O1",
+                        "org_name": "合成机构甲",
+                        "metric_value": 30,
+                        "stat_date": "2026-06-30"
+                      }
+                    ],
+                    "facts": [
+                      {
+                        "fact_id": "fact:query-2:0:metric_value",
+                        "task_id": "query-2",
+                        "field": "metric_value",
+                        "value": "30",
+                        "unit": "元",
+                        "metric_code": "SYNTH_DEPOSIT:D",
+                        "org_code": "SYNTH_O1",
+                        "date": "2026-06-30"
+                      }
+                    ],
+                    "fact_count": 1,
+                    "facts_truncated": false,
+                    "row_count": 1,
+                    "truncated": false,
+                    "error_code": null,
+                    "message": null,
+                    "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                    "frame_id": "197b5c6a-1d59-4a70-a1a7-f872b6a97860",
+                    "result_ref": "query:query-2:result-query-2"
+                  }
+                ]
+              }
+            },
+            "issues": [],
+            "continuation": {
+              "actor": "pi",
+              "action": "answer"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiZjYzMWU5NWUwMzk1MDZmZjdiNjk2YzE1YzgxNWQ3ZWI2Zjc1ZWRmMDQyYWNmZDgwYjYyZGM0OTI5YzA4NzJhMSIsImNvZGVzIjpbIlNZTlRIX0RFUE9TSVQ6RCJdLCJjb252ZXJzYXRpb24iOiJzeW50aGV0aWMtc2VtYW50aWMiLCJnb2FsX2hhc2giOiJiYzc2YmM4ODQwMzIxZGYxYTI1ODRhZTM4OTgzYmQ3OTNjNjg4NTk0MGYxNDQ1NjRhMTc5ZWYxMjJiMzMyODgyIiwib3duZXIiOiJzeW50aGV0aWMtc2VtYW50aWMiLCJzY29wZSI6eyJtZXRyaWNfY29kZXMiOlsiU1lOVEhfREVQT1NJVDpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX08xIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNi0zMCIsInN0YXJ0IjoiMjAyNi0wNi0zMCJ9fSwic2Vzc2lvbiI6IjAxYTEzZTU3LTdkMTMtNzBhNy05NzQ5LTRiN2VkZDU5YTg4MyIsInYiOjF9.N2lgsTEO2cJwHwEMcapL3q48E4XuG7iRDiHUACfqIm4",
+            "conversation_id": "synthetic-semantic",
+            "calculation_context": {
+              "scope_id": "01a13e58-266f-70a7-9749-4b97a9c9fa2b:1baf9e52-b9b0-4048-b484-110f71a44230",
+              "user_question": "2026年6月30日"
+            },
+            "metric_codes": [
+              "SYNTH_DEPOSIT:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_O1"
+            ],
+            "time": {
+              "start": "2026-06-30",
+              "end": "2026-06-30"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "frames": [
+        {
+          "frame_id": "c18ee7d5-0f95-4f40-8cbd-aedbecd35032",
+          "parent_frame_id": "f3be6e0c-cf93-4d4e-917a-45a9f0235ad8",
+          "fields_sha256": "ccdcf0a26d422af27f7dc393bde9156a858b7bae3d96e1e6f2a4acd5c50631df",
+          "frame_sha256": "e29bd7d3fd644eaa630a057e225f0e8aa3d6a51f3217c2bc57f27b329acdbad1",
+          "capability": "metric_query"
+        },
+        {
+          "frame_id": "197b5c6a-1d59-4a70-a1a7-f872b6a97860",
+          "parent_frame_id": "d8f32dd9-0e35-45b7-a3d9-f7f2201150a1",
+          "fields_sha256": "ccdcf0a26d422af27f7dc393bde9156a858b7bae3d96e1e6f2a4acd5c50631df",
+          "frame_sha256": "5afe20ee53c1f5dcd6368d1a88f9e3e034853ee342359532512e07525dc189af",
+          "result_ref": "query:query-2:result-query-2",
+          "capability": "metric_query"
+        }
+      ],
+      "preserved_frame_count": 4,
+      "completion": "full",
+      "answer": "\n**合成机构甲**在**2026年6月30日**的**对公协定存款余额当日数**为 **30元**。"
+    },
+    {
+      "scenario": "completed-followups",
+      "repetition": 1,
+      "turn": 3,
+      "message": "6 月末的",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_DEPOSIT:D",
+        "org": "SYNTH_O1",
+        "day": "2026-06-30",
+        "allow_evidence_reuse": true
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 9701,
+      "model_calls": 2,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "current"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年6月末"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "succeeded",
+            "state": {
+              "task_ref": "2bf741ac-0b0d-4984-9bdb-348f6c2f3c45",
+              "task_status": "completed",
+              "completion": "full",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "2b34cf76-27e2-45e8-8153-ce5b015041d2",
+                  "status": "succeeded",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月末",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 2026年6月末 / 对公协定存款余额当日数",
+                  "aliases": [
+                    "合成机构甲 / 2026年6月末 / 对公协定存款余额当日数",
+                    "合成机构甲",
+                    "2026年6月末",
+                    "对公协定存款余额当日数",
+                    "2026年6月末对公协定存款余额当日数",
+                    "合成机构甲2026年6月末对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ],
+              "evidence": {
+                "kind": "metric_query_structured",
+                "task_id": "query-3",
+                "version": 1,
+                "result_id": "result-query-3",
+                "public_answer": "2026-06-30，合成机构甲的对公协定存款余额当日数为30元。",
+                "status": "succeeded",
+                "columns": [
+                  "metric_code",
+                  "metric_name",
+                  "unit",
+                  "org_code",
+                  "org_name",
+                  "metric_value",
+                  "stat_date"
+                ],
+                "rows": [
+                  {
+                    "metric_code": "SYNTH_DEPOSIT:D",
+                    "metric_name": "对公协定存款余额当日数",
+                    "unit": "元",
+                    "org_code": "SYNTH_O1",
+                    "org_name": "合成机构甲",
+                    "metric_value": 30,
+                    "stat_date": "2026-06-30"
+                  }
+                ],
+                "row_count": 1,
+                "truncated": false,
+                "frame_id": "f84a4e21-194d-42b4-bac8-f64b4d1a66a3",
+                "delivery": "business_evidence_v1",
+                "payloads": [
+                  {
+                    "status": "succeeded",
+                    "task_id": "query-3",
+                    "version": 1,
+                    "result_id": "result-query-3",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "sample_rows": [
+                      {
+                        "metric_code": "SYNTH_DEPOSIT:D",
+                        "metric_name": "对公协定存款余额当日数",
+                        "unit": "元",
+                        "org_code": "SYNTH_O1",
+                        "org_name": "合成机构甲",
+                        "metric_value": 30,
+                        "stat_date": "2026-06-30"
+                      }
+                    ],
+                    "facts": [
+                      {
+                        "fact_id": "fact:query-3:0:metric_value",
+                        "task_id": "query-3",
+                        "field": "metric_value",
+                        "value": "30",
+                        "unit": "元",
+                        "metric_code": "SYNTH_DEPOSIT:D",
+                        "org_code": "SYNTH_O1",
+                        "date": "2026-06-30"
+                      }
+                    ],
+                    "fact_count": 1,
+                    "facts_truncated": false,
+                    "row_count": 1,
+                    "truncated": false,
+                    "error_code": null,
+                    "message": null,
+                    "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                    "frame_id": "f84a4e21-194d-42b4-bac8-f64b4d1a66a3",
+                    "result_ref": "query:query-3:result-query-3"
+                  }
+                ]
+              }
+            },
+            "issues": [],
+            "continuation": {
+              "actor": "pi",
+              "action": "answer"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiZjYzMWU5NWUwMzk1MDZmZjdiNjk2YzE1YzgxNWQ3ZWI2Zjc1ZWRmMDQyYWNmZDgwYjYyZGM0OTI5YzA4NzJhMSIsImNvZGVzIjpbIlNZTlRIX0RFUE9TSVQ6RCJdLCJjb252ZXJzYXRpb24iOiJzeW50aGV0aWMtc2VtYW50aWMiLCJnb2FsX2hhc2giOiI5ZTNjYjZiNGE0YTk1ZGU2Mjk1NGZlYzdjZjAwYTJmNGQ3MjU3MjJiY2Y0NmEyNWQxNTYzMGI3YWI0MmFmMWY3Iiwib3duZXIiOiJzeW50aGV0aWMtc2VtYW50aWMiLCJzY29wZSI6eyJtZXRyaWNfY29kZXMiOlsiU1lOVEhfREVQT1NJVDpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX08xIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNi0zMCIsInN0YXJ0IjoiMjAyNi0wNi0zMCJ9fSwic2Vzc2lvbiI6IjAxYTEzZTU3LTdkMTMtNzBhNy05NzQ5LTRiN2VkZDU5YTg4MyIsInYiOjF9.FYiz6-SJeJDRRN58z3LFpFcpQT1fGkvIJ--l03m1LkE",
+            "conversation_id": "synthetic-semantic",
+            "calculation_context": {
+              "scope_id": "01a13e58-5103-70a7-9749-4ba9f83459f7:af65361e-256f-4fe4-a944-d54a2be0f743",
+              "user_question": "6 月末的"
+            },
+            "metric_codes": [
+              "SYNTH_DEPOSIT:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_O1"
+            ],
+            "time": {
+              "start": "2026-06-30",
+              "end": "2026-06-30"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "frames": [
+        {
+          "frame_id": "b63c0c46-7052-4de5-a5e0-a96d59c1e304",
+          "parent_frame_id": "c18ee7d5-0f95-4f40-8cbd-aedbecd35032",
+          "fields_sha256": "41bd8184437145235a407ca4f81db95c710f094f6b38d1cf492cbdbb1c0355ca",
+          "frame_sha256": "83a716b6cac362bb1760d804689d7c101d10bc9839a5114deda811f36d70f31c",
+          "capability": "metric_query"
+        },
+        {
+          "frame_id": "f84a4e21-194d-42b4-bac8-f64b4d1a66a3",
+          "parent_frame_id": "21fe7167-6577-48b5-b0ac-4657b5cd9e66",
+          "fields_sha256": "41bd8184437145235a407ca4f81db95c710f094f6b38d1cf492cbdbb1c0355ca",
+          "frame_sha256": "cee5391e194eb322e1a81901b6a8f361f016cb27ea3a611ea562ae8ddae6c254",
+          "result_ref": "query:query-3:result-query-3",
+          "capability": "metric_query"
+        }
+      ],
+      "preserved_frame_count": 6,
+      "completion": "full",
+      "answer": "\n**合成机构甲**在**2026年6月末**的**对公协定存款余额当日数**为 **30元**。"
+    },
+    {
+      "scenario": "completed-followups",
+      "repetition": 1,
+      "turn": 4,
+      "message": "合成机构乙呢？",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_DEPOSIT:D",
+        "org": "SYNTH_O2",
+        "day": "2026-06-30"
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 21875,
+      "model_calls": 2,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "current"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构乙"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "succeeded",
+            "state": {
+              "task_ref": "ee8a5274-793e-4f44-a57c-c97182fcffcb",
+              "task_status": "completed",
+              "completion": "full",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "6e225330-9887-48b0-bd5c-567e116c93f3",
+                  "status": "succeeded",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月末",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构乙 / 2026年6月末 / 对公协定存款余额当日数",
+                  "aliases": [
+                    "合成机构乙 / 2026年6月末 / 对公协定存款余额当日数",
+                    "合成机构乙",
+                    "2026年6月末",
+                    "对公协定存款余额当日数",
+                    "2026年6月末对公协定存款余额当日数",
+                    "合成机构乙2026年6月末对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ],
+              "evidence": {
+                "kind": "metric_query_structured",
+                "task_id": "query-4",
+                "version": 1,
+                "result_id": "result-query-4",
+                "public_answer": "2026-06-30，合成机构乙的对公协定存款余额当日数为50元。",
+                "status": "succeeded",
+                "columns": [
+                  "metric_code",
+                  "metric_name",
+                  "unit",
+                  "org_code",
+                  "org_name",
+                  "metric_value",
+                  "stat_date"
+                ],
+                "rows": [
+                  {
+                    "metric_code": "SYNTH_DEPOSIT:D",
+                    "metric_name": "对公协定存款余额当日数",
+                    "unit": "元",
+                    "org_code": "SYNTH_O2",
+                    "org_name": "合成机构乙",
+                    "metric_value": 50,
+                    "stat_date": "2026-06-30"
+                  }
+                ],
+                "row_count": 1,
+                "truncated": false,
+                "frame_id": "8798c416-4ce5-41f2-be57-e94f8121246e",
+                "delivery": "business_evidence_v1",
+                "payloads": [
+                  {
+                    "status": "succeeded",
+                    "task_id": "query-4",
+                    "version": 1,
+                    "result_id": "result-query-4",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "sample_rows": [
+                      {
+                        "metric_code": "SYNTH_DEPOSIT:D",
+                        "metric_name": "对公协定存款余额当日数",
+                        "unit": "元",
+                        "org_code": "SYNTH_O2",
+                        "org_name": "合成机构乙",
+                        "metric_value": 50,
+                        "stat_date": "2026-06-30"
+                      }
+                    ],
+                    "facts": [
+                      {
+                        "fact_id": "fact:query-4:0:metric_value",
+                        "task_id": "query-4",
+                        "field": "metric_value",
+                        "value": "50",
+                        "unit": "元",
+                        "metric_code": "SYNTH_DEPOSIT:D",
+                        "org_code": "SYNTH_O2",
+                        "date": "2026-06-30"
+                      }
+                    ],
+                    "fact_count": 1,
+                    "facts_truncated": false,
+                    "row_count": 1,
+                    "truncated": false,
+                    "error_code": null,
+                    "message": null,
+                    "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                    "frame_id": "8798c416-4ce5-41f2-be57-e94f8121246e",
+                    "result_ref": "query:query-4:result-query-4"
+                  }
+                ]
+              }
+            },
+            "issues": [],
+            "continuation": {
+              "actor": "pi",
+              "action": "answer"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiZjYzMWU5NWUwMzk1MDZmZjdiNjk2YzE1YzgxNWQ3ZWI2Zjc1ZWRmMDQyYWNmZDgwYjYyZGM0OTI5YzA4NzJhMSIsImNvZGVzIjpbIlNZTlRIX0RFUE9TSVQ6RCJdLCJjb252ZXJzYXRpb24iOiJzeW50aGV0aWMtc2VtYW50aWMiLCJnb2FsX2hhc2giOiI4Yzc3MGNhYzQ2ZGI2MDhkNWQzY2I0NmVkNmU5ZjJmZDlkOTQwMmVmOWY5YTlmNDlkMTRjNmRjZDM4NjhkMDUxIiwib3duZXIiOiJzeW50aGV0aWMtc2VtYW50aWMiLCJzY29wZSI6eyJtZXRyaWNfY29kZXMiOlsiU1lOVEhfREVQT1NJVDpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX08yIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNi0zMCIsInN0YXJ0IjoiMjAyNi0wNi0zMCJ9fSwic2Vzc2lvbiI6IjAxYTEzZTU3LTdkMTMtNzBhNy05NzQ5LTRiN2VkZDU5YTg4MyIsInYiOjF9.ZEuhW4tFpVhLK62paz8sWdP83UouwXipuTqy8QqoVYc",
+            "conversation_id": "synthetic-semantic",
+            "calculation_context": {
+              "scope_id": "01a13e58-76ea-70a7-9749-4bba564b3349:c2fe95f3-a3fe-4dd7-a40f-4736091733f8",
+              "user_question": "合成机构乙呢？"
+            },
+            "metric_codes": [
+              "SYNTH_DEPOSIT:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_O2"
+            ],
+            "time": {
+              "start": "2026-06-30",
+              "end": "2026-06-30"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "frames": [
+        {
+          "frame_id": "878c6f29-ef42-4759-a0c8-31f0e015bb28",
+          "parent_frame_id": "b63c0c46-7052-4de5-a5e0-a96d59c1e304",
+          "fields_sha256": "0f198e97aed17a5bdebeb1907125d6ae8e685275c81424c3490eb8932d24a207",
+          "frame_sha256": "10042aa4f79f8636da0544c884153267b682671d088dc8117aade042f4733aab",
+          "capability": "metric_query"
+        },
+        {
+          "frame_id": "8798c416-4ce5-41f2-be57-e94f8121246e",
+          "parent_frame_id": "9f4c0914-5206-4877-b59b-2149a19392c9",
+          "fields_sha256": "0f198e97aed17a5bdebeb1907125d6ae8e685275c81424c3490eb8932d24a207",
+          "frame_sha256": "c55d0b444d76260d6c5545e1274eca4dfb928c84f398179e43587d95425cc8c8",
+          "result_ref": "query:query-4:result-query-4",
+          "capability": "metric_query"
+        }
+      ],
+      "preserved_frame_count": 8,
+      "completion": "full",
+      "answer": "\n**合成机构乙**在**2026年6月末**的**对公协定存款余额当日数**为 **50元**。"
+    },
+    {
+      "scenario": "completed-followups",
+      "repetition": 1,
+      "turn": 5,
+      "message": "指标改成经营收益金额当日数",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O2",
+        "day": "2026-06-30"
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 22333,
+      "model_calls": 2,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "current"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额当日数"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "succeeded",
+            "state": {
+              "task_ref": "a2a19238-47f6-486a-b68e-c752b8877820",
+              "task_status": "completed",
+              "completion": "full",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "6af00d91-b9dc-40bd-90d2-ef3d495f00a3",
+                  "status": "succeeded",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月末",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构乙 / 2026年6月末 / 经营收益金额当日数",
+                  "aliases": [
+                    "合成机构乙 / 2026年6月末 / 经营收益金额当日数",
+                    "合成机构乙",
+                    "2026年6月末",
+                    "经营收益金额当日数",
+                    "2026年6月末经营收益金额当日数",
+                    "合成机构乙2026年6月末经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ],
+              "evidence": {
+                "kind": "metric_query_structured",
+                "task_id": "query-5",
+                "version": 1,
+                "result_id": "result-query-5",
+                "public_answer": "2026-06-30，合成机构乙的经营收益金额当日数为50元。",
+                "status": "succeeded",
+                "columns": [
+                  "metric_code",
+                  "metric_name",
+                  "unit",
+                  "org_code",
+                  "org_name",
+                  "metric_value",
+                  "stat_date"
+                ],
+                "rows": [
+                  {
+                    "metric_code": "SYNTH_M:D",
+                    "metric_name": "经营收益金额当日数",
+                    "unit": "元",
+                    "org_code": "SYNTH_O2",
+                    "org_name": "合成机构乙",
+                    "metric_value": 50,
+                    "stat_date": "2026-06-30"
+                  }
+                ],
+                "row_count": 1,
+                "truncated": false,
+                "frame_id": "f549b381-5c7f-40a3-b47e-246967cc4d0e",
+                "delivery": "business_evidence_v1",
+                "payloads": [
+                  {
+                    "status": "succeeded",
+                    "task_id": "query-5",
+                    "version": 1,
+                    "result_id": "result-query-5",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "sample_rows": [
+                      {
+                        "metric_code": "SYNTH_M:D",
+                        "metric_name": "经营收益金额当日数",
+                        "unit": "元",
+                        "org_code": "SYNTH_O2",
+                        "org_name": "合成机构乙",
+                        "metric_value": 50,
+                        "stat_date": "2026-06-30"
+                      }
+                    ],
+                    "facts": [
+                      {
+                        "fact_id": "fact:query-5:0:metric_value",
+                        "task_id": "query-5",
+                        "field": "metric_value",
+                        "value": "50",
+                        "unit": "元",
+                        "metric_code": "SYNTH_M:D",
+                        "org_code": "SYNTH_O2",
+                        "date": "2026-06-30"
+                      }
+                    ],
+                    "fact_count": 1,
+                    "facts_truncated": false,
+                    "row_count": 1,
+                    "truncated": false,
+                    "error_code": null,
+                    "message": null,
+                    "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                    "frame_id": "f549b381-5c7f-40a3-b47e-246967cc4d0e",
+                    "result_ref": "query:query-5:result-query-5"
+                  }
+                ]
+              }
+            },
+            "issues": [],
+            "continuation": {
+              "actor": "pi",
+              "action": "answer"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiYzUzMzEwMDQ0ZjQwZGZlZThjYWJhYWUyNTljZDM4M2RiNmY4Yzg1ZGVjY2RlZDE2MzhmMWQzZjRkMzg2NGFhMSIsImNvZGVzIjpbIlNZTlRIX006RCJdLCJjb252ZXJzYXRpb24iOiJzeW50aGV0aWMtc2VtYW50aWMiLCJnb2FsX2hhc2giOiI3MDFhNTQ3OWMwNjdiY2E0ZjYyYzE5ZmE3OWQ5MGMzYjMzZWQ0MWZkNGUzZjQ1ZGUyYTFmNDE4YzBjZjI0NDZiIiwib3duZXIiOiJzeW50aGV0aWMtc2VtYW50aWMiLCJzY29wZSI6eyJtZXRyaWNfY29kZXMiOlsiU1lOVEhfTTpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX08yIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNi0zMCIsInN0YXJ0IjoiMjAyNi0wNi0zMCJ9fSwic2Vzc2lvbiI6IjAxYTEzZTU3LTdkMTMtNzBhNy05NzQ5LTRiN2VkZDU5YTg4MyIsInYiOjF9.kcj12mYRogI2WkGWA3blTknUni3zy3C7w-hrMjJl4SU",
+            "conversation_id": "synthetic-semantic",
+            "calculation_context": {
+              "scope_id": "01a13e58-cc5e-70a7-9749-4bcdc3e4a68a:253643b5-67c0-410d-bd95-98df201837ec",
+              "user_question": "指标改成经营收益金额当日数"
+            },
+            "metric_codes": [
+              "SYNTH_M:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_O2"
+            ],
+            "time": {
+              "start": "2026-06-30",
+              "end": "2026-06-30"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "frames": [
+        {
+          "frame_id": "090f7fdc-fe3d-41a4-b5b9-7e924219b904",
+          "parent_frame_id": "878c6f29-ef42-4759-a0c8-31f0e015bb28",
+          "fields_sha256": "78e73287aea18e38fa7a50b7540db892e4cac8b9b4fbd0dbf51cc032e152ad17",
+          "frame_sha256": "f69ea1da56ddadf7af97e1c86d62f563f5ee109381890f3c7be3b694870a6046",
+          "capability": "metric_query"
+        },
+        {
+          "frame_id": "f549b381-5c7f-40a3-b47e-246967cc4d0e",
+          "parent_frame_id": "47b40ecc-df95-4630-9b5a-6c7c547c408f",
+          "fields_sha256": "78e73287aea18e38fa7a50b7540db892e4cac8b9b4fbd0dbf51cc032e152ad17",
+          "frame_sha256": "b358e4822bbfecb22885d39f3feee162a0ff0954c733a319690f5b64a6377917",
+          "result_ref": "query:query-5:result-query-5",
+          "capability": "metric_query"
+        }
+      ],
+      "preserved_frame_count": 10,
+      "completion": "full",
+      "answer": "\n指标已改为**经营收益金额当日数**。**合成机构乙**在**2026年6月末**的经营收益金额当日数为**50元**。"
+    },
+    {
+      "scenario": "completed-followups",
+      "repetition": 1,
+      "turn": 6,
+      "message": "日期再改回2026年5月31日，机构和指标保持刚才的",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O2",
+        "day": "2026-05-31"
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 20443,
+      "model_calls": 2,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "current"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "succeeded",
+            "state": {
+              "task_ref": "6617dd24-9f3f-4f28-8b90-b7929bb05159",
+              "task_status": "completed",
+              "completion": "full",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "75a8a4cb-773f-4c51-8f00-224b1b1dab58",
+                  "status": "succeeded",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构乙 / 2026年5月31日 / 经营收益金额当日数",
+                  "aliases": [
+                    "合成机构乙 / 2026年5月31日 / 经营收益金额当日数",
+                    "合成机构乙",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构乙2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ],
+              "evidence": {
+                "kind": "metric_query_structured",
+                "task_id": "query-6",
+                "version": 1,
+                "result_id": "result-query-6",
+                "public_answer": "2026-05-31，合成机构乙的经营收益金额当日数为50元。",
+                "status": "succeeded",
+                "columns": [
+                  "metric_code",
+                  "metric_name",
+                  "unit",
+                  "org_code",
+                  "org_name",
+                  "metric_value",
+                  "stat_date"
+                ],
+                "rows": [
+                  {
+                    "metric_code": "SYNTH_M:D",
+                    "metric_name": "经营收益金额当日数",
+                    "unit": "元",
+                    "org_code": "SYNTH_O2",
+                    "org_name": "合成机构乙",
+                    "metric_value": 50,
+                    "stat_date": "2026-05-31"
+                  }
+                ],
+                "row_count": 1,
+                "truncated": false,
+                "frame_id": "732450c6-0736-407c-92a1-6e913ad1b1e0",
+                "delivery": "business_evidence_v1",
+                "payloads": [
+                  {
+                    "status": "succeeded",
+                    "task_id": "query-6",
+                    "version": 1,
+                    "result_id": "result-query-6",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "sample_rows": [
+                      {
+                        "metric_code": "SYNTH_M:D",
+                        "metric_name": "经营收益金额当日数",
+                        "unit": "元",
+                        "org_code": "SYNTH_O2",
+                        "org_name": "合成机构乙",
+                        "metric_value": 50,
+                        "stat_date": "2026-05-31"
+                      }
+                    ],
+                    "facts": [
+                      {
+                        "fact_id": "fact:query-6:0:metric_value",
+                        "task_id": "query-6",
+                        "field": "metric_value",
+                        "value": "50",
+                        "unit": "元",
+                        "metric_code": "SYNTH_M:D",
+                        "org_code": "SYNTH_O2",
+                        "date": "2026-05-31"
+                      }
+                    ],
+                    "fact_count": 1,
+                    "facts_truncated": false,
+                    "row_count": 1,
+                    "truncated": false,
+                    "error_code": null,
+                    "message": null,
+                    "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                    "frame_id": "732450c6-0736-407c-92a1-6e913ad1b1e0",
+                    "result_ref": "query:query-6:result-query-6"
+                  }
+                ]
+              }
+            },
+            "issues": [],
+            "continuation": {
+              "actor": "pi",
+              "action": "answer"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiYzUzMzEwMDQ0ZjQwZGZlZThjYWJhYWUyNTljZDM4M2RiNmY4Yzg1ZGVjY2RlZDE2MzhmMWQzZjRkMzg2NGFhMSIsImNvZGVzIjpbIlNZTlRIX006RCJdLCJjb252ZXJzYXRpb24iOiJzeW50aGV0aWMtc2VtYW50aWMiLCJnb2FsX2hhc2giOiJhYzY0MmZlYTcxNTRkYmY2NGM3MTQ3OTYyYTE0MWRkNGI5ODIyY2RkOWEwY2YxNWJmYzk1NWJkNWY5N2NjNmMyIiwib3duZXIiOiJzeW50aGV0aWMtc2VtYW50aWMiLCJzY29wZSI6eyJtZXRyaWNfY29kZXMiOlsiU1lOVEhfTTpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX08yIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNS0zMSIsInN0YXJ0IjoiMjAyNi0wNS0zMSJ9fSwic2Vzc2lvbiI6IjAxYTEzZTU3LTdkMTMtNzBhNy05NzQ5LTRiN2VkZDU5YTg4MyIsInYiOjF9.yTfFpBh6JfwhlMJpMbjMzy0c3ZlaVsJuX5a3W6NLVuA",
+            "conversation_id": "synthetic-semantic",
+            "calculation_context": {
+              "scope_id": "01a13e59-239b-70a7-9749-4bdedeb7cd8c:da92e4ef-2085-42f0-b212-f068fda1d33d",
+              "user_question": "日期再改回2026年5月31日，机构和指标保持刚才的"
+            },
+            "metric_codes": [
+              "SYNTH_M:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_O2"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-05-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "frames": [
+        {
+          "frame_id": "b6091529-1244-4b49-a55d-4cc3c4ed29ee",
+          "parent_frame_id": "090f7fdc-fe3d-41a4-b5b9-7e924219b904",
+          "fields_sha256": "bd1455986da0651ce630a7f064ee9185f8dca27e7419fc55f5b7763db3b5a4af",
+          "frame_sha256": "e1596373d23013ae8fd15f3f42db7316cef4c212bad66d34bf3e4d3d0d71729e",
+          "capability": "metric_query"
+        },
+        {
+          "frame_id": "732450c6-0736-407c-92a1-6e913ad1b1e0",
+          "parent_frame_id": "07184b74-0afe-4351-a45a-2ed46bd3e437",
+          "fields_sha256": "bd1455986da0651ce630a7f064ee9185f8dca27e7419fc55f5b7763db3b5a4af",
+          "frame_sha256": "7069fb3f891e533c0bb1ea4fda30de214769eeff7a9b8158cde2ca3a41ed5deb",
+          "result_ref": "query:query-6:result-query-6",
+          "capability": "metric_query"
+        }
+      ],
+      "preserved_frame_count": 12,
+      "completion": "full",
+      "answer": "\n日期已改回**2026年5月31日**，机构和指标保持为**合成机构乙**和**经营收益金额当日数**。该日合成机构乙的经营收益金额当日数为**50元**。"
+    },
+    {
+      "scenario": "completed-followups",
+      "repetition": 1,
+      "turn": 7,
+      "message": "合成机构甲呢？",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 9885,
+      "model_calls": 2,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "current"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "succeeded",
+            "state": {
+              "task_ref": "97ff00f2-4a76-45c8-b7d1-cb9df56ee55b",
+              "task_status": "completed",
+              "completion": "full",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "44081bd2-3464-4635-b71b-ceeb8ea38f18",
+                  "status": "succeeded",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 2026年5月31日 / 经营收益金额当日数",
+                  "aliases": [
+                    "合成机构甲 / 2026年5月31日 / 经营收益金额当日数",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构甲2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ],
+              "evidence": {
+                "kind": "metric_query_structured",
+                "task_id": "query-7",
+                "version": 1,
+                "result_id": "result-query-7",
+                "public_answer": "2026-05-31，合成机构甲的经营收益金额当日数为30元。",
+                "status": "succeeded",
+                "columns": [
+                  "metric_code",
+                  "metric_name",
+                  "unit",
+                  "org_code",
+                  "org_name",
+                  "metric_value",
+                  "stat_date"
+                ],
+                "rows": [
+                  {
+                    "metric_code": "SYNTH_M:D",
+                    "metric_name": "经营收益金额当日数",
+                    "unit": "元",
+                    "org_code": "SYNTH_O1",
+                    "org_name": "合成机构甲",
+                    "metric_value": 30,
+                    "stat_date": "2026-05-31"
+                  }
+                ],
+                "row_count": 1,
+                "truncated": false,
+                "frame_id": "59399f62-8aec-495b-8a7f-395e7b04a7c7",
+                "delivery": "business_evidence_v1",
+                "payloads": [
+                  {
+                    "status": "succeeded",
+                    "task_id": "query-7",
+                    "version": 1,
+                    "result_id": "result-query-7",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "sample_rows": [
+                      {
+                        "metric_code": "SYNTH_M:D",
+                        "metric_name": "经营收益金额当日数",
+                        "unit": "元",
+                        "org_code": "SYNTH_O1",
+                        "org_name": "合成机构甲",
+                        "metric_value": 30,
+                        "stat_date": "2026-05-31"
+                      }
+                    ],
+                    "facts": [
+                      {
+                        "fact_id": "fact:query-7:0:metric_value",
+                        "task_id": "query-7",
+                        "field": "metric_value",
+                        "value": "30",
+                        "unit": "元",
+                        "metric_code": "SYNTH_M:D",
+                        "org_code": "SYNTH_O1",
+                        "date": "2026-05-31"
+                      }
+                    ],
+                    "fact_count": 1,
+                    "facts_truncated": false,
+                    "row_count": 1,
+                    "truncated": false,
+                    "error_code": null,
+                    "message": null,
+                    "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                    "frame_id": "59399f62-8aec-495b-8a7f-395e7b04a7c7",
+                    "result_ref": "query:query-7:result-query-7"
+                  }
+                ]
+              }
+            },
+            "issues": [],
+            "continuation": {
+              "actor": "pi",
+              "action": "answer"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiYzUzMzEwMDQ0ZjQwZGZlZThjYWJhYWUyNTljZDM4M2RiNmY4Yzg1ZGVjY2RlZDE2MzhmMWQzZjRkMzg2NGFhMSIsImNvZGVzIjpbIlNZTlRIX006RCJdLCJjb252ZXJzYXRpb24iOiJzeW50aGV0aWMtc2VtYW50aWMiLCJnb2FsX2hhc2giOiI4YTRlNjM5ZGQ4YzRlYTJmNjg2Y2ZlN2FkNDEzZmJhNjNhN2VkOWY3NmNlMzA0NzFiY2FjYzkyODAwZDVmZjIyIiwib3duZXIiOiJzeW50aGV0aWMtc2VtYW50aWMiLCJzY29wZSI6eyJtZXRyaWNfY29kZXMiOlsiU1lOVEhfTTpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX08xIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNS0zMSIsInN0YXJ0IjoiMjAyNi0wNS0zMSJ9fSwic2Vzc2lvbiI6IjAxYTEzZTU3LTdkMTMtNzBhNy05NzQ5LTRiN2VkZDU5YTg4MyIsInYiOjF9.ug7OF8mw1fpdqCCLV9ZL5tBQ-IIxwbIUBrfY24D3o_E",
+            "conversation_id": "synthetic-semantic",
+            "calculation_context": {
+              "scope_id": "01a13e59-7377-70a7-9749-4bf0f6063a4f:8c5662e9-6aba-43ea-ad7a-158ec8fc7e49",
+              "user_question": "合成机构甲呢？"
+            },
+            "metric_codes": [
+              "SYNTH_M:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_O1"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-05-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "frames": [
+        {
+          "frame_id": "1fce743c-d58b-42d6-89a9-9c9cadf2fd1c",
+          "parent_frame_id": "b6091529-1244-4b49-a55d-4cc3c4ed29ee",
+          "fields_sha256": "42693539323685a392edda869bb24f1dae170bb4bacc77eb9d5052e73ac44628",
+          "frame_sha256": "14a2014c8910bcef717a1bc9ff63225893c2262b2f2dfad647f0f9988c7dfbd6",
+          "capability": "metric_query"
+        },
+        {
+          "frame_id": "59399f62-8aec-495b-8a7f-395e7b04a7c7",
+          "parent_frame_id": "d7a3aeeb-ebbd-4a21-ae22-eb4daa45facd",
+          "fields_sha256": "42693539323685a392edda869bb24f1dae170bb4bacc77eb9d5052e73ac44628",
+          "frame_sha256": "3417c8e177e746d8e351e4d2d0ad96fb6cd9a23b98a29ddbf927bf5283a35d51",
+          "result_ref": "query:query-7:result-query-7",
+          "capability": "metric_query"
+        }
+      ],
+      "preserved_frame_count": 14,
+      "completion": "full",
+      "answer": "\n**合成机构甲**在**2026年5月31日**的**经营收益金额当日数**为**30元**。"
+    },
+    {
+      "scenario": "pending-and-history",
+      "repetition": 1,
+      "turn": 1,
+      "message": "查询经营收益金额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "organizations",
+          "time"
+        ]
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "needs_user",
+      "elapsed_ms": 9921,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "当日"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_user",
+            "state": {
+              "task_ref": "87a79ed3-3715-42c4-a8b5-69a737cd6737",
+              "task_status": "waiting_input",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "b14920f6-1b6c-4d73-8803-9b3b38d2d59c",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "当日",
+                    "尚未确定"
+                  ],
+                  "label": "经营收益金额当日数",
+                  "aliases": [
+                    "经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "time",
+                "message": "请补充查询日期范围。",
+                "remediation": "user",
+                "category": "calendar"
+              },
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "organizations",
+                "message": "请补充或确定机构。",
+                "remediation": "user",
+                "category": "semantic"
+              }
+            ],
+            "continuation": {
+              "actor": "user",
+              "action": "ask_user"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "frames": [],
+      "preserved_frame_count": 0,
+      "completion": "unmet",
+      "answer": "\n请补充查询日期范围。\n请补充或确定机构。\n\n已保存条件：指标：经营收益金额当日数；取数条件：查询操作"
+    },
+    {
+      "scenario": "pending-and-history",
+      "repetition": 1,
+      "turn": 2,
+      "message": "机构用合成机构乙",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "time"
+        ]
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "needs_user",
+      "elapsed_ms": 9388,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "reference",
+                  "task_ref": "87a79ed3-3715-42c4-a8b5-69a737cd6737",
+                  "target_ref": "b14920f6-1b6c-4d73-8803-9b3b38d2d59c"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构乙"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_user",
+            "state": {
+              "task_ref": "5852c605-a0bb-4447-aa06-f76ff96aaf1b",
+              "task_status": "waiting_input",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "12f0d874-d3c0-4355-a785-1cb1892ec395",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "user_explicit"
+                    }
+                  ],
+                  "pending": [
+                    "当日"
+                  ],
+                  "label": "合成机构乙 / 经营收益金额当日数",
+                  "aliases": [
+                    "合成机构乙 / 经营收益金额当日数",
+                    "合成机构乙",
+                    "经营收益金额当日数",
+                    "合成机构乙经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "time",
+                "message": "请补充或确定日期范围。",
+                "remediation": "user",
+                "category": "semantic"
+              }
+            ],
+            "continuation": {
+              "actor": "user",
+              "action": "ask_user"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "frames": [],
+      "preserved_frame_count": 0,
+      "completion": "unmet",
+      "answer": "\n请补充或确定日期范围。\n\n已保存条件：指标：经营收益金额当日数；取数条件：查询操作；机构：合成机构乙"
+    }
+  ]
+}

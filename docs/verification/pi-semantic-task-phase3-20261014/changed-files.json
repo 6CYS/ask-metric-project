@@ -1,0 +1,179 @@
+{
+  "baseline": "phase3-start worktree archive; two scripts recovered from preserved phase2 full-file patch",
+  "changes": [
+    {
+      "path": "agent-service/scripts/audit-semantic-plan-model.mjs",
+      "kind": "added",
+      "before_sha256": null,
+      "after_sha256": "a2eef6e4d3d972c562c3b858bac8e610c670d3831ce5107557de71ca70ca8fea"
+    },
+    {
+      "path": "agent-service/scripts/check-semantic-plan-model.ts",
+      "kind": "added",
+      "before_sha256": null,
+      "after_sha256": "4954b030c77923382aea1b656e634d127011c670b3c5193cdef20ca18c533a7e"
+    },
+    {
+      "path": "agent-service/scripts/semantic-task-fixture.py",
+      "kind": "modified",
+      "before_sha256": "edf20d5c0ad48bf2fd9fd1d384830276dae334b385d82fe297ebef094a7af950",
+      "after_sha256": "c86739c627293ea0bbfd8d2226d7b95030ff3d95e1dc4cfe4bb5dfcafcdc0814"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/backend-contract.spec.ts",
+      "kind": "modified",
+      "before_sha256": "9db4f82f22593e23bcff99377fba2b8020cb0663159534a6ac29a446231e7a3a",
+      "after_sha256": "4731af4cff967f7b386518dd9bff6017f39e921cfcfa5ccba1e6871fc97f3c3d"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/fixtures.ts",
+      "kind": "modified",
+      "before_sha256": "7959f6ab50f06d9b99c467fa960ba4b59f9d8983cce3e7d859ec2cbdc559daf9",
+      "after_sha256": "26ad879e726964b89d8bfe34ddc0150fb780262207b34a6c063c7d171bda8915"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/host.spec.ts",
+      "kind": "modified",
+      "before_sha256": "862571a8a4ba86d1ec9fa7c691a49971299188fbd2f5c6cf67e7e098273604b9",
+      "after_sha256": "20c84686f18b99c3be86ec69f72b06c900e20f0ffdc540ac4f188c9cbe6b4031"
+    },
+    {
+      "path": "agent-service/specs/semantic-task/plan.spec.ts",
+      "kind": "added",
+      "before_sha256": null,
+      "after_sha256": "0fb9409a1a6138d683e38d3af0b6b1cde9c21af7db3d93b4eeaeba14af9c5555"
+    },
+    {
+      "path": "agent-service/src/answerEvidence.ts",
+      "kind": "modified",
+      "before_sha256": "f888caa59a39aa99ca40263c8d411bc59649501e63a4feeb4b229600c8636264",
+      "after_sha256": "4187ca40e2eaeb37d9e5521edf1d79d426ce829b8dfeefe37966464f45e2c39f"
+    },
+    {
+      "path": "agent-service/src/backendClient.ts",
+      "kind": "modified",
+      "before_sha256": "02c2064edb47b9ce49e5195de255a0bd6cef1601353b2726d879f5a9976dc09b",
+      "after_sha256": "14dd00c4f39ac844e0df0afa96940c44509a751a8532f4043480b581ff7c1e9a"
+    },
+    {
+      "path": "agent-service/src/business-context/adapters.ts",
+      "kind": "modified",
+      "before_sha256": "6023326f2bb1fa2cd080703ab95db284c3ef4974dbb272a13ccfa37c3cd2809e",
+      "after_sha256": "4be54c349b34d227db9f483110aa37bc5531796e8e17596a21779a8f4abdc80d"
+    },
+    {
+      "path": "agent-service/src/business-context/rankingEvidence.ts",
+      "kind": "modified",
+      "before_sha256": "7fa5681b253ddac0c0df7f350b3135ff90033197708bdd98d516aec02d5f2de9",
+      "after_sha256": "0c42441ab4f75b56ab4c66b2d45333fffe6d1f7219c96803300005c97122d806"
+    },
+    {
+      "path": "agent-service/src/harnessHost.ts",
+      "kind": "modified",
+      "before_sha256": "60e5c006cc9b652832f71a6b7384fb72b5029d69b36ecbf9e506fa2065d211ed",
+      "after_sha256": "58af28f0b510476787824c2fa1c140ead7ae901a5338e1437e32a14ce56c43a0"
+    },
+    {
+      "path": "agent-service/src/requestContext.ts",
+      "kind": "modified",
+      "before_sha256": "18b5fa611d712b7cd6336cc3fa55dacd33b1de1125c7e4eb7281b710b3b865fb",
+      "after_sha256": "961bc1ee02854cbf5af5e3d75ec3f32204d8101e49c8631787a7b386736465a6"
+    },
+    {
+      "path": "agent-service/src/semantic-task/calculation.ts",
+      "kind": "added",
+      "before_sha256": null,
+      "after_sha256": "9be40c581720f05e0aaf0d828099872ac747d5c1d6878499bbcc5d5e482dcb56"
+    },
+    {
+      "path": "agent-service/src/semantic-task/feedback.ts",
+      "kind": "modified",
+      "before_sha256": "9db8a338b41785a5f730433144f2bd29ddafcf0a109be958532f952a11103356",
+      "after_sha256": "0dc208dc8bf3e6d512b14b702d9d23b952b1f6fd9bdd3c7ada69aa265e644afd"
+    },
+    {
+      "path": "agent-service/src/semantic-task/planService.ts",
+      "kind": "added",
+      "before_sha256": null,
+      "after_sha256": "864da57e9dad9ce552ed185bb55c9e51a720304199b50bae7d763cc2fc6959d7"
+    },
+    {
+      "path": "agent-service/src/semantic-task/prompt.ts",
+      "kind": "modified",
+      "before_sha256": "c33ba4e1c5dc0a571b950294b83d4746db5e739d4271041ae3bab8aa6786781a",
+      "after_sha256": "ffce004f55969b0cddccf4d6fdba959a612e95bd3cdbbb97829bc1aee20e84a3"
+    },
+    {
+      "path": "agent-service/src/semantic-task/service.ts",
+      "kind": "modified",
+      "before_sha256": "c68c0c2080b19ab717841a212c2d47f378297886488c491a03e41a0f97d59fc3",
+      "after_sha256": "8df88d87f755d3200bcb7e27ebfaffcf4d9a7af4be575814c0446f191330adb8"
+    },
+    {
+      "path": "agent-service/src/semantic-task/store.ts",
+      "kind": "modified",
+      "before_sha256": "b0fc8b51bad250c5d3e6af204817138bc44f7d4449f637b128955190a1635ef6",
+      "after_sha256": "45ab20c11dee39f6071537540037af95a5c82c09dee787e29e5207bc35141e11"
+    },
+    {
+      "path": "agent-service/src/semantic-task/tools.ts",
+      "kind": "modified",
+      "before_sha256": "1021c0815197dfd7ea5f0cb93ca3c1fe1d1e5609bdc78ac84d79b63e3bc1ed6d",
+      "after_sha256": "1462a63733b912798e2829b93ef942be7c6439b730825ddd7cb18c9897d7fa81"
+    },
+    {
+      "path": "agent-service/src/tools/structuredQuery.ts",
+      "kind": "modified",
+      "before_sha256": "b2e47501c7b9fef8d31b0ef354fb7681e479f485f644d9e57c81c954d7aa2473",
+      "after_sha256": "8cf322d82edc44c1563100e19e57666a5b7ffeb18060e5a3c6035392cc9fba52"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/routes/business_context.py",
+      "kind": "modified",
+      "before_sha256": "248770a948ab8339cea1418a6ba0bebb9e564048e4c8b885da1ade986a64c50c",
+      "after_sha256": "9c06fe816254ec4a86797d25dd0cf86c6b1b60edb35d57c052a662db1d591631"
+    },
+    {
+      "path": "backend-next/src/ask_metric/api/routes/tasks.py",
+      "kind": "modified",
+      "before_sha256": "d906a902451e8c58c0cd00c86a0278b3c34e203b1c7f40e579af5f7bd5bc9c7c",
+      "after_sha256": "731a71a8c4bea9652656d361f30857c58d5a1e2a106c5fd022f275c1767ce288"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/analysis_selection.py",
+      "kind": "added",
+      "before_sha256": null,
+      "after_sha256": "7e7a616cad25c59b5362038c74c5a064182c8b07bfeeee2d958351d96f95c4a1"
+    },
+    {
+      "path": "backend-next/src/ask_metric/application/goal_facts.py",
+      "kind": "added",
+      "before_sha256": null,
+      "after_sha256": "fff613bf2e2490666e8d147d10a48c96484da8d71f098ecdbfe470e246477b08"
+    },
+    {
+      "path": "backend-next/verification/test_semantic_plan.py",
+      "kind": "added",
+      "before_sha256": null,
+      "after_sha256": "c5f772e18c6057a38ce799457da33a24ea059167ed2619a0a2a7c1adb8870e66"
+    },
+    {
+      "path": "frontend-vue/specs/components/chat/BackendNextChatPanel.spec.ts",
+      "kind": "modified",
+      "before_sha256": "27874d94fd2be16dea3ea3f07c8f6264dbc26b475960b2d4b797659d2c314d76",
+      "after_sha256": "68cffd82bb02cf307eeb9a828fbc8908e8e38e739ee608a9cd7b8c7e874cefe1"
+    },
+    {
+      "path": "frontend-vue/src/components/chat/BackendNextChatPanel.vue",
+      "kind": "modified",
+      "before_sha256": "b28d788f8571ebfe7d0b93f79a8c5f60e6a4a8f889cece8ba8e13b2bc8e098d9",
+      "after_sha256": "011fe0b39a4164156798011bff3df7ca0afe56e1a535d92f0f3268cbd90800c7"
+    },
+    {
+      "path": "scripts/check_semantic_task_database.py",
+      "kind": "modified",
+      "before_sha256": "614166a005a6472fc6b0e601688e8cea9d49d5566ac470bc20589834a7972a37",
+      "after_sha256": "dfd3ae932585418fdab1847a7c31971ffdee954dcf6dbf44f9ad4b45774794f8"
+    }
+  ]
+}

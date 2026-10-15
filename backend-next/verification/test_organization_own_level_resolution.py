@@ -14,6 +14,7 @@ def test_own_level_resolves_unique_exact_name_or_alias_without_children(raw):
     ]
     assert resolve_catalog_field("organization", [raw], items) == {
         "status": "resolved", "value": {"codes": ["A"], "names": ["甲农商行"]},
+        "metadata": {"resolution_source": "exact"},
     }
 
 
@@ -58,7 +59,8 @@ def test_own_level_suffix_does_not_turn_partial_or_unknown_name_into_exact():
         result = resolve_catalog_field("organization", [raw], items)
         assert result["status"] != "resolved"
         assert result["metadata"]["issues"][0]["rawValue"] == raw
-    assert resolve_catalog_field("organization", ["甲农"], items)["status"] == "needs_confirmation"
+    # 截断写法按新阶梯的唯一包含直接解析，不再要求确认。
+    assert resolve_catalog_field("organization", ["甲农"], items)["value"]["codes"] == ["A"]
 
 
 def test_metric_names_do_not_use_organization_own_level_rule():

@@ -14,6 +14,7 @@ import ChatResultContent from "@/components/chat/ChatResultContent.vue"
 import CalculationResult from "@/components/chat/CalculationResult.vue"
 import StructuredClarificationForm from "@/components/chat/StructuredClarificationForm.vue"
 import ClarificationChoices from "@/components/chat/ClarificationChoices.vue"
+import TimeVariantChoices from "@/components/chat/TimeVariantChoices.vue"
 import { asChoiceSet, withoutListing } from "@/lib/clarificationChoices"
 import BaseAlert from "@/components/ui/BaseAlert.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
@@ -24,6 +25,7 @@ import {
   AgentApiError,
   AgentSessionNotFoundError,
   cancelAgentOperation,
+  cancelAgentRequest,
   createAgentSession,
   deleteAgentSession,
   getAgentSession,
@@ -41,11 +43,11 @@ import {
   type ClarificationChoiceSet,
 } from "@/lib/agentApi"
 import { getBackendTaskResult } from "@/lib/api"
-import type { BackendNextClarification, ChatResponse } from "@/types/api"
+import type { BackendNextClarification, ChatResponse, TimeVariant } from "@/types/api"
 import { useAuth } from "@/composables/useAuth"
 import { useQueryReadiness } from "@/composables/useQueryReadiness"
 import { copyText } from "@/lib/clipboard"
-import { archiveClarificationResponse } from "@/lib/conversationMessages"
+import { archiveClarificationResponse, archiveTimeVariantsResponse } from "@/lib/conversationMessages"
 import { composeQuestion, selectedClarificationAnswer, type ComposerEntity } from "@/lib/composerEntities"
 import { friendlyQueryError, withFailureNotice } from "@/lib/queryErrors"
 import { toolCallLabel, toolCallSummary, type ToolCallSummary } from "@/lib/toolCallSummary"
@@ -101,6 +103,7 @@ type DisplayMessage = {
   kind?: string
   /** 本轮最近一次 metric_ask 的工具明细，done/error 收尾时用于构造结构化响应。 */
   metricAskDetails?: MetricAskDetails
+  queryResults?: MetricAskDetails[]
   calculations?: CalculationDetails[]
   metricAskClarification?: BackendNextClarification
   answerStreaming?: boolean
@@ -184,6 +187,7 @@ const autoOpenClarificationId = ref<string>()
 watch(activeConversationId, () => { autoOpenClarificationId.value = undefined }, { flush: "sync" })
 const sendingConversationIds = ref(new Set<string>())
 const abortControllers = new Map<string, AbortController>()
+const pendingPrompts = new Map<string, {requestId: string; cancelFailure?: Error}>()
 const isHistoryLoading = ref(true)
 const isConversationLoading = ref(false)
 const isHistoryLoadingMore = ref(false)
@@ -237,6 +241,31 @@ function chooseClarificationOption(message: DisplayMessage, choice: Clarificatio
   void runQuestion(conversation.id, choice.label, "clarification_answer", input)
 }
 
+/** 只有会话中最新、已完成的答案消息可以切换口径。 */
+function isActiveTimeVariant(chatMessage: DisplayMessage): boolean {
+  const conversation = activeConversation.value
+  const messages = conversation?.messages ?? []
+  return Boolean(chatMessage.response?.time_variants?.length) && messages[messages.length - 1]?.id === chatMessage.id
+    && chatMessage.status === "done" && !conversation?.running && !activeConversationIsSending.value && queryReady.value
+}
+
+/** 点选备选口径：携带显式 time_override 走既有提问链路重查，原消息口径 chips 归档为只读。 */
+function chooseTimeVariant(chatMessage: DisplayMessage, variant: TimeVariant) {
+  const conversation = activeConversation.value
+  if (!conversation || !isActiveTimeVariant(chatMessage) || conversation.legacy) return
+  const label = `切换口径：${variant.label}`
+  const input: AgentPromptInput = {
+    request_id: createId(),
+    message: label,
+    time_override: { start: variant.start, end: variant.end },
+  }
+  updateAssistantMessage(conversation.id, chatMessage.id, (item) => ({
+    ...item,
+    response: archiveTimeVariantsResponse(item.response),
+  }))
+  void runQuestion(conversation.id, label, "time_override", input)
+}
+
 const activeClarificationMessage = computed(() => {
   const messages = activeConversation.value?.messages ?? []
   const latest = messages[messages.length - 1]
@@ -275,15 +304,18 @@ onBeforeUnmount(() => {
   for (const controller of abortControllers.values()) controller.abort()
 })
 
-onActivated(() => {
+onActivated(() => void activateAuthenticatedUser())
+
+function activateAuthenticatedUser() {
   const userId = auth.user.value?.id ?? null
-  if (loadedUserId.value !== userId) void synchronizeAuthenticatedUser(userId)
+  let pending = Promise.resolve()
+  if (loadedUserId.value !== userId) pending = synchronizeAuthenticatedUser(userId)
   else if (hasActivatedOnce.value && userId) {
-    handleNewConversation()
-    void loadHistory(userId)
+    pending = loadHistory(userId)
   }
   hasActivatedOnce.value = true
-})
+  return pending
+}
 
 function resetChatSessionState() {
   historyLoadVersion += 1
@@ -306,7 +338,7 @@ async function synchronizeAuthenticatedUser(userId: string | null) {
   loadedUserId.value = userId
   resetChatSessionState()
   if (!userId) return
-  handleNewConversation()
+  openEmptyDraft()
   await loadHistory(userId)
 }
 
@@ -381,7 +413,7 @@ function persistTitleOverrides() {
 function conversationTitle(serverId: string | null, messages: DisplayMessage[]) {
   const override = serverId ? titleOverrides.value[serverId] : undefined
   if (override) return override
-  const firstQuestion = messages.find((item) => item.role === "user" && item.kind !== "clarification_answer")?.content.trim()
+  const firstQuestion = messages.find((item) => item.role === "user" && item.kind !== "clarification_answer" && item.kind !== "time_override")?.content.trim()
   return firstQuestion ? firstQuestion.slice(0, 24) : "问数会话"
 }
 
@@ -396,11 +428,14 @@ function responseFromMetricAsk(details: MetricAskDetails, answer: string): ChatR
   const answerBlocks = Array.isArray(details.public_answer_blocks) && details.public_answer_blocks.length
     ? details.public_answer_blocks
     : null
+  // 备选时间口径随工具明细透传到结构化响应，历史快照经同一入口还原
+  const timeVariants = details.time_variants?.length ? details.time_variants : undefined
   return {
     message_id: details.task_id ?? createId(),
     intent: "metric_query",
     answer: answer.trim() || governedReply(details) || (rowCount ? `查询完成，找到 ${rowCount} 条记录。` : "查询完成，暂无匹配数据。"),
     ...(answerBlocks && (!answer.trim() || answer.trim() === details.public_answer) ? { answer_blocks: answerBlocks } : {}),
+    ...(timeVariants ? { time_variants: timeVariants } : {}),
     result: hasRows && rowCount <= 100 && columns.length ? { type: "metric_query", table: { columns, rows } } : null,
     metric_definition: null,
     clarification: null,
@@ -492,7 +527,12 @@ function historyTimestamp(value: number | null | undefined) {
 /** 还原历史消息：连续的助手片段合并为一个气泡，其后的工具明细还原结果表与只读澄清卡片。 */
 function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConversation, "messages"> {
   const messages: DisplayMessage[] = []
-  for (const item of detail.messages) {
+  const expanded = detail.messages.flatMap(item => {
+    const bundle = item.role === "tool" && "details" in item ? item.details as {kind?: string; results?: unknown[]} : undefined
+    return bundle?.kind === "semantic_results" && Array.isArray(bundle.results)
+      ? bundle.results.map(details => ({...item, details: {...details as object, semantic_task: {protocol_version: 2}}})) : [item]
+  })
+  for (const item of expanded) {
     if (item.role === "user") {
       const text = "text" in item ? item.text ?? "" : ""
       if (!text.trim()) continue
@@ -521,6 +561,9 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
         if (failure) {
           last.status = "error"
           last.response = undefined
+        } else if (text.trim()) {
+          // 历史最终成功正文覆盖失败attempt；诊断仍保留在原工具/模型事件中。
+          last.status = "done"
         }
         if (!last.createdAt) last.createdAt = historyTimestamp(item.timestamp)
       } else {
@@ -604,6 +647,7 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
         }
       } else {
         last.metricAskDetails = details
+        if (details.status === "succeeded" && (item.details as {semantic_task?: unknown})?.semantic_task) last.queryResults = [...(last.queryResults ?? []).filter(previous => previous.task_id !== details.task_id), details]
       }
     }
   }
@@ -650,9 +694,9 @@ async function loadHistory(expectedUserId = auth.user.value?.id ?? null) {
         lastActiveAt: item.last_active_at,
       }))
       .sort((left, right) => new Date(right.lastActiveAt ?? 0).getTime() - new Date(left.lastActiveAt ?? 0).getTime())
-    const activeIsInHistory = loadedHistory.some((item) => item.id === currentActive?.id)
-    conversations.value = currentActive && !activeIsInHistory
-      ? [currentActive, ...loadedHistory]
+    // 列表没有正文；保留本地当前会话，避免再次激活把已加载消息或未发送草稿覆盖为空。
+    conversations.value = currentActive
+      ? [currentActive, ...loadedHistory.filter(item => item.id !== currentActive.id)]
       : loadedHistory
     // 刷新后优先恢复上次打开的会话。
     const savedServerId = localStorage.getItem(activeConversationStorageKey.value)
@@ -674,6 +718,10 @@ async function loadHistory(expectedUserId = auth.user.value?.id ?? null) {
 }
 
 async function selectConversation(conversationId: string) {
+  const expectedUserId = auth.user.value?.id ?? null
+  const requestVersion = historyLoadVersion
+  const selectionIsCurrent = () => requestVersion === historyLoadVersion
+    && auth.user.value?.id === expectedUserId && activeConversationId.value === conversationId
   autoOpenClarificationId.value = undefined
   activeConversationId.value = conversationId
   persistActiveConversation()
@@ -687,6 +735,7 @@ async function selectConversation(conversationId: string) {
   historyError.value = ""
   try {
     const detail = await getAgentSession(conversation.serverId)
+    if (!selectionIsCurrent()) return
     const loaded: DisplayConversation = {
       ...conversation,
       loaded: true,
@@ -704,6 +753,7 @@ async function selectConversation(conversationId: string) {
     void hydrateResultTables(conversationId)
     if (detail.running) void reconnectConversation(conversationId)
   } catch (error) {
+    if (!selectionIsCurrent()) return
     if (error instanceof AgentSessionNotFoundError) {
       // 服务端会话已被删除（或存储被清理），直接从列表移除。
       conversations.value = conversations.value.filter((item) => item.id !== conversationId)
@@ -715,7 +765,7 @@ async function selectConversation(conversationId: string) {
       historyError.value = error instanceof Error ? error.message : "会话内容加载失败。"
     }
   } finally {
-    isConversationLoading.value = false
+    if (selectionIsCurrent()) isConversationLoading.value = false
   }
 }
 
@@ -791,16 +841,23 @@ function markConversationSending(conversationId: string, sending: boolean) {
   sendingConversationIds.value = next
 }
 
-function handleNewConversation() {
+function openEmptyDraft() {
   const conversation = createConversation()
   conversations.value = [
     conversation,
     ...conversations.value.filter((item) => item.persisted || item.messages.length > 0),
   ]
   activeConversationId.value = conversation.id
+  isConversationLoading.value = false
   message.value = ""
   historyError.value = ""
   void scrollToBottom()
+}
+
+function handleNewConversation() {
+  openEmptyDraft()
+  // 初始化草稿保留恢复指针；只有用户主动新建才立即撤销，防止迟到列表恢复旧焦点。
+  persistActiveConversation()
 }
 
 async function handleDeleteConversation(conversationId: string) {
@@ -895,13 +952,17 @@ async function runQuestion(conversationId: string, question: string, kind: strin
   markConversationSending(conversationId, true)
   const controller = new AbortController()
   abortControllers.set(conversationId, controller)
+  pendingPrompts.set(conversationId, {requestId: input.request_id})
   await scrollToBottom()
   try {
     const serverId = await ensureServerSession(conversationId)
+    if (controller.signal.aborted) throw new DOMException("已停止生成", "AbortError")
     await streamPrompt(conversationId, serverId, input, assistantId, controller)
   } catch (error) {
+    const cancelFailure = pendingPrompts.get(conversationId)?.cancelFailure
     // 404 不自动新建会话并重发：输入保留在消息里，由用户决定下一步
-    if (error instanceof AgentApiError && (error.status === 0 || error.status === 409)) {
+    if (cancelFailure) failMessage(conversationId, assistantId, cancelFailure)
+    else if (error instanceof AgentApiError && (error.status === 0 || error.status === 409)) {
       await reconnectConversation(conversationId, assistantId, controller)
     } else failMessage(conversationId, assistantId, error)
   } finally {
@@ -915,6 +976,7 @@ async function runQuestion(conversationId: string, question: string, kind: strin
     }
     updateAssistantMessage(conversationId, assistantId, (item) => ({ ...item, elapsedMs: performance.now() - startedAt }))
     abortControllers.delete(conversationId)
+    pendingPrompts.delete(conversationId)
     markConversationSending(conversationId, false)
     persistActiveConversation()
     await scrollToBottom()
@@ -944,6 +1006,13 @@ async function streamPrompt(conversationId: string, serverId: string, input: Age
 }
 
 function handleStreamEvent(conversationId: string, assistantId: string, event: AgentStreamEvent) {
+  if (event.type === "tool_end") {
+    const bundle = event.details as {kind?: string; results?: unknown[]} | undefined
+    if (bundle?.kind === "semantic_results" && Array.isArray(bundle.results)) {
+      for (const details of bundle.results) handleStreamEvent(conversationId, assistantId, {...event, details: {...details as object, semantic_task: {protocol_version: 2}}})
+      return
+    }
+  }
   if (event.type === "answer_delta" || event.type === "answer_reset") {
     updateAssistantMessage(conversationId, assistantId, item => applyProvisionalAnswer(item, event))
     void scrollToBottom()
@@ -1078,7 +1147,8 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
         ...(target ? { clarificationTarget: target } : {}),
       }
     }
-    return finalizeAssistantMessage({ ...item, content: item.nativeAnswer ? item.content : details.public_answer ?? item.content, toolCalls, taskIds, metricAskDetails: details })
+    return finalizeAssistantMessage({ ...item, content: item.nativeAnswer ? item.content : details.public_answer ?? item.content, toolCalls, taskIds, metricAskDetails: details,
+      queryResults: details.status === "succeeded" && (event.details as {semantic_task?: unknown})?.semantic_task ? [...(item.queryResults ?? []).filter(previous => previous.task_id !== details.task_id), details] : item.queryResults })
   })
   if (event.type === "tool_end") void hydrateResultTables(conversationId)
   void scrollToBottom()
@@ -1110,6 +1180,11 @@ function applyAgentSnapshot(conversationId: string, snapshot: AgentSnapshot, ass
       const taskId = message.response?.debug?.task_id
       const cached = item.messages.find(old => taskId && old.response?.debug?.task_id === taskId && old.response?.result)
       if (message.response && cached?.response?.result) message.response.result = cached.response.result
+      // 已点选归档的口径 chips 只保留在本地；快照整体重建后按 task_id 恢复归档状态，避免旧卡片复活可点。
+      const local = item.messages.find(old => taskId && old.response?.debug?.task_id === taskId)
+      if (message.response?.time_variants?.length && local?.status === "done" && local.response && !local.response.time_variants?.length) {
+        message.response = archiveTimeVariantsResponse(message.response)
+      }
     }
     return { ...item, loaded: true, running: snapshot.running, activeOperationId: snapshot.operation_id, messages: restored }
   })
@@ -1205,6 +1280,15 @@ async function hydrateResultTables(conversationId: string) {
       // 结果拉取失败不阻断正文；用户可通过导出或重新提问获取明细
     }
   }
+  // 复合任务逐项回填正式快照，不能只恢复最后一个目标的表格。
+  for (const chatMessage of conversation.messages) for (const result of chatMessage.queryResults ?? []) {
+    if (!result.task_id || result.rows || !result.row_count || result.row_count > 100) continue
+    try {
+      const page = await getBackendTaskResult(result.task_id, 0, 100)
+      updateAssistantMessage(conversationId, chatMessage.id, item => ({...item, queryResults: item.queryResults?.map(previous =>
+        previous.task_id === result.task_id ? {...previous, rows: page.rows, columns: page.columns} : previous)}))
+    } catch { /* 保留可核验正文及独立目标身份，读取失败不伪造空表。 */ }
+  }
 }
 
 /** 显式停止：先取消原生 operation（服务端停止执行），再断开本地观察。 */
@@ -1212,11 +1296,14 @@ async function stopActiveConversation() {
   const conversation = activeConversation.value
   if (!conversation || !activeConversationIsSending.value) return
   const operationId = conversation.activeOperationId
-  if (conversation.serverId && operationId) {
+  const pending = pendingPrompts.get(conversation.id)
+  if (conversation.serverId && (pending || operationId)) {
     try {
-      await cancelAgentOperation(conversation.serverId, operationId)
+      if (pending) await cancelAgentRequest(conversation.serverId, pending.requestId)
+      else await cancelAgentOperation(conversation.serverId, operationId!)
     } catch {
-      // 取消失败不阻断本地观察停止；执行状态以重连快照为准
+      // 停止观察不代表后台已取消；保留未确认状态，不能交付“已停止”的成功说明。
+      if (pending) pending.cancelFailure = new Error("停止请求尚未确认，后台任务可能仍在执行，请重新打开会话核对状态。")
     }
   }
   abortControllers.get(conversation.id)?.abort()
@@ -1306,9 +1393,13 @@ async function scrollToBottom() {
                 <CalculationResult v-for="(calculation, index) in chatMessage.calculations" :key="calculation.calculation_id ?? index" :calculation="calculation" />
                 <ChatProvisionalAnswer v-if="chatMessage.status === 'pending' && chatMessage.provisionalContent" :text="chatMessage.provisionalContent" />
                 <div v-else-if="chatMessage.status === 'pending' && chatMessage.content && (!chatMessage.availability?.length || chatMessage.metricAskDetails)" class="leading-7"><ChatMarkdown :source="chatMessage.nativeAnswer ? chatMessage.content : chatMessage.metricAskClarificationPrompt ?? chatMessage.metricAskClarification?.prompt ?? governedReply(chatMessage.metricAskDetails) ?? chatMessage.content" /><span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></div>
-                <ChatResultContent v-else-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :show-data-details="!chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
+                <ChatResultContent v-else-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :show-data-details="!(chatMessage.queryResults && chatMessage.queryResults.length > 1) && !chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
                 <ChatMarkdown v-else-if="chatMessage.status !== 'pending'" class="leading-6" :source="visibleContent(chatMessage)" />
+                <template v-if="chatMessage.status !== 'pending' && chatMessage.queryResults && chatMessage.queryResults.length > 1">
+                  <ChatResultContent v-for="result in chatMessage.queryResults" :key="result.task_id" :response="{ ...responseFromMetricAsk(result, ''), answer: '', answer_blocks: undefined }" :question="questionForMessage(chatMessage)" />
+                </template>
                 <ClarificationChoices v-if="chatMessage.status !== 'pending' && chatMessage.choiceSet" :choices="chatMessage.choiceSet" :active="isActiveChoice(chatMessage)" @choose="(choice) => chooseClarificationOption(chatMessage, choice)" />
+                <TimeVariantChoices v-if="isActiveTimeVariant(chatMessage) && chatMessage.response?.time_variants" :variants="chatMessage.response.time_variants" :active="true" @choose="(variant) => chooseTimeVariant(chatMessage, variant)" />
                 <p v-if="chatMessage.availability?.length && chatMessage.availabilityError" class="text-sm text-muted-foreground">{{ chatMessage.availabilityError }}</p>
                 <div v-if="chatMessage.clarification?.fields?.length" class="mt-1">
                   <StructuredClarificationForm :clarification="chatMessage.clarification" />

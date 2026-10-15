@@ -17,6 +17,8 @@ def main(argv: list[str] | None = None) -> None:
             command.add_argument("--snapshot-date", type=date.fromisoformat)
             command.add_argument("--org-aliases", type=Path)
             command.add_argument("--strict-scope", action="store_true")
+            command.add_argument("--confirm-org-additions", action="store_true",
+                                 help="接受机构目录新增编码；未提供时发现新增编码拒绝写入")
         if name == "sync-metric-catalog":
             command.add_argument("--units", type=Path, help="已确认的完整指标名称—单位 JSON")
             command.add_argument("--infer-units", action="store_true")
@@ -104,6 +106,7 @@ def main(argv: list[str] | None = None) -> None:
             parent_field=settings.sit_org_parent_field,
             snapshot_date=args.snapshot_date,
             strict_scope=args.strict_scope,
+            confirm_org_additions=args.confirm_org_additions,
             aliases_by_code=(json.loads(args.org_aliases.read_text(encoding="utf-8"))
                              if args.org_aliases else None),
         ).to_dict()

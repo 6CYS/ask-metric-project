@@ -59,6 +59,10 @@ export interface AskMetricRequestContext {
   originalMessage: string;
   /** 当前请求的目录算法结果；不写入跨用户缓存或替代原生会话状态。 */
   metricMentions?: Promise<import("./business-context/metricMentions.js").MetricMentions>;
+  /** 当前请求的有权机构清单；临时失败不缓存，本轮降级为原文名称解析。 */
+  orgCatalog?: Promise<import("./business-context/orgCatalog.js").OrgCatalog>;
+  /** 仅本轮复用权限检查，下一轮必须重新校验，不能成为会话授权票。 */
+  semanticScopeChecks?: Map<string, Promise<boolean>>;
   /** 完整 PromptInput 的确定性指纹（宿主计算） */
   promptFingerprint: string;
   sessionId: string;
@@ -70,10 +74,17 @@ export interface AskMetricRequestContext {
   selectedAnswers?: Record<string, unknown>;
   /** 用户点选待确认清单的选项；仅对同一待确认 Frame 生效，由系统而非模型应用。 */
   clarificationSelection?: { frame_id: string; option_ids: string[] };
+  /** 宿主绑定的口径切换时间（前端 time_override，已经路由层校验）；等同用户明确指定，模型参数不得创建或改写。 */
+  timeOverride?: { start: string; end: string };
   /** 从本轮用户消息之前的原生业务回执投影；目录工具不能改变来源。 */
   queryCandidate?: { task_id: string; version: number } | undefined;
   frames?: import("./business-context/types.js").FrameStore;
   businessResults?: Pick<import("./business-context/store.js").NativeBusinessResultStore, "get" | "save" | "linkExecution" | "executionLink">;
+  businessProtocol?: "fixed_v1" | "semantic_v2";
+  semanticTasks?: import("./semantic-task/store.js").NativeSemanticTaskStore;
+  /** 宿主绑定的任务步骤；模型参数不能切换目标来源或领取执行许可。 */
+  semanticStep?: {planRef: string; rootOperationId: string; revision: number; kind: "query" | "availability" | "calculation"; analysis: boolean; calendar?: {ranges: Array<{start: string; end: string; dates?: string[]}>; unresolved: string[]}; partialCalendar?: boolean; jointCoverage?: boolean; referenceYear?: number;
+    analysisSelection?: {receipt: string; codes: string[]; orgs: string[]; time: unknown}};
   /** 仅服务端执行适配器绑定，绝不从模型参数读取。 */
   businessExecutionFrame?: string;
   commands: CommandBridge;
@@ -82,7 +93,7 @@ export interface AskMetricRequestContext {
   /** 当前原生回合的证据只读投影；用于 pi 选择最终交付内容。 */
   answerEvidence?: () => Promise<EvidenceReference[]>;
   /** 原生模型步骤，仅用于诊断及隔离摘要请求，不保存业务状态。 */
-  modelCall?: { model: string; step: "assistant" | "deferred" | "compaction" | "branch_summary"; attempt: number; startedAt: number; payloadBytes?: number };
+  modelCall?: { model: string; step: "assistant" | "deferred" | "compaction" | "branch_summary"; attempt: number; startedAt: number; payloadBytes?: number; finalPayloadBytes?: number };
   /** 仅本次驱动的诊断耗时，不承载业务状态或模型记忆。 */
   timings?: { startedAt: number; receivedAt?: number; reportAtSnapshot?: boolean; firstVisibleAt?: number; modelStartedAt?: number;
     modelFirstTokenRecorded?: boolean; modelFirstTokenMs: number[];

@@ -1,0 +1,75 @@
+{
+  "evidence_kind": "observed_paid_diagnostics_plus_independent_native_replay_review",
+  "original_question_preserved": true,
+  "requested_range": [
+    "2021-01-01",
+    "2025-12-31"
+  ],
+  "independent_reference_result": {
+    "status": "succeeded",
+    "row_count": 0
+  },
+  "baseline": {
+    "session_id": "01a13ea6-9c14-739e-965b-7f6a9d1710e8",
+    "version": "baseline",
+    "turns": [
+      {
+        "turn": 1,
+        "message": "查询张家港农商行2021年1月1日至2025年12月31日所有日期的对公协定存款余额当日数",
+        "passed": false,
+        "failures": [
+          "FORMAL_QUERY_SUCCESS"
+        ],
+        "elapsed_ms": 28361,
+        "status": "failed",
+        "completion": "unmet",
+        "model_calls": 8,
+        "query_count": 0,
+        "model_error_codes": []
+      }
+    ]
+  },
+  "candidate_direct_only": {
+    "session_id": "01a13ea8-754c-76fb-9373-8ec46fff2c57",
+    "version": "candidate",
+    "turns": [
+      {
+        "turn": 1,
+        "message": "查询张家港农商行2021年1月1日至2025年12月31日所有日期的对公协定存款余额当日数",
+        "passed": false,
+        "failures": [
+          "TURN_COMPLETED",
+          "TEST_GUARD_ABORTED",
+          "FORMAL_QUERY_SUCCESS"
+        ],
+        "elapsed_ms": 120041,
+        "status": "needs_interpretation",
+        "completion": "unmet",
+        "model_calls": 24,
+        "query_count": 0,
+        "model_error_codes": [
+          "aborted"
+        ]
+      }
+    ]
+  },
+  "observed_error_codes": [
+    "TIME_EXPRESSION_UNSUPPORTED",
+    "TIME_SCOPE_CONFLICT",
+    "SEMANTIC_NO_PROGRESS"
+  ],
+  "reviewed_native_replay": {
+    "review_source": "root coordinated independent read-only review",
+    "same_guard_implementation": true,
+    "baseline_settled_proposals_before_stop": 8,
+    "candidate_settled_proposals_without_progress_stop": 23,
+    "candidate_paid_sdk_usage_rows": 24,
+    "iso_repair_changes_source_validation_outcome_to": "TIME_SCOPE_CONFLICT",
+    "root_cause_boundary": "Current natural-language range cannot satisfy the calendar parser/source scope contract; do not alter range or fabricate success. Different proposal sequence and later termination increase cost; exact prompt component causation is not established."
+  },
+  "acceptance_status": "failed_not_success",
+  "production_accessed": false,
+  "credentials_exported": false,
+  "business_values_exported": false,
+  "raw_native_copied_to_delivery": false
+}

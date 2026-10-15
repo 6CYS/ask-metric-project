@@ -1,0 +1,5 @@
+{
+  "status": "stopped_after_separate_regression_failure",
+  "reason": "historical derivation overwrites single-target reference index; original reference regression failed",
+  "counts_are_partial": true
+}

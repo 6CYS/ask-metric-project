@@ -173,6 +173,9 @@ def render_fact_answer(
     elif plan.shape.value == "metric_ranking":
         message, blocks = _render_standard_facts(row_facts)
         template_id = "ranking_top_n"
+    elif plan.shape.value == "metric_rank_position":
+        message, blocks = _render_standard_facts(row_facts)
+        template_id = "rank_position"
     else:
         message, blocks = _render_standard_facts(row_facts)
         template_id = (

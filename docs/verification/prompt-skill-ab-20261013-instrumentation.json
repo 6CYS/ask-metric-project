@@ -1,0 +1,49 @@
+{
+  "old_script_hash": "d3bf49afccf886ab279d3dad84bed1e70c261f38ff7642663dd0b2c5b5c4117a",
+  "new_script_hash": "40c5a2e8972d061764bf3735b4ee164d43a99911a0f1e86118444bda6b0125d8",
+  "reason": "Node24 assert.ok without message recursively parses TSX source on failed outcome; inspector stack confirmed internal/assert/utils findColumn recursion",
+  "production_code_modified": false,
+  "model_config_changed": false,
+  "scenarios_changed": false,
+  "fixtures_changed": false,
+  "resample_completed_turns": false,
+  "frozen_candidate2_source": "/private/tmp/prompt-skill-unify-final-20261013-992ls5tm",
+  "native_stack_excerpt": [
+    "acorn.nextLineBreak",
+    "internal/assert/utils.parseCode",
+    "internal/assert/utils.findColumn recursive frames 14..3063",
+    "internal/assert/utils.getErrMessage",
+    "node:assert.ok",
+    "main scripts/check-prompt-skill-ab-model.ts:1:25191"
+  ],
+  "process_terminated": 65026,
+  "native_failure": "MODEL_STREAM_IDLE_EXCEEDED",
+  "revisions": [
+    {
+      "hash": "d3bf49afccf886ab279d3dad84bed1e70c261f38ff7642663dd0b2c5b5c4117a",
+      "purpose": "original before/candidate1/candidate2 first 5 turns"
+    },
+    {
+      "hash": "fd1804bbf569bc3f0eb217dc2284195e6e472b8d4d1eb82fc819628999df2e31",
+      "purpose": "candidate2 remaining only; explicit assertion messages/checkpoint/resume"
+    },
+    {
+      "hash": "25d130de4723a5b848835aca18c934afc51a973ee7c6a14dbb432b01d115627c",
+      "purpose": "final candidate3; additionally align repeat count to audited same-turn second clarification rule"
+    },
+    {
+      "hash": "84e42915d8c4268462a8e07cff592130c4bcc91380691a8500700e6f78af03be",
+      "purpose": "candidate4; additionally grade Unicode mathematical minus U+2212 as equivalent display of ASCII negative result after successful calculation"
+    },
+    {
+      "hash": "3212847c43003f1bb14a0bee17a94c173ef7d23c0f47480ebcf5c3f0799fe4f9",
+      "purpose": "candidate5; align single whole-Frame reference grading with approved Frame/field-reference contract; multi-source union remains mandatory"
+    },
+    {
+      "hash": "40c5a2e8972d061764bf3735b4ee164d43a99911a0f1e86118444bda6b0125d8",
+      "purpose": "future grader only; record before-state and accept current alias only for unique matching seed focus and correct three-field provenance/spec; final real model ran prior 3212847c hash and was read-only regraded from native call-time state",
+      "unexecuted_draft_hash": "b169576af79714fb3f7428acf0c8ab6c78f680e9b687fdb2ccb83dc0a5101dc0"
+    }
+  ],
+  "final_model_executed_script_hash": "3212847c43003f1bb14a0bee17a94c173ef7d23c0f47480ebcf5c3f0799fe4f9"
+}

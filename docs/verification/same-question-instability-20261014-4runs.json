@@ -1,0 +1,889 @@
+{
+  "question": "查询张家港农商行近 5 年的存款记录",
+  "question_sha256": "c96cffe0b8625c5e2756c13749d5beda52bd7715b73583cda9720006e203c64b",
+  "scope": "Existing local session records only; no new model or database calls; no source code edits.",
+  "runs": [
+    {
+      "local_time": "2026-10-14T17:21:24.644000+08:00",
+      "session_file": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/agent-service/data/native-v1/u_46c20338f84cfc35fddd56937467806a/--Users-yubobo-Documents-服务项目-江苏农信-ask-metric-intent-goldendb-Harness-agent-service-data-native-v1--/2026-10-14T09-21-24-609Z_01a139b7-6c81-7340-b27c-c5dfc0c96fe0.jsonl",
+      "session_snapshot_sha256": "82abf26644f1958855c54ec50d5bdf599a831d88d6288614836b09e15b3bd641",
+      "operation_id": "01a139b7-6ca4-7340-b27c-c5e111d25533",
+      "tool_protocol": "fixed_v1",
+      "initial_source_tip_id": null,
+      "lane_config": {
+        "model": {
+          "provider": "ask-metric",
+          "modelId": "deepseek-ai/DeepSeek-V4-Flash"
+        },
+        "thinkingLevel": "off",
+        "activeToolNames": [
+          "business_capability_explain",
+          "resolve_business_turn",
+          "business_context_read",
+          "execute_business_frame",
+          "read_business_result",
+          "read",
+          "catalog",
+          "respond_without_business_action",
+          "business_action_required",
+          "business_skill_read"
+        ]
+      },
+      "model_responses": 3,
+      "tool_proposals": 2,
+      "events": [
+        {
+          "source_line": 53,
+          "kind": "model_response",
+          "stop_reason": "toolUse",
+          "error": null,
+          "model": "deepseek-ai/DeepSeek-V4-Flash"
+        },
+        {
+          "source_line": 53,
+          "kind": "tool_proposal",
+          "tool": "resolve_business_turn",
+          "arguments": {
+            "protocol_version": 1,
+            "capability": "metric_query",
+            "base": null,
+            "mode": "execute",
+            "changes": {
+              "metrics": {
+                "action": "set",
+                "value": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              "organizations": {
+                "action": "set",
+                "source_text": "张家港农商行",
+                "expected_count": 1,
+                "value": {
+                  "kind": "name",
+                  "name": "张家港农商行"
+                }
+              },
+              "time": {
+                "action": "set",
+                "value": "近5年"
+              }
+            }
+          }
+        },
+        {
+          "source_line": 56,
+          "kind": "tool_receipt",
+          "tool": "resolve_business_turn",
+          "receipt": {
+            "status": "ARGUMENT_ERROR",
+            "error_code": "INVALID_MENTION_REFERENCE",
+            "field": "metrics",
+            "query_executed": false,
+            "next_action": "correct_arguments",
+            "message": "metrics: 只用本轮目录算法结果中的 mentionIndexes（从1开始）；不要自行切分指标名称。原焦点未改变。"
+          }
+        },
+        {
+          "source_line": 99,
+          "kind": "model_response",
+          "stop_reason": "toolUse",
+          "error": null,
+          "model": "deepseek-ai/DeepSeek-V4-Flash"
+        },
+        {
+          "source_line": 99,
+          "kind": "tool_proposal",
+          "tool": "resolve_business_turn",
+          "arguments": {
+            "protocol_version": 1,
+            "capability": "metric_query",
+            "base": null,
+            "mode": "execute",
+            "changes": {
+              "metrics": {
+                "action": "set",
+                "value": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              "organizations": {
+                "action": "set",
+                "source_text": "张家港农商行",
+                "expected_count": 1,
+                "value": {
+                  "kind": "name",
+                  "name": "张家港农商行"
+                }
+              },
+              "time": {
+                "action": "set",
+                "value": "近5年"
+              }
+            }
+          }
+        },
+        {
+          "source_line": 102,
+          "kind": "tool_receipt",
+          "tool": "resolve_business_turn",
+          "receipt": {
+            "status": "ARGUMENT_ERROR",
+            "error_code": "INVALID_MENTION_REFERENCE",
+            "field": "metrics",
+            "query_executed": false,
+            "next_action": "correct_arguments",
+            "message": "metrics: 只用本轮目录算法结果中的 mentionIndexes（从1开始）；不要自行切分指标名称。原焦点未改变。"
+          }
+        },
+        {
+          "source_line": 115,
+          "kind": "model_response",
+          "stop_reason": "stop",
+          "error": null,
+          "model": "deepseek-ai/DeepSeek-V4-Flash"
+        },
+        {
+          "source_line": 115,
+          "kind": "final_text",
+          "text": "本轮工具调用未通过校验或执行；相同参数重复提交后仍得到相同失败，已停止重复尝试。原查询条件仍保留，未完成的查询或计算不作为成功结果。"
+        }
+      ],
+      "saved_business_frames": [],
+      "operation_result": {
+        "operationId": "01a139b7-6ca4-7340-b27c-c5e111d25533",
+        "kind": "run",
+        "status": "completed",
+        "fromTipId": null,
+        "tipId": "01a139b7-811a-7340-b27c-c5f7e6977a0e",
+        "startedAt": 1791969684645,
+        "endedAt": 1791969691634
+      },
+      "operation_result_source_line": 116,
+      "cancel_controls": [],
+      "timings_ms": {
+        "model": [
+          2591,
+          2559,
+          1750
+        ],
+        "tools": [
+          30,
+          29
+        ],
+        "drive_total": 6990,
+        "first_visible_ms": 7005,
+        "model_first_token_ms": [
+          1580,
+          1415,
+          1605
+        ]
+      }
+    },
+    {
+      "local_time": "2026-10-14T17:22:06.059000+08:00",
+      "session_file": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/agent-service/data/native-v1/u_46c20338f84cfc35fddd56937467806a/--Users-yubobo-Documents-服务项目-江苏农信-ask-metric-intent-goldendb-Harness-agent-service-data-native-v1--/2026-10-14T09-22-06-017Z_01a139b8-0e41-7340-b27c-c61507644e42.jsonl",
+      "session_snapshot_sha256": "ce805adc6a8b66e57c631544d3a27677e6321cecbdd18d4b21f548914763b2a3",
+      "operation_id": "01a139b8-0e6b-7340-b27c-c6165bd89771",
+      "tool_protocol": "fixed_v1",
+      "initial_source_tip_id": null,
+      "lane_config": {
+        "model": {
+          "provider": "ask-metric",
+          "modelId": "deepseek-ai/DeepSeek-V4-Flash"
+        },
+        "thinkingLevel": "off",
+        "activeToolNames": [
+          "business_capability_explain",
+          "resolve_business_turn",
+          "business_context_read",
+          "execute_business_frame",
+          "read_business_result",
+          "read",
+          "catalog",
+          "respond_without_business_action",
+          "business_action_required",
+          "business_skill_read"
+        ]
+      },
+      "model_responses": 6,
+      "tool_proposals": 5,
+      "events": [
+        {
+          "source_line": 63,
+          "kind": "model_response",
+          "stop_reason": "toolUse",
+          "error": null,
+          "model": "deepseek-ai/DeepSeek-V4-Flash"
+        },
+        {
+          "source_line": 63,
+          "kind": "tool_proposal",
+          "tool": "resolve_business_turn",
+          "arguments": {
+            "protocol_version": 1,
+            "capability": "metric_query",
+            "base": null,
+            "mode": "execute",
+            "changes": {
+              "metrics": {
+                "action": "set",
+                "value": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              "organizations": {
+                "action": "set",
+                "source_text": "张家港农商行",
+                "expected_count": 1,
+                "value": {
+                  "kind": "name",
+                  "name": "张家港农商行"
+                }
+              },
+              "time": {
+                "action": "set",
+                "value": "近5年"
+              },
+              "selection": {
+                "action": "clarify",
+                "source_text": "近5年的存款记录"
+              }
+            }
+          }
+        },
+        {
+          "source_line": 66,
+          "kind": "tool_receipt",
+          "tool": "resolve_business_turn",
+          "receipt": {
+            "status": "ARGUMENT_ERROR",
+            "error_code": "INVALID_MENTION_REFERENCE",
+            "field": "metrics",
+            "query_executed": false,
+            "next_action": "correct_arguments",
+            "message": "metrics: 只用本轮目录算法结果中的 mentionIndexes（从1开始）；不要自行切分指标名称。原焦点未改变。"
+          }
+        },
+        {
+          "source_line": 75,
+          "kind": "model_response",
+          "stop_reason": "toolUse",
+          "error": null,
+          "model": "deepseek-ai/DeepSeek-V4-Flash"
+        },
+        {
+          "source_line": 75,
+          "kind": "tool_proposal",
+          "tool": "business_skill_read",
+          "arguments": {
+            "name": "metric-query"
+          }
+        },
+        {
+          "source_line": 91,
+          "kind": "model_response",
+          "stop_reason": "toolUse",
+          "error": null,
+          "model": "deepseek-ai/DeepSeek-V4-Flash"
+        },
+        {
+          "source_line": 91,
+          "kind": "tool_proposal",
+          "tool": "catalog",
+          "arguments": {
+            "action": "search",
+            "queries": [
+              {
+                "entity": "metric",
+                "keyword": "存款"
+              }
+            ]
+          }
+        },
+        {
+          "source_line": 94,
+          "kind": "tool_receipt",
+          "tool": "catalog",
+          "receipt": {
+            "status": "succeeded"
+          }
+        },
+        {
+          "source_line": 255,
+          "kind": "model_response",
+          "stop_reason": "toolUse",
+          "error": null,
+          "model": "deepseek-ai/DeepSeek-V4-Flash"
+        },
+        {
+          "source_line": 255,
+          "kind": "tool_proposal",
+          "tool": "resolve_business_turn",
+          "arguments": {
+            "protocol_version": 1,
+            "capability": "metric_query",
+            "base": null,
+            "mode": "resolve_more",
+            "changes": {
+              "metrics": {
+                "action": "set",
+                "value": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              "organizations": {
+                "action": "set",
+                "source_text": "张家港农商行",
+                "expected_count": 1,
+                "value": {
+                  "kind": "name",
+                  "name": "张家港农商行"
+                }
+              },
+              "time": {
+                "action": "set",
+                "value": "近5年"
+              },
+              "selection": {
+                "action": "clarify",
+                "source_text": "近5年存款记录"
+              }
+            }
+          }
+        },
+        {
+          "source_line": 258,
+          "kind": "tool_receipt",
+          "tool": "resolve_business_turn",
+          "receipt": {
+            "status": "ARGUMENT_ERROR",
+            "error_code": "FIELD_CLARIFICATION_INVALID",
+            "field": "selection",
+            "query_executed": false,
+            "next_action": "correct_arguments",
+            "message": "仅Schema声明允许的字段可在用户业务条件不足时set {clarify:true,source_text:本轮相关原文}；不提供问题、候选或其它键，参数错误仍须按Schema修正。原焦点未改变。"
+          }
+        },
+        {
+          "source_line": 497,
+          "kind": "model_response",
+          "stop_reason": "toolUse",
+          "error": null,
+          "model": "deepseek-ai/DeepSeek-V4-Flash"
+        },
+        {
+          "source_line": 497,
+          "kind": "tool_proposal",
+          "tool": "resolve_business_turn",
+          "arguments": {
+            "protocol_version": 1,
+            "capability": "metric_query",
+            "base": null,
+            "mode": "resolve_more",
+            "changes": {
+              "metrics": {
+                "action": "set",
+                "value": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              "organizations": {
+                "action": "set",
+                "source_text": "张家港农商行",
+                "expected_count": 1,
+                "value": {
+                  "kind": "name",
+                  "name": "张家港农商行"
+                }
+              },
+              "time": {
+                "action": "set",
+                "value": "近5年"
+              },
+              "selection": {
+                "action": "clarify",
+                "source_text": "近5年存款记录"
+              }
+            }
+          }
+        },
+        {
+          "source_line": 500,
+          "kind": "tool_receipt",
+          "tool": "resolve_business_turn",
+          "receipt": {
+            "status": "ARGUMENT_ERROR",
+            "error_code": "FIELD_CLARIFICATION_INVALID",
+            "field": "selection",
+            "query_executed": false,
+            "next_action": "correct_arguments",
+            "message": "仅Schema声明允许的字段可在用户业务条件不足时set {clarify:true,source_text:本轮相关原文}；不提供问题、候选或其它键，参数错误仍须按Schema修正。原焦点未改变。"
+          }
+        },
+        {
+          "source_line": 5930,
+          "kind": "model_response",
+          "stop_reason": "aborted",
+          "error": "模型请求已取消。",
+          "model": "deepseek-ai/DeepSeek-V4-Flash"
+        }
+      ],
+      "saved_business_frames": [],
+      "operation_result": {
+        "operationId": "01a139b8-0e6b-7340-b27c-c6165bd89771",
+        "kind": "run",
+        "status": "aborted",
+        "fromTipId": null,
+        "tipId": "01a139b8-7a2c-7340-b27c-c64546611af7",
+        "startedAt": 1791969726060,
+        "endedAt": 1791969818001
+      },
+      "operation_result_source_line": 5931,
+      "cancel_controls": [
+        {
+          "status": "cancel_requested",
+          "requestedAt": 1791969817992
+        }
+      ],
+      "timings_ms": {
+        "model": [
+          3985,
+          8267,
+          1576,
+          7133,
+          6242
+        ],
+        "tools": [
+          21,
+          2,
+          258,
+          29,
+          24
+        ],
+        "drive_total": 91942,
+        "first_visible_ms": 17353,
+        "model_first_token_ms": [
+          2501,
+          8055,
+          1181,
+          3190,
+          1044,
+          1575
+        ]
+      }
+    },
+    {
+      "local_time": "2026-10-14T19:27:29.743000+08:00",
+      "session_file": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/agent-service/data/native-v1/u_46c20338f84cfc35fddd56937467806a/--Users-yubobo-Documents-服务项目-江苏农信-ask-metric-intent-goldendb-Harness-agent-service-data-native-v1--/2026-10-14T11-27-29-711Z_01a13a2a-dbaf-7340-b27c-c649443461e5.jsonl",
+      "session_snapshot_sha256": "fcde06b431875687965cd7f1f681f15852f6088759a0e599c8f2c913e0c09f4c",
+      "operation_id": "01a13a2a-dbce-7340-b27c-c64afd28cb63",
+      "tool_protocol": "fixed_v1",
+      "initial_source_tip_id": null,
+      "lane_config": {
+        "model": {
+          "provider": "ask-metric",
+          "modelId": "deepseek-ai/DeepSeek-V4-Flash"
+        },
+        "thinkingLevel": "off",
+        "activeToolNames": [
+          "business_capability_explain",
+          "resolve_business_turn",
+          "business_context_read",
+          "execute_business_frame",
+          "read_business_result",
+          "read",
+          "catalog",
+          "respond_without_business_action",
+          "business_action_required",
+          "business_skill_read"
+        ]
+      },
+      "model_responses": 1,
+      "tool_proposals": 1,
+      "events": [
+        {
+          "source_line": 52,
+          "kind": "model_response",
+          "stop_reason": "toolUse",
+          "error": null,
+          "model": "deepseek-ai/DeepSeek-V4-Flash"
+        },
+        {
+          "source_line": 52,
+          "kind": "tool_proposal",
+          "tool": "resolve_business_turn",
+          "arguments": {
+            "protocol_version": 1,
+            "capability": "metric_query",
+            "base": null,
+            "mode": "execute",
+            "changes": {
+              "organizations": {
+                "action": "set",
+                "source_text": "张家港农商行",
+                "expected_count": 1,
+                "value": {
+                  "kind": "name",
+                  "name": "张家港农商行"
+                }
+              },
+              "time": {
+                "action": "set",
+                "value": "近5年"
+              },
+              "operation": {
+                "action": "set",
+                "value": {
+                  "kind": "value"
+                }
+              }
+            }
+          }
+        },
+        {
+          "source_line": 56,
+          "kind": "tool_receipt",
+          "tool": "resolve_business_turn",
+          "receipt": {
+            "status": "NEEDS_CLARIFICATION",
+            "next_action": "ask_user",
+            "issues": [
+              {
+                "field": "metrics",
+                "reason": "missing"
+              },
+              {
+                "field": "time",
+                "reason": "invalid"
+              }
+            ],
+            "message": "请针对 issues 询问用户并结束本轮，不重复解析或通过其他能力绕过。"
+          }
+        }
+      ],
+      "saved_business_frames": [
+        {
+          "source_line": 54,
+          "frame_id": "0d92b033-474e-4387-90e4-830a4cfe725d",
+          "status": "clarifying",
+          "issues": [
+            {
+              "field": "metrics",
+              "reason": "missing"
+            },
+            {
+              "field": "time",
+              "reason": "invalid"
+            }
+          ],
+          "fields": {
+            "metrics": {
+              "source": "explicit",
+              "resolutionStatus": "missing"
+            },
+            "organizations": {
+              "rawValue": "张家港农商行",
+              "resolvedValue": {
+                "codes": [
+                  "980000"
+                ],
+                "names": [
+                  "江苏张家港农村商业银行股份有限公司"
+                ]
+              },
+              "source": "explicit",
+              "resolutionStatus": "resolved"
+            },
+            "time": {
+              "rawValue": "近5年",
+              "source": "explicit",
+              "resolutionStatus": "invalid"
+            },
+            "comparison_organizations": {
+              "source": "explicit",
+              "resolutionStatus": "missing"
+            },
+            "selection": {
+              "source": "explicit",
+              "resolutionStatus": "missing"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "value"
+              },
+              "resolvedValue": {
+                "kind": "value"
+              },
+              "source": "explicit",
+              "resolutionStatus": "resolved"
+            }
+          }
+        }
+      ],
+      "operation_result": {
+        "operationId": "01a13a2a-dbce-7340-b27c-c64afd28cb63",
+        "kind": "run",
+        "status": "completed",
+        "fromTipId": null,
+        "tipId": "01a13a2a-dbdb-7340-b27c-c654b92eca79",
+        "startedAt": 1791977249743,
+        "endedAt": 1791977251961
+      },
+      "operation_result_source_line": 57,
+      "cancel_controls": [],
+      "timings_ms": {
+        "model": [
+          2177
+        ],
+        "tools": [
+          21
+        ],
+        "drive_total": 2219,
+        "first_visible_ms": 2232,
+        "model_first_token_ms": [
+          1189
+        ]
+      }
+    },
+    {
+      "local_time": "2026-10-14T19:27:50.964000+08:00",
+      "session_file": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/agent-service/data/native-v1/u_46c20338f84cfc35fddd56937467806a/--Users-yubobo-Documents-服务项目-江苏农信-ask-metric-intent-goldendb-Harness-agent-service-data-native-v1--/2026-10-14T11-27-50-938Z_01a13a2b-2e9a-7340-b27c-c6565b6df5e6.jsonl",
+      "session_snapshot_sha256": "aea3d5d7ac3d6a1685410deadff837ba47fd621ba5dda5060ea8e9a11de9599c",
+      "operation_id": "01a13a2b-2eb4-7340-b27c-c65980e3c45a",
+      "tool_protocol": "fixed_v1",
+      "initial_source_tip_id": null,
+      "lane_config": {
+        "model": {
+          "provider": "ask-metric",
+          "modelId": "deepseek-ai/DeepSeek-V4-Flash"
+        },
+        "thinkingLevel": "off",
+        "activeToolNames": [
+          "business_capability_explain",
+          "resolve_business_turn",
+          "business_context_read",
+          "execute_business_frame",
+          "read_business_result",
+          "read",
+          "catalog",
+          "respond_without_business_action",
+          "business_action_required",
+          "business_skill_read"
+        ]
+      },
+      "model_responses": 2,
+      "tool_proposals": 2,
+      "events": [
+        {
+          "source_line": 53,
+          "kind": "model_response",
+          "stop_reason": "toolUse",
+          "error": null,
+          "model": "deepseek-ai/DeepSeek-V4-Flash"
+        },
+        {
+          "source_line": 53,
+          "kind": "tool_proposal",
+          "tool": "resolve_business_turn",
+          "arguments": {
+            "protocol_version": 1,
+            "capability": "metric_query",
+            "base": null,
+            "mode": "execute",
+            "changes": {
+              "metrics": {
+                "action": "set",
+                "value": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              "organizations": {
+                "action": "set",
+                "source_text": "张家港农商行",
+                "expected_count": null,
+                "value": {
+                  "kind": "name",
+                  "name": "张家港农商行"
+                }
+              },
+              "time": {
+                "action": "set",
+                "value": "近5年"
+              }
+            }
+          }
+        },
+        {
+          "source_line": 56,
+          "kind": "tool_receipt",
+          "tool": "resolve_business_turn",
+          "receipt": {
+            "status": "ARGUMENT_ERROR",
+            "error_code": "INVALID_MENTION_REFERENCE",
+            "field": "metrics",
+            "query_executed": false,
+            "next_action": "correct_arguments",
+            "message": "metrics: 只用本轮目录算法结果中的 mentionIndexes（从1开始）；不要自行切分指标名称。原焦点未改变。"
+          }
+        },
+        {
+          "source_line": 92,
+          "kind": "model_response",
+          "stop_reason": "toolUse",
+          "error": null,
+          "model": "deepseek-ai/DeepSeek-V4-Flash"
+        },
+        {
+          "source_line": 92,
+          "kind": "tool_proposal",
+          "tool": "resolve_business_turn",
+          "arguments": {
+            "protocol_version": 1,
+            "capability": "metric_query",
+            "base": null,
+            "mode": "execute",
+            "changes": {
+              "organizations": {
+                "action": "set",
+                "source_text": "张家港农商行",
+                "expected_count": null,
+                "value": {
+                  "kind": "name",
+                  "name": "张家港农商行"
+                }
+              },
+              "time": {
+                "action": "set",
+                "value": "近5年"
+              }
+            }
+          }
+        },
+        {
+          "source_line": 96,
+          "kind": "tool_receipt",
+          "tool": "resolve_business_turn",
+          "receipt": {
+            "status": "NEEDS_CLARIFICATION",
+            "next_action": "ask_user",
+            "issues": [
+              {
+                "field": "metrics",
+                "reason": "missing"
+              },
+              {
+                "field": "time",
+                "reason": "invalid"
+              }
+            ],
+            "message": "请针对 issues 询问用户并结束本轮，不重复解析或通过其他能力绕过。"
+          }
+        }
+      ],
+      "saved_business_frames": [
+        {
+          "source_line": 94,
+          "frame_id": "7bd27fc8-36ea-4240-9bfd-efe0876a7ebc",
+          "status": "clarifying",
+          "issues": [
+            {
+              "field": "metrics",
+              "reason": "missing"
+            },
+            {
+              "field": "time",
+              "reason": "invalid"
+            }
+          ],
+          "fields": {
+            "metrics": {
+              "source": "explicit",
+              "resolutionStatus": "missing"
+            },
+            "organizations": {
+              "rawValue": "张家港农商行",
+              "resolvedValue": {
+                "codes": [
+                  "980000"
+                ],
+                "names": [
+                  "江苏张家港农村商业银行股份有限公司"
+                ]
+              },
+              "source": "explicit",
+              "resolutionStatus": "resolved"
+            },
+            "time": {
+              "rawValue": "近5年",
+              "source": "explicit",
+              "resolutionStatus": "invalid"
+            },
+            "comparison_organizations": {
+              "source": "explicit",
+              "resolutionStatus": "missing"
+            },
+            "selection": {
+              "source": "explicit",
+              "resolutionStatus": "missing"
+            },
+            "operation": {
+              "source": "explicit",
+              "resolutionStatus": "missing"
+            }
+          }
+        }
+      ],
+      "operation_result": {
+        "operationId": "01a13a2b-2eb4-7340-b27c-c65980e3c45a",
+        "kind": "run",
+        "status": "completed",
+        "fromTipId": null,
+        "tipId": "01a13a2b-38c5-7340-b27c-c66b40736082",
+        "startedAt": 1791977270964,
+        "endedAt": 1791977276188
+      },
+      "operation_result_source_line": 97,
+      "cancel_controls": [],
+      "timings_ms": {
+        "model": [
+          2535,
+          2607
+        ],
+        "tools": [
+          23,
+          31
+        ],
+        "drive_total": 5224,
+        "first_visible_ms": 5235,
+        "model_first_token_ms": [
+          1648,
+          1756
+        ]
+      }
+    }
+  ],
+  "limitations": [
+    "Full outgoing model prompt and payload hashes are not persisted, so byte-identical context, tool schemas, extraBody and provider sampling defaults cannot be established retrospectively.",
+    "An aborted native operation proves cancellation, but the source of the cancellation is not recorded in these session records.",
+    "These runs do not contain execute_business_frame; no successful metric data query is established."
+  ]
+}

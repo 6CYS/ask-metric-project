@@ -1,0 +1,461 @@
+{
+  "environment": "real_model_synthetic_catalog_in_memory_SQL",
+  "real_database": false,
+  "source_root": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/agent-service",
+  "source_hashes": {
+    "src/harnessHost.ts": "1f8af56429d4fc547102b0f5c4d2569e89d39b5f6f21dc01fab2dc16b4d5c9bd",
+    "src/semantic-task/service.ts": "52a5f8ac1ff2766e832a32255889b3f2d2c97b6a8774f8b7aa7c6a8922a3353f",
+    "src/semantic-task/planService.ts": "3f774bf6c265e73117823b387b4f1403fa6967cecbb45dcc82e9f9654c3fac9a",
+    "src/semantic-task/feedback.ts": "0dc208dc8bf3e6d512b14b702d9d23b952b1f6fd9bdd3c7ada69aa265e644afd",
+    "src/semantic-task/prompt.ts": "b6aa2732b1165f37c3b06b27ed82f28fedc2bc1baed42223045d7aae1ba76107"
+  },
+  "model": "deepseek-ai/DeepSeek-V4-Flash",
+  "gateway_origin": "https://api.siliconflow.cn",
+  "model_settings": {
+    "max_tokens": 8192,
+    "context_window": 128000,
+    "extra_body": {
+      "enable_thinking": false
+    },
+    "retry": {
+      "enabled": true,
+      "maxRetries": 1,
+      "baseDelayMs": 1000
+    },
+    "first_response_timeout_ms": 30000,
+    "stream_idle_timeout_ms": 120000
+  },
+  "native_session_directory": "/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/missing-conditions-model-lbQIvs",
+  "total": 20,
+  "passed": 0,
+  "turns": [
+    {
+      "scenario": "original-missing-both-1",
+      "turn": 1,
+      "message": "帮我查对公协定存款余额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "organizations",
+          "time"
+        ]
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 458,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "original-missing-both-2",
+      "turn": 1,
+      "message": "帮我查对公协定存款余额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "organizations",
+          "time"
+        ]
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 83,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "original-missing-both-3",
+      "turn": 1,
+      "message": "帮我查对公协定存款余额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "organizations",
+          "time"
+        ]
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 88,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "other-metric-missing-both",
+      "turn": 1,
+      "message": "查询经营收益金额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "organizations",
+          "time"
+        ]
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 312,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "missing-date",
+      "turn": 1,
+      "message": "查合成机构甲的经营收益金额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "time"
+        ]
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 73,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "missing-organization",
+      "turn": 1,
+      "message": "查2026年5月31日的经营收益金额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "organizations"
+        ]
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 85,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "supplement-and-inherit",
+      "turn": 1,
+      "message": "查询经营收益金额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "organizations",
+          "time"
+        ]
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 321,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "supplement-and-inherit",
+      "turn": 2,
+      "message": "机构用合成机构甲",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "time"
+        ]
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 339,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "supplement-and-inherit",
+      "turn": 3,
+      "message": "日期用2026年5月31日",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 56,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "supplement-and-inherit",
+      "turn": 4,
+      "message": "再查对公协定存款余额当日数",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_DEPOSIT:D",
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 59,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "confirmed-prepare-inherit",
+      "turn": 1,
+      "message": "准备合成机构乙2026年6月30日的经营收益金额当日数查询条件，先不要执行",
+      "expected": {
+        "status": "prepared"
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 63,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "confirmed-prepare-inherit",
+      "turn": 2,
+      "message": "查询对公协定存款余额当日数",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_DEPOSIT:D",
+        "org": "SYNTH_O2",
+        "day": "2026-06-30"
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 89,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "partially-confirmed-inherit",
+      "turn": 1,
+      "message": "查合成机构甲的经营收益金额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "time"
+        ]
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 58,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "partially-confirmed-inherit",
+      "turn": 2,
+      "message": "改查对公协定存款余额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "time"
+        ]
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 90,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "confirmed-multiple-new-metrics",
+      "turn": 1,
+      "message": "准备合成机构乙2026年6月30日的经营收益金额当日数查询条件，先不要执行",
+      "expected": {
+        "status": "prepared"
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 80,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "confirmed-multiple-new-metrics",
+      "turn": 2,
+      "message": "分别查询对公协定存款余额当日数和经营收益金额较同期",
+      "expected": {
+        "status": "succeeded",
+        "metrics": [
+          "SYNTH_DEPOSIT:D",
+          "SYNTH_M:Y"
+        ],
+        "org": "SYNTH_O2",
+        "day": "2026-06-30"
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 57,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "explicit-clear-date",
+      "turn": 1,
+      "message": "查合成机构甲2026年5月31日的经营收益金额当日数",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 64,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "explicit-clear-date",
+      "turn": 2,
+      "message": "清除日期，保留机构和指标",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "time"
+        ]
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 57,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "explicit-clear-date",
+      "turn": 3,
+      "message": "日期用2026年6月30日",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O1",
+        "day": "2026-06-30"
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 64,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    },
+    {
+      "scenario": "complete-direct-query",
+      "turn": 1,
+      "message": "查合成机构甲2026年5月31日的经营收益金额当日数",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      "passed": false,
+      "failure": "TURN_COMPLETED",
+      "guard_aborted": false,
+      "elapsed_ms": 50,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [],
+      "receipts": [],
+      "queries": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+    }
+  ],
+  "gateway_blocked": true,
+  "gateway_error_code": "HTTP_402",
+  "business_validation_completed": false,
+  "gateway_error_summary": {
+    "402 status code (no body)": 20
+  }
+}

@@ -1,0 +1,240 @@
+{
+  "artifact_status": "phase_1_candidate_not_connected_to_runtime",
+  "tool": "resolve_business_turn",
+  "schema": "request.schema.json",
+  "data_scope": "所有机构、指标、任务引用和目标引用均为隔离合成数据。引用字符串模拟宿主已签发值，不是模型在真实调用中可自行构造的模板。",
+  "expectation_scope": "expected 描述候选协议要求，属于设计断言，不是已经执行的模型、数据库或运行时结果。",
+  "examples": [
+    {
+      "id": "precise_query",
+      "user_message": "查询合成机构甲2025年末的合成余额当日数。",
+      "request": {
+        "protocol_version": 2, "intent": "query",
+        "targets": [{"source": {"kind": "new"}, "operations": [
+          {"action": "set", "field": "organizations", "value": "合成机构甲"},
+          {"action": "set", "field": "metrics", "value": "合成余额当日数"},
+          {"action": "set", "field": "time", "value": "2025年末"},
+          {"action": "set", "field": "selection", "value": "按指定日期取数"},
+          {"action": "set", "field": "operation", "value": "查询指标值"}
+        ]}]
+      },
+      "expected": {"schema_valid": true, "semantic_requirement": "目录可唯一确定且取数规则满足时直接编译查询，不强制模型先调用目录探索工具；宿主正式目录校验仍须执行。"}
+    },
+    {
+      "id": "generic_metric_and_relative_time",
+      "user_message": "查合成机构甲近5年的存款记录。",
+      "request": {
+        "protocol_version": 2, "intent": "query",
+        "targets": [{"source": {"kind": "new"}, "operations": [
+          {"action": "set", "field": "organizations", "value": "合成机构甲"},
+          {"action": "set", "field": "metrics", "value": "存款记录"},
+          {"action": "set", "field": "time", "value": "近5年"}
+        ]}]
+      },
+      "expected": {"schema_valid": true, "semantic_requirement": "保留机构、时间表达及泛指标目标。空目录匹配属于正常未决状态；具体指标、区间或取数频率不唯一时澄清，不伪造第1项、不默认年度末值。"}
+    },
+    {
+      "id": "add_collection_member",
+      "user_message": "原来的机构保留，再加上合成机构丙。",
+      "synthetic_context": {"current_target_count": 1, "known_conditions": "当前目标已有合成机构甲和合成机构乙，指标及日期已确认"},
+      "request": {
+        "protocol_version": 2, "intent": "query",
+        "targets": [{"source": {"kind": "current"}, "operations": [
+          {"action": "add", "field": "organizations", "value": "合成机构丙"}
+        ]}]
+      },
+      "expected": {"schema_valid": true, "semantic_requirement": "add明确承担追加语义；宿主从可信状态保留甲乙并绑定新增丙，核验集合、数量与权限。不得要求set.value写成保留原有并加丙，也不得重检同名名称以替换已确认身份。"}
+    },
+    {
+      "id": "replace_metric",
+      "user_message": "把合成指标甲换成合成指标乙，其它条件不变。",
+      "synthetic_context": {"current_target_count": 1, "known_conditions": "合成机构甲、2025年末、合成指标甲和合成指标丙均已确认"},
+      "request": {
+        "protocol_version": 2, "intent": "query",
+        "targets": [{"source": {"kind": "current"}, "operations": [
+          {"action": "replace", "field": "metrics", "subject": "合成指标甲", "value": "合成指标乙"}
+        ]}]
+      },
+      "expected": {"schema_valid": true, "semantic_requirement": "甲为被替换角色，乙和原有丙为正向目标；保留原机构、日期及丙的已确认正式身份。宿主生成替换证据与覆盖契约，不能要求查询甲才能通过覆盖检查。"}
+    },
+    {
+      "id": "exclude_metric",
+      "user_message": "不要合成指标甲了，只保留其它指标。",
+      "synthetic_context": {"current_target_count": 1, "known_conditions": "当前目标含合成指标甲、合成指标乙"},
+      "request": {
+        "protocol_version": 2, "intent": "query",
+        "targets": [{"source": {"kind": "current"}, "operations": [
+          {"action": "exclude", "field": "metrics", "subject": "合成指标甲"}
+        ]}]
+      },
+      "expected": {"schema_valid": true, "semantic_requirement": "唯一定位甲并核验本轮排除语义后才生成排除；不能把模型指错的对象提升成可信用户排除。保留乙。"}
+    },
+    {
+      "id": "wrong_exclusion_is_not_authorized",
+      "user_message": "不要合成指标甲了，只保留其它指标。",
+      "synthetic_context": {"current_target_count": 1, "known_conditions": "当前目标含合成指标甲、合成指标乙"},
+      "request": {
+        "protocol_version": 2, "intent": "query",
+        "targets": [{"source": {"kind": "current"}, "operations": [
+          {"action": "exclude", "field": "metrics", "subject": "合成指标乙"}
+        ]}]
+      },
+      "expected": {"schema_valid": true, "semantic_requirement": "Schema通过不代表业务授权成立。乙与原句排除对象冲突，不删除乙、不签发排除证据、不执行；向同一Pi返回冲突和可修复上下文。"}
+    },
+    {
+      "id": "supplement_missing_metric",
+      "user_message": "就是存款记录。",
+      "synthetic_context": {"current_target_count": 1, "known_conditions": "机构和时间已保存；指标缺失或未匹配，没有已确认指标或候选"},
+      "request": {
+        "protocol_version": 2, "intent": "query",
+        "targets": [{"source": {"kind": "current"}, "operations": [
+          {"action": "set", "field": "metrics", "value": "存款记录"}
+        ]}]
+      },
+      "expected": {"schema_valid": true, "semantic_requirement": "仍未匹配时保存本轮表达并正常澄清；不能因为存在上一目标就把缺项补充误判成空覆盖已确认指标的参数错误。"}
+    },
+    {
+      "id": "supplement_date_preserves_identity",
+      "user_message": "日期用2025年末。",
+      "synthetic_context": {"current_target_count": 1, "known_conditions": "合成机构甲和合成余额当日数已确认，日期缺失"},
+      "request": {
+        "protocol_version": 2, "intent": "query",
+        "targets": [{"source": {"kind": "current"}, "operations": [
+          {"action": "set", "field": "time", "value": "2025年末"}
+        ]}]
+      },
+      "expected": {"schema_valid": true, "semantic_requirement": "只补日期；已确认指标正式身份不重新通过同名检索替换。取数规则仍有缺项时继续澄清。"}
+    },
+    {
+      "id": "confirm_saved_candidate",
+      "user_message": "就用刚才展示的合成余额当日数。",
+      "synthetic_context": {"current_target_count": 1, "known_conditions": "上一用户回合已保存指标候选，含合成余额当日数"},
+      "request": {
+        "protocol_version": 2, "intent": "query",
+        "targets": [{"source": {"kind": "current"}, "operations": [
+          {"action": "confirm", "field": "metrics", "value": "选择合成余额当日数"}
+        ]}]
+      },
+      "expected": {"schema_valid": true, "semantic_requirement": "按已保存候选和完整本轮原文核验选择；候选归属、唯一性、否定及转折不能由这段概括代替。同轮产生的候选不能自我确认。"}
+    },
+    {
+      "id": "explicit_history_reference",
+      "user_message": "按先前合成机构甲那笔余额查询，日期改成2024年末。",
+      "synthetic_context": {"issued_references": [{"task_ref": "synthetic-task-ref-earlier", "target_ref": "synthetic-target-ref-balance", "description": "先前合成机构甲的余额查询"}]},
+      "request": {
+        "protocol_version": 2, "intent": "query",
+        "targets": [{"source": {"kind": "reference", "task_ref": "synthetic-task-ref-earlier", "target_ref": "synthetic-target-ref-balance"}, "operations": [
+          {"action": "set", "field": "time", "value": "2024年末"}
+        ]}]
+      },
+      "expected": {"schema_valid": true, "semantic_requirement": "引用由宿主预先签发，Pi结合用户语义选择；宿主检查同会话、任务目标归属、最新状态与当前权限。来源不唯一时先读取历史，不能以最近目标代替指定来源。"}
+    },
+    {
+      "id": "bound_multiple_targets",
+      "user_message": "查合成机构甲2024年末的合成存款余额当日数，以及合成机构乙2025年末的合成贷款余额当日数。",
+      "request": {
+        "protocol_version": 2, "intent": "query",
+        "targets": [
+          {"source": {"kind": "new"}, "operations": [
+            {"action": "set", "field": "organizations", "value": "合成机构甲"},
+            {"action": "set", "field": "metrics", "value": "合成存款余额当日数"},
+            {"action": "set", "field": "time", "value": "2024年末"},
+            {"action": "set", "field": "selection", "value": "按指定日期取数"},
+            {"action": "set", "field": "operation", "value": "查询指标值"}
+          ]},
+          {"source": {"kind": "new"}, "operations": [
+            {"action": "set", "field": "organizations", "value": "合成机构乙"},
+            {"action": "set", "field": "metrics", "value": "合成贷款余额当日数"},
+            {"action": "set", "field": "time", "value": "2025年末"},
+            {"action": "set", "field": "selection", "value": "按指定日期取数"},
+            {"action": "set", "field": "operation", "value": "查询指标值"}
+          ]}
+        ]
+      },
+      "expected": {"schema_valid": true, "semantic_requirement": "形成两个绑定目标，禁止扩成机构、年份、指标的交叉组合；只完成其中一个目标不算整个任务完成。"}
+    },
+    {
+      "id": "ambiguous_current_target",
+      "user_message": "把其中那笔日期改成2023年末。",
+      "synthetic_context": {"current_target_count": 2, "known_conditions": "当前任务有两个可修改目标，原句没有唯一指明"},
+      "request": {
+        "protocol_version": 2, "intent": "query",
+        "targets": [{"source": {"kind": "current"}, "operations": [
+          {"action": "set", "field": "time", "value": "2023年末"}
+        ]}]
+      },
+      "expected": {"schema_valid": true, "semantic_requirement": "current不能任选一个目标或同时覆盖两个目标。返回明确歧义；Pi读取上下文后仍不能唯一定位时请用户选择。"}
+    },
+    {
+      "id": "analysis_goal_without_fixed_metrics",
+      "user_message": "分析合成机构甲近5年的经营变化，选合适指标，说明变化和可能原因。",
+      "request": {
+        "protocol_version": 2, "intent": "analyze",
+        "targets": [{"source": {"kind": "new"}, "operations": [
+          {"action": "set", "field": "organizations", "value": "合成机构甲"},
+          {"action": "set", "field": "time", "value": "近5年"},
+          {"action": "set", "field": "objective", "value": "选择与经营变化有关的指标，分析变化并给出有证据支持的可能原因"}
+        ]}]
+      },
+      "expected": {"schema_valid": true, "semantic_requirement": "同一Pi循环根据授权目录、可用性和结果选择并调整指标。宿主记录analysis_selected来源；未获得指标证据前不把目标编译成可执行取数，也不能把相关性描述当作因果事实。"}
+    },
+    {
+      "id": "prepare_only",
+      "user_message": "先整理合成机构甲2025年末的合成余额查询条件，暂不查询。",
+      "request": {
+        "protocol_version": 2, "intent": "prepare",
+        "targets": [{"source": {"kind": "new"}, "operations": [
+          {"action": "set", "field": "organizations", "value": "合成机构甲"},
+          {"action": "set", "field": "metrics", "value": "合成余额"},
+          {"action": "set", "field": "time", "value": "2025年末"}
+        ]}]
+      },
+      "expected": {"schema_valid": true, "semantic_requirement": "仅整理、目录落地与保存条件。即使条件已完整也不消费取数或计算执行许可。"}
+    },
+    {
+      "id": "availability_without_metric_default",
+      "user_message": "合成机构甲有哪些可以查询的日期？",
+      "request": {
+        "protocol_version": 2, "intent": "availability",
+        "targets": [{"source": {"kind": "new"}, "operations": [
+          {"action": "set", "field": "organizations", "value": "合成机构甲"},
+          {"action": "set", "field": "availability", "value": "列出当前授权范围内可以查询的日期"}
+        ]}]
+      },
+      "expected": {"schema_valid": true, "semantic_requirement": "按已实现的可用性能力核验；若该能力允许不限定指标，不默认挑一个指标。原始记录存在不等于值满足可用口径。"}
+    },
+    {
+      "id": "calculate_from_selected_result",
+      "user_message": "把刚才结果中合成机构甲和合成机构乙的合成余额相加。",
+      "synthetic_context": {"issued_references": [{"task_ref": "synthetic-task-ref-result", "target_ref": "synthetic-target-ref-two-orgs", "description": "已成功的同日两家合成机构余额结果"}]},
+      "request": {
+        "protocol_version": 2, "intent": "calculate",
+        "targets": [{"source": {"kind": "reference", "task_ref": "synthetic-task-ref-result", "target_ref": "synthetic-target-ref-two-orgs"}, "operations": [
+          {"action": "set", "field": "calculation", "value": "将该结果中合成机构甲与合成机构乙的合成余额求和"}
+        ]}]
+      },
+      "expected": {"schema_valid": true, "semantic_requirement": "宿主从选中成功结果绑定事实及精度，检查日期、单位、口径和当前权限；模型不构造fact_id或重填原始数值。关系不明确或单位不兼容时不计算。"}
+    },
+    {
+      "id": "reuse_result",
+      "user_message": "重新显示刚才合成机构甲的结果。",
+      "synthetic_context": {"current_target_count": 1, "known_conditions": "当前唯一目标已有成功结果"},
+      "request": {"protocol_version": 2, "intent": "reuse", "targets": [{"source": {"kind": "current"}, "operations": []}]},
+      "expected": {"schema_valid": true, "semantic_requirement": "只读成功快照并复核当前权限；不重新取数。reuse不得同时携带改变条件的动作。"}
+    },
+    {
+      "id": "expired_reference",
+      "user_message": "仍按先前合成机构甲那笔查询。",
+      "synthetic_context": {"issued_references": [], "expired_references": [{"task_ref": "synthetic-task-ref-expired", "target_ref": "synthetic-target-ref-expired"}]},
+      "request": {"protocol_version": 2, "intent": "query", "targets": [{"source": {"kind": "reference", "task_ref": "synthetic-task-ref-expired", "target_ref": "synthetic-target-ref-expired"}, "operations": []}]},
+      "expected": {"schema_valid": true, "semantic_requirement": "返回明确引用失效，原目标及已知条件保持；Pi可重新读取上下文取得有效引用，不能回退为current或最近查询。"}
+    },
+    {
+      "id": "clear_without_becoming_unrestricted",
+      "user_message": "先去掉原机构条件，重新整理。",
+      "synthetic_context": {"current_target_count": 1, "known_conditions": "原有合成机构甲条件"},
+      "request": {"protocol_version": 2, "intent": "prepare", "targets": [{"source": {"kind": "current"}, "operations": [{"action": "clear", "field": "organizations"}]}]},
+      "expected": {"schema_valid": true, "semantic_requirement": "核验本轮清除语义后将机构记为未决，不扩展为全部机构，不执行。"}
+    }
+  ]
+}

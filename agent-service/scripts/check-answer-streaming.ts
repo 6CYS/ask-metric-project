@@ -25,7 +25,7 @@ const config = {...loadConfig(), dataDir: dir};
 const store = new NativeSessionStore(dir);
 const skills = await loadBusinessSkills();
 const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store,
-  [...createAskMetricTools(), createBusinessSkillReadTool(skills)], {skills});
+  [...createAskMetricTools({compactTurnArgs: config.compactTurnArgs}), createBusinessSkillReadTool(skills)], {skills});
 const actor: BackendUser = {id: "streaming-synthetic", username: "synthetic", display_name: "隔离流式测试",
   org_code: "O1", org_name: "合成甲农商行", role_code: "USER"};
 const greetings = ["你好", "谢谢你", "早上好", "你能做什么？", "给我介绍一下你能帮忙的事情。",
@@ -77,7 +77,8 @@ async function run(test: AcceptanceCase, kind: string, enabled: boolean) {
       watch.start(event => {if (enabled) projector.onWatchEvent(event, admitted.request.answerStream);});
       const result = await host.drivePrompt(session, admitted).finally(() => {projector.close(); watch.unsubscribe();});
       const messages = projectEntries(await session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT));
-      const answer = messages.filter(message => message.role === "assistant" && message.text).at(-1)?.text ?? "";
+      const finalMessage = messages.filter(message => message.role === "assistant" && message.text).at(-1);
+      const answer = finalMessage?.role === "assistant" ? finalMessage.text : "";
       if (answer.trim()) firstVisible ??= performance.now();
       if (admitted.request.timings && firstVisible !== undefined) admitted.request.timings.firstVisibleAt ??= firstVisible;
       await host.recordRequestTiming(session, admitted.request);

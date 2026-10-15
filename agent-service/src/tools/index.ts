@@ -13,7 +13,7 @@ import { createBusinessCapabilityTool } from "./businessCapability.js";
 import { withFocusedArgumentErrors } from "./shared.js";
 import { createCatalogTool } from "./catalog.js";
 import { createReadTool } from "./readTools.js";
-import { createResolveBusinessTurnTool, createExecuteBusinessFrameTool, createReadBusinessResultTool, createBusinessContextReadTool } from "./businessContext.js";
+import { createFixedResolveBusinessTurnTool, createExecuteBusinessFrameTool, createReadBusinessResultTool, createFixedBusinessContextReadTool } from "./businessContext.js";
 import { createConversationReplyTool, createActionRequiredTool } from "./turnContract.js";
 
 export { createMetricCatalogSearchTool } from "./metricCatalogSearch.js";
@@ -23,11 +23,11 @@ export { createStructuredQueryTool } from "./structuredQuery.js";
 export type { CatalogSearchDetails, StructuredQueryDetails } from "./shared.js";
 
 /** pi 选择业务工具；结构化查询仍接受后端目录、权限与能力校验。 */
-export function createAskMetricTools(): AgentHarnessTool<AskMetricRequestContext>[] {
+export function createAskMetricTools(options: {compactTurnArgs?: boolean | undefined} = {}): AgentHarnessTool<AskMetricRequestContext>[] {
   const tools = [
     deliverable(createBusinessCapabilityTool()),
-    createResolveBusinessTurnTool(),
-    createBusinessContextReadTool(),
+    createFixedResolveBusinessTurnTool(),
+    createFixedBusinessContextReadTool(),
     deliverable(createExecuteBusinessFrameTool()),
     deliverable(createReadBusinessResultTool()),
 

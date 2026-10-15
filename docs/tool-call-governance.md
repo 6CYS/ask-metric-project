@@ -22,7 +22,7 @@ Frame 日志解释来源、继承、解析及校验结果。按会话隔离的�
 
 ## 验证
 
-当前离线验收以 `agent-service/src/business-context/context.spec.ts`、Pi 宿主/HTTP 恢复回归及
+当前离线验收以 `agent-service/specs/business-context/context.spec.ts`、Pi 宿主/HTTP 恢复回归及
 `backend-next/verification/test_business_context.py` 为准。真实模型改写测试使用
 `agent-service/scripts/check-context-semantics.ts --live`，后端为合成桩，不连接真实业务数据库。
 

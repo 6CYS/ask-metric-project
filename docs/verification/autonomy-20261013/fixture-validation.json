@@ -1,0 +1,1 @@
+{"status":"fixture_valid","model_called":false,"checks":["precise_dimension_match","synthetic_query_value","analysis_register_prepare_execute","prepare_recovery","execution_idempotency","fixed_scope_rejection","forged_catalog_rejection","forged_prepared_rejection"],"dataset_sha256":"c4c5f40085eaa3da457ef910182061e9501ae3999fb8b8b883ccfb0fdd9217d2","scenarios":7,"repetitions":1}

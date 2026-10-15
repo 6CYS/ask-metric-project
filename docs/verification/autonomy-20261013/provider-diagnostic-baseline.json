@@ -1,0 +1,1068 @@
+{
+  "phase": "baseline",
+  "created_at": "2026-10-13T16:03:14.294Z",
+  "environment": "configured_real_model_isolated_synthetic_backend",
+  "real_database": false,
+  "production_accessed": false,
+  "synthetic_values": true,
+  "source_root": "/private/tmp/harness-autonomy-01a135ad/baseline",
+  "source_hashes": {
+    "package-lock.json": "a626106e191ba5cf2799a8232b58125c2a3293485890bd96910caabc5a6ebd1e",
+    "package.json": "9d4ef263367681d61e7f3aa161b6bde7d66875755b9893e41752ea65654fb22a",
+    "skills/analysis-boundary/SKILL.md": "0c19d3a107be19c326d2b92eaa941ef5ec776474871da08c4f42338b45c9b5d4",
+    "skills/data-coverage/SKILL.md": "27a0f4a56bf899b256d972cae9efa3a4788b33254765fe81e93f6e18a60e048e",
+    "skills/metric-query/SKILL.md": "9b0f3f2e062e3889af2127baa59f74e3e8317675d21e8f0b1f6b0dcd32c96b7d",
+    "skills/result-calculation/SKILL.md": "6b902f5c1333a31c8d457423ab0e98a0e78e63a710088b647e5b67c857fdfb8e",
+    "src/answerEvidence.ts": "2d299c1deac2ff65bf2273a53a5fad9c599c975ee41867bf3e6fd7ca34aae826",
+    "src/answerStream.ts": "c81b9057ada70f931decfc47384e6e28e4c0ab93d23b8c71c57f66690cb52bd1",
+    "src/backendClient.ts": "bd427ec1bc802810d4c16ce532d83be48ec8d8d6c17234be9952048b9e36c022",
+    "src/business-context/adapters.ts": "6023326f2bb1fa2cd080703ab95db284c3ef4974dbb272a13ccfa37c3cd2809e",
+    "src/business-context/capabilities.ts": "a1f1debbc364857412d87d1bf9114668bb22a42cb39c8a07cefbf856078209c7",
+    "src/business-context/clarificationOptions.ts": "cff3c87dc985b7e8c84963b2999d7a5f7c0d4321d8bd8ec01977dca9fef81df4",
+    "src/business-context/clarificationPresentation.ts": "e464fd71b22a1542d7178e6d5e66d2f3ff3189815eaaa41ca72372d707167b8a",
+    "src/business-context/continuation.ts": "84039ec8188b2af6cee7751cf5020eb9f055705f03efd5ffc158878a0e87ca1f",
+    "src/business-context/core.ts": "f8d81faa1948e498161c906ab3fd9f0c502a2ad0d63b032ffe17d4b68c4c62c5",
+    "src/business-context/fieldClarification.ts": "34a58afb200961d9f7ae296be18cf44680796db2c61e69c41a88385c0d131db6",
+    "src/business-context/historyReferences.ts": "85aed88c4a270e5eb37045168b81148cd9c11d688e1f4a04d11f75a457e9dade",
+    "src/business-context/inputError.ts": "089d126bd137bb1f59b5c441990f4f9a996f14b9cd3115679f76bfd6de2b32d0",
+    "src/business-context/inputEvidence.ts": "fb30fdc38f779bf50c01de1bf222b93dcc28dc9dd70686d37bbe91ee3ac4b2b8",
+    "src/business-context/metricMentions.ts": "4ee6ca4e044f0170d8d76154e1580edde6e376cc30d1a39c238dcee135caed82",
+    "src/business-context/modelView.ts": "34e84cf0bd24b2ca9cf5f4419687d7279e26d909469fd1b99457396ca9dd6061",
+    "src/business-context/resolutionFailure.ts": "cb1f895335c3320e2cc1e04b9147a35b348d37bee7ae7551178dc1f3a6cc4c3a",
+    "src/business-context/resolvers.ts": "df106fbfdad4b92f2c6643574f87e54575be7a4eab9385206eb64691572b874d",
+    "src/business-context/service.ts": "4c7e0fa3b4b8cd74ac7643abe8ade6536c730c2f0659be2520e314e8be0cf731",
+    "src/business-context/store.ts": "42bcccaf8f7c09ab6e5859360b8e1a77bd8916d3e9504884800e59c645a61072",
+    "src/business-context/turnArgs.ts": "728f92203e36223e2c86ac667b470cd0fd313dd6542b86748380096ce9c3dc4e",
+    "src/business-context/turnDialect.ts": "0ab07b2b2d393cb0749c62ccb04b769dcf0f67e60d101b2377a2d9c2c50e2be7",
+    "src/business-context/types.ts": "5535cb6f8932302715feb911c592e9b4b216830de847f6c2ae5201a8b1607753",
+    "src/businessSkills.ts": "cd84656797addc8937fea6d1610dcb3e90b42803186b659d6fc2d476f851ac1d",
+    "src/config.ts": "b9df9cca14257e2f84c036f4e9b248783c889c75dcb1710ff0d3f1f577b9429f",
+    "src/harnessHost.ts": "073611cb52ac268b7152b6ff83977a0255439453ae849fe4911ae91682e88daa",
+    "src/legacySessions.ts": "94ff16d9ec0eae14c473d31fc5bec8a56e64356838f121f3fcf7b610336811fe",
+    "src/modelContext.ts": "8b94ddb01ca17aa76380f63968a20547e98b4d4890606d02d5700a2a6cb1279b",
+    "src/modelUsage.ts": "3b20fb3fbf9f8d10c9a39a33354f6487dcb6e6ad369a3f2c12ebb3d81e51420c",
+    "src/models.ts": "e30195f3d77d54ba392d0749890c0a863e45663df3e7b03958e7992bbe6f1309",
+    "src/nativeSessions.ts": "b2556ab8f18014bb0b8f65b8a2d247d9e47b37575986ca33aa60eba2cfbed112",
+    "src/prompts/businessSystemPrompt.ts": "0359f0e06c119df41c5657e566e21f1a1f394e40ca9f4c56b6281f2515ef3ad8",
+    "src/queryContext.ts": "c48e6930b6989d6215e024a7309545d9575f3e3f017ad1471379d30bef708b63",
+    "src/replyGuard.ts": "72e927824a28344b83c045c25c8145c61953f3ffc9e82112f7fbaa3f4e488ba6",
+    "src/requestContext.ts": "4c9e19124a7c7aaefc080fe2f86453ce69545d5b3af0cd46a97b78062d22840e",
+    "src/routes.ts": "3adc7223a1cd6fb187f6ddefd8e76758ed4c8386be14e6d358655ca8031fe149",
+    "src/server.ts": "0d6c67c299328cb83f6f09f04168384848d2e17412cec036805261d89ba62085",
+    "src/sessionProjection.ts": "c88d790736c310a9577f3b7c38cbf63c7afcb65a22861021cbacef271d3015be",
+    "src/sm4ConfigCrypto.ts": "f397fb3457b536c588b9eee9f8a4f1e33ee1ffa5943376431be2827a56b043ac",
+    "src/toolAudit.ts": "74e7557a4939317a031c56ecb291933beb9714076a9c330dbf0a6b11f3c28c23",
+    "src/toolRecovery.ts": "6f17122a589c6ef94f92570c446c66bac47f5f943aa8bbc5beb330c1a357a80c",
+    "src/tools/answerPresent.ts": "c2038d8368e1278a85f212ca7e38327f211aff813595a6a6754a968b33661211",
+    "src/tools/businessCapability.ts": "a4c9799a4a275392cc9fa5462c4f03369e7ece9272e0a883ef46c6209f5e5e31",
+    "src/tools/businessContext.ts": "19141967f05ff0fc9f469fcf8345db6c3a641b4c526f62b63e69a5360d40adc6",
+    "src/tools/catalog.ts": "2d8a04d2bd6f06e6f15e93e6ae1e58ffa8d7331d0d7c63d68757065eb59c2d1b",
+    "src/tools/dataAvailability.ts": "60313aab8ffea6feac48f58134a979635a4f93dad0124cb4f0578400d1ffe522",
+    "src/tools/index.ts": "b79695415f7d5d1cf3021f539857beef50052d57904d478fbc91793a23f404c8",
+    "src/tools/metricCalculate.ts": "a59210c323b598d906ab1722846649551f0d8dc9b81ea1e266a04cbecf7dc088",
+    "src/tools/metricCatalogOverview.ts": "ebe838422374cbe06f4a448a9d55883c07b1cc54cc61a0a52ef0eaf0958e2cfe",
+    "src/tools/metricCatalogSearch.ts": "4115a1f839d08c1ce38c5430278373795222bb240de4c3e05fe905d3e8694dde",
+    "src/tools/orgCatalogSearch.ts": "2c06229c37fa9f2e8b9fa9459abced6d983dbfc0989086487b521f9e23cb0411",
+    "src/tools/readTools.ts": "046943e117e2697a369b95984b2b17ee2972f2471a189a30074221f422fb7b06",
+    "src/tools/shared.ts": "8a2a67c9c9236bc29a8e0caa8a28c0f10827a361d3fe3d5f44f475791a9726df",
+    "src/tools/structuredQuery.ts": "b2e47501c7b9fef8d31b0ef354fb7681e479f485f644d9e57c81c954d7aa2473",
+    "src/tools/testUtils.ts": "07a3f4657f40cab4b04284a7e4b28d063ef5c5e416f918340c917d2636498055",
+    "src/tools/turnContract.ts": "0749166e543182ffe0e4f081c0eb4a10dd43fce579f9a34b013a7ab90ab192c6",
+    "src/types/sm-crypto.d.ts": "5b7b74bc1fc8cb668331a0fcc48d86390ccc25adb3cad4f77c5133394cb54ff7"
+  },
+  "source_changed_during_run": false,
+  "script_sha256": "bd40cd144a63ab4b515fa472d3774c4a042118d802bfa5572f2b854d3d54eb84",
+  "dataset_sha256": "c4c5f40085eaa3da457ef910182061e9501ae3999fb8b8b883ccfb0fdd9217d2",
+  "workbook_sha256": "2c720f26d4d7a3f52df7d90e1d9a898816ad3365d862ab9bad452f2e4b606ef8",
+  "model_signature": {
+    "name": "deepseek-ai/DeepSeek-V4-Flash",
+    "max_tokens": 8192,
+    "context_window": 128000,
+    "extra_body": {
+      "enable_thinking": false,
+      "temperature": 0
+    },
+    "suffix_sha256": "c20b6b4e71fc88e1c67af02d36306644db844546d4a5cb5e9fdc4ab15bc98f60",
+    "compact_turn_args": false
+  },
+  "repetitions": 1,
+  "scenarios": [
+    "precise_dimension"
+  ],
+  "session_data": "/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/autonomy-baseline-zUt3GC",
+  "sampling": "fixed repetitions; preserve every failed sample; no selective reruns",
+  "summary": {
+    "turns": 1,
+    "passed": 1,
+    "failed": 0,
+    "infrastructure_failures": 0,
+    "business_failures": 0,
+    "by_category": {
+      "precise": {
+        "total": 1,
+        "passed": 1
+      },
+      "context": {
+        "total": 0,
+        "passed": 0
+      },
+      "analysis": {
+        "total": 0,
+        "passed": 0
+      }
+    }
+  },
+  "turns": [
+    {
+      "repeat": 1,
+      "scenario": "precise_dimension",
+      "category": "precise",
+      "turn": 1,
+      "session_id": "01a13600-bbba-7299-8f20-0827c266b569",
+      "message": "查询合成机构甲2026年7月31日机构个人存款余额较年初增幅的数值。",
+      "expected": {
+        "kind": "query",
+        "orgs": [
+          "SYNTH_O1"
+        ],
+        "codes": [
+          "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+        ],
+        "date": "2026-07-31"
+      },
+      "passed": true,
+      "failure_class": null,
+      "model_generated": true,
+      "model_errors": [],
+      "tools": [
+        {
+          "id": "01a13600c6e632c9a481e9af37495860",
+          "name": "resolve_business_turn",
+          "args": {
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "合成机构甲",
+                "expectedCount": null,
+                "mode": "set"
+              },
+              "comparison_organizations": {
+                "sourceText": null,
+                "expectedCount": null,
+                "mode": "inherit"
+              }
+            },
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构甲"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月31日"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "exact"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "value"
+                }
+              }
+            ],
+            "executionMode": "execute"
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "id": "01a13600c6e632c9a481e9af37495860",
+          "name": "resolve_business_turn",
+          "is_error": false,
+          "details": {
+            "kind": "metric_query_structured",
+            "task_id": "synthetic-query-1",
+            "version": 1,
+            "result_id": "result-synthetic-query-1",
+            "public_answer": "隔离合成数据查询完成；这些值不是数据湖事实。",
+            "status": "succeeded",
+            "columns": [
+              "fact_id",
+              "task_id",
+              "field",
+              "value",
+              "unit",
+              "metric_code",
+              "metric_name",
+              "org_code",
+              "org_name",
+              "date",
+              "stat_date",
+              "metric_value"
+            ],
+            "rows": [
+              {
+                "fact_id": "fact:synthetic-query-1:0:metric_value",
+                "task_id": "synthetic-query-1",
+                "field": "metric_value",
+                "value": "5",
+                "unit": "%",
+                "metric_code": "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG",
+                "metric_name": "机构个人存款余额较年初增幅",
+                "org_code": "SYNTH_O1",
+                "org_name": "合成机构甲",
+                "date": "2026-07-31",
+                "stat_date": "2026-07-31",
+                "metric_value": "5"
+              }
+            ],
+            "row_count": 1,
+            "truncated": false,
+            "frame_id": "86eb5574-c327-4d54-a1d8-cb0d874c4888",
+            "delivery": "business_evidence_v1",
+            "display_conditions": [
+              {
+                "label": "指标",
+                "value": "机构个人存款余额较年初增幅"
+              },
+              {
+                "label": "机构",
+                "value": "合成机构甲"
+              },
+              {
+                "label": "日期",
+                "value": "2026-07-31"
+              }
+            ]
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"status\":\"succeeded\",\"task_id\":\"synthetic-query-1\",\"version\":1,\"result_id\":\"result-synthetic-query-1\",\"query_evidence\":{\"logical_dsl\":{\"conversation_id\":\"synthetic-autonomy-conversation\",\"calculation_context\":{\"scope_id\":\"01a13600-bbbe-7299-8f20-0828292ecd2e\",\"user_question\":\"查询合成机构甲2026年7月31日机构个人存款余额较年初增幅的数值。\"},\"source_question\":\"查询合成机构甲2026年7月31日机构个人存款余额较年初增幅的数值。\",\"source_metric_bindings\":[{\"start\":17,\"end\":30,\"text\":\"机构个人存款余额较年初增幅\",\"codes\":[\"ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG\"]}],\"metric_codes\":[\"ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG\"],\"schema_version\":2,\"org_codes\":[\"SYNTH_O1\"],\"time\":{\"start\":\"2026-07-31\",\"end\":\"2026-07-31\"},\"selection\":\"exact\",\"operation\":{\"kind\":\"value\"}},\"synthetic_data\":true,\"missing_metric_codes\":[],\"missing_metric_notice\":null},\"columns\":[\"fact_id\",\"task_id\",\"field\",\"value\",\"unit\",\"metric_code\",\"metric_name\",\"org_code\",\"org_name\",\"date\",\"stat_date\",\"metric_value\"],\"sample_rows\":[{\"fact_id\":\"fact:synthetic-query-1:0:metric_value\",\"task_id\":\"synthetic-query-1\",\"field\":\"metric_value\",\"value\":\"5\",\"unit\":\"%\",\"metric_code\":\"ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG\",\"metric_name\":\"机构个人存款余额较年初增幅\",\"org_code\":\"SYNTH_O1\",\"org_name\":\"合成机构甲\",\"date\":\"2026-07-31\",\"stat_date\":\"2026-07-31\",\"metric_value\":\"5\"}],\"facts\":[{\"fact_id\":\"fact:synthetic-query-1:0:metric_value\",\"task_id\":\"synthetic-query-1\",\"field\":\"metric_value\",\"value\":\"5\",\"unit\":\"%\",\"metric_code\":\"ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG\",\"metric_name\":\"机构个人存款余额较年初增幅\",\"org_code\":\"SYNTH_O1\",\"org_name\":\"合成机构甲\",\"date\":\"2026-07-31\"}],\"fact_count\":1,\"facts_truncated\":false,\"row_count\":1,\"truncated\":false,\"error_code\":null,\"message\":\"隔离合成数据查询完成；这些值不是数据湖事实。\",\"display_hint\":\"明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。\",\"frame_id\":\"86eb5574-c327-4d54-a1d8-cb0d874c4888\",\"result_ref\":\"query:synthetic-query-1:result-synthetic-query-1\",\"ready_frame_id\":\"22e1f947-bbd9-455f-bb11-3bfdddfcadaa\",\"next_step\":\"条件已全部确定，查询已执行。请直接依据本回执组织回答，不要再向用户确认，也不要重复取数。\"}"
+            }
+          ]
+        }
+      ],
+      "query_calls": [
+        {
+          "spec": {
+            "conversation_id": "synthetic-autonomy-conversation",
+            "calculation_context": {
+              "scope_id": "01a13600-bbbe-7299-8f20-0828292ecd2e",
+              "user_question": "查询合成机构甲2026年7月31日机构个人存款余额较年初增幅的数值。"
+            },
+            "source_question": "查询合成机构甲2026年7月31日机构个人存款余额较年初增幅的数值。",
+            "source_metric_bindings": [
+              {
+                "start": 17,
+                "end": 30,
+                "text": "机构个人存款余额较年初增幅",
+                "codes": [
+                  "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+                ]
+              }
+            ],
+            "metric_codes": [
+              "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_O1"
+            ],
+            "time": {
+              "start": "2026-07-31",
+              "end": "2026-07-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "analysis": false,
+          "task_id": "synthetic-query-1",
+          "missing_codes": [],
+          "result": {
+            "task_id": "synthetic-query-1",
+            "result_id": "result-synthetic-query-1",
+            "status": "succeeded",
+            "facts": [
+              {
+                "fact_id": "fact:synthetic-query-1:0:metric_value",
+                "task_id": "synthetic-query-1",
+                "field": "metric_value",
+                "value": "5",
+                "unit": "%",
+                "metric_code": "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG",
+                "metric_name": "机构个人存款余额较年初增幅",
+                "org_code": "SYNTH_O1",
+                "org_name": "合成机构甲",
+                "date": "2026-07-31"
+              }
+            ],
+            "rows": [
+              {
+                "fact_id": "fact:synthetic-query-1:0:metric_value",
+                "task_id": "synthetic-query-1",
+                "field": "metric_value",
+                "value": "5",
+                "unit": "%",
+                "metric_code": "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG",
+                "metric_name": "机构个人存款余额较年初增幅",
+                "org_code": "SYNTH_O1",
+                "org_name": "合成机构甲",
+                "date": "2026-07-31",
+                "stat_date": "2026-07-31",
+                "metric_value": "5"
+              }
+            ],
+            "columns": [
+              "fact_id",
+              "task_id",
+              "field",
+              "value",
+              "unit",
+              "metric_code",
+              "metric_name",
+              "org_code",
+              "org_name",
+              "date",
+              "stat_date",
+              "metric_value"
+            ],
+            "row_count": 1,
+            "truncated": false,
+            "message": "隔离合成数据查询完成；这些值不是数据湖事实。",
+            "evidence": {
+              "logical_dsl": {
+                "conversation_id": "synthetic-autonomy-conversation",
+                "calculation_context": {
+                  "scope_id": "01a13600-bbbe-7299-8f20-0828292ecd2e",
+                  "user_question": "查询合成机构甲2026年7月31日机构个人存款余额较年初增幅的数值。"
+                },
+                "source_question": "查询合成机构甲2026年7月31日机构个人存款余额较年初增幅的数值。",
+                "source_metric_bindings": [
+                  {
+                    "start": 17,
+                    "end": 30,
+                    "text": "机构个人存款余额较年初增幅",
+                    "codes": [
+                      "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+                    ]
+                  }
+                ],
+                "metric_codes": [
+                  "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+                ],
+                "schema_version": 2,
+                "org_codes": [
+                  "SYNTH_O1"
+                ],
+                "time": {
+                  "start": "2026-07-31",
+                  "end": "2026-07-31"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "synthetic_data": true,
+              "missing_metric_codes": [],
+              "missing_metric_notice": null
+            }
+          }
+        }
+      ],
+      "calculation_specs": [],
+      "constraints": [],
+      "prepared": [],
+      "state": {
+        "sessionId": "01a13600-bbba-7299-8f20-0827c266b569",
+        "version": 3,
+        "frameOrder": [
+          "22e1f947-bbd9-455f-bb11-3bfdddfcadaa",
+          "390c74c8-2a78-4902-aaa2-f55e86edf0c9",
+          "86eb5574-c327-4d54-a1d8-cb0d874c4888"
+        ],
+        "operations": {
+          "22e1f947-bbd9-455f-bb11-3bfdddfcadaa": "86eb5574-c327-4d54-a1d8-cb0d874c4888"
+        },
+        "focusFrameId": "86eb5574-c327-4d54-a1d8-cb0d874c4888"
+      },
+      "focus": {
+        "frameId": "86eb5574-c327-4d54-a1d8-cb0d874c4888",
+        "sessionId": "01a13600-bbba-7299-8f20-0827c266b569",
+        "requestId": "1-precise_dimension-1",
+        "turnId": "01a13600-bbbe-7299-8f20-0828292ecd2e",
+        "capability": "metric_query",
+        "operationFrameId": "22e1f947-bbd9-455f-bb11-3bfdddfcadaa",
+        "fields": {
+          "metrics": {
+            "rawValue": [
+              "机构个人存款余额较年初增幅"
+            ],
+            "resolvedValue": {
+              "codes": [
+                "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+              ],
+              "names": [
+                "机构个人存款余额较年初增幅"
+              ]
+            },
+            "source": "explicit",
+            "resolver": "metric",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "extractedRawValues": [
+                "机构个人存款余额较年初增幅"
+              ],
+              "referenceValues": [
+                "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG",
+                "机构个人存款余额较年初增幅"
+              ],
+              "questionText": "查询合成机构甲2026年7月31日机构个人存款余额较年初增幅的数值。",
+              "mentionResolutions": [
+                {
+                  "text": "机构个人存款余额较年初增幅",
+                  "start": 17,
+                  "end": 30,
+                  "status": "resolved",
+                  "value": {
+                    "codes": [
+                      "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+                    ],
+                    "names": [
+                      "机构个人存款余额较年初增幅"
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "organizations": {
+            "rawValue": "合成机构甲",
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_O1"
+              ],
+              "names": [
+                "合成机构甲"
+              ]
+            },
+            "source": "explicit",
+            "resolver": "organization",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "referenceValues": [
+                "SYNTH_O1",
+                "合成机构甲"
+              ]
+            }
+          },
+          "time": {
+            "rawValue": "2026年7月31日",
+            "resolvedValue": {
+              "start": "2026-07-31",
+              "end": "2026-07-31"
+            },
+            "source": "explicit",
+            "resolver": "date",
+            "resolutionStatus": "resolved"
+          },
+          "comparison_organizations": {
+            "source": "explicit",
+            "resolutionStatus": "missing"
+          },
+          "selection": {
+            "rawValue": "exact",
+            "resolvedValue": "exact",
+            "source": "explicit",
+            "resolver": "enum",
+            "resolutionStatus": "resolved"
+          },
+          "operation": {
+            "rawValue": {
+              "kind": "value"
+            },
+            "resolvedValue": {
+              "kind": "value"
+            },
+            "source": "explicit",
+            "resolver": "query_operation",
+            "resolutionStatus": "resolved"
+          }
+        },
+        "delta": {
+          "executionMode": "execute",
+          "fieldChanges": [
+            {
+              "fieldHint": "metrics",
+              "operation": "set",
+              "rawValue": {
+                "fromQuestion": true,
+                "mentionIndexes": [
+                  1
+                ]
+              }
+            },
+            {
+              "fieldHint": "organizations",
+              "operation": "set",
+              "rawValue": "合成机构甲"
+            },
+            {
+              "fieldHint": "time",
+              "operation": "set",
+              "rawValue": "2026年7月31日"
+            },
+            {
+              "fieldHint": "selection",
+              "operation": "set",
+              "rawValue": "exact"
+            },
+            {
+              "fieldHint": "operation",
+              "operation": "set",
+              "rawValue": {
+                "kind": "value"
+              }
+            }
+          ],
+          "capabilityHint": "metric_query",
+          "baseReference": null,
+          "fieldIntents": {
+            "organizations": {
+              "sourceText": "合成机构甲",
+              "expectedCount": null,
+              "mode": "set"
+            },
+            "comparison_organizations": {
+              "sourceText": null,
+              "expectedCount": null,
+              "mode": "inherit"
+            }
+          }
+        },
+        "issues": [],
+        "status": "success",
+        "createdAt": "2026-10-13T16:03:07.338Z",
+        "parentFrameId": "390c74c8-2a78-4902-aaa2-f55e86edf0c9",
+        "resultRef": "query:synthetic-query-1:result-synthetic-query-1",
+        "resultSummary": {
+          "rowCount": 1,
+          "truncated": false
+        }
+      },
+      "frames": [
+        {
+          "frameId": "22e1f947-bbd9-455f-bb11-3bfdddfcadaa",
+          "sessionId": "01a13600-bbba-7299-8f20-0827c266b569",
+          "requestId": "1-precise_dimension-1",
+          "turnId": "01a13600-bbbe-7299-8f20-0828292ecd2e",
+          "capability": "metric_query",
+          "operationFrameId": "22e1f947-bbd9-455f-bb11-3bfdddfcadaa",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "机构个人存款余额较年初增幅"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+                ],
+                "names": [
+                  "机构个人存款余额较年初增幅"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "机构个人存款余额较年初增幅"
+                ],
+                "referenceValues": [
+                  "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG",
+                  "机构个人存款余额较年初增幅"
+                ],
+                "questionText": "查询合成机构甲2026年7月31日机构个人存款余额较年初增幅的数值。",
+                "mentionResolutions": [
+                  {
+                    "text": "机构个人存款余额较年初增幅",
+                    "start": 17,
+                    "end": 30,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+                      ],
+                      "names": [
+                        "机构个人存款余额较年初增幅"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "合成机构甲",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_O1"
+                ],
+                "names": [
+                  "合成机构甲"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_O1",
+                  "合成机构甲"
+                ]
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月31日",
+              "resolvedValue": {
+                "start": "2026-07-31",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "comparison_organizations": {
+              "source": "explicit",
+              "resolutionStatus": "missing"
+            },
+            "selection": {
+              "rawValue": "exact",
+              "resolvedValue": "exact",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "value"
+              },
+              "resolvedValue": {
+                "kind": "value"
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构甲"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月31日"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "exact"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "value"
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "合成机构甲",
+                "expectedCount": null,
+                "mode": "set"
+              },
+              "comparison_organizations": {
+                "sourceText": null,
+                "expectedCount": null,
+                "mode": "inherit"
+              }
+            }
+          },
+          "issues": [],
+          "status": "ready",
+          "createdAt": "2026-10-13T16:03:07.329Z"
+        },
+        {
+          "frameId": "390c74c8-2a78-4902-aaa2-f55e86edf0c9",
+          "sessionId": "01a13600-bbba-7299-8f20-0827c266b569",
+          "requestId": "1-precise_dimension-1",
+          "turnId": "01a13600-bbbe-7299-8f20-0828292ecd2e",
+          "capability": "metric_query",
+          "operationFrameId": "22e1f947-bbd9-455f-bb11-3bfdddfcadaa",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "机构个人存款余额较年初增幅"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+                ],
+                "names": [
+                  "机构个人存款余额较年初增幅"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "机构个人存款余额较年初增幅"
+                ],
+                "referenceValues": [
+                  "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG",
+                  "机构个人存款余额较年初增幅"
+                ],
+                "questionText": "查询合成机构甲2026年7月31日机构个人存款余额较年初增幅的数值。",
+                "mentionResolutions": [
+                  {
+                    "text": "机构个人存款余额较年初增幅",
+                    "start": 17,
+                    "end": 30,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+                      ],
+                      "names": [
+                        "机构个人存款余额较年初增幅"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "合成机构甲",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_O1"
+                ],
+                "names": [
+                  "合成机构甲"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_O1",
+                  "合成机构甲"
+                ]
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月31日",
+              "resolvedValue": {
+                "start": "2026-07-31",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "comparison_organizations": {
+              "source": "explicit",
+              "resolutionStatus": "missing"
+            },
+            "selection": {
+              "rawValue": "exact",
+              "resolvedValue": "exact",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "value"
+              },
+              "resolvedValue": {
+                "kind": "value"
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构甲"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月31日"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "exact"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "value"
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "合成机构甲",
+                "expectedCount": null,
+                "mode": "set"
+              },
+              "comparison_organizations": {
+                "sourceText": null,
+                "expectedCount": null,
+                "mode": "inherit"
+              }
+            }
+          },
+          "issues": [],
+          "status": "executing",
+          "createdAt": "2026-10-13T16:03:07.336Z",
+          "parentFrameId": "22e1f947-bbd9-455f-bb11-3bfdddfcadaa"
+        },
+        {
+          "frameId": "86eb5574-c327-4d54-a1d8-cb0d874c4888",
+          "sessionId": "01a13600-bbba-7299-8f20-0827c266b569",
+          "requestId": "1-precise_dimension-1",
+          "turnId": "01a13600-bbbe-7299-8f20-0828292ecd2e",
+          "capability": "metric_query",
+          "operationFrameId": "22e1f947-bbd9-455f-bb11-3bfdddfcadaa",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "机构个人存款余额较年初增幅"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+                ],
+                "names": [
+                  "机构个人存款余额较年初增幅"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "机构个人存款余额较年初增幅"
+                ],
+                "referenceValues": [
+                  "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG",
+                  "机构个人存款余额较年初增幅"
+                ],
+                "questionText": "查询合成机构甲2026年7月31日机构个人存款余额较年初增幅的数值。",
+                "mentionResolutions": [
+                  {
+                    "text": "机构个人存款余额较年初增幅",
+                    "start": 17,
+                    "end": 30,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+                      ],
+                      "names": [
+                        "机构个人存款余额较年初增幅"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "合成机构甲",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_O1"
+                ],
+                "names": [
+                  "合成机构甲"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_O1",
+                  "合成机构甲"
+                ]
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月31日",
+              "resolvedValue": {
+                "start": "2026-07-31",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "comparison_organizations": {
+              "source": "explicit",
+              "resolutionStatus": "missing"
+            },
+            "selection": {
+              "rawValue": "exact",
+              "resolvedValue": "exact",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "value"
+              },
+              "resolvedValue": {
+                "kind": "value"
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构甲"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月31日"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "exact"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "value"
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "organizations": {
+                "sourceText": "合成机构甲",
+                "expectedCount": null,
+                "mode": "set"
+              },
+              "comparison_organizations": {
+                "sourceText": null,
+                "expectedCount": null,
+                "mode": "inherit"
+              }
+            }
+          },
+          "issues": [],
+          "status": "success",
+          "createdAt": "2026-10-13T16:03:07.338Z",
+          "parentFrameId": "390c74c8-2a78-4902-aaa2-f55e86edf0c9",
+          "resultRef": "query:synthetic-query-1:result-synthetic-query-1",
+          "resultSummary": {
+            "rowCount": 1,
+            "truncated": false
+          }
+        }
+      ],
+      "answer": "查询已完成。合成机构甲在2026年7月31日的**机构个人存款余额较年初增幅**为 **5%**。",
+      "measures": {
+        "tool_calls": 1,
+        "error_calls": 0,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 14131
+      }
+    }
+  ]
+}

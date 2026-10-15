@@ -209,7 +209,8 @@ def test_resolve_scope_http_contract_permissions_and_parent_candidates():
     response = client.post(url, json={
         "kind": "children_of", "parent_name": "合成", "source_text": "合成下属支行",
     })
-    assert response.json()["status"] == "needs_confirmation"
+    # “合成”被多家名称包含，按新阶梯交用户确认（ambiguous）。
+    assert response.json()["status"] == "ambiguous"
     invalid = client.post(url, json={**COHORT, "source_text": "各家", "actor": "admin"})
     assert invalid.status_code == 422
     app.dependency_overrides[require_actor] = lambda: actor("A1")
@@ -236,16 +237,30 @@ def sync_databases():
     app.dispose()
 
 
+# 机构范围治理参数为必填项；测试提供与夹具一致的合成值。
+_SYNC_SCOPE_PARAMS = {
+    "corporation_code_max": "134",
+    "excluded_corporation_code": "086",
+    "head_office_corporation_code": "000",
+    "legal_entity_hier_code": "3",
+    "head_office_hier_code": "1",
+}
+
+
 def test_default_sync_saves_governed_levels_and_dry_run_does_not_write(sync_databases):
     source, sessions = sync_databases
     service = SitCatalogSyncService(sessions)
     result = service.sync_organizations(
         source_engine=source, source_table="source_org", expected_count=3, dry_run=True,
+        confirm_org_additions=True, **_SYNC_SCOPE_PARAMS,
     )
     assert result.created == 3
     with sessions() as session:
         assert list(session.scalars(select(OrgTerm))) == []
-    service.sync_organizations(source_engine=source, source_table="source_org", expected_count=3)
+    service.sync_organizations(
+        source_engine=source, source_table="source_org", expected_count=3,
+        confirm_org_additions=True, **_SYNC_SCOPE_PARAMS,
+    )
     snapshot = SqlAlchemyOrgHierarchyProvider(sessions).strict_snapshot()
     assert snapshot.validated_root() == "R"
     assert {(node.code, node.parent_code, node.hierarchy_level) for node in snapshot.nodes} == {
@@ -258,6 +273,7 @@ def test_branch_sync_preserves_actual_parents(sync_databases):
     SitCatalogSyncService(sessions).sync_organizations(
         source_engine=source, source_table="source_org", expected_count=3,
         include_branch_level=True, parent_field="parent_no",
+        confirm_org_additions=True, **_SYNC_SCOPE_PARAMS,
     )
     snapshot = SqlAlchemyOrgHierarchyProvider(sessions).strict_snapshot()
     assert snapshot.descendants_including("A") == {"A", "A1"}
@@ -275,6 +291,7 @@ def test_invalid_sync_snapshot_never_writes_partial_catalog(sync_databases, muta
     with pytest.raises((ValueError, OrganizationScopeError)):
         SitCatalogSyncService(sessions).sync_organizations(
             source_engine=source, source_table="source_org", expected_count=3,
+            **_SYNC_SCOPE_PARAMS,
         )
     with sessions() as session:
         assert list(session.scalars(select(OrgTerm))) == []

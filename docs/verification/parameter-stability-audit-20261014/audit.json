@@ -1,0 +1,565 @@
+{
+  "date": "2026-10-14",
+  "scope": "当前工作树中的模型参数入口、Frame/候选/历史恢复、指标覆盖、日期解析、宿主终态、页面历史状态；专项审查，不代表全仓库未知缺陷总数。",
+  "counts": {
+    "confirmed_implementation_defects": 14,
+    "newly_listed_implementation_defects": 12,
+    "P1": 7,
+    "P2": 7,
+    "design_gaps": 3,
+    "capability_gaps": 1,
+    "diagnostic_gaps": 2,
+    "pending_risks": 1
+  },
+  "implementation_defects": [
+    {
+      "id": "B01",
+      "title": "候选确认的否定判断漏检及跨字段干扰",
+      "severity": "P1",
+      "previously_listed_to_user": false,
+      "status": "confirmed",
+      "trigger": "不需要合成机构甲；别选第一个；机构用甲但日期不要4月",
+      "expected": "拒绝不能确认；日期否定不应取消独立机构确认",
+      "actual": "前两句选中O1；第三句清空机构选择",
+      "locations": [
+        {
+          "path": "agent-service/src/business-context/clarificationOptions.ts",
+          "line": 150
+        },
+        {
+          "path": "agent-service/src/business-context/core.ts",
+          "line": 230
+        }
+      ],
+      "evidence": [
+        "confirmation-selection-repro.mts"
+      ],
+      "verification_boundary": "选择纯函数与调用入口代码已核验，未执行真实查询"
+    },
+    {
+      "id": "B02",
+      "title": "日期中的3号误确认第3个指标候选",
+      "severity": "P1",
+      "previously_listed_to_user": false,
+      "status": "confirmed",
+      "trigger": "指标有3个候选；用户仅修改日期为2026年4月3号",
+      "expected": "指标保持未决，只更新日期",
+      "actual": "固定输入未提交指标修改，真实业务服务却自动确认M3并返回READY",
+      "locations": [
+        {
+          "path": "agent-service/src/business-context/clarificationOptions.ts",
+          "line": 126
+        },
+        {
+          "path": "agent-service/src/business-context/core.ts",
+          "line": 230
+        }
+      ],
+      "evidence": [
+        "business-state-repro.mts"
+      ],
+      "verification_boundary": "业务服务和确认函数为真实代码；日期目录使用合成桩，不声称真实解析器支持3号"
+    },
+    {
+      "id": "B03",
+      "title": "用户明确三家可被模型自报两家覆盖",
+      "severity": "P1",
+      "previously_listed_to_user": false,
+      "status": "confirmed",
+      "trigger": "原文查询以上三家机构；模型expected_count=2；历史集合2家",
+      "expected": "识别数量冲突并阻止执行",
+      "actual": "固定协议、真实历史解析及业务服务均通过，保存2家并返回READY",
+      "locations": [
+        {
+          "path": "agent-service/src/business-context/core.ts",
+          "line": 124
+        },
+        {
+          "path": "agent-service/src/business-context/core.ts",
+          "line": 177
+        }
+      ],
+      "evidence": [
+        "business-state-repro.mts"
+      ],
+      "verification_boundary": "真实协议和业务服务；隔离内存存储及合成目录"
+    },
+    {
+      "id": "B04",
+      "title": "显式旧READY引用绕过同一操作最新executing状态",
+      "severity": "P1",
+      "previously_listed_to_user": false,
+      "status": "confirmed",
+      "trigger": "R为旧READY，同操作最新E执行中；显式base.frameId=R",
+      "expected": "与current相同，等待或核对最新执行终态",
+      "actual": "回查返回仍在途后，current被拦，显式旧R生成新的READY",
+      "locations": [
+        {
+          "path": "agent-service/src/business-context/service.ts",
+          "line": 84
+        },
+        {
+          "path": "agent-service/src/business-context/service.ts",
+          "line": 88
+        },
+        {
+          "path": "agent-service/src/business-context/service.ts",
+          "line": 110
+        }
+      ],
+      "evidence": [
+        "business-state-repro.mts"
+      ],
+      "verification_boundary": "真实固定适配和业务服务，回查函数实际调用并返回undefined；验证到新READY，未发起重复数据库查询"
+    },
+    {
+      "id": "B05",
+      "title": "删除错误指标索引被提升为可信排除事实",
+      "severity": "P1",
+      "previously_listed_to_user": false,
+      "status": "confirmed",
+      "trigger": "旧甲乙，用户不要甲，模型remove索引2",
+      "expected": "只删除明确目标甲，索引冲突时阻断",
+      "actual": "实际保留甲、删除乙，并生成乙的覆盖排除",
+      "locations": [
+        {
+          "path": "agent-service/src/business-context/resolvers.ts",
+          "line": 119
+        },
+        {
+          "path": "agent-service/src/business-context/resolvers.ts",
+          "line": 126
+        },
+        {
+          "path": "agent-service/src/business-context/adapters.ts",
+          "line": 31
+        }
+      ],
+      "evidence": [
+        "metric-protocol-repro.mts"
+      ],
+      "verification_boundary": "真实Schema、resolver、覆盖参数生成；未执行指标取数"
+    },
+    {
+      "id": "B06",
+      "title": "连续范围丢失起点月末限定，扩大查询日期",
+      "severity": "P1",
+      "previously_listed_to_user": false,
+      "status": "confirmed",
+      "trigger": "2026年1月末至2026年2月末",
+      "expected": "起点2026-01-31，终点2026-02-28",
+      "actual": "返回2026-01-01至2026-02-28",
+      "locations": [
+        {
+          "path": "backend-next/src/ask_metric/domain/time_expression.py",
+          "line": 202
+        },
+        {
+          "path": "backend-next/src/ask_metric/domain/time_expression.py",
+          "line": 213
+        }
+      ],
+      "evidence": [
+        "backend-date-coverage-repro.py"
+      ],
+      "verification_boundary": "真实日期解析纯函数，无模型或数据库"
+    },
+    {
+      "id": "B07",
+      "title": "同批目标业务校验未完成就执行首个目标",
+      "severity": "P1",
+      "previously_listed_to_user": false,
+      "status": "confirmed",
+      "trigger": "同模型响应含两份Schema合法resolve，第二份mentionIndexes99",
+      "expected": "整批业务校验及目标完整性通过后执行",
+      "actual": "首个basicQueries已调用1次，第二份才报INVALID_MENTION_REFERENCE",
+      "locations": [
+        {
+          "path": "agent-service/src/harnessHost.ts",
+          "line": 650
+        },
+        {
+          "path": "agent-service/src/harnessHost.ts",
+          "line": 565
+        },
+        {
+          "path": "agent-service/src/harnessHost.ts",
+          "line": 382
+        }
+      ],
+      "evidence": [
+        "host-batch-repro.mts"
+      ],
+      "verification_boundary": "真实HarnessHost、Pi和业务工具；模型与后端均为隔离合成桩"
+    },
+    {
+      "id": "B08",
+      "title": "合法指标替换缺少覆盖排除，解析成功后端拒绝",
+      "severity": "P2",
+      "previously_listed_to_user": false,
+      "status": "confirmed",
+      "trigger": "旧甲，本轮合成甲换成合成乙，选择合法第2项",
+      "expected": "确认替换动作后查询乙，覆盖元数据表达甲被替换",
+      "actual": "Agent只发乙绑定但完整原句仍含甲；真实后端复核METRIC_TARGETS_UNRESOLVED；补甲排除后通过",
+      "locations": [
+        {
+          "path": "agent-service/src/business-context/resolvers.ts",
+          "line": 324
+        },
+        {
+          "path": "agent-service/src/business-context/resolvers.ts",
+          "line": 359
+        },
+        {
+          "path": "agent-service/src/business-context/adapters.ts",
+          "line": 64
+        },
+        {
+          "path": "backend-next/src/ask_metric/api/routes/tasks.py",
+          "line": 202
+        }
+      ],
+      "evidence": [
+        "metric-protocol-repro.mts",
+        "backend-date-coverage-repro.py"
+      ],
+      "verification_boundary": "分别复现真实Agent参数生成与真实后端覆盖函数，未连接HTTP或数据库"
+    },
+    {
+      "id": "B09",
+      "title": "未匹配指标的续补被错误升级为参数错误",
+      "severity": "P2",
+      "previously_listed_to_user": false,
+      "status": "confirmed",
+      "trigger": "合法fromQuestion，mentions为空；previous为missing或not_found",
+      "expected": "保留未匹配表达，正常缺项澄清",
+      "actual": "首轮返回not_found，续补却抛METRIC_MENTION_NOT_FOUND",
+      "locations": [
+        {
+          "path": "agent-service/src/business-context/resolvers.ts",
+          "line": 337
+        }
+      ],
+      "evidence": [
+        "metric-protocol-repro.mts"
+      ],
+      "verification_boundary": "真实resolver纯函数；与保护真实已确认指标的合法拒绝分开"
+    },
+    {
+      "id": "B10",
+      "title": "日期区间语法允许不补零，转换却拒绝",
+      "severity": "P2",
+      "previously_listed_to_user": false,
+      "status": "confirmed",
+      "trigger": "2026-1-1至2026-2-1",
+      "expected": "与补零形式得到同一区间",
+      "actual": "单日2026-1-1成功，区间不补零返回invalid；补零区间成功",
+      "locations": [
+        {
+          "path": "backend-next/src/ask_metric/domain/time_expression.py",
+          "line": 193
+        },
+        {
+          "path": "backend-next/src/ask_metric/domain/time_expression.py",
+          "line": 198
+        }
+      ],
+      "evidence": [
+        "backend-date-coverage-repro.py"
+      ],
+      "verification_boundary": "真实日期解析纯函数"
+    },
+    {
+      "id": "B11",
+      "title": "自动重试成功后刷新历史仍残留错误状态",
+      "severity": "P2",
+      "previously_listed_to_user": false,
+      "status": "confirmed",
+      "trigger": "首次模型超时，自动重试后查询成功，再还原历史",
+      "expected": "最终成功气泡done，失败attempt保留为诊断",
+      "actual": "成功正文已替换，但status仍error",
+      "locations": [
+        {
+          "path": "frontend-vue/src/components/chat/BackendNextChatPanel.vue",
+          "line": 515
+        },
+        {
+          "path": "frontend-vue/src/components/chat/BackendNextChatPanel.vue",
+          "line": 521
+        },
+        {
+          "path": "agent-service/src/sessionProjection.ts",
+          "line": 114
+        }
+      ],
+      "evidence": [
+        "host-retry-repro.mts",
+        "frontend-history-repro.mts"
+      ],
+      "verification_boundary": "真实宿主及投影、从当前Vue源提取的实际纯函数；未做浏览器操作"
+    },
+    {
+      "id": "B12",
+      "title": "主动取消在历史投影中被标成模型故障",
+      "severity": "P2",
+      "previously_listed_to_user": false,
+      "status": "confirmed",
+      "trigger": "stopReason=aborted且errorMessage=模型请求已取消",
+      "expected": "呈现明确取消状态",
+      "actual": "转成模型响应未完成、请重试并带error",
+      "locations": [
+        {
+          "path": "agent-service/src/sessionProjection.ts",
+          "line": 63
+        },
+        {
+          "path": "agent-service/src/sessionProjection.ts",
+          "line": 114
+        },
+        {
+          "path": "agent-service/src/routes.ts",
+          "line": 320
+        }
+      ],
+      "evidence": [
+        "cancel-projection-repro.mts"
+      ],
+      "verification_boundary": "真实历史投影函数；不以该结果推断17:22取消由谁触发"
+    },
+    {
+      "id": "B13",
+      "title": "重复失败及预算收束要等待额外模型响应",
+      "severity": "P2",
+      "previously_listed_to_user": true,
+      "status": "confirmed",
+      "trigger": "两次相同失败后下一模型调用未完成",
+      "expected": "在已知循环或预算终态时直接收束",
+      "actual": "仍发起额外模型调用；error/aborted提前返回绕过终止说明",
+      "locations": [
+        {
+          "path": "agent-service/src/harnessHost.ts",
+          "line": 594
+        },
+        {
+          "path": "agent-service/src/harnessHost.ts",
+          "line": 631
+        },
+        {
+          "path": "agent-service/src/harnessHost.ts",
+          "line": 681
+        }
+      ],
+      "evidence": [
+        "host-repeated-repro.mts",
+        "../same-question-instability-20261014-4runs.json"
+      ],
+      "verification_boundary": "真实日志及隔离宿主验证，未推断取消来源"
+    },
+    {
+      "id": "B14",
+      "title": "不支持的日期表达被归类为用户日期无效",
+      "severity": "P2",
+      "previously_listed_to_user": true,
+      "status": "confirmed",
+      "trigger": "近5年等暂未实现表达，与2026年2月30日比较",
+      "expected": "区分unsupported与不成立日期",
+      "actual": "后端统一invalid，Agent标记userInputIssue并提示提供有效日期",
+      "locations": [
+        {
+          "path": "backend-next/src/ask_metric/application/field_resolution.py",
+          "line": 159
+        },
+        {
+          "path": "agent-service/src/business-context/resolvers.ts",
+          "line": 383
+        },
+        {
+          "path": "agent-service/src/business-context/clarificationPresentation.ts",
+          "line": 28
+        }
+      ],
+      "evidence": [
+        "backend-date-coverage-repro.py"
+      ],
+      "verification_boundary": "真实日期函数及四次会话业务回执"
+    }
+  ],
+  "other_confirmed_gaps": [
+    {
+      "id": "D01",
+      "kind": "design_gap",
+      "title": "普通指标提交有冗余参数写法及省略路径，缺少唯一规范化入口",
+      "locations": [
+        {
+          "path": "agent-service/src/business-context/fixedTurnArgs.ts",
+          "line": 48
+        },
+        {
+          "path": "agent-service/src/business-context/fixedTurnArgs.ts",
+          "line": 95
+        }
+      ],
+      "note": "不同真实业务动作需要固定的不同动作结构；同一普通匹配操作不应让模型选择不必要的内部索引写法。"
+    },
+    {
+      "id": "D02",
+      "kind": "design_gap",
+      "title": "模型重复生成原文证明材料，形成机械失败点",
+      "locations": [
+        {
+          "path": "agent-service/src/business-context/fixedTurnArgs.ts",
+          "line": 65
+        },
+        {
+          "path": "agent-service/src/business-context/fixedTurnArgs.ts",
+          "line": 78
+        },
+        {
+          "path": "agent-service/src/business-context/core.ts",
+          "line": 241
+        }
+      ],
+      "note": "检查原文来源本身有必要；缺口是重复抄写交给模型。绑定原文也不能替代业务语义和否定核验。"
+    },
+    {
+      "id": "D03",
+      "kind": "design_gap",
+      "title": "普通已解析字段随同批输入错误不保存，恢复依赖整包重提",
+      "locations": [
+        {
+          "path": "agent-service/src/business-context/core.ts",
+          "line": 317
+        },
+        {
+          "path": "agent-service/src/business-context/service.ts",
+          "line": 38
+        },
+        {
+          "path": "agent-service/src/business-context/service.ts",
+          "line": 230
+        }
+      ],
+      "note": "这是当前原子失败行为及测试明确固定的设计缺口，不伪称新增回归；改为不可执行草稿仍须维护完整目标与执行门禁。"
+    },
+    {
+      "id": "C01",
+      "kind": "capability_gap",
+      "title": "相对近N年未实现",
+      "locations": [
+        {
+          "path": "backend-next/src/ask_metric/domain/time_expression.py",
+          "line": 240
+        }
+      ],
+      "note": "当前实现近N天/月但无近N年；修复参数协议本身不能补齐这项能力。"
+    },
+    {
+      "id": "O01",
+      "kind": "diagnostic_gap",
+      "title": "完整模型发送上下文与采样参数未形成历史快照",
+      "locations": [
+        {
+          "path": "agent-service/src/harnessHost.ts",
+          "line": 733
+        },
+        {
+          "path": "agent-service/src/harnessHost.ts",
+          "line": 765
+        },
+        {
+          "path": "agent-service/src/models.ts",
+          "line": 235
+        }
+      ],
+      "note": "不能仅据同名模型就声称历史请求完整上下文和采样参数逐字一致。"
+    },
+    {
+      "id": "O02",
+      "title": "失败提示承诺条件已保存但可能没有业务Frame",
+      "severity": "P2",
+      "previously_listed_to_user": false,
+      "status": "confirmed_diagnostic_gap",
+      "trigger": "新会话在字段解析保存前连续参数失败",
+      "expected": "区分原文已存档与可继承业务条件已保存",
+      "actual": "无Frame仍显示原查询条件仍保留；超时提示也无条件承诺已确认条件保留",
+      "locations": [
+        {
+          "path": "agent-service/src/harnessHost.ts",
+          "line": 633
+        },
+        {
+          "path": "agent-service/src/sessionProjection.ts",
+          "line": 68
+        }
+      ],
+      "evidence": [
+        "host-repeated-repro.mts",
+        "../same-question-instability-20261014-4runs.json"
+      ],
+      "verification_boundary": "真实本地会话与隔离宿主均证实无Frame；原始用户消息本身确实已存档",
+      "kind": "diagnostic_gap",
+      "note": "原始输入确已存档；此项是没有区分原文保留与可继承业务状态的提示缺口，单列而不夸大为业务执行错误。"
+    }
+  ],
+  "pending_risks": [
+    {
+      "id": "R01",
+      "status": "pending_end_to_end_validation",
+      "title": "accepted尚未收到时点击停止可能只断开观察",
+      "locations": [
+        {
+          "path": "frontend-vue/src/components/chat/BackendNextChatPanel.vue",
+          "line": 1215
+        }
+      ],
+      "evidence": "frontend-history-repro.mts记录cancelCalls=0、observationAborts=1",
+      "boundary": "实际前端函数分支已证实；尚未实测浏览器/HTTP时序，不计入15项实现缺陷。"
+    }
+  ],
+  "existing_regressions": {
+    "agent": {
+      "files": 5,
+      "passed": 146,
+      "command": "node node_modules/vitest/vitest.mjs run specs/business-context/fixedTurnArgs.spec.ts specs/business-context/argumentCorrections.spec.ts specs/business-context/confirmationContinuation.spec.ts specs/business-context/clarificationOptions.spec.ts specs/toolRecovery.spec.ts"
+    },
+    "backend": {
+      "passed": 196,
+      "deselected": 10,
+      "command": "PYTHONPATH=src .venv/bin/python -m pytest verification/test_business_context.py tests/test_time_expression_discrete.py verification/test_metric_candidates.py -q -k 'date or time or coverage or exclusion or binding'"
+    },
+    "note": "这些既有检查通过不代表上述新反例已被覆盖。"
+  },
+  "source_sha256_at_audit": {
+    "agent-service/src/business-context/adapters.ts": "6023326f2bb1fa2cd080703ab95db284c3ef4974dbb272a13ccfa37c3cd2809e",
+    "agent-service/src/business-context/clarificationOptions.ts": "cff3c87dc985b7e8c84963b2999d7a5f7c0d4321d8bd8ec01977dca9fef81df4",
+    "agent-service/src/business-context/clarificationPresentation.ts": "e464fd71b22a1542d7178e6d5e66d2f3ff3189815eaaa41ca72372d707167b8a",
+    "agent-service/src/business-context/core.ts": "1f042a91e13722567f35c969908ccca795bb42e550f48e132f25190492ce03d2",
+    "agent-service/src/business-context/fixedTurnArgs.ts": "8b38465ccf0c0005fc79be385433671c28aaa593b7c6a7aeffb490fa7528b5ef",
+    "agent-service/src/business-context/resolvers.ts": "bd089676928beaf88aad78276c47a13bcf3491d1cdbb4441190ecbf3bb87269b",
+    "agent-service/src/business-context/service.ts": "fb5afd3b137068c17ac03d14c4311506eb1a0c95a284fd04aaadfcc36ff4151a",
+    "agent-service/src/harnessHost.ts": "00e4f1705d6b62d3be19a365203d36e8e127b08c0aea948f44e1fd61f41777c8",
+    "agent-service/src/models.ts": "e30195f3d77d54ba392d0749890c0a863e45663df3e7b03958e7992bbe6f1309",
+    "agent-service/src/routes.ts": "3adc7223a1cd6fb187f6ddefd8e76758ed4c8386be14e6d358655ca8031fe149",
+    "agent-service/src/sessionProjection.ts": "c88d790736c310a9577f3b7c38cbf63c7afcb65a22861021cbacef271d3015be",
+    "backend-next/src/ask_metric/api/routes/tasks.py": "d906a902451e8c58c0cd00c86a0278b3c34e203b1c7f40e579af5f7bd5bc9c7c",
+    "backend-next/src/ask_metric/application/field_resolution.py": "0aca092ae3192c424509a77c1584e0bd3506901b2c59b921bd2ad273560ec513",
+    "backend-next/src/ask_metric/domain/time_expression.py": "059f0f6e7a97706a70f1f52fe991e7ee950504d0e5a9c625498ad95427603cbc",
+    "frontend-vue/src/components/chat/BackendNextChatPanel.vue": "9e67242bf965d2665ed9042c894b24add0e03070b6611ad75e6c52deebffb1b4"
+  },
+  "verification_limits": [
+    "新增反例使用合成目录、内存存储、合成模型或后端桩；使用真实当前协议/业务函数/宿主代码。",
+    "本次未调用真实模型API、未连接业务数据库、未修改业务实现、未提交或部署。",
+    "已保存复现脚本；运行时应从agent-service目录以node --import ./node_modules/tsx/dist/loader.mjs ../docs/verification/parameter-stability-audit-20261014/<script.mts>执行。"
+  ],
+  "reproducer_results": {
+    "metric-protocol-repro": "exit_0_current_defect_reproduced",
+    "confirmation-selection-repro": "exit_0_current_defect_reproduced",
+    "business-state-repro": "exit_0_current_defect_reproduced",
+    "host-batch-repro": "exit_0_current_defect_reproduced",
+    "host-retry-repro": "exit_0_current_defect_reproduced",
+    "host-repeated-repro": "exit_0_current_defect_reproduced",
+    "frontend-history-repro": "exit_0_current_defect_reproduced",
+    "cancel-projection-repro": "exit_0_current_defect_reproduced",
+    "backend-date-coverage-repro": "exit_0_current_defect_reproduced"
+  }
+}

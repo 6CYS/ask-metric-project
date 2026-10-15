@@ -1,0 +1,2768 @@
+{
+  "mode": "paired",
+  "environment": "same_current_source_real_model_synthetic_backend",
+  "real_database": false,
+  "requires_independent_audit": true,
+  "corpus_sha256": "45f914bd137b2661db916d0735d1a7e5a217c1bd4ea318a76e9ba305cbd0f277",
+  "source_hashes": {
+    "src/harnessHost.ts": "b19910ceb7d994ac3529b371c7b7446d2908d92c3c451734cd5591da4bf2b869",
+    "src/sessionProjection.ts": "cb245505e627f12431c37611455152f5cc2cdb2560440f73f5b934fd0b9ac0d8",
+    "src/config.ts": "5a65119e076be869de0fa93e1bfd51fb92573174d61ab6911dc65c41e750a52b",
+    "src/models.ts": "e30195f3d77d54ba392d0749890c0a863e45663df3e7b03958e7992bbe6f1309",
+    "src/semantic-task/planService.ts": "75b4f20d88ab65bdc2af248a43aa70b7a5f538e9461693a28815292bb2f23d22",
+    "src/semantic-task/service.ts": "6fcf70b8552c7fecaacb3a646f629057b1f3195939e81c6f536daf82ccb580d0",
+    "src/semantic-task/tools.ts": "1462a63733b912798e2829b93ef942be7c6439b730825ddd7cb18c9897d7fa81",
+    "src/semantic-task/feedback.ts": "0dc208dc8bf3e6d512b14b702d9d23b952b1f6fd9bdd3c7ada69aa265e644afd",
+    "src/semantic-task/prompt.ts": "eaacffbdc74de6b88534bd0ab8dd3a676de9e83eaa2d38ddcc509c2c08355a4d",
+    "src/business-context/service.ts": "fb5afd3b137068c17ac03d14c4311506eb1a0c95a284fd04aaadfcc36ff4151a",
+    "src/prompts/businessSystemPrompt.ts": "a30928c6b5733877c448e279552b34c6a5a566ba9c046e69af6a9ec3b76e3c49",
+    "scripts/check-semantic-phase4.ts": "b9e724c06d16003a56e92995bb6dd54561687110111018697ab80d06f1ec71a4",
+    "scripts/phase4-synthetic-backend.ts": "9a59004b4751b56961fa684e368309dca2b6d0f8cc414943863f4c609dd891b9",
+    "scripts/semantic-task-fixture.py": "c86739c627293ea0bbfd8d2226d7b95030ff3d95e1dc4cfe4bb5dfcafcdc0814",
+    "scripts/generic-query-fixture.py": "3d7a2df8a122f592a613d330a882d5a997e6ec9e73b413f11101b52d858f7de5",
+    "../backend-next/src/ask_metric/api/routes/business_context.py": "f5ec5fd81bc190e94d0173a4457879a9273b758c74ed9908aa370d4fca4db385",
+    "../backend-next/src/ask_metric/application/goal_facts.py": "7a836ffcd8fc92650e425973d8cd5477fe5644ee764532f1cfbfd66ec599d258",
+    "src/backendClient.ts": "2d5b7d10708291edc903b8baecf34d67e3fdb5d439fc6d4d0f7f230e01ec5066",
+    "src/semantic-task/protocol.ts": "fd2801547c3290ec29fdc8719f7ada47a4873e65fba7c1c00ccb4c973f5fcce1",
+    "../backend-next/src/ask_metric/domain/time_expression.py": "0abb97cf6fbd9c3eb162562a23eadc36082703d1becbf3cd5b28841729f76a2c",
+    "../backend-next/src/ask_metric/application/field_resolution.py": "46d5a474d3103cd7e0b5cdabbb002d205a9aa5eb2032068435ef47c52c501b35"
+  },
+  "config": {
+    "model": "deepseek-ai/DeepSeek-V4-Flash",
+    "gateway_origin": "https://api.siliconflow.cn",
+    "max_tokens": 8192,
+    "context_window": 128000,
+    "extra_body": {
+      "enable_thinking": false
+    },
+    "model_retry": {
+      "enabled": true,
+      "maxRetries": 1,
+      "baseDelayMs": 1000
+    },
+    "first_response_ms": 30000,
+    "stream_idle_ms": 120000,
+    "per_turn_budget_ms": 120000
+  },
+  "native_session_directory": "/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/phase4-model-zOGKMz",
+  "finished_tasks": 12,
+  "independent_production_corpus": false,
+  "tasks": [
+    {
+      "case_id": "colloquial_exact",
+      "group": "exact",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "turns": [
+        {
+          "turn": 1,
+          "message": "帮我看一下合成机构丙2026年5月30日的经营收益金额当日数。",
+          "model_calls": 2,
+          "elapsed_ms": 17357,
+          "queries": [
+            {
+              "spec": {
+                "conversation_id": "synthetic-semantic",
+                "calculation_context": {
+                  "scope_id": "01a13d21-9870-767a-a576-2fd3cf6a72f1",
+                  "user_question": "帮我看一下合成机构丙2026年5月30日的经营收益金额当日数。"
+                },
+                "source_question": "帮我看一下合成机构丙2026年5月30日的经营收益金额当日数。",
+                "source_metric_bindings": [
+                  {
+                    "start": 21,
+                    "end": 30,
+                    "text": "经营收益金额当日数",
+                    "codes": [
+                      "SYNTH_M:D"
+                    ]
+                  }
+                ],
+                "metric_codes": [
+                  "SYNTH_M:D"
+                ],
+                "schema_version": 2,
+                "org_codes": [
+                  "SYNTH_O3"
+                ],
+                "time": {
+                  "start": "2026-05-30",
+                  "end": "2026-05-30"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "row_count": 1,
+              "rows": [
+                {
+                  "metric_code": "SYNTH_M:D",
+                  "metric_name": "经营收益金额当日数",
+                  "unit": "元",
+                  "org_code": "SYNTH_O3",
+                  "org_name": "合成机构丙",
+                  "metric_value": 40,
+                  "stat_date": "2026-05-30"
+                }
+              ]
+            }
+          ],
+          "receipts": [
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "kind": "metric_query_structured",
+                "task_id": "query-1",
+                "version": 1,
+                "result_id": "result-query-1",
+                "public_answer": "合成数据SQL完成",
+                "status": "succeeded",
+                "columns": [
+                  "metric_code",
+                  "metric_name",
+                  "unit",
+                  "org_code",
+                  "org_name",
+                  "metric_value",
+                  "stat_date"
+                ],
+                "rows": [
+                  {
+                    "metric_code": "SYNTH_M:D",
+                    "metric_name": "经营收益金额当日数",
+                    "unit": "元",
+                    "org_code": "SYNTH_O3",
+                    "org_name": "合成机构丙",
+                    "metric_value": 40,
+                    "stat_date": "2026-05-30"
+                  }
+                ],
+                "row_count": 1,
+                "truncated": false,
+                "frame_id": "71a29457-81e5-4aec-b5e3-10e5614f6b0d",
+                "delivery": "business_evidence_v1",
+                "display_conditions": [
+                  {
+                    "label": "指标",
+                    "value": "经营收益金额当日数"
+                  },
+                  {
+                    "label": "机构",
+                    "value": "合成机构丙"
+                  },
+                  {
+                    "label": "日期",
+                    "value": "2026-05-30"
+                  }
+                ]
+              },
+              "is_error": false
+            }
+          ],
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 1,
+                "capability": "metric_query",
+                "base": null,
+                "mode": "execute",
+                "changes": {
+                  "metrics": {
+                    "action": "set",
+                    "value": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  "organizations": {
+                    "action": "set",
+                    "source_text": "合成机构丙",
+                    "expected_count": null,
+                    "value": {
+                      "kind": "name",
+                      "name": "合成机构丙"
+                    }
+                  },
+                  "time": {
+                    "action": "set",
+                    "value": "2026年5月30日"
+                  },
+                  "selection": {
+                    "action": "set",
+                    "value": "exact"
+                  },
+                  "operation": {
+                    "action": "set",
+                    "value": {
+                      "kind": "value"
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "answer": "\n合成机构丙在 **2026年5月30日** 的经营收益金额当日数为 **40元**。",
+          "model_error_codes": []
+        }
+      ]
+    },
+    {
+      "case_id": "colloquial_exact",
+      "group": "exact",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "turns": [
+        {
+          "turn": 1,
+          "message": "帮我看一下合成机构丙2026年5月30日的经营收益金额当日数。",
+          "model_calls": 2,
+          "elapsed_ms": 17715,
+          "queries": [
+            {
+              "spec": {
+                "conversation_id": "synthetic-semantic",
+                "calculation_context": {
+                  "scope_id": "01a13d21-dc3f-767a-a576-2fe733527f9f:49309189-e30c-47f3-89cb-9876b7070e30",
+                  "user_question": "帮我看一下合成机构丙2026年5月30日的经营收益金额当日数"
+                },
+                "source_question": "帮我看一下合成机构丙2026年5月30日的经营收益金额当日数",
+                "source_metric_bindings": [
+                  {
+                    "start": 21,
+                    "end": 30,
+                    "text": "经营收益金额当日数",
+                    "codes": [
+                      "SYNTH_M:D"
+                    ]
+                  }
+                ],
+                "metric_codes": [
+                  "SYNTH_M:D"
+                ],
+                "schema_version": 2,
+                "org_codes": [
+                  "SYNTH_O3"
+                ],
+                "time": {
+                  "start": "2026-05-30",
+                  "end": "2026-05-30"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "row_count": 1,
+              "rows": [
+                {
+                  "metric_code": "SYNTH_M:D",
+                  "metric_name": "经营收益金额当日数",
+                  "unit": "元",
+                  "org_code": "SYNTH_O3",
+                  "org_name": "合成机构丙",
+                  "metric_value": 40,
+                  "stat_date": "2026-05-30"
+                }
+              ]
+            }
+          ],
+          "receipts": [
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "protocol_version": 2,
+                "status": "succeeded",
+                "state": {
+                  "task_ref": "ebbffd49-c731-4751-8ef7-9fb4eaf9fe44",
+                  "task_status": "completed",
+                  "completion": "full",
+                  "raw_message_retained": true,
+                  "proposals_retained": true,
+                  "targets": [
+                    {
+                      "target_ref": "d39c57bf-f0aa-47ad-97f0-dfa38df733cb",
+                      "status": "succeeded",
+                      "conditions": [
+                        {
+                          "field": "organizations",
+                          "display": "合成机构丙",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "metrics",
+                          "display": "经营收益金额当日数",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "time",
+                          "display": "2026年5月30日",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "operation",
+                          "display": "查询操作",
+                          "origin": "rule_default"
+                        },
+                        {
+                          "field": "selection",
+                          "display": "指定日期",
+                          "origin": "rule_default"
+                        }
+                      ],
+                      "pending": [],
+                      "label": "合成机构丙 / 2026年5月30日 / 经营收益金额当日数",
+                      "aliases": [
+                        "合成机构丙 / 2026年5月30日 / 经营收益金额当日数",
+                        "合成机构丙",
+                        "2026年5月30日",
+                        "经营收益金额当日数",
+                        "2026年5月30日经营收益金额当日数",
+                        "合成机构丙2026年5月30日经营收益金额当日数"
+                      ],
+                      "kind": "query"
+                    }
+                  ],
+                  "evidence": {
+                    "kind": "metric_query_structured",
+                    "task_id": "query-1",
+                    "version": 1,
+                    "result_id": "result-query-1",
+                    "public_answer": "合成数据SQL完成",
+                    "status": "succeeded",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "rows": [
+                      {
+                        "metric_code": "SYNTH_M:D",
+                        "metric_name": "经营收益金额当日数",
+                        "unit": "元",
+                        "org_code": "SYNTH_O3",
+                        "org_name": "合成机构丙",
+                        "metric_value": 40,
+                        "stat_date": "2026-05-30"
+                      }
+                    ],
+                    "row_count": 1,
+                    "truncated": false,
+                    "frame_id": "4bfbb872-5a93-496b-9f05-46e0ccb0ca1d",
+                    "delivery": "business_evidence_v1",
+                    "payloads": [
+                      {
+                        "status": "succeeded",
+                        "task_id": "query-1",
+                        "version": 1,
+                        "result_id": "result-query-1",
+                        "columns": [
+                          "metric_code",
+                          "metric_name",
+                          "unit",
+                          "org_code",
+                          "org_name",
+                          "metric_value",
+                          "stat_date"
+                        ],
+                        "sample_rows": [
+                          {
+                            "metric_code": "SYNTH_M:D",
+                            "metric_name": "经营收益金额当日数",
+                            "unit": "元",
+                            "org_code": "SYNTH_O3",
+                            "org_name": "合成机构丙",
+                            "metric_value": 40,
+                            "stat_date": "2026-05-30"
+                          }
+                        ],
+                        "facts": [
+                          {
+                            "fact_id": "fact:query-1:0:metric_value",
+                            "task_id": "query-1",
+                            "field": "metric_value",
+                            "value": "40",
+                            "unit": "元",
+                            "metric_code": "SYNTH_M:D",
+                            "metric_name": "经营收益金额当日数",
+                            "org_code": "SYNTH_O3",
+                            "org_name": "合成机构丙",
+                            "date": "2026-05-30"
+                          }
+                        ],
+                        "fact_count": 1,
+                        "facts_truncated": false,
+                        "row_count": 1,
+                        "truncated": false,
+                        "error_code": null,
+                        "message": "合成数据SQL完成",
+                        "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                        "frame_id": "4bfbb872-5a93-496b-9f05-46e0ccb0ca1d",
+                        "result_ref": "query:query-1:result-query-1"
+                      }
+                    ]
+                  }
+                },
+                "issues": [],
+                "continuation": {
+                  "actor": "pi",
+                  "action": "answer"
+                }
+              },
+              "is_error": false
+            }
+          ],
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 2,
+                "intent": "query",
+                "targets": [
+                  {
+                    "source": {
+                      "kind": "new"
+                    },
+                    "operations": [
+                      {
+                        "action": "set",
+                        "field": "organizations",
+                        "value": "合成机构丙"
+                      },
+                      {
+                        "action": "set",
+                        "field": "metrics",
+                        "value": "经营收益金额"
+                      },
+                      {
+                        "action": "set",
+                        "field": "time",
+                        "value": "2026年5月30日"
+                      },
+                      {
+                        "action": "set",
+                        "field": "selection",
+                        "value": "当日数"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "answer": "\n已为您查询到结果：\n\n**合成机构丙** 在 **2026年5月30日** 的 **经营收益金额当日数** 为 **40 元**。",
+          "completion": "full",
+          "model_error_codes": []
+        }
+      ]
+    },
+    {
+      "case_id": "iso_date",
+      "group": "exact",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "turns": [
+        {
+          "turn": 1,
+          "message": "合成机构丙的经营收益金额当日数，日期是2026-05-30，麻烦查一下",
+          "model_calls": 2,
+          "elapsed_ms": 8364,
+          "queries": [
+            {
+              "spec": {
+                "conversation_id": "synthetic-semantic",
+                "calculation_context": {
+                  "scope_id": "01a13d22-2174-767a-a576-2ffb38a3ccdc:8dadf127-bf0e-44ed-95a9-027794dccba3",
+                  "user_question": "合成机构丙的经营收益金额当日数，日期是2026-05-30，麻烦查一下"
+                },
+                "source_question": "合成机构丙的经营收益金额当日数，日期是2026-05-30，麻烦查一下",
+                "source_metric_bindings": [
+                  {
+                    "start": 6,
+                    "end": 15,
+                    "text": "经营收益金额当日数",
+                    "codes": [
+                      "SYNTH_M:D"
+                    ]
+                  }
+                ],
+                "metric_codes": [
+                  "SYNTH_M:D"
+                ],
+                "schema_version": 2,
+                "org_codes": [
+                  "SYNTH_O3"
+                ],
+                "time": {
+                  "start": "2026-05-30",
+                  "end": "2026-05-30"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "row_count": 1,
+              "rows": [
+                {
+                  "metric_code": "SYNTH_M:D",
+                  "metric_name": "经营收益金额当日数",
+                  "unit": "元",
+                  "org_code": "SYNTH_O3",
+                  "org_name": "合成机构丙",
+                  "metric_value": 40,
+                  "stat_date": "2026-05-30"
+                }
+              ]
+            }
+          ],
+          "receipts": [
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "protocol_version": 2,
+                "status": "succeeded",
+                "state": {
+                  "task_ref": "a948fcec-d1e5-4138-aaa8-8c66518c9b4f",
+                  "task_status": "completed",
+                  "completion": "full",
+                  "raw_message_retained": true,
+                  "proposals_retained": true,
+                  "targets": [
+                    {
+                      "target_ref": "2cd927c4-63e5-42af-a9d5-0601d2beed8d",
+                      "status": "succeeded",
+                      "conditions": [
+                        {
+                          "field": "organizations",
+                          "display": "合成机构丙",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "metrics",
+                          "display": "经营收益金额当日数",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "time",
+                          "display": "2026-05-30",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "operation",
+                          "display": "查询操作",
+                          "origin": "rule_default"
+                        },
+                        {
+                          "field": "selection",
+                          "display": "指定日期",
+                          "origin": "rule_default"
+                        }
+                      ],
+                      "pending": [],
+                      "label": "合成机构丙 / 2026-05-30 / 经营收益金额当日数",
+                      "aliases": [
+                        "合成机构丙 / 2026-05-30 / 经营收益金额当日数",
+                        "合成机构丙",
+                        "2026-05-30",
+                        "经营收益金额当日数",
+                        "2026-05-30经营收益金额当日数",
+                        "合成机构丙2026-05-30经营收益金额当日数"
+                      ],
+                      "kind": "query"
+                    }
+                  ],
+                  "evidence": {
+                    "kind": "metric_query_structured",
+                    "task_id": "query-1",
+                    "version": 1,
+                    "result_id": "result-query-1",
+                    "public_answer": "合成数据SQL完成",
+                    "status": "succeeded",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "rows": [
+                      {
+                        "metric_code": "SYNTH_M:D",
+                        "metric_name": "经营收益金额当日数",
+                        "unit": "元",
+                        "org_code": "SYNTH_O3",
+                        "org_name": "合成机构丙",
+                        "metric_value": 40,
+                        "stat_date": "2026-05-30"
+                      }
+                    ],
+                    "row_count": 1,
+                    "truncated": false,
+                    "frame_id": "e712aa86-1bf4-44f0-8754-33d68a470d32",
+                    "delivery": "business_evidence_v1",
+                    "payloads": [
+                      {
+                        "status": "succeeded",
+                        "task_id": "query-1",
+                        "version": 1,
+                        "result_id": "result-query-1",
+                        "columns": [
+                          "metric_code",
+                          "metric_name",
+                          "unit",
+                          "org_code",
+                          "org_name",
+                          "metric_value",
+                          "stat_date"
+                        ],
+                        "sample_rows": [
+                          {
+                            "metric_code": "SYNTH_M:D",
+                            "metric_name": "经营收益金额当日数",
+                            "unit": "元",
+                            "org_code": "SYNTH_O3",
+                            "org_name": "合成机构丙",
+                            "metric_value": 40,
+                            "stat_date": "2026-05-30"
+                          }
+                        ],
+                        "facts": [
+                          {
+                            "fact_id": "fact:query-1:0:metric_value",
+                            "task_id": "query-1",
+                            "field": "metric_value",
+                            "value": "40",
+                            "unit": "元",
+                            "metric_code": "SYNTH_M:D",
+                            "metric_name": "经营收益金额当日数",
+                            "org_code": "SYNTH_O3",
+                            "org_name": "合成机构丙",
+                            "date": "2026-05-30"
+                          }
+                        ],
+                        "fact_count": 1,
+                        "facts_truncated": false,
+                        "row_count": 1,
+                        "truncated": false,
+                        "error_code": null,
+                        "message": "合成数据SQL完成",
+                        "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                        "frame_id": "e712aa86-1bf4-44f0-8754-33d68a470d32",
+                        "result_ref": "query:query-1:result-query-1"
+                      }
+                    ]
+                  }
+                },
+                "issues": [],
+                "continuation": {
+                  "actor": "pi",
+                  "action": "answer"
+                }
+              },
+              "is_error": false
+            }
+          ],
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 2,
+                "intent": "query",
+                "targets": [
+                  {
+                    "source": {
+                      "kind": "new"
+                    },
+                    "operations": [
+                      {
+                        "action": "set",
+                        "field": "organizations",
+                        "value": "合成机构丙"
+                      },
+                      {
+                        "action": "set",
+                        "field": "metrics",
+                        "value": "经营收益金额"
+                      },
+                      {
+                        "action": "set",
+                        "field": "time",
+                        "value": "2026-05-30"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "answer": "\n查询已完成，结果如下：\n\n**合成机构丙** 在 **2026-05-30** 的 **经营收益金额当日数** 为 **40元**。\n\n如需进一步分析或对比其他日期、机构，请随时告诉我。",
+          "completion": "full",
+          "model_error_codes": []
+        }
+      ]
+    },
+    {
+      "case_id": "iso_date",
+      "group": "exact",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "turns": [
+        {
+          "turn": 1,
+          "message": "合成机构丙的经营收益金额当日数，日期是2026-05-30，麻烦查一下",
+          "model_calls": 2,
+          "elapsed_ms": 6190,
+          "queries": [
+            {
+              "spec": {
+                "conversation_id": "synthetic-semantic",
+                "calculation_context": {
+                  "scope_id": "01a13d22-4222-767a-a576-300efdff8a1c",
+                  "user_question": "合成机构丙的经营收益金额当日数，日期是2026-05-30，麻烦查一下"
+                },
+                "source_question": "合成机构丙的经营收益金额当日数，日期是2026-05-30，麻烦查一下",
+                "source_metric_bindings": [
+                  {
+                    "start": 6,
+                    "end": 15,
+                    "text": "经营收益金额当日数",
+                    "codes": [
+                      "SYNTH_M:D"
+                    ]
+                  }
+                ],
+                "metric_codes": [
+                  "SYNTH_M:D"
+                ],
+                "schema_version": 2,
+                "org_codes": [
+                  "SYNTH_O3"
+                ],
+                "time": {
+                  "start": "2026-05-30",
+                  "end": "2026-05-30"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "row_count": 1,
+              "rows": [
+                {
+                  "metric_code": "SYNTH_M:D",
+                  "metric_name": "经营收益金额当日数",
+                  "unit": "元",
+                  "org_code": "SYNTH_O3",
+                  "org_name": "合成机构丙",
+                  "metric_value": 40,
+                  "stat_date": "2026-05-30"
+                }
+              ]
+            }
+          ],
+          "receipts": [
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "kind": "metric_query_structured",
+                "task_id": "query-1",
+                "version": 1,
+                "result_id": "result-query-1",
+                "public_answer": "合成数据SQL完成",
+                "status": "succeeded",
+                "columns": [
+                  "metric_code",
+                  "metric_name",
+                  "unit",
+                  "org_code",
+                  "org_name",
+                  "metric_value",
+                  "stat_date"
+                ],
+                "rows": [
+                  {
+                    "metric_code": "SYNTH_M:D",
+                    "metric_name": "经营收益金额当日数",
+                    "unit": "元",
+                    "org_code": "SYNTH_O3",
+                    "org_name": "合成机构丙",
+                    "metric_value": 40,
+                    "stat_date": "2026-05-30"
+                  }
+                ],
+                "row_count": 1,
+                "truncated": false,
+                "frame_id": "caca984c-41c3-4334-9a51-f138b9647df8",
+                "delivery": "business_evidence_v1",
+                "display_conditions": [
+                  {
+                    "label": "指标",
+                    "value": "经营收益金额当日数"
+                  },
+                  {
+                    "label": "机构",
+                    "value": "合成机构丙"
+                  },
+                  {
+                    "label": "日期",
+                    "value": "2026-05-30"
+                  }
+                ]
+              },
+              "is_error": false
+            }
+          ],
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 1,
+                "capability": "metric_query",
+                "base": null,
+                "mode": "execute",
+                "changes": {
+                  "metrics": {
+                    "action": "set",
+                    "value": {
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  "organizations": {
+                    "action": "set",
+                    "source_text": "合成机构丙",
+                    "expected_count": 1,
+                    "value": {
+                      "kind": "name",
+                      "name": "合成机构丙"
+                    }
+                  },
+                  "time": {
+                    "action": "set",
+                    "value": "2026-05-30"
+                  },
+                  "selection": {
+                    "action": "set",
+                    "value": "exact"
+                  }
+                }
+              }
+            }
+          ],
+          "answer": "\n已为您查到：**合成机构丙**在 **2026-05-30** 的**经营收益金额当日数**为 **40 元**。\n\n如需进一步查看其他日期或指标，随时告诉我。",
+          "model_error_codes": []
+        }
+      ]
+    },
+    {
+      "case_id": "metric_before_org",
+      "group": "exact",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "turns": [
+        {
+          "turn": 1,
+          "message": "经营收益金额当日数：2026年5月30日，合成机构丙",
+          "model_calls": 2,
+          "elapsed_ms": 5091,
+          "queries": [
+            {
+              "spec": {
+                "conversation_id": "synthetic-semantic",
+                "calculation_context": {
+                  "scope_id": "01a13d22-5a52-767a-a576-3022f458853b",
+                  "user_question": "经营收益金额当日数：2026年5月30日，合成机构丙"
+                },
+                "source_question": "经营收益金额当日数：2026年5月30日，合成机构丙",
+                "source_metric_bindings": [
+                  {
+                    "start": 0,
+                    "end": 9,
+                    "text": "经营收益金额当日数",
+                    "codes": [
+                      "SYNTH_M:D"
+                    ]
+                  }
+                ],
+                "metric_codes": [
+                  "SYNTH_M:D"
+                ],
+                "schema_version": 2,
+                "org_codes": [
+                  "SYNTH_O3"
+                ],
+                "time": {
+                  "start": "2026-05-30",
+                  "end": "2026-05-30"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "row_count": 1,
+              "rows": [
+                {
+                  "metric_code": "SYNTH_M:D",
+                  "metric_name": "经营收益金额当日数",
+                  "unit": "元",
+                  "org_code": "SYNTH_O3",
+                  "org_name": "合成机构丙",
+                  "metric_value": 40,
+                  "stat_date": "2026-05-30"
+                }
+              ]
+            }
+          ],
+          "receipts": [
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "kind": "metric_query_structured",
+                "task_id": "query-1",
+                "version": 1,
+                "result_id": "result-query-1",
+                "public_answer": "合成数据SQL完成",
+                "status": "succeeded",
+                "columns": [
+                  "metric_code",
+                  "metric_name",
+                  "unit",
+                  "org_code",
+                  "org_name",
+                  "metric_value",
+                  "stat_date"
+                ],
+                "rows": [
+                  {
+                    "metric_code": "SYNTH_M:D",
+                    "metric_name": "经营收益金额当日数",
+                    "unit": "元",
+                    "org_code": "SYNTH_O3",
+                    "org_name": "合成机构丙",
+                    "metric_value": 40,
+                    "stat_date": "2026-05-30"
+                  }
+                ],
+                "row_count": 1,
+                "truncated": false,
+                "frame_id": "23c7d7e9-6130-4507-a618-d126c932ad57",
+                "delivery": "business_evidence_v1",
+                "display_conditions": [
+                  {
+                    "label": "指标",
+                    "value": "经营收益金额当日数"
+                  },
+                  {
+                    "label": "机构",
+                    "value": "合成机构丙"
+                  },
+                  {
+                    "label": "日期",
+                    "value": "2026-05-30"
+                  }
+                ]
+              },
+              "is_error": false
+            }
+          ],
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 1,
+                "capability": "metric_query",
+                "base": null,
+                "mode": "execute",
+                "changes": {
+                  "metrics": {
+                    "action": "set",
+                    "value": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  "organizations": {
+                    "action": "set",
+                    "source_text": "合成机构丙",
+                    "expected_count": 1,
+                    "value": {
+                      "kind": "name",
+                      "name": "合成机构丙"
+                    }
+                  },
+                  "time": {
+                    "action": "set",
+                    "value": "2026年5月30日"
+                  },
+                  "selection": {
+                    "action": "set",
+                    "value": "exact"
+                  },
+                  "operation": {
+                    "action": "set",
+                    "value": {
+                      "kind": "value"
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "answer": "\n合成机构丙在2026年5月30日的经营收益金额当日数为 **40元**。",
+          "model_error_codes": []
+        }
+      ]
+    },
+    {
+      "case_id": "metric_before_org",
+      "group": "exact",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "turns": [
+        {
+          "turn": 1,
+          "message": "经营收益金额当日数：2026年5月30日，合成机构丙",
+          "model_calls": 2,
+          "elapsed_ms": 6647,
+          "queries": [
+            {
+              "spec": {
+                "conversation_id": "synthetic-semantic",
+                "calculation_context": {
+                  "scope_id": "01a13d22-6e39-767a-a576-3036bbda5633:474d096b-8527-401e-a044-5d55af66829c",
+                  "user_question": "经营收益金额当日数：2026年5月30日，合成机构丙"
+                },
+                "source_question": "经营收益金额当日数：2026年5月30日，合成机构丙",
+                "source_metric_bindings": [
+                  {
+                    "start": 0,
+                    "end": 9,
+                    "text": "经营收益金额当日数",
+                    "codes": [
+                      "SYNTH_M:D"
+                    ]
+                  }
+                ],
+                "metric_codes": [
+                  "SYNTH_M:D"
+                ],
+                "schema_version": 2,
+                "org_codes": [
+                  "SYNTH_O3"
+                ],
+                "time": {
+                  "start": "2026-05-30",
+                  "end": "2026-05-30"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "row_count": 1,
+              "rows": [
+                {
+                  "metric_code": "SYNTH_M:D",
+                  "metric_name": "经营收益金额当日数",
+                  "unit": "元",
+                  "org_code": "SYNTH_O3",
+                  "org_name": "合成机构丙",
+                  "metric_value": 40,
+                  "stat_date": "2026-05-30"
+                }
+              ]
+            }
+          ],
+          "receipts": [
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "protocol_version": 2,
+                "status": "succeeded",
+                "state": {
+                  "task_ref": "61beba98-3d06-4bbc-84f8-e54bb788fc47",
+                  "task_status": "completed",
+                  "completion": "full",
+                  "raw_message_retained": true,
+                  "proposals_retained": true,
+                  "targets": [
+                    {
+                      "target_ref": "e7faee20-b730-4fd0-bc82-4af53af1aebf",
+                      "status": "succeeded",
+                      "conditions": [
+                        {
+                          "field": "organizations",
+                          "display": "合成机构丙",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "metrics",
+                          "display": "经营收益金额当日数",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "time",
+                          "display": "2026年5月30日",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "operation",
+                          "display": "查询操作",
+                          "origin": "rule_default"
+                        },
+                        {
+                          "field": "selection",
+                          "display": "指定日期",
+                          "origin": "rule_default"
+                        }
+                      ],
+                      "pending": [],
+                      "label": "合成机构丙 / 2026年5月30日 / 经营收益金额当日数",
+                      "aliases": [
+                        "合成机构丙 / 2026年5月30日 / 经营收益金额当日数",
+                        "合成机构丙",
+                        "2026年5月30日",
+                        "经营收益金额当日数",
+                        "2026年5月30日经营收益金额当日数",
+                        "合成机构丙2026年5月30日经营收益金额当日数"
+                      ],
+                      "kind": "query"
+                    }
+                  ],
+                  "evidence": {
+                    "kind": "metric_query_structured",
+                    "task_id": "query-1",
+                    "version": 1,
+                    "result_id": "result-query-1",
+                    "public_answer": "合成数据SQL完成",
+                    "status": "succeeded",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "rows": [
+                      {
+                        "metric_code": "SYNTH_M:D",
+                        "metric_name": "经营收益金额当日数",
+                        "unit": "元",
+                        "org_code": "SYNTH_O3",
+                        "org_name": "合成机构丙",
+                        "metric_value": 40,
+                        "stat_date": "2026-05-30"
+                      }
+                    ],
+                    "row_count": 1,
+                    "truncated": false,
+                    "frame_id": "7d1b7b6b-5ec1-469b-baf8-62a521211827",
+                    "delivery": "business_evidence_v1",
+                    "payloads": [
+                      {
+                        "status": "succeeded",
+                        "task_id": "query-1",
+                        "version": 1,
+                        "result_id": "result-query-1",
+                        "columns": [
+                          "metric_code",
+                          "metric_name",
+                          "unit",
+                          "org_code",
+                          "org_name",
+                          "metric_value",
+                          "stat_date"
+                        ],
+                        "sample_rows": [
+                          {
+                            "metric_code": "SYNTH_M:D",
+                            "metric_name": "经营收益金额当日数",
+                            "unit": "元",
+                            "org_code": "SYNTH_O3",
+                            "org_name": "合成机构丙",
+                            "metric_value": 40,
+                            "stat_date": "2026-05-30"
+                          }
+                        ],
+                        "facts": [
+                          {
+                            "fact_id": "fact:query-1:0:metric_value",
+                            "task_id": "query-1",
+                            "field": "metric_value",
+                            "value": "40",
+                            "unit": "元",
+                            "metric_code": "SYNTH_M:D",
+                            "metric_name": "经营收益金额当日数",
+                            "org_code": "SYNTH_O3",
+                            "org_name": "合成机构丙",
+                            "date": "2026-05-30"
+                          }
+                        ],
+                        "fact_count": 1,
+                        "facts_truncated": false,
+                        "row_count": 1,
+                        "truncated": false,
+                        "error_code": null,
+                        "message": "合成数据SQL完成",
+                        "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                        "frame_id": "7d1b7b6b-5ec1-469b-baf8-62a521211827",
+                        "result_ref": "query:query-1:result-query-1"
+                      }
+                    ]
+                  }
+                },
+                "issues": [],
+                "continuation": {
+                  "actor": "pi",
+                  "action": "answer"
+                }
+              },
+              "is_error": false
+            }
+          ],
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 2,
+                "intent": "query",
+                "targets": [
+                  {
+                    "source": {
+                      "kind": "new"
+                    },
+                    "operations": [
+                      {
+                        "action": "set",
+                        "field": "organizations",
+                        "value": "合成机构丙"
+                      },
+                      {
+                        "action": "set",
+                        "field": "metrics",
+                        "value": "经营收益金额当日数"
+                      },
+                      {
+                        "action": "set",
+                        "field": "time",
+                        "value": "2026年5月30日"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "answer": "\n查询已完成，结果如下：\n\n**合成机构丙｜2026年5月30日｜经营收益金额当日数**\n\n- 经营收益金额当日数：**40 元**\n- 日期：2026-05-30\n\n明细数据已在结果表中展示。如需进一步查询或分析，请告知。",
+          "completion": "full",
+          "model_error_codes": []
+        }
+      ]
+    },
+    {
+      "case_id": "missing_date_followup",
+      "group": "clarification",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "turns": [
+        {
+          "turn": 1,
+          "message": "想看合成机构丙的经营收益金额当日数",
+          "model_calls": 1,
+          "elapsed_ms": 5034,
+          "queries": [],
+          "receipts": [
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "protocol_version": 2,
+                "status": "needs_user",
+                "state": {
+                  "task_ref": "f797307e-ea77-4c61-a208-eef462e74729",
+                  "task_status": "waiting_input",
+                  "completion": "unmet",
+                  "raw_message_retained": true,
+                  "proposals_retained": true,
+                  "targets": [
+                    {
+                      "target_ref": "c6ae8f5d-8c19-4e57-98a5-ee74ccbe0c7a",
+                      "status": "blocked",
+                      "conditions": [
+                        {
+                          "field": "organizations",
+                          "display": "合成机构丙",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "metrics",
+                          "display": "经营收益金额当日数",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "operation",
+                          "display": "查询操作",
+                          "origin": "rule_default"
+                        }
+                      ],
+                      "pending": [
+                        "当日"
+                      ],
+                      "label": "合成机构丙 / 经营收益金额当日数",
+                      "aliases": [
+                        "合成机构丙 / 经营收益金额当日数",
+                        "合成机构丙",
+                        "经营收益金额当日数",
+                        "合成机构丙经营收益金额当日数"
+                      ],
+                      "kind": "query"
+                    }
+                  ]
+                },
+                "issues": [
+                  {
+                    "code": "FIELD_REQUIRED",
+                    "field": "time",
+                    "message": "请补充查询日期范围。",
+                    "remediation": "user",
+                    "category": "calendar"
+                  }
+                ],
+                "continuation": {
+                  "actor": "user",
+                  "action": "ask_user"
+                }
+              },
+              "is_error": false
+            }
+          ],
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 2,
+                "intent": "query",
+                "targets": [
+                  {
+                    "source": {
+                      "kind": "new"
+                    },
+                    "operations": [
+                      {
+                        "action": "set",
+                        "field": "organizations",
+                        "value": "合成机构丙"
+                      },
+                      {
+                        "action": "set",
+                        "field": "metrics",
+                        "value": "经营收益金额"
+                      },
+                      {
+                        "action": "set",
+                        "field": "time",
+                        "value": "当日"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "answer": "\n请补充查询日期范围。\n\n已保存条件：机构：合成机构丙；指标：经营收益金额当日数；取数条件：查询操作",
+          "completion": "unmet",
+          "model_error_codes": []
+        },
+        {
+          "turn": 2,
+          "message": "2026年5月30日",
+          "model_calls": 2,
+          "elapsed_ms": 7788,
+          "queries": [
+            {
+              "spec": {
+                "source_semantic_receipt": "eyJjYXRhbG9nIjoiYzUzMzEwMDQ0ZjQwZGZlZThjYWJhYWUyNTljZDM4M2RiNmY4Yzg1ZGVjY2RlZDE2MzhmMWQzZjRkMzg2NGFhMSIsImNvZGVzIjpbIlNZTlRIX006RCJdLCJjb252ZXJzYXRpb24iOiJzeW50aGV0aWMtc2VtYW50aWMiLCJnb2FsX2hhc2giOiI1MTBmYjdlNGIyM2I3ZGYzYmFhZjVkMjRmN2YyMWRmYzBmMDM2ZmU4NjFjYjg3ZmE5ZDY2YjI1ZDE0MDc1NzhkIiwib3duZXIiOiJzeW50aGV0aWMtc2VtYW50aWMiLCJzY29wZSI6eyJtZXRyaWNfY29kZXMiOlsiU1lOVEhfTTpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX08zIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNS0zMCIsInN0YXJ0IjoiMjAyNi0wNS0zMCJ9fSwic2Vzc2lvbiI6IjAxYTEzZDIyLTg4MzAtNzY3YS1hNTc2LTMwNDkwYTYwZmFlMCIsInYiOjF9.Rl1cXCNFJefQX_8UjyIC_HT4YqiXwDVfJNyCFu6LMAs",
+                "conversation_id": "synthetic-semantic",
+                "calculation_context": {
+                  "scope_id": "01a13d22-9bdb-767a-a576-30562ad0bfe9:d109e2ae-6523-4c95-9e29-7cad0f7a1a44",
+                  "user_question": "2026年5月30日"
+                },
+                "metric_codes": [
+                  "SYNTH_M:D"
+                ],
+                "schema_version": 2,
+                "org_codes": [
+                  "SYNTH_O3"
+                ],
+                "time": {
+                  "start": "2026-05-30",
+                  "end": "2026-05-30"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "row_count": 1,
+              "rows": [
+                {
+                  "metric_code": "SYNTH_M:D",
+                  "metric_name": "经营收益金额当日数",
+                  "unit": "元",
+                  "org_code": "SYNTH_O3",
+                  "org_name": "合成机构丙",
+                  "metric_value": 40,
+                  "stat_date": "2026-05-30"
+                }
+              ]
+            }
+          ],
+          "receipts": [
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "protocol_version": 2,
+                "status": "succeeded",
+                "state": {
+                  "task_ref": "f797307e-ea77-4c61-a208-eef462e74729",
+                  "task_status": "completed",
+                  "completion": "full",
+                  "raw_message_retained": true,
+                  "proposals_retained": true,
+                  "targets": [
+                    {
+                      "target_ref": "84b32541-f52e-4ed0-9878-1d464b70a209",
+                      "status": "succeeded",
+                      "conditions": [
+                        {
+                          "field": "organizations",
+                          "display": "合成机构丙",
+                          "origin": "history"
+                        },
+                        {
+                          "field": "metrics",
+                          "display": "经营收益金额当日数",
+                          "origin": "history"
+                        },
+                        {
+                          "field": "time",
+                          "display": "2026年5月30日",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "operation",
+                          "display": "查询操作",
+                          "origin": "rule_default"
+                        },
+                        {
+                          "field": "selection",
+                          "display": "指定日期",
+                          "origin": "rule_default"
+                        }
+                      ],
+                      "pending": [],
+                      "label": "合成机构丙 / 经营收益金额当日数",
+                      "aliases": [
+                        "合成机构丙 / 经营收益金额当日数",
+                        "合成机构丙",
+                        "2026年5月30日",
+                        "经营收益金额当日数",
+                        "2026年5月30日经营收益金额当日数",
+                        "合成机构丙2026年5月30日经营收益金额当日数"
+                      ],
+                      "kind": "query"
+                    }
+                  ],
+                  "evidence": {
+                    "kind": "metric_query_structured",
+                    "task_id": "query-1",
+                    "version": 1,
+                    "result_id": "result-query-1",
+                    "public_answer": "合成数据SQL完成",
+                    "status": "succeeded",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "rows": [
+                      {
+                        "metric_code": "SYNTH_M:D",
+                        "metric_name": "经营收益金额当日数",
+                        "unit": "元",
+                        "org_code": "SYNTH_O3",
+                        "org_name": "合成机构丙",
+                        "metric_value": 40,
+                        "stat_date": "2026-05-30"
+                      }
+                    ],
+                    "row_count": 1,
+                    "truncated": false,
+                    "frame_id": "cff216fb-fae7-4234-a4af-7857267bd74b",
+                    "delivery": "business_evidence_v1",
+                    "payloads": [
+                      {
+                        "status": "succeeded",
+                        "task_id": "query-1",
+                        "version": 1,
+                        "result_id": "result-query-1",
+                        "columns": [
+                          "metric_code",
+                          "metric_name",
+                          "unit",
+                          "org_code",
+                          "org_name",
+                          "metric_value",
+                          "stat_date"
+                        ],
+                        "sample_rows": [
+                          {
+                            "metric_code": "SYNTH_M:D",
+                            "metric_name": "经营收益金额当日数",
+                            "unit": "元",
+                            "org_code": "SYNTH_O3",
+                            "org_name": "合成机构丙",
+                            "metric_value": 40,
+                            "stat_date": "2026-05-30"
+                          }
+                        ],
+                        "facts": [
+                          {
+                            "fact_id": "fact:query-1:0:metric_value",
+                            "task_id": "query-1",
+                            "field": "metric_value",
+                            "value": "40",
+                            "unit": "元",
+                            "metric_code": "SYNTH_M:D",
+                            "metric_name": "经营收益金额当日数",
+                            "org_code": "SYNTH_O3",
+                            "org_name": "合成机构丙",
+                            "date": "2026-05-30"
+                          }
+                        ],
+                        "fact_count": 1,
+                        "facts_truncated": false,
+                        "row_count": 1,
+                        "truncated": false,
+                        "error_code": null,
+                        "message": "合成数据SQL完成",
+                        "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                        "frame_id": "cff216fb-fae7-4234-a4af-7857267bd74b",
+                        "result_ref": "query:query-1:result-query-1"
+                      }
+                    ]
+                  }
+                },
+                "issues": [],
+                "continuation": {
+                  "actor": "pi",
+                  "action": "answer"
+                }
+              },
+              "is_error": false
+            }
+          ],
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 2,
+                "intent": "query",
+                "targets": [
+                  {
+                    "source": {
+                      "kind": "current"
+                    },
+                    "operations": [
+                      {
+                        "action": "set",
+                        "field": "time",
+                        "value": "2026年5月30日"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "answer": "\n合成机构丙在2026年5月30日的**经营收益金额当日数**为 **40元**。",
+          "completion": "full",
+          "model_error_codes": []
+        }
+      ]
+    },
+    {
+      "case_id": "missing_date_followup",
+      "group": "clarification",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "turns": [
+        {
+          "turn": 1,
+          "message": "想看合成机构丙的经营收益金额当日数",
+          "model_calls": 1,
+          "elapsed_ms": 6139,
+          "queries": [],
+          "receipts": [
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "kind": "business_context",
+                "status": "NEEDS_CLARIFICATION",
+                "frame_id": "d9fad8bf-247a-44a7-b0f0-fdd50db1b5bc",
+                "execution_mode": "execute",
+                "issues": [
+                  {
+                    "field": "time",
+                    "reason": "invalid"
+                  }
+                ],
+                "display_conditions": [
+                  {
+                    "label": "指标",
+                    "value": "经营收益金额当日数"
+                  },
+                  {
+                    "label": "机构",
+                    "value": "合成机构丙"
+                  }
+                ],
+                "retryable": false,
+                "delivery": "frame_clarification_v1",
+                "public_answer": "日期范围无效，请提供有效的日期范围。"
+              },
+              "is_error": false
+            }
+          ],
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 1,
+                "capability": "metric_query",
+                "base": null,
+                "mode": "execute",
+                "changes": {
+                  "metrics": {
+                    "action": "set",
+                    "value": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  "organizations": {
+                    "action": "set",
+                    "source_text": "合成机构丙",
+                    "expected_count": 1,
+                    "value": {
+                      "kind": "name",
+                      "name": "合成机构丙"
+                    }
+                  },
+                  "time": {
+                    "action": "set",
+                    "value": "当日"
+                  },
+                  "selection": {
+                    "action": "set",
+                    "value": "exact"
+                  }
+                }
+              }
+            }
+          ],
+          "answer": "\n日期范围无效，请提供有效的日期范围。",
+          "model_error_codes": []
+        },
+        {
+          "turn": 2,
+          "message": "2026年5月30日",
+          "model_calls": 1,
+          "elapsed_ms": 1669,
+          "queries": [],
+          "receipts": [
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "kind": "business_context",
+                "status": "NEEDS_CLARIFICATION",
+                "frame_id": "08837324-185c-44c7-9eaf-d3d964ecd23f",
+                "execution_mode": "execute",
+                "issues": [
+                  {
+                    "field": "time",
+                    "reason": "invalid"
+                  }
+                ],
+                "display_conditions": [
+                  {
+                    "label": "指标",
+                    "value": "经营收益金额当日数"
+                  },
+                  {
+                    "label": "机构",
+                    "value": "合成机构丙"
+                  }
+                ],
+                "retryable": false,
+                "delivery": "frame_clarification_v1",
+                "public_answer": "日期范围无效，请提供有效的日期范围。"
+              },
+              "is_error": false
+            }
+          ],
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 1,
+                "capability": "metric_query",
+                "base": {
+                  "frameId": "d9fad8bf-247a-44a7-b0f0-fdd50db1b5bc"
+                },
+                "mode": "execute",
+                "changes": {
+                  "metrics": {
+                    "action": "inherit"
+                  },
+                  "organizations": {
+                    "action": "inherit"
+                  },
+                  "selection": {
+                    "action": "inherit"
+                  },
+                  "operation": {
+                    "action": "inherit"
+                  }
+                }
+              }
+            }
+          ],
+          "answer": "\n日期范围无效，请提供有效的日期范围。",
+          "model_error_codes": []
+        }
+      ]
+    },
+    {
+      "case_id": "basis_confirmation",
+      "group": "clarification",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "turns": [
+        {
+          "turn": 1,
+          "message": "查合成机构丙2026年5月30日的经营收益金额",
+          "model_calls": 1,
+          "elapsed_ms": 2476,
+          "queries": [],
+          "receipts": [
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "kind": "business_context",
+                "status": "NEEDS_CLARIFICATION",
+                "frame_id": "528e458f-b751-4c19-82fc-f46c6ac05241",
+                "execution_mode": "execute",
+                "issues": [
+                  {
+                    "field": "metrics",
+                    "reason": "needs_confirmation"
+                  }
+                ],
+                "display_conditions": [
+                  {
+                    "label": "机构",
+                    "value": "合成机构丙"
+                  },
+                  {
+                    "label": "日期",
+                    "value": "2026-05-30"
+                  }
+                ],
+                "options": [
+                  {
+                    "title": "请选择「经营收益金额」的口径：",
+                    "options": [
+                      {
+                        "no": 1,
+                        "id": "metrics:0:code:SYNTH_M:D",
+                        "label": "经营收益金额当日数"
+                      },
+                      {
+                        "no": 2,
+                        "id": "metrics:0:code:SYNTH_M:Y",
+                        "label": "经营收益金额较同期"
+                      }
+                    ]
+                  }
+                ],
+                "listing": "请回复下列序号或名称：\n请选择「经营收益金额」的口径：\n1. 经营收益金额当日数\n2. 经营收益金额较同期",
+                "retryable": false,
+                "delivery": "frame_clarification_v1",
+                "public_answer": "请回复下列序号或名称：\n请选择「经营收益金额」的口径：\n1. 经营收益金额当日数\n2. 经营收益金额较同期"
+              },
+              "is_error": false
+            }
+          ],
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 1,
+                "capability": "metric_query",
+                "base": null,
+                "mode": "execute",
+                "changes": {
+                  "metrics": {
+                    "action": "set",
+                    "value": {
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  "organizations": {
+                    "action": "set",
+                    "source_text": "合成机构丙",
+                    "expected_count": 1,
+                    "value": {
+                      "kind": "name",
+                      "name": "合成机构丙"
+                    }
+                  },
+                  "time": {
+                    "action": "set",
+                    "value": "2026年5月30日"
+                  },
+                  "selection": {
+                    "action": "set",
+                    "value": "exact"
+                  }
+                }
+              }
+            }
+          ],
+          "answer": "\n请回复下列序号或名称：\n请选择「经营收益金额」的口径：\n1. 经营收益金额当日数\n2. 经营收益金额较同期",
+          "model_error_codes": []
+        },
+        {
+          "turn": 2,
+          "message": "用经营收益金额当日数这个指标",
+          "model_calls": 5,
+          "elapsed_ms": 13058,
+          "queries": [],
+          "receipts": [
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "kind": "business_context",
+                "status": "READY",
+                "frame_id": "d51fe2af-d12e-4402-a854-aad5d8625d87",
+                "execution_mode": "resolve_more",
+                "issues": [],
+                "display_conditions": [
+                  {
+                    "label": "指标",
+                    "value": "经营收益金额当日数"
+                  },
+                  {
+                    "label": "机构",
+                    "value": "合成机构丙"
+                  },
+                  {
+                    "label": "日期",
+                    "value": "2026-05-30"
+                  }
+                ]
+              },
+              "is_error": false
+            },
+            {
+              "name": "execute_business_frame",
+              "details": {
+                "kind": "business_context",
+                "status": "error",
+                "retryable": true,
+                "error_code": "FRAME_NOT_EXECUTABLE"
+              },
+              "is_error": false
+            },
+            {
+              "name": "business_context_read",
+              "details": {},
+              "is_error": false
+            },
+            {
+              "name": "execute_business_frame",
+              "details": {
+                "kind": "business_context",
+                "status": "error",
+                "retryable": true,
+                "error_code": "FRAME_NOT_EXECUTABLE"
+              },
+              "is_error": false
+            }
+          ],
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 1,
+                "capability": "metric_query",
+                "base": {
+                  "frameId": "528e458f-b751-4c19-82fc-f46c6ac05241"
+                },
+                "mode": "resolve_more",
+                "changes": {
+                  "metrics": {
+                    "action": "confirm",
+                    "source_text": "经营收益金额当日数",
+                    "decision": "select"
+                  },
+                  "organizations": {
+                    "action": "inherit"
+                  },
+                  "time": {
+                    "action": "inherit"
+                  },
+                  "selection": {
+                    "action": "inherit"
+                  }
+                }
+              }
+            },
+            {
+              "name": "execute_business_frame",
+              "args": {
+                "frameId": "d51fe2af-d12e-4402-a854-aad5d8625d87"
+              }
+            },
+            {
+              "name": "business_context_read",
+              "args": {
+                "selector": {
+                  "frameId": "d51fe2af-d12e-4402-a854-aad5d8625d87"
+                }
+              }
+            },
+            {
+              "name": "execute_business_frame",
+              "args": {
+                "frameId": "d51fe2af-d12e-4402-a854-aad5d8625d87"
+              }
+            }
+          ],
+          "answer": "\n\n\n\n本轮工具调用未通过校验或执行；相同参数重复提交后仍得到相同失败，已停止重复尝试。原查询条件仍保留，未完成的查询或计算不作为成功结果。",
+          "model_error_codes": []
+        }
+      ]
+    },
+    {
+      "case_id": "basis_confirmation",
+      "group": "clarification",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "turns": [
+        {
+          "turn": 1,
+          "message": "查合成机构丙2026年5月30日的经营收益金额",
+          "model_calls": 1,
+          "elapsed_ms": 6447,
+          "queries": [],
+          "receipts": [
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "protocol_version": 2,
+                "status": "needs_user",
+                "state": {
+                  "task_ref": "43e3fcd5-a306-4663-8099-207affa31e7f",
+                  "task_status": "waiting_input",
+                  "completion": "unmet",
+                  "raw_message_retained": true,
+                  "proposals_retained": true,
+                  "targets": [
+                    {
+                      "target_ref": "7c548fe6-2f8b-4678-8abc-53ac05a6be18",
+                      "status": "blocked",
+                      "conditions": [
+                        {
+                          "field": "organizations",
+                          "display": "合成机构丙",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "time",
+                          "display": "2026年5月30日",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "operation",
+                          "display": "查询操作",
+                          "origin": "rule_default"
+                        },
+                        {
+                          "field": "selection",
+                          "display": "指定日期",
+                          "origin": "rule_default"
+                        }
+                      ],
+                      "pending": [
+                        "经营收益金额\n1. 经营收益金额当日数\n2. 经营收益金额较同期"
+                      ],
+                      "label": "合成机构丙 / 2026年5月30日 / 经营收益金额",
+                      "aliases": [
+                        "合成机构丙 / 2026年5月30日 / 经营收益金额",
+                        "合成机构丙",
+                        "2026年5月30日",
+                        "经营收益金额",
+                        "2026年5月30日经营收益金额",
+                        "合成机构丙2026年5月30日经营收益金额"
+                      ],
+                      "kind": "query"
+                    }
+                  ]
+                },
+                "issues": [
+                  {
+                    "code": "ENTITY_NOT_DETERMINED",
+                    "field": "metrics",
+                    "message": "请确定指标口径：经营收益金额。",
+                    "remediation": "user",
+                    "category": "catalog"
+                  }
+                ],
+                "continuation": {
+                  "actor": "user",
+                  "action": "ask_user"
+                }
+              },
+              "is_error": false
+            }
+          ],
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 2,
+                "intent": "query",
+                "targets": [
+                  {
+                    "source": {
+                      "kind": "new"
+                    },
+                    "operations": [
+                      {
+                        "action": "set",
+                        "field": "organizations",
+                        "value": "合成机构丙"
+                      },
+                      {
+                        "action": "set",
+                        "field": "metrics",
+                        "value": "经营收益金额"
+                      },
+                      {
+                        "action": "set",
+                        "field": "time",
+                        "value": "2026年5月30日"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "answer": "\n请确定指标口径：经营收益金额。\n经营收益金额\n1. 经营收益金额当日数\n2. 经营收益金额较同期\n\n已保存条件：机构：合成机构丙；日期：2026年5月30日；取数条件：查询操作；取数条件：指定日期",
+          "completion": "unmet",
+          "model_error_codes": []
+        },
+        {
+          "turn": 2,
+          "message": "用经营收益金额当日数这个指标",
+          "model_calls": 2,
+          "elapsed_ms": 10483,
+          "queries": [
+            {
+              "spec": {
+                "source_semantic_receipt": "eyJjYXRhbG9nIjoiYzUzMzEwMDQ0ZjQwZGZlZThjYWJhYWUyNTljZDM4M2RiNmY4Yzg1ZGVjY2RlZDE2MzhmMWQzZjRkMzg2NGFhMSIsImNvZGVzIjpbIlNZTlRIX006RCJdLCJjb252ZXJzYXRpb24iOiJzeW50aGV0aWMtc2VtYW50aWMiLCJnb2FsX2hhc2giOiJlOTQ4NjQ1YTM2MzFiYzc5MjJhYWZjZDMyM2E2ZDEyMmY2ZjU0ZmQzOTE0MTc2N2FmZjQxYWQ1MjQ3NWQ2NWNlIiwib3duZXIiOiJzeW50aGV0aWMtc2VtYW50aWMiLCJzY29wZSI6eyJtZXRyaWNfY29kZXMiOlsiU1lOVEhfTTpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX08zIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNS0zMCIsInN0YXJ0IjoiMjAyNi0wNS0zMCJ9fSwic2Vzc2lvbiI6IjAxYTEzZDIzLTE1N2EtNzY3YS1hNTc2LTMwYmFjM2RjMjdjMyIsInYiOjF9.4qBbpegE6ZH9oD8Lt5WYVVHq1Tp12uzxNTOzzJiOLTE",
+                "conversation_id": "synthetic-semantic",
+                "calculation_context": {
+                  "scope_id": "01a13d23-2eaa-767a-a576-30c80767de3f:a11d2c3f-c122-4ebd-8218-d8a0570d8c62",
+                  "user_question": "用经营收益金额当日数这个指标"
+                },
+                "metric_codes": [
+                  "SYNTH_M:D"
+                ],
+                "schema_version": 2,
+                "org_codes": [
+                  "SYNTH_O3"
+                ],
+                "time": {
+                  "start": "2026-05-30",
+                  "end": "2026-05-30"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "row_count": 1,
+              "rows": [
+                {
+                  "metric_code": "SYNTH_M:D",
+                  "metric_name": "经营收益金额当日数",
+                  "unit": "元",
+                  "org_code": "SYNTH_O3",
+                  "org_name": "合成机构丙",
+                  "metric_value": 40,
+                  "stat_date": "2026-05-30"
+                }
+              ]
+            }
+          ],
+          "receipts": [
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "protocol_version": 2,
+                "status": "succeeded",
+                "state": {
+                  "task_ref": "43e3fcd5-a306-4663-8099-207affa31e7f",
+                  "task_status": "completed",
+                  "completion": "full",
+                  "raw_message_retained": true,
+                  "proposals_retained": true,
+                  "targets": [
+                    {
+                      "target_ref": "9723a9f5-d26f-4fb7-bf4c-b80463cc6784",
+                      "status": "succeeded",
+                      "conditions": [
+                        {
+                          "field": "organizations",
+                          "display": "合成机构丙",
+                          "origin": "history"
+                        },
+                        {
+                          "field": "metrics",
+                          "display": "经营收益金额当日数",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "time",
+                          "display": "2026年5月30日",
+                          "origin": "history"
+                        },
+                        {
+                          "field": "operation",
+                          "display": "查询操作",
+                          "origin": "rule_default"
+                        },
+                        {
+                          "field": "selection",
+                          "display": "指定日期",
+                          "origin": "rule_default"
+                        }
+                      ],
+                      "pending": [],
+                      "label": "合成机构丙 / 2026年5月30日 / 经营收益金额",
+                      "aliases": [
+                        "合成机构丙 / 2026年5月30日 / 经营收益金额",
+                        "合成机构丙",
+                        "2026年5月30日",
+                        "经营收益金额当日数",
+                        "2026年5月30日经营收益金额当日数",
+                        "合成机构丙2026年5月30日经营收益金额当日数"
+                      ],
+                      "kind": "query"
+                    }
+                  ],
+                  "evidence": {
+                    "kind": "metric_query_structured",
+                    "task_id": "query-1",
+                    "version": 1,
+                    "result_id": "result-query-1",
+                    "public_answer": "合成数据SQL完成",
+                    "status": "succeeded",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "rows": [
+                      {
+                        "metric_code": "SYNTH_M:D",
+                        "metric_name": "经营收益金额当日数",
+                        "unit": "元",
+                        "org_code": "SYNTH_O3",
+                        "org_name": "合成机构丙",
+                        "metric_value": 40,
+                        "stat_date": "2026-05-30"
+                      }
+                    ],
+                    "row_count": 1,
+                    "truncated": false,
+                    "frame_id": "61e48aa7-3be9-4222-a1bb-bae8ac1192a3",
+                    "delivery": "business_evidence_v1",
+                    "payloads": [
+                      {
+                        "status": "succeeded",
+                        "task_id": "query-1",
+                        "version": 1,
+                        "result_id": "result-query-1",
+                        "columns": [
+                          "metric_code",
+                          "metric_name",
+                          "unit",
+                          "org_code",
+                          "org_name",
+                          "metric_value",
+                          "stat_date"
+                        ],
+                        "sample_rows": [
+                          {
+                            "metric_code": "SYNTH_M:D",
+                            "metric_name": "经营收益金额当日数",
+                            "unit": "元",
+                            "org_code": "SYNTH_O3",
+                            "org_name": "合成机构丙",
+                            "metric_value": 40,
+                            "stat_date": "2026-05-30"
+                          }
+                        ],
+                        "facts": [
+                          {
+                            "fact_id": "fact:query-1:0:metric_value",
+                            "task_id": "query-1",
+                            "field": "metric_value",
+                            "value": "40",
+                            "unit": "元",
+                            "metric_code": "SYNTH_M:D",
+                            "metric_name": "经营收益金额当日数",
+                            "org_code": "SYNTH_O3",
+                            "org_name": "合成机构丙",
+                            "date": "2026-05-30"
+                          }
+                        ],
+                        "fact_count": 1,
+                        "facts_truncated": false,
+                        "row_count": 1,
+                        "truncated": false,
+                        "error_code": null,
+                        "message": "合成数据SQL完成",
+                        "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                        "frame_id": "61e48aa7-3be9-4222-a1bb-bae8ac1192a3",
+                        "result_ref": "query:query-1:result-query-1"
+                      }
+                    ]
+                  }
+                },
+                "issues": [],
+                "continuation": {
+                  "actor": "pi",
+                  "action": "answer"
+                }
+              },
+              "is_error": false
+            }
+          ],
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 2,
+                "intent": "query",
+                "targets": [
+                  {
+                    "source": {
+                      "kind": "current"
+                    },
+                    "operations": [
+                      {
+                        "action": "confirm",
+                        "field": "metrics",
+                        "value": "经营收益金额当日数"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "answer": "\n**查询结果：**\n\n合成机构丙在2026年5月30日的**经营收益金额（当日数）**为 **40 元**。\n\n> 数据已完成查询并展示在结果表中，以上为简要概括。如需进一步分析或比较，请告诉我。",
+          "completion": "full",
+          "model_error_codes": []
+        }
+      ]
+    },
+    {
+      "case_id": "catalog_typo",
+      "group": "exact",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "turns": [
+        {
+          "turn": 1,
+          "message": "查合成机构丙2026年5月30日的经营收益金融当日数",
+          "model_calls": 2,
+          "elapsed_ms": 11008,
+          "queries": [
+            {
+              "spec": {
+                "conversation_id": "synthetic-semantic",
+                "calculation_context": {
+                  "scope_id": "01a13d23-579f-767a-a576-30dcbd5a2738:1cf09856-80db-4a0e-acfe-0bf99a42d7f9",
+                  "user_question": "查合成机构丙2026年5月30日的经营收益金融当日数"
+                },
+                "source_question": "查合成机构丙2026年5月30日的经营收益金融当日数",
+                "source_metric_bindings": [
+                  {
+                    "start": 17,
+                    "end": 26,
+                    "text": "经营收益金融当日数",
+                    "codes": [
+                      "SYNTH_M:D"
+                    ]
+                  }
+                ],
+                "metric_codes": [
+                  "SYNTH_M:D"
+                ],
+                "schema_version": 2,
+                "org_codes": [
+                  "SYNTH_O3"
+                ],
+                "time": {
+                  "start": "2026-05-30",
+                  "end": "2026-05-30"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "row_count": 1,
+              "rows": [
+                {
+                  "metric_code": "SYNTH_M:D",
+                  "metric_name": "经营收益金额当日数",
+                  "unit": "元",
+                  "org_code": "SYNTH_O3",
+                  "org_name": "合成机构丙",
+                  "metric_value": 40,
+                  "stat_date": "2026-05-30"
+                }
+              ]
+            }
+          ],
+          "receipts": [
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "protocol_version": 2,
+                "status": "succeeded",
+                "state": {
+                  "task_ref": "ee4b7362-9e11-40b2-9ab0-e068d59779d5",
+                  "task_status": "completed",
+                  "completion": "full",
+                  "raw_message_retained": true,
+                  "proposals_retained": true,
+                  "targets": [
+                    {
+                      "target_ref": "7f400d28-7b8b-4c28-85c0-e3ee423b7044",
+                      "status": "succeeded",
+                      "conditions": [
+                        {
+                          "field": "organizations",
+                          "display": "合成机构丙",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "metrics",
+                          "display": "经营收益金融当日数",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "time",
+                          "display": "2026年5月30日",
+                          "origin": "user_explicit"
+                        },
+                        {
+                          "field": "operation",
+                          "display": "查询操作",
+                          "origin": "rule_default"
+                        },
+                        {
+                          "field": "selection",
+                          "display": "指定日期",
+                          "origin": "rule_default"
+                        }
+                      ],
+                      "pending": [],
+                      "label": "合成机构丙 / 2026年5月30日 / 经营收益金融当日数",
+                      "aliases": [
+                        "合成机构丙 / 2026年5月30日 / 经营收益金融当日数",
+                        "合成机构丙",
+                        "2026年5月30日",
+                        "经营收益金融当日数",
+                        "2026年5月30日经营收益金融当日数",
+                        "合成机构丙2026年5月30日经营收益金融当日数"
+                      ],
+                      "kind": "query"
+                    }
+                  ],
+                  "evidence": {
+                    "kind": "metric_query_structured",
+                    "task_id": "query-1",
+                    "version": 1,
+                    "result_id": "result-query-1",
+                    "public_answer": "合成数据SQL完成",
+                    "status": "succeeded",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "rows": [
+                      {
+                        "metric_code": "SYNTH_M:D",
+                        "metric_name": "经营收益金额当日数",
+                        "unit": "元",
+                        "org_code": "SYNTH_O3",
+                        "org_name": "合成机构丙",
+                        "metric_value": 40,
+                        "stat_date": "2026-05-30"
+                      }
+                    ],
+                    "row_count": 1,
+                    "truncated": false,
+                    "frame_id": "5dffe296-aada-49c7-92c7-680eb32cc626",
+                    "delivery": "business_evidence_v1",
+                    "payloads": [
+                      {
+                        "status": "succeeded",
+                        "task_id": "query-1",
+                        "version": 1,
+                        "result_id": "result-query-1",
+                        "columns": [
+                          "metric_code",
+                          "metric_name",
+                          "unit",
+                          "org_code",
+                          "org_name",
+                          "metric_value",
+                          "stat_date"
+                        ],
+                        "sample_rows": [
+                          {
+                            "metric_code": "SYNTH_M:D",
+                            "metric_name": "经营收益金额当日数",
+                            "unit": "元",
+                            "org_code": "SYNTH_O3",
+                            "org_name": "合成机构丙",
+                            "metric_value": 40,
+                            "stat_date": "2026-05-30"
+                          }
+                        ],
+                        "facts": [
+                          {
+                            "fact_id": "fact:query-1:0:metric_value",
+                            "task_id": "query-1",
+                            "field": "metric_value",
+                            "value": "40",
+                            "unit": "元",
+                            "metric_code": "SYNTH_M:D",
+                            "metric_name": "经营收益金额当日数",
+                            "org_code": "SYNTH_O3",
+                            "org_name": "合成机构丙",
+                            "date": "2026-05-30"
+                          }
+                        ],
+                        "fact_count": 1,
+                        "facts_truncated": false,
+                        "row_count": 1,
+                        "truncated": false,
+                        "error_code": null,
+                        "message": "合成数据SQL完成",
+                        "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                        "frame_id": "5dffe296-aada-49c7-92c7-680eb32cc626",
+                        "result_ref": "query:query-1:result-query-1"
+                      }
+                    ]
+                  }
+                },
+                "issues": [],
+                "continuation": {
+                  "actor": "pi",
+                  "action": "answer"
+                }
+              },
+              "is_error": false
+            }
+          ],
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 2,
+                "intent": "query",
+                "targets": [
+                  {
+                    "source": {
+                      "kind": "new"
+                    },
+                    "operations": [
+                      {
+                        "action": "set",
+                        "field": "organizations",
+                        "value": "合成机构丙"
+                      },
+                      {
+                        "action": "set",
+                        "field": "metrics",
+                        "value": "经营收益金融当日数"
+                      },
+                      {
+                        "action": "set",
+                        "field": "time",
+                        "value": "2026年5月30日"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "answer": "\n查询已完成，结果如下：\n\n**合成机构丙** 在 **2026年5月30日** 的**经营收益金融当日数**（经营收益金额当日数）为：\n\n- **数值**：40\n- **单位**：元\n\n数据已确认，可继续追问或进行进一步分析。",
+          "completion": "full",
+          "model_error_codes": []
+        }
+      ]
+    },
+    {
+      "case_id": "catalog_typo",
+      "group": "exact",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "turns": [
+        {
+          "turn": 1,
+          "message": "查合成机构丙2026年5月30日的经营收益金融当日数",
+          "model_calls": 3,
+          "elapsed_ms": 8646,
+          "queries": [
+            {
+              "spec": {
+                "conversation_id": "synthetic-semantic",
+                "calculation_context": {
+                  "scope_id": "01a13d23-82a1-767a-a576-30f0958a05e2",
+                  "user_question": "查合成机构丙2026年5月30日的经营收益金融当日数"
+                },
+                "source_question": "查合成机构丙2026年5月30日的经营收益金融当日数",
+                "source_metric_bindings": [
+                  {
+                    "start": 17,
+                    "end": 26,
+                    "text": "经营收益金融当日数",
+                    "codes": [
+                      "SYNTH_M:D"
+                    ]
+                  }
+                ],
+                "metric_codes": [
+                  "SYNTH_M:D"
+                ],
+                "schema_version": 2,
+                "org_codes": [
+                  "SYNTH_O3"
+                ],
+                "time": {
+                  "start": "2026-05-30",
+                  "end": "2026-05-30"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "row_count": 1,
+              "rows": [
+                {
+                  "metric_code": "SYNTH_M:D",
+                  "metric_name": "经营收益金额当日数",
+                  "unit": "元",
+                  "org_code": "SYNTH_O3",
+                  "org_name": "合成机构丙",
+                  "metric_value": 40,
+                  "stat_date": "2026-05-30"
+                }
+              ]
+            }
+          ],
+          "receipts": [
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "kind": "business_context",
+                "status": "ARGUMENT_ERROR",
+                "retryable": true,
+                "error_code": "FIELD_INPUT_NOT_CURRENT"
+              },
+              "is_error": false
+            },
+            {
+              "name": "resolve_business_turn",
+              "details": {
+                "kind": "metric_query_structured",
+                "task_id": "query-1",
+                "version": 1,
+                "result_id": "result-query-1",
+                "public_answer": "合成数据SQL完成",
+                "status": "succeeded",
+                "columns": [
+                  "metric_code",
+                  "metric_name",
+                  "unit",
+                  "org_code",
+                  "org_name",
+                  "metric_value",
+                  "stat_date"
+                ],
+                "rows": [
+                  {
+                    "metric_code": "SYNTH_M:D",
+                    "metric_name": "经营收益金额当日数",
+                    "unit": "元",
+                    "org_code": "SYNTH_O3",
+                    "org_name": "合成机构丙",
+                    "metric_value": 40,
+                    "stat_date": "2026-05-30"
+                  }
+                ],
+                "row_count": 1,
+                "truncated": false,
+                "frame_id": "11b1cf77-5dab-47f7-91de-179b40fa22c9",
+                "delivery": "business_evidence_v1",
+                "display_conditions": [
+                  {
+                    "label": "指标",
+                    "value": "经营收益金额当日数"
+                  },
+                  {
+                    "label": "机构",
+                    "value": "合成机构丙"
+                  },
+                  {
+                    "label": "日期",
+                    "value": "2026-05-30"
+                  }
+                ]
+              },
+              "is_error": false
+            }
+          ],
+          "calls": [
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 1,
+                "capability": "metric_query",
+                "base": null,
+                "mode": "execute",
+                "changes": {
+                  "metrics": {
+                    "action": "set",
+                    "value": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  "organizations": {
+                    "action": "set",
+                    "source_text": "合成机构丙",
+                    "expected_count": 1,
+                    "value": {
+                      "kind": "name",
+                      "name": "合成机构丙"
+                    }
+                  },
+                  "time": {
+                    "action": "set",
+                    "value": "2026-05-30"
+                  }
+                }
+              }
+            },
+            {
+              "name": "resolve_business_turn",
+              "args": {
+                "protocol_version": 1,
+                "capability": "metric_query",
+                "base": null,
+                "mode": "execute",
+                "changes": {
+                  "metrics": {
+                    "action": "set",
+                    "value": {
+                      "fromQuestion": true,
+                      "mentionIndexes": [
+                        1
+                      ]
+                    }
+                  },
+                  "organizations": {
+                    "action": "set",
+                    "source_text": "合成机构丙",
+                    "expected_count": 1,
+                    "value": {
+                      "kind": "name",
+                      "name": "合成机构丙"
+                    }
+                  },
+                  "time": {
+                    "action": "set",
+                    "value": "2026年5月30日"
+                  }
+                }
+              }
+            }
+          ],
+          "answer": "\n\n合成机构丙在 **2026年5月30日** 的**经营收益金额当日数**为 **40元**。\n\n如需进一步查看或对比，请告诉我。",
+          "model_error_codes": []
+        }
+      ]
+    }
+  ]
+}

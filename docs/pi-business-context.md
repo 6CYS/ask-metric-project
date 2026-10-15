@@ -3,6 +3,8 @@
 现有智能问数页面继续使用原 Pi Session / main lane 入口；没有新增产品入口或第二套 Agent。
 Pi 理解原文、历史指代和本轮变化，业务上下文层只处理结构化 Delta。后端不再为这条问数链路调用第二次语义模型。
 
+2026-10-14 起，模型业务提交统一使用 [固定业务请求接口](fixed-business-turn-interface.md)：根字段为 `protocol_version/capability/base/mode/changes`，每项变化使用有类型的动作。下文旧 `fieldChanges/fieldIntents/rawValue` 示例描述内部 Delta 或历史实现，不再作为新模型参数协议；旧会话由独立兼容层恢复。
+
 ## 实际调用链
 
 用户原文 → 服务端指标算法匹配 → Pi（理解目标、引用算法片段）→ `resolve_business_turn` → FrameSelector → Capability Schema → Field Resolver → Schema Validator
@@ -13,7 +15,7 @@ NEEDS_CLARIFICATION 不调用业务数据查询，由 Pi 只针对 issues 和 ca
 
 解析回执后的执行衔接由 `business-context/continuation.ts` 依据当前原生 Frame 约束：`READY + execute` 接 `execute_business_frame`，`REUSE_RESULT` 接 `read_business_result`。先给模型指定对应工具；若模型仍返回多余确认或错误调用，宿主把该响应转换为引用同一已校验 Frame 的原生工具调用。调用继续经过原生工具门禁、权限、幂等与日志，不直接绕过工具执行后端。它不解析问句、不决定新目标，也不创建第二份流程状态；`resolve_more`、待澄清、模型错误/中止和业务执行尝试后不触发自动续接，不自动重试失败查询。
 
-跨轮不能直接执行旧 Frame。`FRAME_NOT_CURRENT_TURN` 对本会话旧引用返回可纠正的 `ARGUMENT_ERROR`：先继承/引用旧条件，生成本轮 Frame，再执行。没有字段变化时 `fieldChanges=[]`；不重新提取确认话语。模型视图同时提供续接契约。
+跨轮不能直接执行旧 Frame。`FRAME_NOT_CURRENT_TURN` 对本会话旧引用返回可纠正的 `ARGUMENT_ERROR`：先继承/引用旧条件，生成本轮 Frame，再执行。未变字段不重新 set；机构仍显式提交 `changes.organizations.action=inherit`，不重新提取确认话语。模型视图同时提供续接契约。
 
 2026-09-22 衔接修复验证：Agent 219 项测试、类型检查、构建通过。`node --env-file=.env --import tsx scripts/check-multiturn-model.ts --live --handoff` 的真实模型四轮通过，覆盖查询、改日期、重开会话后换指标、历史结果回读。使用合成目录与取数桩，前三轮各查询一次，最后一轮仅回读一次；第3轮曾发生日期原文参数错误，原状态保留并在同轮纠正。模型调用耗时仍存在，未将此验证作为业务数据库或浏览器验收。详见 [验证记录](verification/business-handoff-2026-09-22.json)。
 
@@ -21,7 +23,7 @@ NEEDS_CLARIFICATION 不调用业务数据查询，由 Pi 只针对 issues 和 ca
 
 | 工具 | 契约 |
 | --- | --- |
-| resolve_business_turn | capabilityHint、baseReference、fieldChanges、executionMode；模型须显式选择 null/current/历史对象；身份和会话标识由宿主绑定 |
+| resolve_business_turn | protocol_version、capability、base、mode、changes；模型须显式选择 null/current/闭合历史选择器，字段动作和值均有严格类型；身份和会话标识由宿主绑定 |
 | business_context_read | 读取 Schema、焦点、分页历史和单个 Frame，不读取整张历史结果表 |
 | execute_business_frame | 仅接受本轮 READY 的 frameId，服务端从 Frame 构造标准参数 |
 | read_business_result | frameId、offset、limit、setFocus；复查当前权限后读取已有快照，默认回到该业务焦点，不重新执行指标查询 |
@@ -179,8 +181,8 @@ CAS 冲突返回可识别错误；同一次请求的等价 Delta（包括字段�
 ### 复现命令
 
 - Agent：`npm run typecheck`、`npm test`、`npm run build`。
-- 多轮单测：`npm test -- src/business-context/context.spec.ts`，使用临时 JSONL 与合成后端。
-- 历史引用与焦点：`npm test -- src/business-context/historyReference.spec.ts`；配置模型验收使用 `node --env-file=.env --import tsx scripts/check-history-focus-model.ts --live`（不加 `--live` 只列出用例，不执行验证；`--case=名称` 仅运行指定用例）。该脚本仅使用隔离合成目录/结果，验证序号、相对位置、业务条件引用、焦点切换后续接和普通续接；`fresh` 从空白会话经真实模型建立三次查询，再验证历史替换、分支续接、列表浏览、仅切焦点和重开后续接，共八轮。不访问业务数据库，每轮检查实际取数次数、提交参数及持久化焦点。
+- 多轮单测：`npm test -- specs/business-context/context.spec.ts`，使用临时 JSONL 与合成后端。
+- 历史引用与焦点：`npm test -- specs/business-context/historyReference.spec.ts`；配置模型验收使用 `node --env-file=.env --import tsx scripts/check-history-focus-model.ts --live`（不加 `--live` 只列出用例，不执行验证；`--case=名称` 仅运行指定用例）。该脚本仅使用隔离合成目录/结果，验证序号、相对位置、业务条件引用、焦点切换后续接和普通续接；`fresh` 从空白会话经真实模型建立三次查询，再验证历史替换、分支续接、列表浏览、仅切焦点和重开后续接，共八轮。不访问业务数据库，每轮检查实际取数次数、提交参数及持久化焦点。
   `replay` 验证只重显第一笔已有结果（必须回读后端且不重新取数），重开会话后只改机构继续继承该笔的全部指标及日期。
   2026-09-28 完成 351 项 Agent 测试及六组 14 回合真实配置模型验证，见 [历史引用与焦点验收](verification/history-focus-2026-09-28.md)；业务后端为隔离合成实现，不代表真实数据库或浏览器验收。
   同日进一步补齐通用结果读取的焦点行为，360 项测试通过；最新七组真实模型回归六组通过、一组因模型只输出计划而没有调用工具失败，整体尚未通过，见 [原有焦点能力核对与读取入口回归](verification/history-focus-replay-2026-09-28.md)。

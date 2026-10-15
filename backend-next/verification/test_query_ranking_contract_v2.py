@@ -15,15 +15,18 @@ DIALECTS = ["mysql", "inceptor"]
 
 def execute_ranking(rows, dialect, *, mode="exact", direction="desc", limit=3,
                     organizations=("A", "B", "C", "D", "E"), stat_date="2026-04-30",
-                    ordinal=()):
+                    ordinal=(), subjects=None):
     template = QueryTemplateId(f"metric_ranking_{mode}_{direction}")
     parameters = {
         "metric_codes": ["M", "N"], "org_codes": list(organizations), "filter_orgs": True,
         "limit": limit, "stat_date": stat_date, "start_date": "2026-04-01",
         "end_date": "2026-04-30", "ordinal_metric_codes": list(ordinal) or [None],
     }
+    if subjects is not None:
+        parameters["rank_subject_codes"] = list(subjects)
     plan = QueryExecutionPlan(
-        shape="metric_ranking", template=template, dialect=dialect, dsl={}, parameters=parameters,
+        shape="metric_rank_position" if subjects is not None else "metric_ranking",
+        template=template, dialect=dialect, dsl={}, parameters=parameters,
     )
     source_sql = SqlBuilder(dialect, VARIABLES).build(plan)
     sqlite_sql = sqlglot.transpile(
@@ -67,6 +70,8 @@ def execute_ranking(rows, dialect, *, mode="exact", direction="desc", limit=3,
                 bindparam("metric_codes", expanding=True), bindparam("org_codes", expanding=True),
                 bindparam("ordinal_metric_codes", expanding=True),
             )
+            if subjects is not None:
+                statement = statement.bindparams(bindparam("rank_subject_codes", expanding=True))
             return [dict(row) for row in connection.execute(statement, parameters).mappings()]
     finally:
         engine.dispose()

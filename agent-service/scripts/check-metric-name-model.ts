@@ -27,7 +27,7 @@ if (!process.argv.includes("--live")) {
   const dir = await mkdtemp(join(tmpdir(), "pi-metric-name-"));
   const config = {...loadConfig(), dataDir: dir};
   const store = new NativeSessionStore(dir);
-  const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store, createAskMetricTools());
+  const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store, createAskMetricTools({compactTurnArgs: config.compactTurnArgs}));
   const actor: BackendUser = {id: "synthetic-metric-name", username: "synthetic", display_name: "合成验收", org_code: "O", org_name: "合成机构", role_code: "USER"};
   const reports: Array<Record<string, unknown>> = [];
   try {
@@ -54,6 +54,12 @@ if (!process.argv.includes("--live")) {
       const messages = (await hosted.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT))
         .filter(entry => entry.type === "message").map(entry => entry.message);
       const tools = messages.filter(message => message.role === "toolResult").map(message => message.toolName);
+      const executions = messages.filter(message => message.role === "toolResult"
+        && ["resolve_business_turn", "execute_business_frame"].includes(message.toolName)
+        && message.content.some(block => {
+          if (block.type !== "text") return false;
+          try { return JSON.parse(block.text).status === "succeeded"; } catch { return false; }
+        })).length;
       const final = messages.filter(message => message.role === "assistant").at(-1);
       const text = final?.content.filter(part => part.type === "text").map(part => part.text).join("\n") ?? "";
       const success = frames.find(frame => frame.status === "success");
@@ -64,7 +70,7 @@ if (!process.argv.includes("--live")) {
         && frames.every(frame => frame.status !== "clarifying") && !!text
         && !/\b(?:exact|latest_in_range|all_in_range|ranking|selection)\b/.test(text)
         && tools.filter(name => name === "resolve_business_turn").length === 1
-        && tools.filter(name => name === "execute_business_frame").length === 1 && tools.length === 2;
+        && executions === 1 && tools.length <= 2;
       const report = {metric: item.metric, passed, query_count: queries.length, selection: queries[0]?.selection,
         full_metric: raw, tools, elapsed_ms: Math.round(performance.now() - started)};
       reports.push(report); console.log(JSON.stringify(report));

@@ -1,0 +1,13 @@
+{
+  "baseline": {
+    "numTotalTests": 1088,
+    "numPassedTests": 775,
+    "numFailedTests": 313
+  },
+  "rollback": {
+    "numTotalTests": 1088,
+    "numPassedTests": 775,
+    "numFailedTests": 313
+  },
+  "case_status_changes": []
+}

@@ -61,3 +61,5 @@ class TaskResultPage(BaseModel):
     # 结构化正文块；旧快照无此字段时透传 None，前端回退渲染 message。
     answer_blocks: list[dict[str, Any]] | None = None
     evidence: dict[str, Any] = Field(default_factory=dict)
+    # “近 N 年”歧义的备选口径（来自 logical_dsl.options.time_alternative）；无则 None。
+    time_alternative: dict[str, Any] | None = None

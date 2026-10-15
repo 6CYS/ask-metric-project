@@ -90,6 +90,11 @@ class CalculationApplicationService:
             ) from exc
 
     def _calculate(self, payload: CalculationRequest, actor, request_id: str) -> dict:
+        snapshots = payload.source_policy == "conversation_snapshots"
+        if snapshots and (not payload.user_question or not payload.user_question.strip()):
+            raise ApplicationError(
+                "CALCULATION_QUESTION_REQUIRED", "快照计算必须绑定本次用户问题。", status_code=422
+            )
         if len({item.name for item in payload.expressions}) != len(payload.expressions):
             raise CalculationError("计算结果名称不能重复。")
         if set(payload.constants) & set(payload.bindings):
@@ -98,6 +103,10 @@ class CalculationApplicationService:
             raise CalculationError("变量名称不能覆盖数学函数。")
         fingerprint = sha256(
             json.dumps(payload.model_dump(), sort_keys=True, ensure_ascii=False).encode()
+        ).hexdigest()
+        # 消息主键按会话和请求键定位；来源任务只归档证据，不能改变幂等检查范围。
+        message_id = "calculation:" + sha256(
+            json.dumps([payload.conversation_id, request_id], ensure_ascii=False).encode()
         ).hexdigest()
         with self.uow_factory() as uow:
             # 与删除和同会话计算共用行锁；计算不访问模型或查询库，事务时长有界。
@@ -112,6 +121,7 @@ class CalculationApplicationService:
             inputs = {}
             values = {}
             questions = set()
+            sources = {}
             for name, binding in payload.bindings.items():
                 parts = binding.fact_id.split(":")
                 if len(parts) != 4 or parts[0] != "fact":
@@ -120,26 +130,43 @@ class CalculationApplicationService:
                 if task_id not in tasks:
                     task = uow.tasks.get_owned_for_update(task_id, actor.user_id or "")
                     if task is None or task.conversation_id != payload.conversation_id:
-                        raise CalculationError("数据引用不存在或不属于当前会话。")
+                        raise ApplicationError(
+                            "CALCULATION_SOURCE_UNAVAILABLE",
+                            "数据引用不存在或不属于当前会话，请选择本会话的查询结果。",
+                            status_code=422,
+                        )
                     state = task.state_json or {}
                     context = state.get("channel_context", {}).get("calculation_context", {})
-                    if context.get("scope_id") != payload.scope_id:
+                    if not snapshots and context.get("scope_id") != payload.scope_id:
                         raise CalculationError(
                             "只能计算当前提问或当前待澄清任务的数据。请按本轮机构、指标、日期"
                             "重新查询，再使用新回执的 fact_id 计算；历史回读不会变成本轮取数。"
                         )
                     if task.status != "SUCCEEDED":
-                        raise CalculationError("查询尚未成功，不能用于计算。")
+                        raise ApplicationError(
+                            "CALCULATION_SOURCE_NOT_READY", "查询尚未成功，不能用于计算。",
+                            status_code=422,
+                        )
                     if task.expires_at and task.expires_at.replace(tzinfo=UTC) <= datetime.now(UTC):
-                        raise CalculationError("查询结果已过期，请重新查询。")
+                        raise ApplicationError(
+                            "CALCULATION_SOURCE_EXPIRED",
+                            "所选历史结果已过期，无法沿用当时的原值；需要重新查询后计算。",
+                            status_code=422,
+                        )
                     artifact = state.get("result_artifact") or {}
                     result = artifact.get("result") or {}
                     if result.get("truncated"):
-                        raise CalculationError(
-                            "查询结果已截断，请缩小范围后再计算，避免不完整汇总。"
+                        raise ApplicationError(
+                            "CALCULATION_SOURCE_INCOMPLETE",
+                            "查询结果已截断，不能据此计算完整结果，请补齐查询结果。",
+                            status_code=422,
                         )
                     if (result.get("evidence") or {}).get("missing_metric_notice"):
-                        raise CalculationError("查询缺少部分指标数据，请补齐或缩小范围后再计算。")
+                        raise ApplicationError(
+                            "CALCULATION_SOURCE_INCOMPLETE",
+                            "查询缺少部分指标数据，请补齐后再计算，不把缺失值当零。",
+                            status_code=422,
+                        )
                     original_dsl = artifact.get("logical_dsl")
                     if not original_dsl:
                         raise CalculationError("查询结果缺少证据，请重新查询。")
@@ -150,6 +177,12 @@ class CalculationApplicationService:
                         raise CalculationError("查询结果权限范围已变化，请重新查询。")
                     tasks[task_id] = (task, result, {item.code: item for item in current_metrics})
                     questions.add(context.get("user_question", ""))
+                    sources[task_id] = {
+                        "task_id": task_id,
+                        "result_id": artifact.get("result_id") or f"result:{task_id}",
+                        "source_scope_id": context.get("scope_id"),
+                        "historical": context.get("scope_id") != payload.scope_id,
+                    }
                 _, result, metric_catalog = tasks[task_id]
                 fact = next(
                     (
@@ -160,30 +193,37 @@ class CalculationApplicationService:
                     None,
                 )
                 if fact is None:
-                    raise CalculationError("数据引用不存在或原始值精度不满足要求，请重新查询。")
+                    raise ApplicationError(
+                        "CALCULATION_FACT_UNAVAILABLE",
+                        "所选快照中找不到对应的精确原始数值，请重新读取指定结果。",
+                        status_code=422,
+                    )
                 current_metric = metric_catalog.get(fact.get("metric_code"))
                 if current_metric is None or current_metric.unit != fact.get("unit"):
                     raise CalculationError("指标单位或启用状态已变化，请重新查询后计算。")
                 inputs[name] = deepcopy(fact)
                 values[name] = quantity(fact["value"], fact["unit"])
-            if len(questions) != 1:
+            if not snapshots and len(questions) != 1:
                 raise CalculationError("数据必须来自同一个明确的用户问题。")
-            question = questions.pop()
+            # 新计算可组合多轮快照，系数只从本轮原文核验，不能借用历史问题中的数字。
+            question = payload.user_question if snapshots else questions.pop()
             for name, constant in payload.constants.items():
                 values[name] = Quantity(
                     validate_constant(constant.source_text, constant.value, question)
                 )
                 inputs[name] = {"kind": "user_constant", **constant.model_dump()}
             # 重试仍先复核数据和当前权限，不能直接用幂等命中绕过授权。
-            anchor = tasks[sorted(tasks)[0]][0]
-            saved = list((anchor.state_json or {}).get("calculations", []))
-            replay = next((entry for entry in saved if entry["request_id"] == request_id), None)
+            # 此时已持有会话行锁；并发同键请求在前一事务提交后读取同一消息。
+            saved_message = uow.messages.get(message_id, payload.conversation_id)
+            replay = saved_message.payload if saved_message else None
             if replay:
                 if replay["fingerprint"] != fingerprint:
                     raise ApplicationError(
                         "CALCULATION_CONFLICT", "同一请求不能更换计算内容。", status_code=409
                     )
                 return replay["result"]
+            anchor = tasks[sorted(tasks)[0]][0]
+            saved = list((anchor.state_json or {}).get("calculations", []))
             if len(saved) >= 50:
                 raise CalculationError("当前任务计算记录已达上限，请重新提问。")
             results = []
@@ -220,6 +260,8 @@ class CalculationApplicationService:
                 "calculation_id": str(uuid4()),
                 "status": "succeeded",
                 "scope_id": payload.scope_id,
+                "source_policy": payload.source_policy,
+                "sources": list(sources.values()),
                 "task_id": anchor.id,
                 "results": results,
                 "scope_policy": payload.scope_policy,
@@ -237,12 +279,13 @@ class CalculationApplicationService:
             anchor.state_json = {**anchor.state_json, "calculations": saved}
             uow.messages.add(
                 ChatMessage(
-                    id=str(uuid4()),
+                    id=message_id,
                     conversation_id=conversation.id,
                     task_id=anchor.id,
                     role="assistant",
                     content="计算完成。",
-                    payload={"kind": "calculation_result", "result": response},
+                    payload={"kind": "calculation_result", "request_id": request_id,
+                             "fingerprint": fingerprint, "result": response},
                     created_at=datetime.now(UTC),
                 )
             )

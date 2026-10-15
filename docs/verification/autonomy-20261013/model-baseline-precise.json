@@ -1,0 +1,565 @@
+{
+  "phase": "baseline",
+  "created_at": "2026-10-13T15:58:23.585Z",
+  "environment": "configured_real_model_isolated_synthetic_backend",
+  "real_database": false,
+  "production_accessed": false,
+  "synthetic_values": true,
+  "source_root": "/private/tmp/harness-autonomy-01a135ad/baseline",
+  "source_hashes": {
+    "src/harnessHost.ts": "073611cb52ac268b7152b6ff83977a0255439453ae849fe4911ae91682e88daa",
+    "src/tools/businessContext.ts": "19141967f05ff0fc9f469fcf8345db6c3a641b4c526f62b63e69a5360d40adc6",
+    "src/business-context/capabilities.ts": "a1f1debbc364857412d87d1bf9114668bb22a42cb39c8a07cefbf856078209c7",
+    "src/prompts/businessSystemPrompt.ts": "0359f0e06c119df41c5657e566e21f1a1f394e40ca9f4c56b6281f2515ef3ad8",
+    "skills/analysis-boundary/SKILL.md": "0c19d3a107be19c326d2b92eaa941ef5ec776474871da08c4f42338b45c9b5d4",
+    "skills/data-coverage/SKILL.md": "27a0f4a56bf899b256d972cae9efa3a4788b33254765fe81e93f6e18a60e048e",
+    "skills/metric-query/SKILL.md": "9b0f3f2e062e3889af2127baa59f74e3e8317675d21e8f0b1f6b0dcd32c96b7d",
+    "skills/result-calculation/SKILL.md": "6b902f5c1333a31c8d457423ab0e98a0e78e63a710088b647e5b67c857fdfb8e"
+  },
+  "script_sha256": "f01a1a9e2d1b43f363f436addcbc634f6c8defe6493102c744af14a81837ae96",
+  "dataset_sha256": "c4c5f40085eaa3da457ef910182061e9501ae3999fb8b8b883ccfb0fdd9217d2",
+  "workbook_sha256": "2c720f26d4d7a3f52df7d90e1d9a898816ad3365d862ab9bad452f2e4b606ef8",
+  "model_signature": {
+    "name": "deepseek-ai/DeepSeek-V4-Flash",
+    "max_tokens": 8192,
+    "context_window": 128000,
+    "extra_body": {
+      "enable_thinking": false,
+      "temperature": 0
+    },
+    "suffix_sha256": "c20b6b4e71fc88e1c67af02d36306644db844546d4a5cb5e9fdc4ab15bc98f60",
+    "compact_turn_args": false
+  },
+  "repetitions": 3,
+  "scenarios": [
+    "precise_dimension",
+    "precise_multi_turn"
+  ],
+  "session_data": "/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/autonomy-baseline-HWKWUe",
+  "sampling": "fixed repetitions; preserve every failed sample; no selective reruns",
+  "summary": {
+    "turns": 12,
+    "passed": 0,
+    "failed": 12,
+    "by_category": {
+      "precise": {
+        "total": 3,
+        "passed": 0
+      },
+      "context": {
+        "total": 9,
+        "passed": 0
+      },
+      "analysis": {
+        "total": 0,
+        "passed": 0
+      }
+    }
+  },
+  "turns": [
+    {
+      "repeat": 1,
+      "scenario": "precise_dimension",
+      "category": "precise",
+      "turn": 1,
+      "message": "查询合成机构甲2026年7月31日机构个人存款余额较年初增幅的数值。",
+      "expected": {
+        "kind": "query",
+        "orgs": [
+          "SYNTH_O1"
+        ],
+        "codes": [
+          "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+        ],
+        "date": "2026-07-31"
+      },
+      "passed": false,
+      "failure": "MODEL_TURN_COMPLETED",
+      "tools": [],
+      "receipts": [],
+      "query_calls": [],
+      "calculation_specs": [],
+      "constraints": [],
+      "prepared": [],
+      "state": {
+        "sessionId": "01a135fc-5328-7166-a877-d7a65e86d022",
+        "version": 0,
+        "frameOrder": [],
+        "operations": {}
+      },
+      "frames": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。",
+      "measures": {
+        "tool_calls": 0,
+        "error_calls": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 1098
+      }
+    },
+    {
+      "repeat": 1,
+      "scenario": "precise_multi_turn",
+      "category": "context",
+      "turn": 1,
+      "message": "查询合成机构甲2026年7月31日机构各项存款余额。",
+      "expected": {
+        "kind": "query",
+        "orgs": [
+          "SYNTH_O1"
+        ],
+        "codes": [
+          "ORG_VRS_DEPT_BAL"
+        ],
+        "date": "2026-07-31"
+      },
+      "passed": false,
+      "failure": "MODEL_TURN_COMPLETED",
+      "tools": [],
+      "receipts": [],
+      "query_calls": [],
+      "calculation_specs": [],
+      "constraints": [],
+      "prepared": [],
+      "state": {
+        "sessionId": "01a135fc-5778-7166-a877-d7b7bc4fedee",
+        "version": 0,
+        "frameOrder": [],
+        "operations": {}
+      },
+      "frames": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。",
+      "measures": {
+        "tool_calls": 0,
+        "error_calls": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 1022
+      }
+    },
+    {
+      "repeat": 1,
+      "scenario": "precise_multi_turn",
+      "category": "context",
+      "turn": 2,
+      "message": "把日期改为2026年8月31日，其他条件不变。",
+      "expected": {
+        "kind": "query",
+        "orgs": [
+          "SYNTH_O1"
+        ],
+        "codes": [
+          "ORG_VRS_DEPT_BAL"
+        ],
+        "date": "2026-08-31"
+      },
+      "passed": false,
+      "failure": "MODEL_TURN_COMPLETED",
+      "tools": [],
+      "receipts": [],
+      "query_calls": [],
+      "calculation_specs": [],
+      "constraints": [],
+      "prepared": [],
+      "state": {
+        "sessionId": "01a135fc-5778-7166-a877-d7b7bc4fedee",
+        "version": 0,
+        "frameOrder": [],
+        "operations": {}
+      },
+      "frames": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。",
+      "measures": {
+        "tool_calls": 0,
+        "error_calls": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 1019
+      }
+    },
+    {
+      "repeat": 1,
+      "scenario": "precise_multi_turn",
+      "category": "context",
+      "turn": 3,
+      "message": "那合成机构乙呢？日期和指标不变。",
+      "expected": {
+        "kind": "query",
+        "orgs": [
+          "SYNTH_O2"
+        ],
+        "codes": [
+          "ORG_VRS_DEPT_BAL"
+        ],
+        "date": "2026-08-31"
+      },
+      "passed": false,
+      "failure": "MODEL_TURN_COMPLETED",
+      "tools": [],
+      "receipts": [],
+      "query_calls": [],
+      "calculation_specs": [],
+      "constraints": [],
+      "prepared": [],
+      "state": {
+        "sessionId": "01a135fc-5778-7166-a877-d7b7bc4fedee",
+        "version": 0,
+        "frameOrder": [],
+        "operations": {}
+      },
+      "frames": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。",
+      "measures": {
+        "tool_calls": 0,
+        "error_calls": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 1022
+      }
+    },
+    {
+      "repeat": 2,
+      "scenario": "precise_dimension",
+      "category": "precise",
+      "turn": 1,
+      "message": "查询合成机构甲2026年7月31日机构个人存款余额较年初增幅的数值。",
+      "expected": {
+        "kind": "query",
+        "orgs": [
+          "SYNTH_O1"
+        ],
+        "codes": [
+          "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+        ],
+        "date": "2026-07-31"
+      },
+      "passed": false,
+      "failure": "MODEL_TURN_COMPLETED",
+      "tools": [],
+      "receipts": [],
+      "query_calls": [],
+      "calculation_specs": [],
+      "constraints": [],
+      "prepared": [],
+      "state": {
+        "sessionId": "01a135fc-6374-7166-a877-d7e354d8a36d",
+        "version": 0,
+        "frameOrder": [],
+        "operations": {}
+      },
+      "frames": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。",
+      "measures": {
+        "tool_calls": 0,
+        "error_calls": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 1022
+      }
+    },
+    {
+      "repeat": 2,
+      "scenario": "precise_multi_turn",
+      "category": "context",
+      "turn": 1,
+      "message": "查询合成机构甲2026年7月31日机构各项存款余额。",
+      "expected": {
+        "kind": "query",
+        "orgs": [
+          "SYNTH_O1"
+        ],
+        "codes": [
+          "ORG_VRS_DEPT_BAL"
+        ],
+        "date": "2026-07-31"
+      },
+      "passed": false,
+      "failure": "MODEL_TURN_COMPLETED",
+      "tools": [],
+      "receipts": [],
+      "query_calls": [],
+      "calculation_specs": [],
+      "constraints": [],
+      "prepared": [],
+      "state": {
+        "sessionId": "01a135fc-6776-7166-a877-d7f3812aa9f1",
+        "version": 0,
+        "frameOrder": [],
+        "operations": {}
+      },
+      "frames": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。",
+      "measures": {
+        "tool_calls": 0,
+        "error_calls": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 1021
+      }
+    },
+    {
+      "repeat": 2,
+      "scenario": "precise_multi_turn",
+      "category": "context",
+      "turn": 2,
+      "message": "把日期改为2026年8月31日，其他条件不变。",
+      "expected": {
+        "kind": "query",
+        "orgs": [
+          "SYNTH_O1"
+        ],
+        "codes": [
+          "ORG_VRS_DEPT_BAL"
+        ],
+        "date": "2026-08-31"
+      },
+      "passed": false,
+      "failure": "MODEL_TURN_COMPLETED",
+      "tools": [],
+      "receipts": [],
+      "query_calls": [],
+      "calculation_specs": [],
+      "constraints": [],
+      "prepared": [],
+      "state": {
+        "sessionId": "01a135fc-6776-7166-a877-d7f3812aa9f1",
+        "version": 0,
+        "frameOrder": [],
+        "operations": {}
+      },
+      "frames": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。",
+      "measures": {
+        "tool_calls": 0,
+        "error_calls": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 1024
+      }
+    },
+    {
+      "repeat": 2,
+      "scenario": "precise_multi_turn",
+      "category": "context",
+      "turn": 3,
+      "message": "那合成机构乙呢？日期和指标不变。",
+      "expected": {
+        "kind": "query",
+        "orgs": [
+          "SYNTH_O2"
+        ],
+        "codes": [
+          "ORG_VRS_DEPT_BAL"
+        ],
+        "date": "2026-08-31"
+      },
+      "passed": false,
+      "failure": "MODEL_TURN_COMPLETED",
+      "tools": [],
+      "receipts": [],
+      "query_calls": [],
+      "calculation_specs": [],
+      "constraints": [],
+      "prepared": [],
+      "state": {
+        "sessionId": "01a135fc-6776-7166-a877-d7f3812aa9f1",
+        "version": 0,
+        "frameOrder": [],
+        "operations": {}
+      },
+      "frames": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。",
+      "measures": {
+        "tool_calls": 0,
+        "error_calls": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 1018
+      }
+    },
+    {
+      "repeat": 3,
+      "scenario": "precise_dimension",
+      "category": "precise",
+      "turn": 1,
+      "message": "查询合成机构甲2026年7月31日机构个人存款余额较年初增幅的数值。",
+      "expected": {
+        "kind": "query",
+        "orgs": [
+          "SYNTH_O1"
+        ],
+        "codes": [
+          "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+        ],
+        "date": "2026-07-31"
+      },
+      "passed": false,
+      "failure": "MODEL_TURN_COMPLETED",
+      "tools": [],
+      "receipts": [],
+      "query_calls": [],
+      "calculation_specs": [],
+      "constraints": [],
+      "prepared": [],
+      "state": {
+        "sessionId": "01a135fc-7373-7166-a877-d81e8556cf8e",
+        "version": 0,
+        "frameOrder": [],
+        "operations": {}
+      },
+      "frames": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。",
+      "measures": {
+        "tool_calls": 0,
+        "error_calls": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 1019
+      }
+    },
+    {
+      "repeat": 3,
+      "scenario": "precise_multi_turn",
+      "category": "context",
+      "turn": 1,
+      "message": "查询合成机构甲2026年7月31日机构各项存款余额。",
+      "expected": {
+        "kind": "query",
+        "orgs": [
+          "SYNTH_O1"
+        ],
+        "codes": [
+          "ORG_VRS_DEPT_BAL"
+        ],
+        "date": "2026-07-31"
+      },
+      "passed": false,
+      "failure": "MODEL_TURN_COMPLETED",
+      "tools": [],
+      "receipts": [],
+      "query_calls": [],
+      "calculation_specs": [],
+      "constraints": [],
+      "prepared": [],
+      "state": {
+        "sessionId": "01a135fc-7772-7166-a877-d82eba863d0f",
+        "version": 0,
+        "frameOrder": [],
+        "operations": {}
+      },
+      "frames": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。",
+      "measures": {
+        "tool_calls": 0,
+        "error_calls": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 1019
+      }
+    },
+    {
+      "repeat": 3,
+      "scenario": "precise_multi_turn",
+      "category": "context",
+      "turn": 2,
+      "message": "把日期改为2026年8月31日，其他条件不变。",
+      "expected": {
+        "kind": "query",
+        "orgs": [
+          "SYNTH_O1"
+        ],
+        "codes": [
+          "ORG_VRS_DEPT_BAL"
+        ],
+        "date": "2026-08-31"
+      },
+      "passed": false,
+      "failure": "MODEL_TURN_COMPLETED",
+      "tools": [],
+      "receipts": [],
+      "query_calls": [],
+      "calculation_specs": [],
+      "constraints": [],
+      "prepared": [],
+      "state": {
+        "sessionId": "01a135fc-7772-7166-a877-d82eba863d0f",
+        "version": 0,
+        "frameOrder": [],
+        "operations": {}
+      },
+      "frames": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。",
+      "measures": {
+        "tool_calls": 0,
+        "error_calls": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 1016
+      }
+    },
+    {
+      "repeat": 3,
+      "scenario": "precise_multi_turn",
+      "category": "context",
+      "turn": 3,
+      "message": "那合成机构乙呢？日期和指标不变。",
+      "expected": {
+        "kind": "query",
+        "orgs": [
+          "SYNTH_O2"
+        ],
+        "codes": [
+          "ORG_VRS_DEPT_BAL"
+        ],
+        "date": "2026-08-31"
+      },
+      "passed": false,
+      "failure": "MODEL_TURN_COMPLETED",
+      "tools": [],
+      "receipts": [],
+      "query_calls": [],
+      "calculation_specs": [],
+      "constraints": [],
+      "prepared": [],
+      "state": {
+        "sessionId": "01a135fc-7772-7166-a877-d82eba863d0f",
+        "version": 0,
+        "frameOrder": [],
+        "operations": {}
+      },
+      "frames": [],
+      "answer": "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。",
+      "measures": {
+        "tool_calls": 0,
+        "error_calls": 0,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 2,
+        "elapsed_ms": 1014
+      }
+    }
+  ]
+}

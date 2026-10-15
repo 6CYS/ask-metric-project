@@ -1,0 +1,4157 @@
+{
+  "environment": "real_model_synthetic_catalog_in_memory_SQL",
+  "real_database": false,
+  "source_root": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/agent-service",
+  "source_hashes": {
+    "src/harnessHost.ts": "9e2ee229c2bf8e6861af634d0088fa65f38c8a3414310c8cad10d6e61d0f4e7d",
+    "src/semantic-task/service.ts": "4e482a2de981cdd55ec261b909a0e2378a68099e9f55954c9befb59461c4dac3",
+    "src/semantic-task/planService.ts": "b5768573ef04a05dd5164e40e233871fe3168b74d5ba89ec9bb81a00208f0fc3",
+    "src/semantic-task/feedback.ts": "0dc208dc8bf3e6d512b14b702d9d23b952b1f6fd9bdd3c7ada69aa265e644afd",
+    "src/semantic-task/prompt.ts": "aae44439ee363854e01e8f7d0acc779d59a8c4a45194077df2f4e7ca498a2458"
+  },
+  "model": "deepseek-ai/DeepSeek-V4-Flash",
+  "gateway_origin": "https://api.siliconflow.cn",
+  "model_settings": {
+    "max_tokens": 8192,
+    "context_window": 128000,
+    "extra_body": {
+      "enable_thinking": false
+    },
+    "retry": {
+      "enabled": true,
+      "maxRetries": 1,
+      "baseDelayMs": 1000
+    },
+    "first_response_timeout_ms": 30000,
+    "stream_idle_timeout_ms": 120000
+  },
+  "native_session_directory": "/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/missing-conditions-model-n0bdbQ",
+  "total": 16,
+  "passed": 11,
+  "turns": [
+    {
+      "scenario": "original-missing-both-1",
+      "turn": 1,
+      "message": "帮我查对公协定存款余额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "organizations",
+          "time"
+        ]
+      },
+      "passed": false,
+      "failure": "FORMAL_STATUS\n+ actual - expected\n\n+ undefined\n- 'needs_user'\n",
+      "guard_aborted": false,
+      "elapsed_ms": 10265,
+      "model_calls": 2,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "business_context_read",
+          "args": {
+            "limit": 10
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "business_context_read",
+          "details": {
+            "protocol_version": 2,
+            "context": {
+              "next_cursor": null,
+              "tasks": []
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "answer": "\nContext为空，没有历史条件。用户要求查询\"对公协定存款余额当日数\"。这里需要明确：\n1. 机构（哪家金融机构/企业）\n2. 当日日期（当前业务日期2026-10-15可以作为已知，但业务日期需确认为查询机构）\n\n让我先提交query目标，机构未明确。\n\n用户说\"对公协定存款余额当日数\"，这需要确认机构。我应该在targets中提交已知字段，让宿主追问缺项，或者直接用query提交已知信息。\n\n根据指南：\"机构和日期仅继承当前会话唯一来源中已确认的条件；没有已确认来源就提交已知字段，让宿主追问缺项，不能填'待确认机构'、假定今天或从账户机构推测。\"\n\n当前业务日期是2026-10-15，但没有机构。我需要提交已知字段并让宿主追问机构。\n\n让我提交query目标，包含指标\"对公协定存款余额\"，时间\"当日\"（当前业务日期2026-10-15），但机构未知。\n\n考虑到当日可以用当前业务日期2026-10-15。\n\n让我组织resolve_business_turn请求：\n- intent: query\n- targets: 一个目标，source=new\n  - operations: \n    - set metrics: 对公协定存款余额\n    - set time: 当日（2026-10-15）\n    - set selection: 指定时点最新值（当日单日）\n\n机构未明确，需要追问。\n\n实际上\"当日数\"就是单日取值。当日日期应该用当前业务日期吗？指南说\"机构和日期仅继承当前会话唯一来源中已确认的条件\"，这里日期来自服务端注入的业务日期2026-10-15，这是不是\"已确认来源\"？\n\n业务日期是服务端注入的，可以作为当日的日期条件。机构确实没有明确。\n\n让我提交，将机构留空让宿主追问，或者直接把指标和时间提交。根据协议，needs_user表示等待用户澄清。\n\n我将提交query，用当日取数，机构让宿主追问缺项。\n\n让我把当日理解为2026-10-15（当前业务日期），提交目标。机构不明确，让宿主确认。实际上，由于机构是必备字段，可能我会得到needs_user。\n\n我提交已知字段：\n- 指标：对公协定存款余额\n- 时间：当日即2026-10-15\n- 操作：单日取值\n\n机构留空。让我提交。"
+    },
+    {
+      "scenario": "original-missing-both-2",
+      "turn": 1,
+      "message": "帮我查对公协定存款余额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "organizations",
+          "time"
+        ]
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "status": "needs_user",
+      "elapsed_ms": 5307,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "当日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "指定时点的余额"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_user",
+            "state": {
+              "task_ref": "7aeac15a-b0eb-44d6-8464-1f68720840fd",
+              "task_status": "waiting_input",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "fc3d1a6b-f5b7-410f-8d72-c7b15e2d708f",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定时点的余额",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "当日",
+                    "尚未确定"
+                  ],
+                  "label": "对公协定存款余额当日数",
+                  "aliases": [
+                    "对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "time",
+                "message": "请补充查询日期范围。",
+                "remediation": "user",
+                "category": "calendar"
+              },
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "organizations",
+                "message": "请补充或确定机构。",
+                "remediation": "user",
+                "category": "semantic"
+              }
+            ],
+            "continuation": {
+              "actor": "user",
+              "action": "ask_user"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "completion": "unmet",
+      "answer": "\n请补充查询日期范围。\n请补充或确定机构。\n\n已保存条件：指标：对公协定存款余额当日数；取数条件：指定时点的余额；取数条件：查询操作"
+    },
+    {
+      "scenario": "original-missing-both-3",
+      "turn": 1,
+      "message": "帮我查对公协定存款余额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "organizations",
+          "time"
+        ]
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "status": "needs_user",
+      "elapsed_ms": 9390,
+      "model_calls": 2,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "business_context_read",
+          "args": {
+            "limit": 10
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "当日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "指定当日单日数据"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "business_context_read",
+          "details": {
+            "protocol_version": 2,
+            "context": {
+              "next_cursor": null,
+              "tasks": []
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_user",
+            "state": {
+              "task_ref": "a9033e7d-74f8-4143-9f87-2eaa99c2e502",
+              "task_status": "waiting_input",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "3a9b515e-7609-41aa-92dd-2d7c63db72cd",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定当日单日数据",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "当日",
+                    "尚未确定"
+                  ],
+                  "label": "对公协定存款余额当日数",
+                  "aliases": [
+                    "对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "time",
+                "message": "请补充查询日期范围。",
+                "remediation": "user",
+                "category": "calendar"
+              },
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "organizations",
+                "message": "请补充或确定机构。",
+                "remediation": "user",
+                "category": "semantic"
+              }
+            ],
+            "continuation": {
+              "actor": "user",
+              "action": "ask_user"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "completion": "unmet",
+      "answer": "\n\n请补充查询日期范围。\n请补充或确定机构。\n\n已保存条件：指标：对公协定存款余额当日数；取数条件：指定当日单日数据；取数条件：查询操作"
+    },
+    {
+      "scenario": "other-metric-missing-both",
+      "turn": 1,
+      "message": "查询经营收益金额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "organizations",
+          "time"
+        ]
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "status": "needs_user",
+      "elapsed_ms": 5972,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "当日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "指定时点当日数"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_user",
+            "state": {
+              "task_ref": "11534462-08bb-4b8d-bcf2-a9a836cc7cf2",
+              "task_status": "waiting_input",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "8c7c7661-0749-43ac-9484-b403e49d0b23",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定时点当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "当日",
+                    "尚未确定"
+                  ],
+                  "label": "经营收益金额当日数",
+                  "aliases": [
+                    "经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "time",
+                "message": "请补充查询日期范围。",
+                "remediation": "user",
+                "category": "calendar"
+              },
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "organizations",
+                "message": "请补充或确定机构。",
+                "remediation": "user",
+                "category": "semantic"
+              }
+            ],
+            "continuation": {
+              "actor": "user",
+              "action": "ask_user"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "completion": "unmet",
+      "answer": "\n请补充查询日期范围。\n请补充或确定机构。\n\n已保存条件：指标：经营收益金额当日数；取数条件：指定时点当日数；取数条件：查询操作"
+    },
+    {
+      "scenario": "missing-date",
+      "turn": 1,
+      "message": "查合成机构甲的经营收益金额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "time"
+        ]
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "status": "needs_user",
+      "elapsed_ms": 7870,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "当日"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_user",
+            "state": {
+              "task_ref": "411dff33-b72f-4ff8-96fb-34471452f442",
+              "task_status": "waiting_input",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "6e4bda37-577a-445b-8962-df1e30119935",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "当日"
+                  ],
+                  "label": "合成机构甲 / 经营收益金额当日数",
+                  "aliases": [
+                    "合成机构甲 / 经营收益金额当日数",
+                    "合成机构甲",
+                    "经营收益金额当日数",
+                    "合成机构甲经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "time",
+                "message": "请补充查询日期范围。",
+                "remediation": "user",
+                "category": "calendar"
+              }
+            ],
+            "continuation": {
+              "actor": "user",
+              "action": "ask_user"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "completion": "unmet",
+      "answer": "\n请补充查询日期范围。\n\n已保存条件：机构：合成机构甲；指标：经营收益金额当日数；取数条件：查询操作"
+    },
+    {
+      "scenario": "missing-organization",
+      "turn": 1,
+      "message": "查2026年5月31日的经营收益金额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "organizations"
+        ]
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "status": "needs_user",
+      "elapsed_ms": 12116,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数据"
+                  },
+                  {
+                    "action": "set",
+                    "field": "operation",
+                    "value": "取当日经营收益金额"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_user",
+            "state": {
+              "task_ref": "0127ee07-3c84-40df-9271-82fa681cb23c",
+              "task_status": "waiting_input",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "579916c0-b381-4b5e-9f55-9fe90fc1cfea",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "取当日经营收益金额",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "尚未确定"
+                  ],
+                  "label": "2026年5月31日 / 经营收益金额当日数",
+                  "aliases": [
+                    "2026年5月31日 / 经营收益金额当日数",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "organizations",
+                "message": "请补充或确定机构。",
+                "remediation": "user",
+                "category": "semantic"
+              }
+            ],
+            "continuation": {
+              "actor": "user",
+              "action": "ask_user"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "completion": "unmet",
+      "answer": "\n请补充或确定机构。\n\n已保存条件：日期：2026年5月31日；指标：经营收益金额当日数；取数条件：取当日经营收益金额；取数条件：指定日期"
+    },
+    {
+      "scenario": "supplement-and-inherit",
+      "turn": 1,
+      "message": "查询经营收益金额当日数",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "organizations",
+          "time"
+        ]
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "status": "needs_user",
+      "elapsed_ms": 2437,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_user",
+            "state": {
+              "task_ref": "8f206fa5-d40e-46e6-8e65-279c8db00e5c",
+              "task_status": "waiting_input",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "f4370eaa-f165-42f4-851a-aefb4cd24043",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "尚未确定",
+                    "尚未确定"
+                  ],
+                  "label": "经营收益金额当日数",
+                  "aliases": [
+                    "经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "organizations",
+                "message": "请补充或确定机构。",
+                "remediation": "user",
+                "category": "semantic"
+              },
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "time",
+                "message": "请补充或确定日期范围。",
+                "remediation": "user",
+                "category": "semantic"
+              }
+            ],
+            "continuation": {
+              "actor": "user",
+              "action": "ask_user"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "completion": "unmet",
+      "answer": "\n请补充或确定机构。\n请补充或确定日期范围。\n\n已保存条件：指标：经营收益金额当日数；取数条件：查询操作"
+    },
+    {
+      "scenario": "supplement-and-inherit",
+      "turn": 2,
+      "message": "机构用合成机构甲",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "time"
+        ]
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "status": "needs_user",
+      "elapsed_ms": 8831,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "当日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_user",
+            "state": {
+              "task_ref": "472c013e-1aeb-420f-a197-dde52551ca8f",
+              "task_status": "waiting_input",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "0e6bf829-60e4-4250-81be-b7526243c4fa",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "当日",
+                    "经营收益金额\n1. 经营收益金额当日数\n2. 经营收益金额较同期"
+                  ],
+                  "label": "合成机构甲 / 经营收益金额",
+                  "aliases": [
+                    "合成机构甲 / 经营收益金额",
+                    "合成机构甲",
+                    "经营收益金额",
+                    "合成机构甲经营收益金额"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "time",
+                "message": "请补充查询日期范围。",
+                "remediation": "user",
+                "category": "calendar"
+              },
+              {
+                "code": "ENTITY_NOT_DETERMINED",
+                "field": "metrics",
+                "message": "请确定指标口径：经营收益金额。",
+                "remediation": "user",
+                "category": "catalog"
+              }
+            ],
+            "continuation": {
+              "actor": "user",
+              "action": "ask_user"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "completion": "unmet",
+      "answer": "\n请补充查询日期范围。\n请确定指标口径：经营收益金额。\n经营收益金额\n1. 经营收益金额当日数\n2. 经营收益金额较同期\n\n已保存条件：机构：合成机构甲；取数条件：查询操作"
+    },
+    {
+      "scenario": "supplement-and-inherit",
+      "turn": 3,
+      "message": "日期用2026年5月31日",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      "passed": false,
+      "failure": "FORMAL_STATUS\n+ actual - expected\n\n+ 'failed'\n- 'succeeded'\n",
+      "guard_aborted": false,
+      "status": "failed",
+      "elapsed_ms": 19579,
+      "model_calls": 5,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额当日数"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "business_context_read",
+          "args": {
+            "limit": 10
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "current"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额当日数"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额当日数"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "指定日期"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额当日数"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "指定日期"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "conflict",
+            "state": {
+              "task_status": "unbound",
+              "completion": "unverified",
+              "raw_message_retained": true,
+              "proposals_retained": false,
+              "targets": []
+            },
+            "issues": [
+              {
+                "code": "HISTORY_SOURCE_REQUIRED",
+                "message": "本轮没有新的机构或指标依据；若是补充或修改已有任务，请使用current或先business_context_read选择真实reference。原任务焦点仍保留，不能用new重填历史身份。",
+                "remediation": "pi",
+                "category": "semantic"
+              }
+            ],
+            "continuation": {
+              "actor": "pi",
+              "action": "read_context"
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "business_context_read",
+          "details": {
+            "protocol_version": 2,
+            "context": {
+              "current_task_ref": "472c013e-1aeb-420f-a197-dde52551ca8f",
+              "next_cursor": null,
+              "tasks": [
+                {
+                  "task_ref": "8f206fa5-d40e-46e6-8e65-279c8db00e5c",
+                  "status": "waiting_input",
+                  "completion": "unmet",
+                  "issues": [
+                    {
+                      "code": "FIELD_REQUIRED",
+                      "field": "organizations",
+                      "message": "请补充或确定机构。",
+                      "remediation": "user",
+                      "category": "semantic"
+                    },
+                    {
+                      "code": "FIELD_REQUIRED",
+                      "field": "time",
+                      "message": "请补充或确定日期范围。",
+                      "remediation": "user",
+                      "category": "semantic"
+                    }
+                  ],
+                  "goal": "查询经营收益金额当日数",
+                  "intent": "query",
+                  "targets": [
+                    {
+                      "target_ref": "f4370eaa-f165-42f4-851a-aefb4cd24043",
+                      "status": "blocked",
+                      "kind": "query",
+                      "label": "经营收益金额当日数",
+                      "aliases": [
+                        "经营收益金额当日数"
+                      ],
+                      "dependencies": [],
+                      "conditions": {
+                        "metrics": {
+                          "status": "resolved",
+                          "expression": "经营收益金额当日数"
+                        },
+                        "operation": {
+                          "status": "resolved",
+                          "expression": "查询操作"
+                        }
+                      },
+                      "pending": {
+                        "organizations": "尚未确定",
+                        "time": "尚未确定"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "task_ref": "472c013e-1aeb-420f-a197-dde52551ca8f",
+                  "status": "waiting_input",
+                  "completion": "unmet",
+                  "issues": [
+                    {
+                      "code": "FIELD_REQUIRED",
+                      "field": "time",
+                      "message": "请补充查询日期范围。",
+                      "remediation": "user",
+                      "category": "calendar"
+                    },
+                    {
+                      "code": "ENTITY_NOT_DETERMINED",
+                      "field": "metrics",
+                      "message": "请确定指标口径：经营收益金额。",
+                      "remediation": "user",
+                      "category": "catalog"
+                    }
+                  ],
+                  "goal": "机构用合成机构甲",
+                  "intent": "query",
+                  "targets": [
+                    {
+                      "target_ref": "0e6bf829-60e4-4250-81be-b7526243c4fa",
+                      "status": "blocked",
+                      "kind": "query",
+                      "label": "合成机构甲 / 经营收益金额",
+                      "aliases": [
+                        "合成机构甲",
+                        "经营收益金额",
+                        "合成机构甲经营收益金额"
+                      ],
+                      "dependencies": [],
+                      "conditions": {
+                        "organizations": {
+                          "status": "resolved",
+                          "expression": "合成机构甲"
+                        },
+                        "time": {
+                          "status": "missing"
+                        },
+                        "metrics": {
+                          "status": "needs_confirmation",
+                          "expression": "经营收益金额",
+                          "candidates": [
+                            {
+                              "name": "经营收益金额当日数"
+                            },
+                            {
+                              "name": "经营收益金额较同期"
+                            }
+                          ]
+                        },
+                        "operation": {
+                          "status": "resolved",
+                          "expression": "查询操作"
+                        }
+                      },
+                      "pending": {
+                        "time": "当日",
+                        "metrics": "经营收益金额"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_interpretation",
+            "state": {
+              "task_ref": "472c013e-1aeb-420f-a197-dde52551ca8f",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "e7e32739-31d7-4715-8231-f7c76be1902f",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 经营收益金额",
+                  "aliases": [
+                    "合成机构甲 / 经营收益金额",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构甲2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "HISTORY_SOURCE_MISSING",
+                "message": "历史条件需要保留原始绑定依据。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "GOAL_SOURCE_NOT_RESOLVED",
+                "field": "metrics",
+                "message": "原始问题的指标依据尚未完整确定，保留目标继续解释。",
+                "remediation": "pi",
+                "category": "semantic"
+              }
+            ],
+            "continuation": {
+              "actor": "pi",
+              "action": "revise_proposal"
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_interpretation",
+            "state": {
+              "task_ref": "472c013e-1aeb-420f-a197-dde52551ca8f",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "a78257fa-f858-4e44-bfdf-bc1156bd539b",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 经营收益金额",
+                  "aliases": [
+                    "合成机构甲 / 经营收益金额",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构甲2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "HISTORY_SOURCE_MISSING",
+                "message": "历史条件需要保留原始绑定依据。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "GOAL_SOURCE_NOT_RESOLVED",
+                "field": "metrics",
+                "message": "原始问题的指标依据尚未完整确定，保留目标继续解释。",
+                "remediation": "pi",
+                "category": "semantic"
+              }
+            ],
+            "continuation": {
+              "actor": "pi",
+              "action": "revise_proposal"
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "failed",
+            "state": {
+              "task_ref": "472c013e-1aeb-420f-a197-dde52551ca8f",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "6fafc0c1-18ad-4d9c-898f-4b001c215236",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 经营收益金额",
+                  "aliases": [
+                    "合成机构甲 / 经营收益金额",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构甲2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "SEMANTIC_NO_PROGRESS",
+                "category": "semantic",
+                "message": "相同提案未取得进展，已停止重复尝试；已确认条件和待修修改均保留。",
+                "remediation": "stop"
+              }
+            ],
+            "continuation": {
+              "actor": "none",
+              "action": "stop"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "completion": "unmet",
+      "answer": "\n\n\n\n\n相同提案未取得进展，已停止重复尝试；已确认条件和待修修改均保留。\n\n已保存条件：机构：合成机构甲；日期：2026年5月31日；指标：经营收益金额当日数；取数条件：查询操作；取数条件：指定日期"
+    },
+    {
+      "scenario": "supplement-and-inherit",
+      "turn": 4,
+      "message": "再查对公协定存款余额当日数",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_DEPOSIT:D",
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      "passed": false,
+      "failure": "FORMAL_STATUS\n+ actual - expected\n\n+ 'failed'\n- 'succeeded'\n",
+      "guard_aborted": false,
+      "status": "failed",
+      "elapsed_ms": 55557,
+      "model_calls": 10,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额当日数"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "指定日期"
+                  }
+                ]
+              },
+              {
+                "source": {
+                  "kind": "reference",
+                  "task_ref": "472c013e-1aeb-420f-a197-dde52551ca8f",
+                  "target_ref": "6fafc0c1-18ad-4d9c-898f-4b001c215236"
+                },
+                "operations": []
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "current"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额当日数"
+                  }
+                ]
+              },
+              {
+                "source": {
+                  "kind": "current"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额当日数"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "business_context_read",
+          "args": {
+            "limit": 10
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "reference",
+                  "task_ref": "472c013e-1aeb-420f-a197-dde52551ca8f",
+                  "target_ref": "6fafc0c1-18ad-4d9c-898f-4b001c215236"
+                },
+                "operations": []
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "reference",
+                  "task_ref": "472c013e-1aeb-420f-a197-dde52551ca8f",
+                  "target_ref": "6fafc0c1-18ad-4d9c-898f-4b001c215236"
+                },
+                "operations": []
+              },
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额当日数"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额当日数"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额当日数"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "指定日期"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额当日数"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "指定日期"
+                  },
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额当日数"
+                  },
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额当日数"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "指定日期"
+                  },
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_interpretation",
+            "state": {
+              "task_ref": "d3404032-86a8-40fb-bb3e-bd0424723922",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "2130cb30-5628-4678-8ffa-13f6bcb3ee18",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 经营收益金额",
+                  "aliases": [
+                    "合成机构甲 / 经营收益金额",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构甲2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "58da39f2-12a3-45fa-97cd-ab1b05f577bd",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "合成机构甲",
+                    "2026年5月31日"
+                  ],
+                  "label": "对公协定存款余额当日数",
+                  "aliases": [
+                    "对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "GOAL_SOURCE_NOT_RESOLVED",
+                "field": "metrics",
+                "message": "原始问题的指标依据尚未完整确定，保留目标继续解释。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "ENTITY_SOURCE_NOT_ESTABLISHED",
+                "field": "organizations",
+                "message": "提议机构尚未与原始问题中的目录实体对应，请保留用户机构重新解释。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "time",
+                "message": "请补充查询日期范围。",
+                "remediation": "user",
+                "category": "calendar"
+              }
+            ],
+            "continuation": {
+              "actor": "pi",
+              "action": "revise_proposal"
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "conflict",
+            "state": {
+              "task_status": "unbound",
+              "completion": "unverified",
+              "raw_message_retained": true,
+              "proposals_retained": false,
+              "targets": []
+            },
+            "issues": [
+              {
+                "code": "TARGET_REFERENCE_REQUIRED",
+                "message": "当前有多个目标，请读取上下文并引用要修改的目标。",
+                "remediation": "pi",
+                "category": "semantic"
+              }
+            ],
+            "continuation": {
+              "actor": "pi",
+              "action": "read_context"
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "business_context_read",
+          "details": {
+            "protocol_version": 2,
+            "context": {
+              "current_task_ref": "d3404032-86a8-40fb-bb3e-bd0424723922",
+              "next_cursor": null,
+              "tasks": [
+                {
+                  "task_ref": "8f206fa5-d40e-46e6-8e65-279c8db00e5c",
+                  "status": "waiting_input",
+                  "completion": "unmet",
+                  "issues": [
+                    {
+                      "code": "FIELD_REQUIRED",
+                      "field": "organizations",
+                      "message": "请补充或确定机构。",
+                      "remediation": "user",
+                      "category": "semantic"
+                    },
+                    {
+                      "code": "FIELD_REQUIRED",
+                      "field": "time",
+                      "message": "请补充或确定日期范围。",
+                      "remediation": "user",
+                      "category": "semantic"
+                    }
+                  ],
+                  "goal": "查询经营收益金额当日数",
+                  "intent": "query",
+                  "targets": [
+                    {
+                      "target_ref": "f4370eaa-f165-42f4-851a-aefb4cd24043",
+                      "status": "blocked",
+                      "kind": "query",
+                      "label": "经营收益金额当日数",
+                      "aliases": [
+                        "经营收益金额当日数"
+                      ],
+                      "dependencies": [],
+                      "conditions": {
+                        "metrics": {
+                          "status": "resolved",
+                          "expression": "经营收益金额当日数"
+                        },
+                        "operation": {
+                          "status": "resolved",
+                          "expression": "查询操作"
+                        }
+                      },
+                      "pending": {
+                        "organizations": "尚未确定",
+                        "time": "尚未确定"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "task_ref": "472c013e-1aeb-420f-a197-dde52551ca8f",
+                  "status": "active",
+                  "completion": "unmet",
+                  "issues": [
+                    {
+                      "code": "HISTORY_SOURCE_MISSING",
+                      "message": "历史条件需要保留原始绑定依据。",
+                      "remediation": "pi",
+                      "category": "semantic"
+                    },
+                    {
+                      "code": "GOAL_SOURCE_NOT_RESOLVED",
+                      "field": "metrics",
+                      "message": "原始问题的指标依据尚未完整确定，保留目标继续解释。",
+                      "remediation": "pi",
+                      "category": "semantic"
+                    }
+                  ],
+                  "goal": "机构用合成机构甲",
+                  "intent": "query",
+                  "targets": [
+                    {
+                      "target_ref": "6fafc0c1-18ad-4d9c-898f-4b001c215236",
+                      "status": "blocked",
+                      "kind": "query",
+                      "label": "合成机构甲 / 经营收益金额",
+                      "aliases": [
+                        "合成机构甲",
+                        "2026年5月31日",
+                        "经营收益金额当日数",
+                        "2026年5月31日经营收益金额当日数",
+                        "合成机构甲2026年5月31日经营收益金额当日数"
+                      ],
+                      "dependencies": [],
+                      "conditions": {
+                        "organizations": {
+                          "status": "resolved",
+                          "expression": "合成机构甲"
+                        },
+                        "time": {
+                          "status": "resolved",
+                          "expression": "2026年5月31日"
+                        },
+                        "metrics": {
+                          "status": "resolved",
+                          "expression": "经营收益金额当日数"
+                        },
+                        "operation": {
+                          "status": "resolved",
+                          "expression": "查询操作"
+                        },
+                        "selection": {
+                          "status": "resolved",
+                          "expression": "指定日期"
+                        }
+                      },
+                      "pending": {}
+                    }
+                  ]
+                },
+                {
+                  "task_ref": "d3404032-86a8-40fb-bb3e-bd0424723922",
+                  "status": "active",
+                  "completion": "unmet",
+                  "issues": [
+                    {
+                      "code": "GOAL_SOURCE_NOT_RESOLVED",
+                      "field": "metrics",
+                      "message": "原始问题的指标依据尚未完整确定，保留目标继续解释。",
+                      "remediation": "pi",
+                      "category": "semantic"
+                    },
+                    {
+                      "code": "ENTITY_SOURCE_NOT_ESTABLISHED",
+                      "field": "organizations",
+                      "message": "提议机构尚未与原始问题中的目录实体对应，请保留用户机构重新解释。",
+                      "remediation": "pi",
+                      "category": "semantic"
+                    },
+                    {
+                      "code": "FIELD_REQUIRED",
+                      "field": "time",
+                      "message": "请补充查询日期范围。",
+                      "remediation": "user",
+                      "category": "calendar"
+                    }
+                  ],
+                  "goal": "再查对公协定存款余额当日数",
+                  "intent": "query",
+                  "targets": [
+                    {
+                      "target_ref": "2130cb30-5628-4678-8ffa-13f6bcb3ee18",
+                      "status": "blocked",
+                      "kind": "query",
+                      "label": "合成机构甲 / 经营收益金额",
+                      "aliases": [
+                        "合成机构甲",
+                        "2026年5月31日",
+                        "经营收益金额当日数",
+                        "2026年5月31日经营收益金额当日数",
+                        "合成机构甲2026年5月31日经营收益金额当日数"
+                      ],
+                      "dependencies": [],
+                      "conditions": {
+                        "organizations": {
+                          "status": "resolved",
+                          "expression": "合成机构甲"
+                        },
+                        "time": {
+                          "status": "resolved",
+                          "expression": "2026年5月31日"
+                        },
+                        "metrics": {
+                          "status": "resolved",
+                          "expression": "经营收益金额当日数"
+                        },
+                        "operation": {
+                          "status": "resolved",
+                          "expression": "查询操作"
+                        },
+                        "selection": {
+                          "status": "resolved",
+                          "expression": "指定日期"
+                        }
+                      },
+                      "pending": {}
+                    },
+                    {
+                      "target_ref": "58da39f2-12a3-45fa-97cd-ab1b05f577bd",
+                      "status": "blocked",
+                      "kind": "query",
+                      "label": "对公协定存款余额当日数",
+                      "aliases": [
+                        "对公协定存款余额当日数"
+                      ],
+                      "dependencies": [],
+                      "conditions": {
+                        "time": {
+                          "status": "missing"
+                        },
+                        "metrics": {
+                          "status": "resolved",
+                          "expression": "对公协定存款余额当日数"
+                        },
+                        "selection": {
+                          "status": "resolved",
+                          "expression": "指定日期"
+                        },
+                        "operation": {
+                          "status": "resolved",
+                          "expression": "查询操作"
+                        }
+                      },
+                      "pending": {
+                        "organizations": "合成机构甲",
+                        "time": "2026年5月31日"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_interpretation",
+            "state": {
+              "task_ref": "d3404032-86a8-40fb-bb3e-bd0424723922",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "8bf2e181-7775-4186-b1d1-936fab8e3b6e",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 经营收益金额",
+                  "aliases": [
+                    "合成机构甲 / 经营收益金额",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构甲2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "58da39f2-12a3-45fa-97cd-ab1b05f577bd",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "合成机构甲",
+                    "2026年5月31日"
+                  ],
+                  "label": "对公协定存款余额当日数",
+                  "aliases": [
+                    "对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "GOAL_SOURCE_NOT_RESOLVED",
+                "field": "metrics",
+                "message": "原始问题的指标依据尚未完整确定，保留目标继续解释。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "ENTITY_SOURCE_NOT_ESTABLISHED",
+                "field": "organizations",
+                "message": "提议机构尚未与原始问题中的目录实体对应，请保留用户机构重新解释。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "time",
+                "message": "请补充查询日期范围。",
+                "remediation": "user",
+                "category": "calendar"
+              }
+            ],
+            "continuation": {
+              "actor": "pi",
+              "action": "revise_proposal"
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_interpretation",
+            "state": {
+              "task_ref": "d3404032-86a8-40fb-bb3e-bd0424723922",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "df6fc1e0-d94c-4cf3-bd64-ba7f56dcf004",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 经营收益金额",
+                  "aliases": [
+                    "合成机构甲 / 经营收益金额",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构甲2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "aceaa005-714f-4180-bece-9e879fd3b3ac",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "合成机构甲",
+                    "2026年5月31日"
+                  ],
+                  "label": "对公协定存款余额当日数",
+                  "aliases": [
+                    "对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "GOAL_SOURCE_NOT_RESOLVED",
+                "field": "metrics",
+                "message": "原始问题的指标依据尚未完整确定，保留目标继续解释。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "ENTITY_SOURCE_NOT_ESTABLISHED",
+                "field": "organizations",
+                "message": "提议机构尚未与原始问题中的目录实体对应，请保留用户机构重新解释。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "time",
+                "message": "请补充查询日期范围。",
+                "remediation": "user",
+                "category": "calendar"
+              }
+            ],
+            "continuation": {
+              "actor": "pi",
+              "action": "revise_proposal"
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_interpretation",
+            "state": {
+              "task_ref": "d3404032-86a8-40fb-bb3e-bd0424723922",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "df6fc1e0-d94c-4cf3-bd64-ba7f56dcf004",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 经营收益金额",
+                  "aliases": [
+                    "合成机构甲 / 经营收益金额",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构甲2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "aae12340-6549-4d7a-b9a6-8ce3769debb3",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "合成机构甲",
+                    "2026年5月31日"
+                  ],
+                  "label": "对公协定存款余额当日数",
+                  "aliases": [
+                    "对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "GOAL_SOURCE_NOT_RESOLVED",
+                "field": "metrics",
+                "message": "原始问题的指标依据尚未完整确定，保留目标继续解释。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "ENTITY_SOURCE_NOT_ESTABLISHED",
+                "field": "organizations",
+                "message": "提议机构尚未与原始问题中的目录实体对应，请保留用户机构重新解释。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "time",
+                "message": "请补充查询日期范围。",
+                "remediation": "user",
+                "category": "calendar"
+              }
+            ],
+            "continuation": {
+              "actor": "pi",
+              "action": "revise_proposal"
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_interpretation",
+            "state": {
+              "task_ref": "d3404032-86a8-40fb-bb3e-bd0424723922",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "df6fc1e0-d94c-4cf3-bd64-ba7f56dcf004",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 经营收益金额",
+                  "aliases": [
+                    "合成机构甲 / 经营收益金额",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构甲2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "d0a36111-a8da-4ae0-ab46-692a86e20bc9",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "合成机构甲",
+                    "2026年5月31日"
+                  ],
+                  "label": "对公协定存款余额当日数",
+                  "aliases": [
+                    "对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "GOAL_SOURCE_NOT_RESOLVED",
+                "field": "metrics",
+                "message": "原始问题的指标依据尚未完整确定，保留目标继续解释。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "ENTITY_SOURCE_NOT_ESTABLISHED",
+                "field": "organizations",
+                "message": "提议机构尚未与原始问题中的目录实体对应，请保留用户机构重新解释。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "time",
+                "message": "请补充查询日期范围。",
+                "remediation": "user",
+                "category": "calendar"
+              }
+            ],
+            "continuation": {
+              "actor": "pi",
+              "action": "revise_proposal"
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_interpretation",
+            "state": {
+              "task_ref": "d3404032-86a8-40fb-bb3e-bd0424723922",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "df6fc1e0-d94c-4cf3-bd64-ba7f56dcf004",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 经营收益金额",
+                  "aliases": [
+                    "合成机构甲 / 经营收益金额",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构甲2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "1105850f-1bed-4a7d-abaf-037794c72d53",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "合成机构甲",
+                    "2026年5月31日"
+                  ],
+                  "label": "对公协定存款余额当日数",
+                  "aliases": [
+                    "对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "GOAL_SOURCE_NOT_RESOLVED",
+                "field": "metrics",
+                "message": "原始问题的指标依据尚未完整确定，保留目标继续解释。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "ENTITY_SOURCE_NOT_ESTABLISHED",
+                "field": "organizations",
+                "message": "提议机构尚未与原始问题中的目录实体对应，请保留用户机构重新解释。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "time",
+                "message": "请补充查询日期范围。",
+                "remediation": "user",
+                "category": "calendar"
+              }
+            ],
+            "continuation": {
+              "actor": "pi",
+              "action": "revise_proposal"
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_interpretation",
+            "state": {
+              "task_ref": "d3404032-86a8-40fb-bb3e-bd0424723922",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "df6fc1e0-d94c-4cf3-bd64-ba7f56dcf004",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 经营收益金额",
+                  "aliases": [
+                    "合成机构甲 / 经营收益金额",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构甲2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "3348f185-a752-44e0-a10e-b4fad64ccb37",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "合成机构甲",
+                    "2026年5月31日"
+                  ],
+                  "label": "对公协定存款余额当日数",
+                  "aliases": [
+                    "对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "GOAL_SOURCE_NOT_RESOLVED",
+                "field": "metrics",
+                "message": "原始问题的指标依据尚未完整确定，保留目标继续解释。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "ENTITY_SOURCE_NOT_ESTABLISHED",
+                "field": "organizations",
+                "message": "提议机构尚未与原始问题中的目录实体对应，请保留用户机构重新解释。",
+                "remediation": "pi",
+                "category": "semantic"
+              },
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "time",
+                "message": "请补充查询日期范围。",
+                "remediation": "user",
+                "category": "calendar"
+              }
+            ],
+            "continuation": {
+              "actor": "pi",
+              "action": "revise_proposal"
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "failed",
+            "state": {
+              "task_ref": "d3404032-86a8-40fb-bb3e-bd0424723922",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "df6fc1e0-d94c-4cf3-bd64-ba7f56dcf004",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 经营收益金额",
+                  "aliases": [
+                    "合成机构甲 / 经营收益金额",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构甲2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                },
+                {
+                  "target_ref": "86aafe27-76df-4ebf-ad07-4860f8fa3b56",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [
+                    "合成机构甲",
+                    "2026年5月31日"
+                  ],
+                  "label": "对公协定存款余额当日数",
+                  "aliases": [
+                    "对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "SEMANTIC_NO_PROGRESS",
+                "category": "semantic",
+                "message": "相同提案未取得进展，已停止重复尝试；已确认条件和待修修改均保留。",
+                "remediation": "stop"
+              }
+            ],
+            "continuation": {
+              "actor": "none",
+              "action": "stop"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "completion": "unmet",
+      "answer": "\n\n\n\n\n\n\n\n\n\n相同提案未取得进展，已停止重复尝试；已确认条件和待修修改均保留。\n\n已保存条件：机构：合成机构甲；日期：2026年5月31日；指标：经营收益金额当日数；取数条件：查询操作；取数条件：指定日期；指标：对公协定存款余额当日数；取数条件：指定日期；取数条件：查询操作"
+    },
+    {
+      "scenario": "confirmed-prepare-inherit",
+      "turn": 1,
+      "message": "准备合成机构乙2026年6月30日的经营收益金额当日数查询条件，先不要执行",
+      "expected": {
+        "status": "prepared"
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "status": "prepared",
+      "elapsed_ms": 11883,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "prepare",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构乙"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年6月30日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数据"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "prepared",
+            "state": {
+              "task_ref": "09712cf6-6ec6-4233-9d1c-8075668a7002",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "f276a97f-9620-44a0-a8cc-1701d595ddde",
+                  "status": "draft",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构乙 / 2026年6月30日 / 经营收益金额当日数",
+                  "aliases": [
+                    "合成机构乙 / 2026年6月30日 / 经营收益金额当日数",
+                    "合成机构乙",
+                    "2026年6月30日",
+                    "经营收益金额当日数",
+                    "2026年6月30日经营收益金额当日数",
+                    "合成机构乙2026年6月30日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [],
+            "continuation": {
+              "actor": "none",
+              "action": "stop"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "completion": "unmet",
+      "answer": "\n查询条件已整理并保存，尚未执行查询。"
+    },
+    {
+      "scenario": "confirmed-prepare-inherit",
+      "turn": 2,
+      "message": "查询对公协定存款余额当日数",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_DEPOSIT:D",
+        "org": "SYNTH_O2",
+        "day": "2026-06-30"
+      },
+      "passed": false,
+      "failure": "FORMAL_STATUS\n+ actual - expected\n\n+ 'prepared'\n- 'succeeded'\n",
+      "guard_aborted": false,
+      "status": "prepared",
+      "elapsed_ms": 8630,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "prepare",
+            "targets": [
+              {
+                "source": {
+                  "kind": "current"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "对公协定存款余额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "prepared",
+            "state": {
+              "task_ref": "09712cf6-6ec6-4233-9d1c-8075668a7002",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "557d5464-6e47-415a-9ed2-906ebd7ca9e6",
+                  "status": "draft",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构乙",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "对公协定存款余额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构乙 / 2026年6月30日 / 经营收益金额当日数",
+                  "aliases": [
+                    "合成机构乙 / 2026年6月30日 / 经营收益金额当日数",
+                    "合成机构乙",
+                    "2026年6月30日",
+                    "对公协定存款余额当日数",
+                    "2026年6月30日对公协定存款余额当日数",
+                    "合成机构乙2026年6月30日对公协定存款余额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [],
+            "continuation": {
+              "actor": "none",
+              "action": "stop"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "completion": "unmet",
+      "answer": "\n查询条件已整理并保存，尚未执行查询。"
+    },
+    {
+      "scenario": "explicit-clear-date",
+      "turn": 1,
+      "message": "查合成机构甲2026年5月31日的经营收益金额当日数",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "status": "succeeded",
+      "elapsed_ms": 9154,
+      "model_calls": 2,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "succeeded",
+            "state": {
+              "task_ref": "f75e5078-6b78-4908-9f59-387a7d92a515",
+              "task_status": "completed",
+              "completion": "full",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "72b0e2ab-4332-4b74-9847-0a56324aec2f",
+                  "status": "succeeded",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 2026年5月31日 / 经营收益金额当日数",
+                  "aliases": [
+                    "合成机构甲 / 2026年5月31日 / 经营收益金额当日数",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构甲2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ],
+              "evidence": {
+                "kind": "metric_query_structured",
+                "task_id": "query-1",
+                "version": 1,
+                "result_id": "result-query-1",
+                "public_answer": "2026-05-31，合成机构甲的经营收益金额当日数为30元。",
+                "status": "succeeded",
+                "columns": [
+                  "metric_code",
+                  "metric_name",
+                  "unit",
+                  "org_code",
+                  "org_name",
+                  "metric_value",
+                  "stat_date"
+                ],
+                "rows": [
+                  {
+                    "metric_code": "SYNTH_M:D",
+                    "metric_name": "经营收益金额当日数",
+                    "unit": "元",
+                    "org_code": "SYNTH_O1",
+                    "org_name": "合成机构甲",
+                    "metric_value": 30,
+                    "stat_date": "2026-05-31"
+                  }
+                ],
+                "row_count": 1,
+                "truncated": false,
+                "frame_id": "3c9a8b89-60d7-4233-b3d2-695f1b96c71b",
+                "delivery": "business_evidence_v1",
+                "payloads": [
+                  {
+                    "status": "succeeded",
+                    "task_id": "query-1",
+                    "version": 1,
+                    "result_id": "result-query-1",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "sample_rows": [
+                      {
+                        "metric_code": "SYNTH_M:D",
+                        "metric_name": "经营收益金额当日数",
+                        "unit": "元",
+                        "org_code": "SYNTH_O1",
+                        "org_name": "合成机构甲",
+                        "metric_value": 30,
+                        "stat_date": "2026-05-31"
+                      }
+                    ],
+                    "facts": [
+                      {
+                        "fact_id": "fact:query-1:0:metric_value",
+                        "task_id": "query-1",
+                        "field": "metric_value",
+                        "value": "30",
+                        "unit": "元",
+                        "metric_code": "SYNTH_M:D",
+                        "org_code": "SYNTH_O1",
+                        "date": "2026-05-31"
+                      }
+                    ],
+                    "fact_count": 1,
+                    "facts_truncated": false,
+                    "row_count": 1,
+                    "truncated": false,
+                    "error_code": null,
+                    "message": null,
+                    "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                    "frame_id": "3c9a8b89-60d7-4233-b3d2-695f1b96c71b",
+                    "result_ref": "query:query-1:result-query-1"
+                  }
+                ]
+              }
+            },
+            "issues": [],
+            "continuation": {
+              "actor": "pi",
+              "action": "answer"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [
+        {
+          "spec": {
+            "conversation_id": "synthetic-semantic",
+            "calculation_context": {
+              "scope_id": "01a13d50-69cf-77dd-b00f-a198c189d799:c11a487a-c5a9-494b-88a7-42ee26996a75",
+              "user_question": "查合成机构甲2026年5月31日的经营收益金额当日数"
+            },
+            "source_question": "查合成机构甲2026年5月31日的经营收益金额当日数",
+            "source_metric_bindings": [
+              {
+                "start": 17,
+                "end": 26,
+                "text": "经营收益金额当日数",
+                "codes": [
+                  "SYNTH_M:D"
+                ]
+              }
+            ],
+            "metric_codes": [
+              "SYNTH_M:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_O1"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-05-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "completion": "full",
+      "answer": "\n2026年5月31日，合成机构甲的经营收益金额当日数为 **30元**。"
+    },
+    {
+      "scenario": "explicit-clear-date",
+      "turn": 2,
+      "message": "清除日期，保留机构和指标",
+      "expected": {
+        "status": "needs_user",
+        "missing": [
+          "time"
+        ]
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "status": "needs_user",
+      "elapsed_ms": 9629,
+      "model_calls": 1,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "reference",
+                  "task_ref": "f75e5078-6b78-4908-9f59-387a7d92a515",
+                  "target_ref": "72b0e2ab-4332-4b74-9847-0a56324aec2f"
+                },
+                "operations": [
+                  {
+                    "action": "clear",
+                    "field": "time"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_user",
+            "state": {
+              "task_ref": "dbcc3e9d-bdb5-4c0c-9784-baa884340406",
+              "task_status": "waiting_input",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "536da9b1-659c-4336-a91d-c5f4f5947e13",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "history"
+                    }
+                  ],
+                  "pending": [
+                    "尚未确定"
+                  ],
+                  "label": "合成机构甲 / 2026年5月31日 / 经营收益金额当日数",
+                  "aliases": [
+                    "合成机构甲 / 2026年5月31日 / 经营收益金额当日数",
+                    "合成机构甲",
+                    "经营收益金额当日数",
+                    "合成机构甲经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "FIELD_REQUIRED",
+                "field": "time",
+                "message": "请补充或确定日期范围。",
+                "remediation": "user",
+                "category": "semantic"
+              }
+            ],
+            "continuation": {
+              "actor": "user",
+              "action": "ask_user"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "completion": "unmet",
+      "answer": "\n请补充或确定日期范围。\n\n已保存条件：机构：合成机构甲；指标：经营收益金额当日数；取数条件：查询操作；取数条件：指定日期"
+    },
+    {
+      "scenario": "explicit-clear-date",
+      "turn": 3,
+      "message": "日期用2026年6月30日",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O1",
+        "day": "2026-06-30"
+      },
+      "passed": true,
+      "guard_aborted": false,
+      "status": "succeeded",
+      "elapsed_ms": 11175,
+      "model_calls": 2,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "current"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年6月30日"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "succeeded",
+            "state": {
+              "task_ref": "dbcc3e9d-bdb5-4c0c-9784-baa884340406",
+              "task_status": "completed",
+              "completion": "full",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "d41db74d-c0b1-4c3e-b71e-83335170667c",
+                  "status": "succeeded",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "history"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年6月30日",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询操作",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 2026年5月31日 / 经营收益金额当日数",
+                  "aliases": [
+                    "合成机构甲 / 2026年5月31日 / 经营收益金额当日数",
+                    "合成机构甲",
+                    "2026年6月30日",
+                    "经营收益金额当日数",
+                    "2026年6月30日经营收益金额当日数",
+                    "合成机构甲2026年6月30日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ],
+              "evidence": {
+                "kind": "metric_query_structured",
+                "task_id": "query-2",
+                "version": 1,
+                "result_id": "result-query-2",
+                "public_answer": "2026-06-30，合成机构甲的经营收益金额当日数为30元。",
+                "status": "succeeded",
+                "columns": [
+                  "metric_code",
+                  "metric_name",
+                  "unit",
+                  "org_code",
+                  "org_name",
+                  "metric_value",
+                  "stat_date"
+                ],
+                "rows": [
+                  {
+                    "metric_code": "SYNTH_M:D",
+                    "metric_name": "经营收益金额当日数",
+                    "unit": "元",
+                    "org_code": "SYNTH_O1",
+                    "org_name": "合成机构甲",
+                    "metric_value": 30,
+                    "stat_date": "2026-06-30"
+                  }
+                ],
+                "row_count": 1,
+                "truncated": false,
+                "frame_id": "0adf8a87-24fe-47a1-8b42-3e84fe522bb0",
+                "delivery": "business_evidence_v1",
+                "payloads": [
+                  {
+                    "status": "succeeded",
+                    "task_id": "query-2",
+                    "version": 1,
+                    "result_id": "result-query-2",
+                    "columns": [
+                      "metric_code",
+                      "metric_name",
+                      "unit",
+                      "org_code",
+                      "org_name",
+                      "metric_value",
+                      "stat_date"
+                    ],
+                    "sample_rows": [
+                      {
+                        "metric_code": "SYNTH_M:D",
+                        "metric_name": "经营收益金额当日数",
+                        "unit": "元",
+                        "org_code": "SYNTH_O1",
+                        "org_name": "合成机构甲",
+                        "metric_value": 30,
+                        "stat_date": "2026-06-30"
+                      }
+                    ],
+                    "facts": [
+                      {
+                        "fact_id": "fact:query-2:0:metric_value",
+                        "task_id": "query-2",
+                        "field": "metric_value",
+                        "value": "30",
+                        "unit": "元",
+                        "metric_code": "SYNTH_M:D",
+                        "org_code": "SYNTH_O1",
+                        "date": "2026-06-30"
+                      }
+                    ],
+                    "fact_count": 1,
+                    "facts_truncated": false,
+                    "row_count": 1,
+                    "truncated": false,
+                    "error_code": null,
+                    "message": null,
+                    "display_hint": "明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。",
+                    "frame_id": "0adf8a87-24fe-47a1-8b42-3e84fe522bb0",
+                    "result_ref": "query:query-2:result-query-2"
+                  }
+                ]
+              }
+            },
+            "issues": [],
+            "continuation": {
+              "actor": "pi",
+              "action": "answer"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiYzUzMzEwMDQ0ZjQwZGZlZThjYWJhYWUyNTljZDM4M2RiNmY4Yzg1ZGVjY2RlZDE2MzhmMWQzZjRkMzg2NGFhMSIsImNvZGVzIjpbIlNZTlRIX006RCJdLCJjb252ZXJzYXRpb24iOiJzeW50aGV0aWMtc2VtYW50aWMiLCJnb2FsX2hhc2giOiJjZjAzYjZmZTAwODU4OGE0NWNhZTYzMmZjNWM3MDY2OTg4MjFmZTIxZTU0ODZkNTk1MDdiNjhiYThjNDkzMzNhIiwib3duZXIiOiJzeW50aGV0aWMtc2VtYW50aWMiLCJzY29wZSI6eyJtZXRyaWNfY29kZXMiOlsiU1lOVEhfTTpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX08xIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNi0zMCIsInN0YXJ0IjoiMjAyNi0wNi0zMCJ9fSwic2Vzc2lvbiI6IjAxYTEzZDUwLTY5Y2QtNzdkZC1iMDBmLWExOTdkZDk5YTdmNiIsInYiOjF9.BxAcC_3LfiBpt353DOpugTl0HCpXPP-6U3k3r_UHamo",
+            "conversation_id": "synthetic-semantic",
+            "calculation_context": {
+              "scope_id": "01a13d50-b330-77dd-b00f-a1b7b2c8f340:25c3e933-9a58-4e46-bb16-6f0feed2381f",
+              "user_question": "日期用2026年6月30日"
+            },
+            "metric_codes": [
+              "SYNTH_M:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_O1"
+            ],
+            "time": {
+              "start": "2026-06-30",
+              "end": "2026-06-30"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "completion": "full",
+      "answer": "\n已查询成功。2026年6月30日，合成机构甲的经营收益金额当日数为 **30元**。"
+    },
+    {
+      "scenario": "complete-direct-query",
+      "turn": 1,
+      "message": "查合成机构甲2026年5月31日的经营收益金额当日数",
+      "expected": {
+        "status": "succeeded",
+        "metric": "SYNTH_M:D",
+        "org": "SYNTH_O1",
+        "day": "2026-05-31"
+      },
+      "passed": false,
+      "failure": "FORMAL_STATUS\n+ actual - expected\n\n+ 'failed'\n- 'succeeded'\n",
+      "guard_aborted": false,
+      "status": "failed",
+      "elapsed_ms": 19956,
+      "model_calls": 3,
+      "history_reads": 0,
+      "calls": [
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "当日数"
+                  },
+                  {
+                    "action": "confirm",
+                    "field": "operation",
+                    "value": "查询经营收益金额当日数"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额当日数"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "指定日期"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolve_business_turn",
+          "args": {
+            "protocol_version": 2,
+            "intent": "query",
+            "targets": [
+              {
+                "source": {
+                  "kind": "new"
+                },
+                "operations": [
+                  {
+                    "action": "set",
+                    "field": "organizations",
+                    "value": "合成机构甲"
+                  },
+                  {
+                    "action": "set",
+                    "field": "metrics",
+                    "value": "经营收益金额当日数"
+                  },
+                  {
+                    "action": "set",
+                    "field": "time",
+                    "value": "2026年5月31日"
+                  },
+                  {
+                    "action": "set",
+                    "field": "selection",
+                    "value": "指定日期"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_interpretation",
+            "state": {
+              "task_ref": "edc813b3-f171-447e-92fb-3d226ce76640",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "8ee39c64-86bb-4e97-bfd2-5ac7c3904e71",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询经营收益金额当日数",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 2026年5月31日 / 经营收益金额当日数",
+                  "aliases": [
+                    "合成机构甲 / 2026年5月31日 / 经营收益金额当日数",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构甲2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "FIELD_ACTION_INCOMPATIBLE",
+                "field": "operation",
+                "message": "操作类型使用set或clear。",
+                "remediation": "pi",
+                "category": "semantic"
+              }
+            ],
+            "continuation": {
+              "actor": "pi",
+              "action": "revise_proposal"
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "needs_interpretation",
+            "state": {
+              "task_ref": "edc813b3-f171-447e-92fb-3d226ce76640",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "34d226bb-8d82-4bfe-a092-6d8032e1ea48",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询经营收益金额当日数",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 2026年5月31日 / 经营收益金额当日数",
+                  "aliases": [
+                    "合成机构甲 / 2026年5月31日 / 经营收益金额当日数",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构甲2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "FIELD_ACTION_INCOMPATIBLE",
+                "field": "operation",
+                "message": "操作类型使用set或clear。",
+                "remediation": "pi",
+                "category": "semantic"
+              }
+            ],
+            "continuation": {
+              "actor": "pi",
+              "action": "revise_proposal"
+            }
+          },
+          "is_error": false
+        },
+        {
+          "name": "resolve_business_turn",
+          "details": {
+            "protocol_version": 2,
+            "status": "failed",
+            "state": {
+              "task_ref": "edc813b3-f171-447e-92fb-3d226ce76640",
+              "task_status": "active",
+              "completion": "unmet",
+              "raw_message_retained": true,
+              "proposals_retained": true,
+              "targets": [
+                {
+                  "target_ref": "ade814c5-a631-400a-a915-c8b1ef705a0d",
+                  "status": "blocked",
+                  "conditions": [
+                    {
+                      "field": "organizations",
+                      "display": "合成机构甲",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "metrics",
+                      "display": "经营收益金额当日数",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "time",
+                      "display": "2026年5月31日",
+                      "origin": "user_explicit"
+                    },
+                    {
+                      "field": "selection",
+                      "display": "指定日期",
+                      "origin": "rule_default"
+                    },
+                    {
+                      "field": "operation",
+                      "display": "查询经营收益金额当日数",
+                      "origin": "rule_default"
+                    }
+                  ],
+                  "pending": [],
+                  "label": "合成机构甲 / 2026年5月31日 / 经营收益金额当日数",
+                  "aliases": [
+                    "合成机构甲 / 2026年5月31日 / 经营收益金额当日数",
+                    "合成机构甲",
+                    "2026年5月31日",
+                    "经营收益金额当日数",
+                    "2026年5月31日经营收益金额当日数",
+                    "合成机构甲2026年5月31日经营收益金额当日数"
+                  ],
+                  "kind": "query"
+                }
+              ]
+            },
+            "issues": [
+              {
+                "code": "SEMANTIC_NO_PROGRESS",
+                "category": "semantic",
+                "message": "相同提案未取得进展，已停止重复尝试；已确认条件和待修修改均保留。",
+                "remediation": "stop"
+              }
+            ],
+            "continuation": {
+              "actor": "none",
+              "action": "stop"
+            }
+          },
+          "is_error": false
+        }
+      ],
+      "queries": [],
+      "completion": "unmet",
+      "answer": "\n\n\n相同提案未取得进展，已停止重复尝试；已确认条件和待修修改均保留。\n\n已保存条件：机构：合成机构甲；指标：经营收益金额当日数；日期：2026年5月31日；取数条件：指定日期；取数条件：查询经营收益金额当日数"
+    }
+  ]
+}

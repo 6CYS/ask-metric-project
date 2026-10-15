@@ -14,8 +14,8 @@ import { ContextConflict } from "../business-context/store.js";
 const metricReadParameters = Type.Union([
   Type.Object({
     kind: Type.Literal("task"),
-    task_id: Type.String({ minLength: 1, maxLength: 128 }),
-  }, { description: "读取任务当前状态、版本、已确认条件、待补项与结果引用" }),
+    task_id: Type.String({ minLength: 1, maxLength: 128, description: "后端查询回执中的task_id；语义task_ref不适用，语义条件用business_context_read读取。" }),
+  }, { description: "读取后端查询任务状态、版本、待补项与结果引用；不读取语义任务提案" }),
   Type.Object({
     kind: Type.Literal("result"),
     task_id: Type.String({ minLength: 1, maxLength: 128 }),
@@ -244,7 +244,7 @@ export function createReadTool(): AgentHarnessTool<AskMetricRequestContext, type
   const history = createSessionHistoryReadTool();
   return {
     name: "read", label: "读取任务、结果与历史", parameters: readParameters,
-    description: "只读已有记录，不重新取数。kind=task 读取正式任务状态/版本/待补项；result 按 task_id/result_id 分页读取经鉴权的结果；list 列出本会话历史；entry 按 list 返回的 entry_id 分段回读。引用必须来自正式回执，截断继续翻页。历史正文只用于找回引用和条件，数值须经 result 回读。改条件取数用 resolve_business_turn。",
+    description: "只读已有记录，不重新取数。kind=task 读取后端查询任务状态/版本/待补项；result 按后端回执task_id/result_id分页读取经鉴权的结果。语义task_ref/target_ref不能作为task_id，语义条件用business_context_read读取。list列出本会话历史；entry按list返回的entry_id分段回读。引用必须来自正式回执，截断继续翻页。历史正文只用于找回引用和条件，数值须经result回读。改条件或修正当前提案用resolve_business_turn。",
     execute: (id, params, update, request, invocation, context) => {
       if (params.kind === "task" || params.kind === "result") {
         return metric.execute(id, params, update, request, invocation, context);

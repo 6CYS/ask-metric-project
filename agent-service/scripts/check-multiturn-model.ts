@@ -56,7 +56,7 @@ if (!process.argv.includes("--live")) {
   // 与正式服务一致加载可选业务知识，验证模型同时看到目录与当前工具契约的行为。
   const skills = await loadBusinessSkills();
   const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store,
-    [...createAskMetricTools(), createBusinessSkillReadTool(skills)], {skills});
+    [...createAskMetricTools({compactTurnArgs: config.compactTurnArgs}), createBusinessSkillReadTool(skills)], {skills});
   const actor: BackendUser = {id: "synthetic-multiturn", username: "synthetic", display_name: "合成验收", org_code: "O1", org_name: "合成机构甲", role_code: "USER"};
   const queries: BasicQuerySpec[] = [];
   const snapshots = new Map<string, Record<string, unknown>>();

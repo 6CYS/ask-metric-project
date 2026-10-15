@@ -200,8 +200,8 @@ if (config.answerStreaming) projector.onWatchEvent(event, admitted.request.answe
 
 ```jsonc
 {
-  "capability": "metric_query",          // 原 capabilityHint，可省略
-  "base": null,                          // 原 baseReference：省略=当前焦点；null=独立问题；对象=历史选择器（结构不变）
+  "capability": "metric_query",          // 原 capabilityHint，保留现有工具的必填约束
+  "base": null,                          // 原 baseReference：工具调用必须显式选择；null=独立问题；current=当前焦点；对象=历史选择器
   "mode": "execute",                     // 原 executionMode："execute" | "resolve_more" | "reuse_result"
   "set":    {"metrics": {"fromQuestion": true}, "time": "2026年4月末", "selection": "exact"},  // 每个键=字段名，值=原 rawValue
   "remove": {"metrics": {"mentionIndexes": [2]}},     // 原 operation=remove
@@ -224,6 +224,8 @@ if (config.answerStreaming) projector.onWatchEvent(event, admitted.request.answe
 
 同一字段在多个分组出现 → 参数错误（`FIELD_CHANGES_INVALID`，沿用现有错误码与“原焦点未改变”语义）。
 
+实施时核对现有模型工具 Schema：`capabilityHint`、`baseReference` 已强制必填，以避免历史指代被错误解释为当前焦点。因此精简工具继续要求 `capability`、`base`，不放宽业务来源校验；内部转换接口仍保留来源省略与 `null` 的区别，既有内部调用不受影响。
+
 ### 5.2 兼容与转换（`agent-service/src/business-context/turnArgs.ts`，新建）
 
 ```ts
@@ -244,6 +246,8 @@ export function toLegacyTurnArgs(delta: ContextDelta): Record<string, unknown>;
 3. **历史发送副本一致性**：`modelContext.ts` 的 `projectHistoricalResults` 中，把历史助手消息里 `resolve_business_turn` 的 toolCall 参数转换为新格式（只改发送副本），避免模型看到新旧两种写法混杂。原生记录不改。
 4. 回执、确定性续跑（`continuation.ts`）只涉及 `execute_business_frame` / `read_business_result` 的 `{frameId}`，不受影响；实施时逐一确认。
 
+转换边界：旧 `clear/retain` 带 `rawValue`、`set/remove` 缺少值或值为 `undefined` 等，不能按该格式无损 JSON 往返。转换器拒绝静默丢值或补 `null`；发送历史副本保留这些非规范旧参数，在途转换失败交由原生 Schema 拒绝。当前正常业务参数双向兼容。参数转换报错也按显式来源只读定位：仅唯一且可继承的 Frame 附加 `retry_reference`，不切焦点，不猜测省略、无匹配或歧义来源。
+
 ### 5.3 模型可见文字同步清单
 
 开关开启时，以下文案中的 `fieldChanges` / `fieldHint` / `operation` / `retain` / `capabilityHint` / `baseReference` / `executionMode` 必须同步改为新写法（建议集中为常量，按开关选择）：
@@ -258,9 +262,11 @@ export function toLegacyTurnArgs(delta: ContextDelta): Record<string, unknown>;
 
 核对方法：开关开启后，抓取一次完整发送 payload（系统提示词 + 工具定义 + 回执），`grep -E "fieldChanges|fieldHint|capabilityHint|baseReference|executionMode"` 结果必须为空（历史原生记录除外）。
 
+2026-09-30 语义退步排查后的实现补充：`set` 具名字段从现有能力注册表生成说明，机构范围对象与独立排序要求在对应字段附近解释；不改写模型给出的业务值。参数错误提示明确本次报错调用的变化未应用，修正后须保留同一来源并重新提交该调用中的本轮全部有效变化。确定的空授权范围、不支持组合与不支持的覆盖查询范围返回 `retryable=false`，宿主阻止本轮后续业务动作并允许交付原因。日期原文包含“范围内最后有数据日”时，后端只解析明确日历边界，实际有数日期继续由查询层选择。详细证据见 [排查报告](./verification/compact-turn-args-diagnosis-20260930.md)。
+
 ### 5.4 配置开关
 
-`AGENT_COMPACT_TURN_ARGS`（默认 `false`）。关闭时 schema、文案、转换全部保持现状；开启时仅改变对模型暴露的格式，内部逻辑不变。
+`AGENT_COMPACT_TURN_ARGS`（默认 `false`）。关闭时保留旧工具 Schema 与参数说明；开启时改变模型可见参数格式，内部仍为 `ContextDelta`。上述确定失败处理与日期契约修复是两种格式共用的正确性修复，关闭开关不会撤销；修复后须重新运行两侧对照，不能沿用首次候选的基线。
 
 ### 5.5 测试
 
@@ -277,6 +283,16 @@ export function toLegacyTurnArgs(delta: ContextDelta): Record<string, unknown>;
 - `scripts/check-query-intent-v2.ts --live`
 - `scripts/check-history-focus-model.ts`、`check-context-semantics.ts`、`check-multiturn-model.ts`、`check-confirmation-model.ts`、`check-metric-name-model.ts`、`check-metric-typo-model.ts`、`check-composed-model.ts`
 - `scripts/tool-governance`（32 用例）
+
+实施后的统一对照入口：
+
+```bash
+node --env-file=.env --import tsx scripts/check-compact-turn-args.ts --live --repeat 3 --supplementary --report /tmp/compact-phase2.json
+```
+
+该入口固定两侧 `answerStreaming=true`，逐案相邻交替执行 query-intent，并在外部重复其他七套合成探针。旧探针并非都支持 `--repeat 3`，且多数需要 `--live`；统一入口补齐这两个差异。性能只比较同案两侧均语义成功的取数回合，首调用未知用量为 `null`，不当作零。业务后端为合成数据，字段算法调用真实 Python 实现，不访问业务数据库。`tool-governance` 的旧工具断言、页面驱动和真实数据库验收需单独适配和执行；未执行时报告 `full_gate_passed=false`，不能将合成回归冒充全环境门禁。
+
+`--concurrency 1..3` 可控制独立用例对的并发，默认 1。每个用例的新旧版本仍成对串行，每轮完成后才进入下一次重复；报告记录相同负载下的并发条件。成功纠错后的原生回执可作为语义成功证据，首次错误仍计入首调用 token 与首字等待，不能用后续低耗时回执替代。
 
 判定：
 

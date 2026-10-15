@@ -1,9 +1,9 @@
 """目录指标识别：完整名称最长优先，结构化目录按“基础指标 + 口径”组合识别。
 
 只有目录数据和用户能确定指标：完整名称、基础指标加口径的精确组合直接确定；
-缺口径、口径没说完、基础指标不确定时一律交用户确认。拼音完全相同且唯一对应一个
-词条的片段与精确匹配一同参与最长匹配；其余模糊召回只针对基础指标（及无结构的
-完整名称），召回分数只决定是否提示候选和候选顺序，不决定采用。
+缺口径、口径没说完、基础指标不确定时交用户确认。拼音完全相同且唯一对应一个
+词条的片段与精确匹配一同参与最长匹配；基础指标单字纠错须通过全目录竞争、语义
+限定和精确口径校验才可采用。其余模糊召回只决定是否提示候选和候选顺序。
 """
 
 import re
@@ -16,10 +16,17 @@ from math import log
 from threading import Lock
 
 from hanlp_trie import Trie
-from pypinyin import lazy_pinyin
+from rapidfuzz.distance import Levenshtein
 from rapidfuzz.fuzz import partial_ratio_alignment
 
 from ask_metric.application.metric_alias_structure import StructuredMetric, derive_alias_structure
+from ask_metric.application.text_correction import (
+    CorrectionTerm,
+    compete_correction,
+)
+from ask_metric.application.text_correction import (
+    phonetic as _phonetic,
+)
 from ask_metric.domain.metric_matching import _normalize_with_index, normalize_semantic_text
 from ask_metric.domain.semantics import MetricCatalogItem
 
@@ -29,12 +36,22 @@ _LEADING_JOINER = re.compile(r"(?:和|及|与|以及|还有|跟)$")
 _CANDIDATE_LIMIT = 5
 # 别名命中两侧、共用后半段向前回看的最大字数。
 _CONTEXT_WINDOW = 8
+_CORRECTION_MIN_LENGTH = 5
+_CORRECTION_MIN_SCORE = .8
+_CORRECTION_MIN_MARGIN = .15
+# 数量、期限、单位、否定和范围属于用户条件，不因目录只剩一个相近词条就改写。
+_NUMBER = r"[零〇一二三四五六七八九十百千万亿两壹贰叁肆伍陆柒捌玖拾佰仟]+"
+_PROTECTED_TERMS = re.compile(
+    rf"百分之(?:\d+(?:\.\d+)?|{_NUMBER})|\d+(?:\.\d+)?|第{_NUMBER}"
+    rf"|{_NUMBER}(?=年|月|日|天|周|季|期|倍|成|个|户|笔|次|项|名|家|岁|级)"
+    r"|百分之|百分比|百分率|占比|比率|比例|%|‰"
+    r"|不包含|未包含|不包括|未包括|不含|未含|包含|包括|剔除|排除|除外|纳入|不|未|非|无|含"
+    r"|不低于|不少于|不超过|不高于|以上|以下|以内|以外|至少|至多|超过|低于|高于|[<>≤≥=]"
+    r"|人民币|美元|欧元|港元|日元|[万亿千百]?元|[万亿千百]?户"
+    r"|年度|季度|月度|日均|月均|年均|年|月|日|天|周|季|累计|平均|总|净|毛|全部|部分|内|外"
+)
 
 _Key = tuple[str, str]  # ("base", 源指标编码) 或 ("metric", 无结构指标编码)
-
-
-def _phonetic(text: str) -> tuple[str, ...]:
-    return tuple(lazy_pinyin(text, errors=lambda value: list(value)))
 
 
 def _item_terms(item: MetricCatalogItem) -> list[str]:
@@ -357,8 +374,46 @@ class MetricCandidateIndex:
 
     # ---- 模糊召回（只决定是否提示候选） ----
 
-    def recall(self, text: str) -> list[dict]:
-        """字符/拼音倒排召回后计算局部相似度；描述召回只在无名称命中时补充。"""
+    @staticmethod
+    def _term_span(value: Sequence, query: Sequence, threshold: float, *,
+                   anchored_ends: Sequence[int] = ()) -> tuple[float, int, int] | None:
+        """召回对齐只缩小搜索区间；实体跨度由完整词条编辑比对确定。
+
+        partial_ratio 会偏好截掉错字的短子串，不能直接作为用户原文边界。已知口径
+        前的边界优先作为锚点；比较仍覆盖整个目录词条，错字只产生待确认候选。
+        """
+        allowance = int(len(value) * (1 - threshold))
+        alignment = partial_ratio_alignment(value, query, score_cutoff=70)
+        if alignment is None:
+            return None
+
+        def best_span(ends: Sequence[int]) -> tuple[float, int, int] | None:
+            best: tuple[float, int, int] | None = None
+            best_order: tuple[float, int, int, int] | None = None
+            for end in ends:
+                for width in range(max(2, len(value) - allowance), len(value) + allowance + 1):
+                    start = end - width
+                    if start < 0 or end > len(query):
+                        continue
+                    score = Levenshtein.normalized_similarity(value, query[start:end])
+                    if score < threshold or (len(value) < 3 and score < 1):
+                        continue
+                    # 相同编辑距离时保留与完整目录词条等长的原文，避免截掉末尾错字。
+                    order = (score, -abs(width - len(value)), -start, -end)
+                    if best_order is None or order > best_order:
+                        best, best_order = (score, start, end), order
+            return best
+
+        anchored = best_span(anchored_ends)
+        if anchored is not None:
+            return anchored
+        return best_span(range(
+            max(2, alignment.dest_end - allowance),
+            min(len(query), alignment.dest_end + allowance) + 1,
+        ))
+
+    def recall(self, text: str, *, basis_boundary: bool = False) -> list[dict]:
+        """倒排召回后比对完整词条；描述召回只在无名称命中时补充。"""
         if len(text) < 2:
             return []
         phonetic = _phonetic(text)
@@ -372,6 +427,9 @@ class MetricCandidateIndex:
         # 先倒排召回再计算相似度，避免对全目录逐条执行模糊比较。
         shortlisted = sorted(votes, key=lambda key: (-votes[key], key))[:200]
         hits = []
+        anchored_ends = [len(text)] if basis_boundary else []
+        if basis_boundary and (joiner := _LEADING_JOINER.search(text)):
+            anchored_ends.append(joiner.start())
         for term_id in shortlisted:
             term = self.terms[term_id]
             best: tuple[float, int, int] | None = None
@@ -379,18 +437,14 @@ class MetricCandidateIndex:
                 best = (0.7, 0, len(text))
             for query, value, reason in [(text, term.text, "character"),
                                          (phonetic, term.phonetic, "pinyin")]:
-                alignment = partial_ratio_alignment(value, query, score_cutoff=70)
-                if alignment is None:
+                span = self._term_span(
+                    value, query, 0.84 if reason == "pinyin" else 0.72,
+                    anchored_ends=anchored_ends,
+                )
+                if span is None:
                     continue
-                start, end = alignment.dest_start, alignment.dest_end
-                # partial_ratio 的短子串满分不代表完整词条，须按覆盖长度折算。
-                score = alignment.score / 100 * min(1, (end - start) / len(value))
-                if score < (0.84 if reason == "pinyin" else 0.72):
-                    continue
-                if len(value) < 3 and score < 1:
-                    continue
-                if best is None or score > best[0]:
-                    best = (score, start, end)
+                if best is None or span[0] > best[0]:
+                    best = span
             if best is not None:
                 hits.append({"key": term.key, "term": term.text, "score": round(best[0], 4),
                              "start": best[1], "end": best[2]})
@@ -410,6 +464,46 @@ class MetricCandidateIndex:
             for key in sorted(scores, key=lambda key: (-scores[key], key))[:_CANDIDATE_LIMIT]
             if counts[key] >= 2
         ]
+
+    def base_correction(self, text: str) -> dict | None:
+        """全词条、全身份竞争；不使用召回截断、口径过滤后的候选数推定唯一。"""
+        competition = compete_correction(
+            text,
+            (CorrectionTerm(term.key, term.text, term.phonetic) for term in self.terms),
+            min_length=_CORRECTION_MIN_LENGTH,
+            min_term_length=_CORRECTION_MIN_LENGTH,
+            min_character_score=_CORRECTION_MIN_SCORE,
+            min_margin=_CORRECTION_MIN_MARGIN,
+            exclude_containment=True,
+            protected_pattern=_PROTECTED_TERMS,
+        )
+        if competition is None:
+            return None
+        winner = competition.winner
+        key = winner.term.identity
+        # 只有基础指标允许纠错采用；完整指标词条仍按精确词典处理。
+        if key[0] != "base":
+            return None
+        runner_up = competition.runner_up
+        runner_up_score = runner_up.score if runner_up else 0.0
+        return {
+            "source_metric_code": key[1], "formal_base_name": self.base_names[key[1]],
+            "matched_term": winner.term.text, "normalized_base_text": text,
+            "method": "single_character_edit", "edit_distance": winner.distance,
+            "score": round(winner.score, 4), "character_score": round(winner.character_score, 4),
+            "pinyin_score": round(winner.pinyin_score, 4),
+            "runner_up_score": round(runner_up_score, 4),
+            "margin": round(competition.margin, 4), "min_score": _CORRECTION_MIN_SCORE,
+            "min_margin": _CORRECTION_MIN_MARGIN,
+            "competition_scope": "all_enabled_catalog_terms",
+            "dictionary_identity_count": competition.identity_count,
+            "dictionary_term_count": len(self.terms),
+            "runner_up": ({"kind": runner_up.term.identity[0],
+                           "identity": runner_up.term.identity[1],
+                           "name": self.display(runner_up.term.identity),
+                           "score": round(runner_up_score, 4)}
+                          if runner_up else None),
+        }
 
 
 def _is_pause(text: str, positions: list[int], index: int, boundary: int) -> bool:
@@ -634,7 +728,10 @@ class _Parse:
         for piece_start, piece_end in pieces:
             if any(start <= piece_start and piece_end <= end for start, end in self.covered):
                 continue
-            hits = self.index.recall(self.text[piece_start:piece_end])
+            hits = self.index.recall(
+                self.text[piece_start:piece_end],
+                basis_boundary=self.index._basis_at(self.text, piece_end, segment_end) is not None,
+            )
             # 召回跨度重叠的是同一组待确认项；不同位置保留多组。
             groups: list[dict] = []
             for hit in sorted(hits, key=lambda item: (item["start"], -item["score"])):
@@ -655,7 +752,9 @@ class _Parse:
 
     def _candidate_group(self, start: int, end: int, boundary: int,
                          scores: dict[_Key, float]) -> None:
-        """基础指标不确定：只提示候选，由用户确认。"""
+        """高置信纠错单独校验；其余基础指标候选仍由用户确认。"""
+        if self._correct_base(start, end, boundary):
+            return
         ranked = sorted(scores, key=lambda key: (-scores[key], key))
         base_sources = frozenset(value for kind, value in ranked if kind == "base")
         members = (self.index._read_chain(self.text, self.positions, end, boundary, base_sources)
@@ -694,6 +793,40 @@ class _Parse:
             "status": "needs_confirmation", "candidates": candidates,
             "metadata": {"issue": "base_uncertain"},
         }, "fuzzy_base")
+
+    def _correct_base(self, start: int, end: int, boundary: int) -> bool:
+        correction = self.index.base_correction(self.text[start:end])
+        if correction is None:
+            return False
+        source = correction["source_metric_code"]
+        members = self.index._read_chain(self.text, self.positions, end, boundary, {source})
+        if not members or any(partial for *_, partial in members):
+            return False
+        selected = []
+        for _, _, canons, _ in members:
+            codes = self.index.codes_for({source}, canons)
+            if len(canons) != 1 or len(codes) != 1:
+                return False
+            code = next(iter(codes))
+            item = self.index.items[code]
+            # 正式名称撞码或源结构不一致时，不能借模糊纠错绕过精确识别的歧义门禁。
+            if (self.index.full_terms[normalize_semantic_text(item.name)] != {code}
+                    or normalize_semantic_text(item.base_name or "")
+                    != normalize_semantic_text(correction["formal_base_name"])):
+                return False
+            selected.append(item)
+        group = self._group(source)
+        original_base = self.question[self.positions[start]:self.positions[end - 1] + 1]
+        for position, ((member_start, member_end, _, _), item) in enumerate(
+                zip(members, selected, strict=True)):
+            metadata = {"match": "fuzzy_correction",
+                        "understood_as": correction["formal_base_name"],
+                        "correction": {**correction, "original_base_text": original_base,
+                                       "formal_metric": {"code": item.code, "name": item.name,
+                                                         "value_basis": item.value_basis}}}
+            self._emit(start if position == 0 else member_start, member_end,
+                       self._resolved([item.code], **metadata), "fuzzy_base_basis", group)
+        return True
 
 
 @lru_cache(maxsize=2)

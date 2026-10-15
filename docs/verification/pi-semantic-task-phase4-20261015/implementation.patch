@@ -1,0 +1,1259 @@
+--- baseline/agent-service/.env.example
++++ candidate/agent-service/.env.example
+@@ -8,9 +8,9 @@
+ AGENT_ANSWER_STREAMING=false
+ # 旧配置兼容项；新模型统一使用固定请求协议，此值不再切换模型入口。
+ AGENT_COMPACT_TURN_ARGS=false
+-# 新建会话业务协议。候选仅接入精确查询/条件准备/结果重显，尚不用于默认上线。
++# 新建会话使用统一语义协议；阶段4本地已按用户要求切换，稳定性和95%覆盖率仍待验收。
+ # 既有会话始终沿用创建时的协议；修改默认值后重启服务。
+-AGENT_BUSINESS_PROTOCOL=fixed_v1
++AGENT_BUSINESS_PROTOCOL=semantic_v2
+ 
+ # FastAPI 后端内网地址（agent 工具调用透传用户 Bearer）
+ BACKEND_BASE_URL=http://127.0.0.1:8010
+--- baseline/agent-service/README.md
++++ candidate/agent-service/README.md
+@@ -4,9 +4,10 @@
+ pi 是唯一的 Agent 运行与对话控制核心：会话、模型上下文、压缩、执行状态与恢复全部使用原生能力
+ （`JsonlSessionRepo` + `main` lane）；本服务承载鉴权、可信输入绑定、原生接线、Schema 驱动的业务 Frame 及页面投影。
+ 
+-`AGENT_BUSINESS_PROTOCOL=fixed_v1` 为默认入口；显式设置 `semantic_v2` 后，新会话可验收统一语义任务协议。
+-既有会话不切换协议。候选目前贯通精确查询、条件准备、确认和历史结果重显，复合/排名/分析计算仍待接入；
+-不能把候选作为原能力全集的替换。实现、检查及回退见[阶段二实现](../docs/pi-semantic-task/implementation-phase2.md)。
++`AGENT_BUSINESS_PROTOCOL=semantic_v2` 为新会话默认入口，既有会话保持原协议。
++已贯通精确查询、条件准备、确认、历史重显、复合目标、比较排名、覆盖发现、正式结果计算及结果驱动规划。
++阶段4按用户要求先切换本地并交付手测；自动稳定性验收尚未完成，未证明95%覆盖率。
++实现、检查及回退见[阶段4说明](../docs/pi-semantic-task/implementation-phase4.md)，可复制问法见[手工验收案例](../docs/pi-semantic-task/manual-acceptance-phase4.md)。
+ Agent 的业务取数只调用 FastAPI 后端受治理接口并透传用户 Bearer，目录校验、权限裁剪、
+ SQL builder 生成和执行与受控计算全部保留在后端；本服务不生成或执行 SQL；Frame 仅保留字段、结果引用和摘要，结果快照按需读取。
+ 
+@@ -45,7 +46,7 @@
+ - `POST /sessions`、`GET /sessions`、`GET /sessions/{id}`、`DELETE /sessions/{id}`：会话管理；历史消息由原生记录投影（含工具回执引用），删除活动会话返回 409。
+ - `POST /sessions/{id}/prompt`：提问，SSE 事件流。请求体为 `{protocol_version: 3, request_id, message, clarification_target?, selected_answers?}`；`request_id` 由浏览器每次确认发送生成，重试不变。旧协议请求返回 `CLIENT_UPGRADE_REQUIRED`。
+ - `GET /sessions/{id}/stream`：只读观察流（断线重连：快照 + 实时事件），不接纳新输入。
+-- `POST /sessions/{id}/cancel`：显式停止指定 operation（原生 requestAbort）。
++- `POST /sessions/{id}/cancel`：传operation_id停止指定操作，或传request_id取消尚未收到accepted的请求；两者恰好一个。
+ 
+ SSE 事件：`accepted`（含快照）、`snapshot`、`tool_start`、`tool_end`、`run_terminal`
+ （分开表达 `run_status`/`answer_status`/`business_tasks`）、`error`；公共字段含
+--- baseline/agent-service/scripts/audit-semantic-phase4.mjs
++++ candidate/agent-service/scripts/audit-semantic-phase4.mjs
+@@ -0,0 +1,34 @@
++/** 冻结独立期望对照正式SQL/结果；不联网，不改原始运行记录。 */
++import assert from 'node:assert/strict';
++import {readFile,writeFile} from 'node:fs/promises';
++import {createHash} from 'node:crypto';
++import {resolve} from 'node:path';
++const [input,output,corpusFile='../docs/verification/pi-semantic-task-phase4-20261015/corpus-v1.json']=process.argv.slice(2);assert(input&&output&&input!==output);
++const raw=JSON.parse(await readFile(input,'utf8')),bytes=await readFile(corpusFile),corpus=JSON.parse(bytes);assert.equal(raw.corpus_sha256,createHash('sha256').update(bytes).digest('hex'));
++const sorted=items=>items.map(x=>JSON.stringify(x)).sort();
++const flatten=v=>v?.kind==='semantic_results'?v.results.flatMap(flatten):v?[v]:[];
++function inspect(e,t,protocol){
++ assert(!t.model_error_codes?.includes('HTTP_402'),'MODEL_GATEWAY_HTTP_402');assert(!t.run_failure,t.run_failure);assert(t.answer.trim(),'VISIBLE_ANSWER');assert(!/达到工具调用限额|处理未完成|模型响应未完成|本轮模型响应未完成|尚未形成可执行任务|本次分析尚未完成|相同参数重复/u.test(t.answer),'DELIVERY_NOT_INCOMPLETE');
++ if(e.no_query){assert.equal(t.queries.length,0,'NO_SQL_BEFORE_USER_INPUT');assert(t.receipts.some(r=>['needs_user','NEEDS_CLARIFICATION'].includes(r.details?.status)),'FORMAL_NECESSARY_CLARIFICATION');return;}
++ assert(t.queries.length,'BUSINESS_EXECUTION_REQUIRED');const actual=[];
++ for(const q of t.queries){assert(Array.isArray(q.rows),'SUCCESSFUL_SQL');const s=q.spec;assert(s.time.start===s.time.end&&!s.time.dates||s.time.dates,'NO_UNREQUESTED_RANGE');
++  for(const org of s.org_codes)for(const metric of s.metric_codes)for(const date of s.time.dates??[s.time.start])actual.push({org,metric,date});
++  assert.equal(s.selection??'exact','exact','EXACT_DATE_SELECTION');
++  for(const[field,v]of Object.entries(e.operation??{kind:'value'}))assert.equal((s.operation??{kind:'value'})[field],v,'QUERY_OPERATION');
++  if(e.comparison_orgs)assert.deepEqual(sorted(s.comparison_scope?.org_codes??[]),sorted(e.comparison_orgs),'COMPARISON_POPULATION');else assert(!s.comparison_scope,'NO_EXTRA_COMPARISON_SCOPE');
++ }
++ assert.deepEqual(sorted(actual),sorted(e.tuples),'COMPLETE_TUPLE_BINDING_WITHOUT_DUPLICATE_SQL');const rows=t.queries.flatMap(q=>q.rows);
++ if(e.empty)assert.equal(rows.length,0,'EMPTY_RESULT');else if(e.null)assert(rows.length&&rows.every(r=>r.metric_value===null),'NULL_NOT_ZERO');else assert(rows.length,'EXPECTED_DATA');
++ if(e.result_orgs)assert.deepEqual(sorted(rows.map(r=>r.org_code)),sorted(e.result_orgs),'RANK_RESULT');
++ const evidence=t.receipts.flatMap(r=>flatten(r.details?.state?.evidence??r.details));
++ if(e.calculation){const calc=evidence.find(v=>v.kind==='metric_calculate'&&v.status==='succeeded');assert(calc,'FORMAL_CALCULATION');assert(calc.results?.some(r=>Number(r.value)===Number(e.calculation_value)),'CALCULATION_DIRECTION_AND_VALUE');}
++ if(e.staged){const counts=t.receipts.filter(r=>r.details?.protocol_version===2&&r.details?.state).map(r=>r.details.state.targets.filter(v=>v.kind==='query'&&v.status==='succeeded').length);assert(counts.includes(1)&&counts.includes(2),'RESULT_DRIVEN_SECOND_STAGE');}
++ if(protocol==='semantic_v2')assert.equal(t.completion,'full','COMPLETE_EVIDENCE');
++}
++const tasks=raw.tasks.map(task=>{const c=corpus.cases.find(c=>c.id===task.case_id);assert(c);const turns=task.turns.map((t,i)=>{let failure;try{inspect(c.expect[i],t,task.protocol);}catch(e){failure=e.message;}return {turn:t.turn,passed:!failure,failure,model_calls:t.model_calls,elapsed_ms:t.elapsed_ms,executions:t.queries.length};});return {case_id:task.case_id,protocol:task.protocol,repetition:task.repetition,passed:turns.length===c.expect.length&&turns.every(t=>t.passed),turns};});
++const source=[];for(const[p,hash]of Object.entries(raw.source_hashes))source.push({path:p,matches:createHash('sha256').update(await readFile(resolve(p))).digest('hex')===hash});
++const groups=raw.mode==='paired'?corpus.cases.map(c=>{const a=tasks.find(t=>t.case_id===c.id&&t.protocol==='fixed_v1'),b=tasks.find(t=>t.case_id===c.id&&t.protocol==='semantic_v2');return {case_id:c.id,classification:!a||!b?'pending':a.passed&&b.passed?'both_passed':!a.passed&&!b.passed?'shared_failure':a.passed?'candidate_only_failure':'baseline_only_failure'};}):corpus.stability.case_ids.map(id=>{const runs=tasks.filter(t=>t.case_id===id);return {case_id:id,runs:runs.length,passed:runs.filter(t=>t.passed).length,all_repetitions_passed:runs.length===corpus.stability.repetitions&&runs.every(t=>t.passed)};});
++const expected=raw.mode==='paired'?corpus.cases.length*2:corpus.stability.case_ids.length*corpus.stability.repetitions;
++const result={source_report:input,mode:raw.mode,finished:tasks.length===expected,source_hashes_match:source.every(x=>x.matches),source_hash_checks:source,passed:tasks.filter(t=>t.passed).length,total:tasks.length,expected_total:expected,groups,tasks,independent_production_corpus:false,natural_language_factual_attribution_audited:false,note:'统计完整任务；重复不增加独立样本数；新旧同源码和预算，不等于Git历史版本对照；不足以声明95%覆盖率。'};
++await writeFile(output,JSON.stringify(result,null,2));console.log(JSON.stringify({finished:result.finished,passed:result.passed,total:result.total,source_hashes_match:result.source_hashes_match,groups}));
++if(!result.finished||!result.source_hashes_match||raw.mode==='stability'&&tasks.some(t=>!t.passed))process.exitCode=1;
+--- baseline/agent-service/scripts/check-semantic-phase4.ts
++++ candidate/agent-service/scripts/check-semantic-phase4.ts
+@@ -0,0 +1,50 @@
++/** 阶段4配对/重复运行；成功标准由冻结语料和独立审计判断，不把运行结束当业务成功。 */
++import assert from 'node:assert/strict';
++import {createHash} from 'node:crypto';
++import {readFile,writeFile,mkdir,mkdtemp} from 'node:fs/promises';
++import {join,resolve,dirname} from 'node:path';
++import {tmpdir} from 'node:os';
++import {BACKGROUND_CONTEXT} from '@earendil-works/pi-agent-core';
++import {loadConfig} from '../src/config.js';
++import {createAskMetricModels} from '../src/models.js';
++import {HarnessHost} from '../src/harnessHost.js';
++import {NativeSessionStore} from '../src/nativeSessions.js';
++import {NativeSemanticTaskStore} from '../src/semantic-task/store.js';
++import {createAskMetricTools} from '../src/tools/index.js';
++import {loadBusinessSkills,createBusinessSkillReadTool} from '../src/businessSkills.js';
++import {projectEntries} from '../src/sessionProjection.js';
++import {createSyntheticBackend} from './phase4-synthetic-backend.js';
++import type {BackendUser} from '../src/backendClient.js';
++const arg=(key:string,fallback:string)=>process.argv.find(x=>x.startsWith(`--${key}=`))?.slice(key.length+3)??fallback;
++const corpusPath=resolve(arg('corpus','../docs/verification/pi-semantic-task-phase4-20261015/corpus-v1.json'));
++const corpusBytes=await readFile(corpusPath),corpus=JSON.parse(corpusBytes.toString()),mode=arg('mode','paired');
++assert(['paired','stability'].includes(mode));assert(new Set(corpus.cases.map((c:any)=>c.id)).size===corpus.cases.length);
++if(!process.argv.includes('--live')){console.log(JSON.stringify({dry_run:true,mode,cases:corpus.cases.length,stability:corpus.stability}));process.exit(0);}
++const config=loadConfig();assert.equal(new URL(config.model.baseUrl).hostname,'api.siliconflow.cn');assert.equal(config.model.name,'deepseek-ai/DeepSeek-V4-Flash');
++const destination=resolve(arg('report',`../docs/verification/pi-semantic-task-phase4-20261015/${mode}.json`));
++const files=['src/harnessHost.ts','src/sessionProjection.ts','src/config.ts','src/models.ts','src/semantic-task/planService.ts','src/semantic-task/service.ts','src/semantic-task/tools.ts','src/semantic-task/feedback.ts','src/semantic-task/prompt.ts','src/business-context/service.ts','src/prompts/businessSystemPrompt.ts','scripts/check-semantic-phase4.ts','scripts/phase4-synthetic-backend.ts','scripts/semantic-task-fixture.py','scripts/generic-query-fixture.py','../backend-next/src/ask_metric/api/routes/business_context.py','../backend-next/src/ask_metric/application/goal_facts.py'];
++files.push('src/backendClient.ts','src/semantic-task/protocol.ts','src/semantic-task/store.ts','../backend-next/src/ask_metric/domain/time_expression.py','../backend-next/src/ask_metric/application/field_resolution.py');
++const hashes=Object.fromEntries(await Promise.all(files.map(async p=>[p,createHash('sha256').update(await readFile(p)).digest('hex')])));
++const root=await mkdtemp(join(tmpdir(),'phase4-model-')),skills=await loadBusinessSkills(),hosts=new Map<string,{host:HarnessHost;store:NativeSessionStore}>();
++for(const protocol of mode==='paired'?['fixed_v1','semantic_v2']:['semantic_v2']){
++ const directory=join(root,protocol);await mkdir(directory);const store=new NativeSessionStore(directory),local={...config,dataDir:directory,businessProtocol:protocol as 'fixed_v1'|'semantic_v2'};
++ hosts.set(protocol,{store,host:new HarnessHost(local,a=>createAskMetricModels(local,a),store,[...createAskMetricTools(),createBusinessSkillReadTool(skills)],{skills})});
++}
++const actor:BackendUser={id:'synthetic-semantic',username:'synthetic',display_name:'阶段4合成验收',org_code:'SYNTH_ROOT',org_name:'合成集团',role_code:'USER'},tasks:any[]=[];
++async function save(){await mkdir(dirname(destination),{recursive:true});await writeFile(destination,JSON.stringify({mode,environment:'same_current_source_real_model_synthetic_backend',real_database:false,requires_independent_audit:true,corpus_sha256:createHash('sha256').update(corpusBytes).digest('hex'),source_hashes:hashes,config:{model:config.model.name,gateway_origin:new URL(config.model.baseUrl).origin,max_tokens:config.model.maxTokens,context_window:config.model.contextWindow,extra_body:Object.fromEntries(Object.entries(config.model.extraBody).filter(([key])=>['temperature','top_p','top_k','presence_penalty','frequency_penalty','seed','enable_thinking','thinking','reasoning_effort'].includes(key))),model_retry:config.modelRetry,first_response_ms:config.modelFirstResponseTimeoutMs,stream_idle_ms:config.modelStreamIdleTimeoutMs,per_turn_budget_ms:120000},native_session_directory:root,finished_tasks:tasks.length,independent_production_corpus:false,tasks},null,2));}
++async function run(c:any,protocol:string,repetition:number){
++ const {host}=hosts.get(protocol)!;const hosted=await host.createSession(actor),b=createSyntheticBackend(),store=new NativeSemanticTaskStore(hosted.session),turns:any[]=[];
++ try{for(const[index,message]of c.messages.entries()){
++  const before=b.queries.length,started=performance.now();let failure:string|undefined;
++  const admission=await host.admitPrompt(hosted,{protocol_version:3,request_id:`${mode}-${c.id}-${repetition}-${index}`,message},{actor,backend:b.client});assert(admission.ok);
++  const timer=setTimeout(()=>void host.abort(hosted,admission.operationId),120000);
++  try{const result=await host.drivePrompt(hosted,admission);assert(result.ok&&result.outcome.kind==='settled'&&result.outcome.outcome.status==='completed','MODEL_TURN_COMPLETED');}catch(e){failure=e instanceof Error?e.message:String(e);}finally{clearTimeout(timer);}
++  const entries=await hosted.lane.findEntries({order:'oldestFirst'},BACKGROUND_CONTEXT),start=entries.map(e=>e.type==='message'&&e.message.role==='user').lastIndexOf(true),current=entries.slice(start),messages=current.flatMap(e=>e.type==='message'?[e.message]:[]);
++  const receipts=messages.flatMap(m=>m.role==='toolResult'?[{name:m.toolName,details:m.details,is_error:!!m.isError}]:[]),calls=messages.flatMap(m=>m.role==='assistant'?m.content.filter(b=>b.type==='toolCall').map(c=>({name:c.name,args:c.arguments})):[]),answer=projectEntries(current).filter(m=>m.role==='assistant').map(m=>m.text).join('\n');
++  const plan=await store.plan((await store.planIndex()).focus??'');turns.push({turn:index+1,message,run_failure:failure,model_calls:admission.request.timings?.model_ms.length,elapsed_ms:Math.round(performance.now()-started),queries:b.queries.slice(before),receipts,calls,answer,completion:plan?.completion,model_error_codes:messages.flatMap(m=>m.role==='assistant'&&/^402\b/u.test(m.errorMessage??'')?['HTTP_402']:[])});
++ }}finally{await host.closeSession(hosted.sessionId);}
++ tasks.push({case_id:c.id,group:c.group,protocol,repetition,turns});await save();console.log(JSON.stringify({case_id:c.id,protocol,repetition,run_failures:turns.filter(t=>t.run_failure).map(t=>t.run_failure)}));if(turns.some(t=>t.model_error_codes.includes('HTTP_402')))throw new Error('MODEL_GATEWAY_HTTP_402: stopped batch; restore gateway before retry');
++}
++try{if(mode==='paired')for(const[index,c]of corpus.cases.entries())for(const protocol of index%2?['semantic_v2','fixed_v1']:['fixed_v1','semantic_v2'])await run(c,protocol,1);
++else for(let i=1;i<=corpus.stability.repetitions;i++)for(const id of corpus.stability.case_ids)await run(corpus.cases.find((c:any)=>c.id===id),'semantic_v2',i);
++}finally{await save();for(const{host,store}of hosts.values()){await host.close();await store.close();}}
+--- baseline/agent-service/scripts/phase4-synthetic-backend.ts
++++ candidate/agent-service/scripts/phase4-synthetic-backend.ts
+@@ -0,0 +1,45 @@
++/** 阶段4合成后端；不读取数据库配置，复用当前Python目录、日历、准入及内存SQL。 */
++import {execFileSync} from 'node:child_process';
++import {join,resolve} from 'node:path';
++import {BackendApiError,type BackendClient} from '../src/backendClient.js';
++const pythonPath = resolve('../backend-next/.venv/bin/python');
++const cache = new Map<string, unknown>();
++function python(payload: Record<string, unknown>): any {
++  const input = JSON.stringify(payload);
++  if (payload.action !== 'query' && cache.has(input)) return structuredClone(cache.get(input));
++  const response = JSON.parse(execFileSync(pythonPath, [join(import.meta.dirname, 'semantic-task-fixture.py')], {
++    input, encoding: 'utf8', timeout: 30000, maxBuffer: 4 * 1024 * 1024,
++    env: {PATH: '/usr/bin:/bin:/opt/homebrew/bin'},
++  }));
++  if (!response.ok) throw new BackendApiError(422, response.message, response.error);
++  if (payload.action !== 'query') cache.set(input, response.value);
++  return response.value;
++}
++export function createSyntheticBackend() {
++  const queries: any[] = [], results = new Map<string, any>();
++  return {queries, client: {
++    resolveBusinessField: async (entity: string, raw: string[], _options?: unknown, year?: number, source?: unknown) => python({action: 'resolve', entity, raw, year, source}),
++    inspectBusinessGoal: async (question: string, businessDate: string, _options?: unknown, reference_year?: number) => python({action: 'inspect', question, business_date: businessDate, reference_year}),
++    admitSemanticPlan: async (payload: unknown) => python({action: 'admit', payload}),
++    calculate: async (spec: any) => {
++      const known = [...results.values()].flatMap(result => result.facts ?? []);
++      const inputs = Object.fromEntries(Object.entries(spec.bindings).map(([name, binding]: [string, any]) => {
++        const fact = known.find(fact => fact.fact_id === binding.fact_id); if (!fact) throw new Error('UNOBSERVED_FACT'); return [name, fact];
++      }));
++      const result = python({action: 'calculate', spec, inputs}); return {...result, public_answer: result.results.map((item: any) => `${item.label}：${item.display_value}${item.unit}`).join('\n')};
++    },
++    matchMetricQuestion: async (question: string) => python({action: 'mentions', question}),
++    metricCatalogOverview: async () => ({total: 2, groups: [{unit: '元', count: 2, examples: [{code: 'SYNTH_M:D', name: '经营收益金额当日数'}]}]}),
++    searchMetrics: async (keyword: string) => ({total: 2, items: [{metric_code: 'SYNTH_M:D', metric_name: '经营收益金额当日数', unit: '元', score: 1, match_type: 'exact'}, {metric_code: 'SYNTH_M:Y', metric_name: '经营收益金额较同期', unit: '元', score: 1, match_type: 'exact'}].filter(item => item.metric_name.includes(keyword)), semantic_suggestions: []}),
++    searchOrganizations: async (keyword: string) => {const items = ['甲','乙','丙','丁'].map((name,index) => ({org_code: `SYNTH_O${index+1}`,org_name: `合成机构${name}`,score: 1,match_type: 'exact'})).filter(item => item.org_name.includes(keyword));return {total:items.length,items};},
++    createAgentQueryContext: async () => ({conversation_id: 'synthetic-semantic'}),
++    basicQueries: async (query: any) => {
++      const item: any = {spec: query}; queries.push(item); const actual = python({action: 'query', spec: query});
++      const id = `query-${queries.length}`;
++      const result = {status: 'succeeded', task_id: id, result_id: `result-${id}`, rows: actual.rows, columns: Object.keys(actual.rows[0] ?? {}), row_count: actual.rows.length, truncated: false, message: '合成数据SQL完成', facts: actual.rows.flatMap((row: any, index: number) => row.metric_value === null || row.metric_value === undefined ? [] : [{fact_id: `fact:${id}:${index}:metric_value`, task_id: id, field: 'metric_value', value: String(row.metric_value), unit: row.unit ?? '元', metric_code: row.metric_code, metric_name: row.metric_name, org_code: row.org_code, org_name: row.org_name, date: row.stat_date}])};
++      item.row_count = actual.rows.length; item.rows = actual.rows; results.set(id, result); return {query, result};
++    },
++    getTask: async (id: string) => {if(!results.has(id))throw new BackendApiError(404,'合成查询任务不存在','TASK_NOT_FOUND');return {task_id: id, status: 'SUCCEEDED', version: 1, result: {result_id: `result-${id}`}};},
++    getTaskResult: async (id: string) => {if(!results.has(id))throw new BackendApiError(404,'合成查询结果不存在','RESULT_NOT_FOUND');return results.get(id);},
++  } as unknown as BackendClient};
++}
+--- baseline/agent-service/scripts/serve-phase4-cancel-fixture.ts
++++ candidate/agent-service/scripts/serve-phase4-cancel-fixture.ts
+@@ -0,0 +1,23 @@
++/** 只用于accepted时序验收：真实HTTP/身份，模型在本地等待取消，绝不调用外部模型或执行业务查询。 */
++import assert from 'node:assert/strict';
++import {serve} from '@hono/node-server';
++import {createAssistantMessageEventStream,createModels,createProvider,type AssistantMessage,type Model,type ProviderStreams} from '@earendil-works/pi-ai';
++import {loadConfig} from '../src/config.js';
++import {HarnessHost} from '../src/harnessHost.js';
++import {NativeSessionStore,acquireWriterLock} from '../src/nativeSessions.js';
++import {createAskMetricTools} from '../src/tools/index.js';
++import {createApp} from '../src/routes.js';
++assert(process.argv.includes('--cancel-fixture'));
++const config={...loadConfig(),host:'127.0.0.1',port:8023,dataDir:'/private/tmp/ask-metric-phase4-stop-fixture',businessProtocol:'semantic_v2' as const};assert.equal(new URL(config.backendBaseUrl).hostname,'127.0.0.1');
++const model:Model<'openai-completions'>={id:'phase4-local-cancel',name:'phase4-local-cancel',api:'openai-completions',provider:'phase4-local-cancel',baseUrl:'http://local-fixture.invalid',reasoning:false,input:['text'],contextWindow:128000,maxTokens:8192,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}};
++let calls=0;
++const respond:ProviderStreams['streamSimple']=(current,context,options)=>{
++ const stream=createAssistantMessageEventStream();calls++;console.log(JSON.stringify({event:'local_cancel_fixture_model_started',calls,external_model:false}));
++ const message:AssistantMessage={role:'assistant',content:[],api:current.api,provider:current.provider,model:current.id,stopReason:'aborted',errorMessage:'local cancellation fixture',timestamp:Date.now(),usage:{input:0,output:0,totalTokens:0,cacheRead:0,cacheWrite:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}}};
++ let finished=false;const end=()=>{if(finished)return;finished=true;stream.push({type:'error',reason:'aborted',error:message});stream.end(message);console.log(JSON.stringify({event:'local_cancel_fixture_aborted',calls,external_model:false}));};
++ queueMicrotask(async()=>{await options?.onPayload?.({tools:context.tools?.map(tool=>({type:'function',function:tool}))??[]},current);if(options?.signal?.aborted)end();else options?.signal?.addEventListener('abort',end,{once:true});});return stream;
++};
++const models=createModels();models.setProvider(createProvider({id:model.provider,name:model.name,models:[model],auth:{apiKey:{name:'local-fixture',resolve:async()=>({auth:{}})}},api:{stream:respond,streamSimple:respond}}));
++const unlock=acquireWriterLock(config.dataDir),store=new NativeSessionStore(config.dataDir),host=new HarnessHost(config,()=>({models,model}),store,createAskMetricTools()),app=createApp(config,host,store);
++const server=serve({fetch:app.fetch,hostname:config.host,port:config.port},()=>console.log('phase4 cancel fixture listening on 127.0.0.1:8023; external_model=false'));
++const close=()=>server.close(async()=>{await host.close();await store.close();unlock();process.exit(0);});process.on('SIGINT',close);process.on('SIGTERM',close);
+--- baseline/agent-service/specs/config.spec.ts
++++ candidate/agent-service/specs/config.spec.ts
+@@ -2,6 +2,12 @@
+ import {loadConfig} from "../src/config.js";
+ 
+ const model = {AGENT_MODEL_API_KEY: "synthetic", AGENT_MODEL_BASE_URL: "http://model.test/v1", AGENT_MODEL_NAME: "synthetic"};
++it("新会话默认语义协议，显式旧协议可回退，非法协议拒绝启动",()=>{
++  expect(loadConfig(model).businessProtocol).toBe("semantic_v2");
++  expect(loadConfig({...model,AGENT_BUSINESS_PROTOCOL:"fixed_v1"}).businessProtocol).toBe("fixed_v1");
++  expect(loadConfig({...model,AGENT_BUSINESS_PROTOCOL:"semantic_v2"}).businessProtocol).toBe("semantic_v2");
++  expect(()=>loadConfig({...model,AGENT_BUSINESS_PROTOCOL:"invalid"})).toThrow("AGENT_BUSINESS_PROTOCOL");
++});
+ it("回答流式开关默认关闭，显式开启与关闭可回退，非法值拒绝启动", () => {
+   expect(loadConfig(model).answerStreaming).toBe(false);
+   expect(loadConfig({...model, AGENT_ANSWER_STREAMING: "true"}).answerStreaming).toBe(true);
+--- baseline/agent-service/specs/frameClarificationProjection.spec.ts
++++ candidate/agent-service/specs/frameClarificationProjection.spec.ts
+@@ -37,3 +37,10 @@
+     expect(projectEntries([user(), receipt({}, true)]).filter(message => message.role === "assistant")).toEqual([]);
+   });
+ });
++
++it("显式取消刷新后仍显示停止，实际模型故障保留失败状态",()=>{
++ const stopped=projectEntries([user(),entry({role:"assistant",stopReason:"aborted",errorMessage:"模型请求已取消",content:[]})]).at(-1);
++ expect(stopped).toMatchObject({text:"已停止生成。"});expect(stopped).not.toHaveProperty("error");
++ const failed=projectEntries([user(),entry({role:"assistant",stopReason:"error",errorMessage:"MODEL_FIRST_RESPONSE_TIMEOUT: timeout",content:[]})]).at(-1);
++ expect(failed).toHaveProperty("error");expect(failed && "text" in failed ? failed.text : undefined).not.toBe("已停止生成。");
++});
+--- baseline/agent-service/specs/semantic-task/backend-contract.spec.ts
++++ candidate/agent-service/specs/semantic-task/backend-contract.spec.ts
+@@ -7,6 +7,7 @@
+ import {semanticFeedback, semanticPublicAnswer} from "../../src/semantic-task/feedback.js";
+ import {runTool} from "../../src/tools/testUtils.js";
+ import type {BackendClient} from "../../src/backendClient.js";
++import {createSyntheticBackend} from "../../scripts/phase4-synthetic-backend.js";
+ import {fixture, proposal} from "./fixtures.js";
+ const clean: Array<() => Promise<void>> = [];
+ afterEach(async () => {for (const close of clean.splice(0)) await close();});
+@@ -34,6 +35,11 @@
+   {action: "set", field: "metrics", value: "经营收益金额当日数"},
+   {action: "set", field: "time", value: "2026年5月31日"},
+ ] as const;
++it("合成后端不能把不存在的任务或结果当成功",async()=>{
++ const b=createSyntheticBackend();
++ await expect(b.client.getTask("unobserved")).rejects.toMatchObject({status:404});
++ await expect(b.client.getTaskResult("unobserved")).rejects.toMatchObject({status:404});
++});
+ it("真实目录解析补全模型遗漏的已明确指标口径，编译请求通过后端来源校验和SQL", async () => {
+   const f = await setup(), request = f.request("exact", "查询合成机构甲2026年5月31日的经营收益金额当日数");
+   const result = await new SemanticTaskService(request).resolve(proposal(base.map(operation => operation.field === "metrics" ? {...operation, value: "经营收益金额"} : operation)));
+@@ -41,6 +47,22 @@
+   await runTool(createSemanticExecuteTool(), {task_ref: result.task!.ref, target_ref: result.task!.target.ref}, request);
+   expect(python({action: "query", spec: f.backend.basicQueries.mock.calls[0]![0]}).rows).toHaveLength(1);
+ }, 15000);
++it("多成员名称通过一对一目录身份对齐，保留原句完整口径且不新增指标", async () => {
++  const f = await setup(), request = f.request("multiple-basis", "查询合成机构甲2026年5月31日的经营收益金额当日数和经营收益金额较同期");
++  const result = await new SemanticTaskService(request).resolve(proposal(base.map(op => op.field === "metrics" ? {...op, value: "经营收益金额，经营收益金额较同期"} : op)));
++  expect({status:result.status,issues:result.task?.issues}).toEqual({status:"ready",issues:[]});
++  expect(result.task!.target.fields.metrics!.resolvedValue).toMatchObject({codes:["SYNTH_M:D","SYNTH_M:Y"]});
++}, 15000);
++it("日期续补误用new必须保留原焦点，改用current后沿用明确身份", async () => {
++  const f = await setup(), source = f.request("without-date", "查询合成机构甲的经营收益金额当日数");
++  const first = await new SemanticPlanService(source).resolve(proposal(base.filter(op=>op.field!=="time")));
++  expect(first.status).toBe("needs_user");
++  const request = f.request("date-only", "2026年5月31日"),service = new SemanticPlanService(request);
++  await expect(service.resolve(proposal([...base]))).rejects.toMatchObject({issue:{code:"HISTORY_SOURCE_REQUIRED"}});
++  expect((await request.semanticTasks!.planIndex()).focus).toBe(first.state.task_ref);
++  const next = await service.resolve(proposal([{action:"set",field:"time",value:"2026年5月31日"}],{kind:"current"}));
++  expect(next.status).toBe("ready");
++}, 20000);
+ it("真实目录按既有高置信纠错确定身份，原句绑定通过独立后端核验", async () => {
+   const f = await setup();
+   const first = await new SemanticTaskService(f.request("typo", "查询合成机构甲2026年5月31日的经营收益金融当日数")).resolve(proposal(base.map(operation =>
+@@ -157,3 +179,51 @@
+   const full = (await request.semanticTasks!.plan(ready.state.task_ref!))!;
+   expect(full.completion).toBe("full"); expect(full.issues).toEqual([]);
+ }, 20000);
++
++it("完整原句已经确定机构身份，模型缩写不制造新的用户确认", async () => {
++  const f=await setup(),request=f.request("org-abbreviation","查询合成机构丙2026年5月30日的经营收益金额当日数");
++  const input=proposal(base.map(op=>op.field==="organizations"?{...op,value:"丙"}:op.field==="time"?{...op,value:"2026年5月30日"}:op));
++  const ready=await new SemanticPlanService(request).resolve(input);
++  expect({status:ready.status,issues:ready.issues}).toEqual({status:"ready",issues:[]});
++  await runTool(createSemanticExecuteTool(),{task_ref:ready.state.task_ref,target_ref:ready.state.targets[0]!.target_ref},request);
++  expect(f.backend.basicQueries.mock.calls[0]![0]).toMatchObject({org_codes:["SYNTH_O3"]});
++  expect(python({action:"query",spec:f.backend.basicQueries.mock.calls[0]![0]}).rows[0].metric_value).toBe(40);
++},15000);
++
++it("仅修改日期时，模型重复陈述相同的已绑定机构不会要求用户重述机构", async () => {
++  const f=await setup(),firstRequest=f.request("same-org-base","查询合成机构甲2026年5月31日的经营收益金额当日数");
++  await new SemanticPlanService(firstRequest).resolve(proposal([...base],{kind:"new"},"prepare"));
++  const request=f.request("same-org-date","日期改成2026年6月30日，其他条件不变");
++  const ready=await new SemanticPlanService(request).resolve(proposal([{action:"set",field:"organizations",value:"合成机构甲"},{action:"set",field:"time",value:"2026年6月30日"}],{kind:"current"}));
++  expect({status:ready.status,issues:ready.issues}).toEqual({status:"ready",issues:[]});
++},15000);
++
++
++it("同一原句的跨机构计算可拆成标量来源，完整性由整笔任务独立核验",async()=>{
++ const f=await setup(),b=createSyntheticBackend(),request={...f.request("cross-org-calculation","查询合成机构甲和合成机构丙2026年5月30日的经营收益金额当日数，计算丙减甲的差额"),backend:b.client};
++ const source=(org:string,label:string)=>[...base.map(op=>op.field==="organizations"?{...op,value:org}:op.field==="time"?{...op,value:"2026年5月30日"}:op),{action:"set" as const,field:"objective" as const,value:label}];
++ const input=proposal(source("合成机构甲","甲项"),{kind:"new"},"calculate");
++ input.targets.push({source:{kind:"new"},operations:source("合成机构丙","丙项")},{source:{kind:"new"},operations:[{action:"set",field:"calculation",value:"`丙项` - `甲项`"}]});
++ const ready=await new SemanticPlanService(request).resolve(input);expect({status:ready.status,issues:ready.issues}).toEqual({status:"ready",issues:[]});
++ let final:any;for(const target of ready.state.targets)final=await runTool(createSemanticExecuteTool(),{task_ref:ready.state.task_ref,target_ref:target.target_ref},request);
++ expect(b.queries).toHaveLength(2);expect(final.details.status).toBe("succeeded");
++ expect(final.details.state.evidence.results[0].value).toBe("10");
++},25000);
++it("多目标签发的正式来源跨轮计算仍有效且不重查",async()=>{
++ const f=await setup(),b=createSyntheticBackend(),request={...f.request("signed-queries","分别查询合成机构甲2026年5月31日与合成机构丙2026年6月30日的经营收益金额当日数"),backend:b.client};
++ const input=proposal([...base]);
++ input.targets.push({source:{kind:"new"},operations:base.map(op=>op.field==="organizations"?{...op,value:"合成机构丙"}:op.field==="time"?{...op,value:"2026年6月30日"}:op)});
++ const ready=await new SemanticPlanService(request).resolve(input);expect(ready.status).toBe("ready");
++ for(const target of ready.state.targets)await runTool(createSemanticExecuteTool(),{task_ref:ready.state.task_ref,target_ref:target.target_ref},request);
++ const next={...f.request("signed-calc","用刚才的正式结果计算丙减甲，不重新查询"),backend:b.client};
++ const calc=proposal([{action:"set",field:"objective",value:"甲项"}],{kind:"reference",task_ref:ready.state.task_ref!,target_ref:ready.state.targets[0]!.target_ref},"calculate");
++ calc.targets.push({source:{kind:"reference",task_ref:ready.state.task_ref!,target_ref:ready.state.targets[1]!.target_ref},operations:[{action:"set",field:"objective",value:"丙项"}]},
++ {source:{kind:"new"},operations:[{action:"set",field:"calculation",value:"`丙项` - `甲项`"}]});
++ const permitted=await new SemanticPlanService(next).resolve(calc);expect({status:permitted.status,issues:permitted.issues}).toEqual({status:"ready",issues:[]});
++ const target=permitted.state.targets.find(x=>x.kind==="calculation")!;
++ const result=await runTool(createSemanticExecuteTool(),{task_ref:permitted.state.task_ref,target_ref:target.target_ref},next);
++ expect(result.details.status).toBe("succeeded");expect(b.queries).toHaveLength(2);
++ const oldSource={kind:"reference" as const,task_ref:ready.state.task_ref!,target_ref:ready.state.targets[0]!.target_ref};
++ const again=await new SemanticPlanService({...f.request("original-ref-reuse","重显合成机构甲的原始结果"),backend:b.client}).resolve(proposal([],oldSource,"reuse"));
++ expect(again.status).toBe("reused");expect(b.queries).toHaveLength(2);
++},40000);
+--- baseline/agent-service/specs/semantic-task/host.spec.ts
++++ candidate/agent-service/specs/semantic-task/host.spec.ts
+@@ -90,6 +90,26 @@
+   const feedback = entries.flatMap(entry => entry.type === "message" && entry.message.role === "toolResult" ? [entry.message.details] : []) as Array<{status?: string}>;
+   expect(feedback.map(item => item.status)).toEqual(["invalid_input", "failed"]);
+ });
++it("提案待修时模型纯文字不能结束，同一Pi修正后才执行", async () => {
++  const invalid = proposal([...complete(), {action: "set", field: "metrics", value: "合成指标乙"}]);
++  const f = await setup([[{name: "resolve_business_turn", args: invalid}], "请用户重新提供指标", [{name: "resolve_business_turn", args: proposal(complete())}], "查询已完成"]);
++  await f.run("repair-required", "查询合成机构甲2025年末的合成指标甲");
++  expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
++  expect(f.model.payloads[1]).toMatchObject({tool_choice: {type:"function",function:{name:"resolve_business_turn"}}});
++  const messages = projectEntries(await f.session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT));
++  expect(messages.some(message => message.role === "assistant" && message.text.includes("请用户重新提供指标"))).toBe(false);
++  expect(messages.some(message => message.role === "assistant" && message.text === "查询已完成")).toBe(true);
++});
++it("网关持续忽略修复工具要求时有界结束且不交付内部计划", async () => {
++  const invalid = proposal([...complete(), {action: "set", field: "metrics", value: "合成指标乙"}]);
++  const f = await setup([[{name: "resolve_business_turn", args: invalid}], "我计划稍后修复"]);
++  await f.run("repair-bounded", "查询合成机构甲2025年末的合成指标甲");
++  expect(f.model.calls()).toBe(4);
++  expect(f.backend.basicQueries).not.toHaveBeenCalled();
++  const messages = projectEntries(await f.session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT));
++  expect(messages.some(message => message.role === "assistant" && message.text.includes("内部提案尚未修正完成"))).toBe(true);
++  expect(messages.some(message => message.role === "assistant" && message.text.includes("稍后修复"))).toBe(false);
++});
+ it("同一模型批次两份resolve在任何业务执行前被阻止", async () => {
+   const f = await setup([[{name: "resolve_business_turn", args: proposal(complete())}, {name: "resolve_business_turn", args: proposal(complete())}]]);
+   await f.run("batch", "查询合成机构甲2025年末的合成指标甲");
+@@ -138,3 +158,25 @@
+   await f.run("context-only", "查询合成机构甲2025年末的合成指标甲");
+   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
+ });
++
++it("接纳前按request_id停止会持久化，重开后迟到请求仍不能执行且不影响其它请求",async()=>{
++ const f=await setup(["不应请求模型"]);
++ await f.host.cancelRequest(f.session,"stopped-before-admit");
++ const input={protocol_version:3 as const,request_id:"stopped-before-admit",message:"查合成机构甲2025年末的合成指标甲"};
++ const deps={actor:TEST_ACTOR,backend:f.backend as unknown as BackendClient};
++ expect(await f.host.admitPrompt(f.session,input,deps)).toMatchObject({ok:false,code:"REQUEST_CANCELLED"});
++ await f.host.closeSession(f.session.sessionId);
++ const reopened=await f.host.openSession(TEST_ACTOR,f.session.sessionId);expect(reopened).toBeDefined();
++ expect(await f.host.admitPrompt(reopened!,input,deps)).toMatchObject({ok:false,code:"REQUEST_CANCELLED"});
++ const next=await f.host.admitPrompt(reopened!,{...input,request_id:"different-request"},deps);expect(next.ok).toBe(true);
++ if(next.ok)await f.host.abort(reopened!,next.operationId);
++ expect(f.model.calls()).toBe(0);expect(f.backend.basicQueries).not.toHaveBeenCalled();
++});
++
++it("接纳后但accepted交付前按request_id停止，不能启动模型和查询",async()=>{
++ const f=await setup(["不应请求模型"]),request_id="stopped-after-admit";
++ const admission=await f.host.admitPrompt(f.session,{protocol_version:3,request_id,message:"查询合成机构甲2025年末的合成指标甲"},{actor:TEST_ACTOR,backend:f.backend as unknown as BackendClient});expect(admission.ok).toBe(true);
++ await f.host.cancelRequest(f.session,request_id);
++ if(admission.ok){await f.host.drivePrompt(f.session,admission);}
++ expect(f.model.calls()).toBe(0);expect(f.backend.basicQueries).not.toHaveBeenCalled();
++});
+--- baseline/agent-service/specs/semantic-task/plan.spec.ts
++++ candidate/agent-service/specs/semantic-task/plan.spec.ts
+@@ -198,3 +198,15 @@
+   const ready = await service.resolve(proposal(complete()));
+   expect(ready.status).toBe("ready");
+ });
++
++it("覆盖提案修复日期时复用完整规范结果，维度与分页不能被字段缓存丢弃",async()=>{
++ const f=await setup(),request=f.request("coverage-repair","查合成机构甲2025年末有哪些指标有记录");
++ const dataAvailability=vi.fn(async()=>({status:"succeeded",mode:"metrics",org_names:["合成机构甲"],request:{org_codes:["O1"]},page:1,items:[],metric_count:0,has_more:false,notice:"合成覆盖"}));Object.assign(f.backend,{dataAvailability});
++ const service=new SemanticPlanService(request);
++ const first=await service.resolve(proposal([{action:"set",field:"organizations",value:"合成机构甲"},{action:"set",field:"time",value:"无效日期"},{action:"set",field:"availability",value:"有记录的指标"}],{kind:"new"},"availability"));
++ expect(first.status).toBe("needs_interpretation");
++ const next=await service.resolve(proposal([{action:"set",field:"time",value:"2025年末"}],{kind:"new"},"availability"));
++ expect({status:next.status,issues:next.issues}).toEqual({status:"ready",issues:[]});
++ await runTool(createSemanticExecuteTool(),{task_ref:next.state.task_ref,target_ref:next.state.targets[0]!.target_ref},request);
++ expect(dataAvailability).toHaveBeenCalledTimes(1);expect(f.backend.basicQueries).not.toHaveBeenCalled();
++});
+--- baseline/agent-service/specs/semantic-task/service.spec.ts
++++ candidate/agent-service/specs/semantic-task/service.spec.ts
+@@ -277,3 +277,20 @@
+     expect(final.task!.target.coverage!.mentions.map(mention => mention.value?.codes)).toEqual([["M2"], ["M3"]]);
+   });
+ });
++
++it("日期候选可按唯一业务名称选择，展示附注无需复述且模型不能反选",async()=>{
++ const f=await setup();
++ await new SemanticTaskService(f.request("named-date-base","查合成机构甲近5年的合成指标甲全部数据")).resolve(proposal([...complete().filter(op=>op.field!=="time"),{action:"set",field:"time",value:"近5年"},{action:"set",field:"selection",value:"全部数据"}]));
++ const request=f.request("named-date-choice","日期用最近5个完整年度，取全部已有数据点");
++ const ready=await new SemanticTaskService(request).resolve(proposal([{action:"set",field:"time",value:"向前滚动5年"}],{kind:"current"}));
++ expect(ready.status).toBe("ready");expect(ready.task!.target.fields.time!.resolvedValue).toEqual({start:"2021-01-01",end:"2025-12-31"});
++});
++
++it("日期名称出现在否定或其它字段选择中不能确认日期候选",async()=>{
++ const f=await setup();
++ await new SemanticTaskService(f.request("named-date-no-base","查合成机构甲近5年的合成指标甲全部数据")).resolve(proposal([...complete().filter(op=>op.field!=="time"),{action:"set",field:"time",value:"近5年"},{action:"set",field:"selection",value:"全部数据"}]));
++ for(const [id,message]of [["negated","日期不要最近5个完整年度"],["metric-label","指标用最近5个完整年度"]]){
++  const next=await new SemanticTaskService(f.request(id!,message!)).resolve(proposal([{action:"confirm",field:"time",value:"最近5个完整年度"}],{kind:"current"}));
++  expect(next.status).toBe("needs_user");expect(next.task!.permit).toBeUndefined();
++ }
++});
+--- baseline/agent-service/src/backendClient.ts
++++ candidate/agent-service/src/backendClient.ts
+@@ -340,7 +340,7 @@
+   }
+   admitSemanticPlan(payload: {conversation_id: string; session_id: string; goal: string; business_date: string; analysis: boolean; reference_year?: number;
+     steps: Array<{target_ref: string; fragment: number; origin: "user_explicit" | "history" | "analysis_selected"; spec: BasicQuerySpec;
+-      source_question?: string; bindings?: unknown[]; exclusions?: unknown[]}>; fragment_bindings: Record<string, unknown[]>}, options?: CallOptions): Promise<{status: "admitted"; receipts: Array<{target_ref: string; receipt: string}>}> {
++      source_question?: string; source_semantic_receipt?: string; bindings?: unknown[]; exclusions?: unknown[]}>; fragment_bindings: Record<string, unknown[]>}, options?: CallOptions): Promise<{status: "admitted"; receipts: Array<{target_ref: string; receipt: string}>}> {
+     return this.request("/api/v1/business-context/admit-plan", {method: "POST", body: JSON.stringify(payload)}, options);
+   }
+ 
+--- baseline/agent-service/src/config.ts
++++ candidate/agent-service/src/config.ts
+@@ -89,7 +89,7 @@
+ }
+ 
+ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceConfig {
+-  const businessProtocol = env.AGENT_BUSINESS_PROTOCOL?.trim() || "fixed_v1";
++  const businessProtocol = env.AGENT_BUSINESS_PROTOCOL?.trim() || "semantic_v2";
+   if (!["fixed_v1", "semantic_v2"].includes(businessProtocol)) throw new Error("AGENT_BUSINESS_PROTOCOL 必须为 fixed_v1 或 semantic_v2");
+   // 存在任一密文时必须先加载主密钥；密钥缺失或密文被篡改时拒绝启动
+   const sensitiveNames = ["AGENT_MODEL_API_KEY"] as const;
+--- baseline/agent-service/src/harnessHost.ts
++++ candidate/agent-service/src/harnessHost.ts
+@@ -114,6 +114,7 @@
+ }
+ 
+ const requestValue = (requestId: string) => value<RequestAssociation>(NS, `request/${requestId}`);
++const cancelledRequestValue = (requestId: string) => value<boolean>(NS, `cancelled-request/${requestId}`);
+ /** operation → request 反查：重启恢复时凭 operationId 找回已接纳输入 */
+ const operationRequestValue = (operationId: string) => value<string>(NS, `operation/${operationId}`);
+ 
+@@ -166,11 +167,11 @@
+   | { ok: true; operationId: string; context: Context; request: AskMetricRequestContext;
+       /** 同一 request_id 的操作已结束：重试只回放原终态，不再接纳或驱动 */
+       completed?: OperationResultRecord }
+-  | { ok: false; code: "SESSION_BUSY" | "INVALID_MESSAGE" | "REQUEST_CONFLICT" | "SESSION_CLOSED" | "LEGACY_QUERY_REQUIRES_NEW_TURN"; message: string };
++  | { ok: false; code: "SESSION_BUSY" | "INVALID_MESSAGE" | "REQUEST_CONFLICT" | "REQUEST_CANCELLED" | "SESSION_CLOSED" | "LEGACY_QUERY_REQUIRES_NEW_TURN"; message: string };
+ 
+ export type DriveOutcomeResult =
+   | { ok: true; operationId: string; outcome: DriveOutcome }
+-  | { ok: false; code: "SESSION_BUSY" | "INVALID_MESSAGE" | "REQUEST_CONFLICT" | "SESSION_CLOSED" | "LEGACY_QUERY_REQUIRES_NEW_TURN"; message: string };
++  | { ok: false; code: "SESSION_BUSY" | "INVALID_MESSAGE" | "REQUEST_CONFLICT" | "REQUEST_CANCELLED" | "SESSION_CLOSED" | "LEGACY_QUERY_REQUIRES_NEW_TURN"; message: string };
+ 
+ export class HarnessHost {
+   /** 同会话打开 Promise 去重：并发请求共享同一次打开，不重复打开同一 Session */
+@@ -492,6 +493,19 @@
+           (raw as {function?: {name?: string}}).function?.name !== CONVERSATION_REPLY)};
+       }
+       const lastResolution = [...current].reverse().find(message => message.role === "toolResult" && message.toolName === "resolve_business_turn");
++      if (businessProtocol === "semantic_v2" && lastResolution?.role === "toolResult" && isSemanticFeedback(lastResolution.details)
++        && ["needs_interpretation", "invalid_input", "conflict"].includes(lastResolution.details.status)
++        && lastResolution.details.continuation.actor === "pi" && Array.isArray(payload.tools) && payload.tools.length) {
++        // 内部提案修复仍在同一Pi循环内，不能以计划文字或重复询问用户结束。
++        setStreamMode("none");
++        const localRepair = new Set(["CONFLICTING_OPERATIONS","FIELD_ACTION_INCOMPATIBLE","MODEL_FIELD_NOT_ALIGNED","PROPOSAL_FIELD_OMITTED",
++          "COLLECTION_SOURCE_UNRESOLVED","CALCULATION_NOT_DETERMINED","PLAN_SOURCE_OVERLAP","TIME_EXPRESSION_UNSUPPORTED"]);
++        if (lastResolution.details.issues.length && lastResolution.details.issues.every(issue=>localRepair.has(issue.code))) {
++          // 修复动作已由正式诊断确定；参数仍由Pi理解和重提，不替Pi选机构、指标或算式。
++          return {payload:{...payload,tool_choice:{type:"function",function:{name:"resolve_business_turn"}}}};
++        }
++        return {payload: {...payload, tool_choice: "required"}};
++      }
+       if (lastResolution?.role === "toolResult"
+         && (lastResolution.details as {status?: string} | undefined)?.status === "NEEDS_CLARIFICATION") {
+         // 待用户补充时只生成澄清问题；重复检索不能代替用户确认。
+@@ -658,6 +672,14 @@
+       const current = messages.slice(start + 1);
+       const receipts = current.filter(message => message.role === "toolResult");
+       if (businessProtocol === "semantic_v2" && !event.message.content.some(block => block.type === "toolCall")) {
++        const pending = [...receipts].reverse().find(message => message.toolName === "resolve_business_turn");
++        if (pending && isSemanticFeedback(pending.details) && pending.details.continuation.actor === "pi"
++          && ["needs_interpretation", "invalid_input", "conflict"].includes(pending.details.status)) {
++          const attempts = receipts.filter(message => message.toolCallId.startsWith("semantic-proposal-repair-")).length;
++          if (attempts < MAX_ACTION_REPAIRS && receipts.length < MAX_TOOL_CALLS_PER_OPERATION) return {message: {...event.message,
++            content: [{type: "toolCall" as const, id: `semantic-proposal-repair-${attempts + 1}`, name: ACTION_REQUIRED, arguments: {}}], stopReason: "toolUse" as const}};
++          return {message: {...event.message, content: [{type: "text" as const, text: "内部提案尚未修正完成，已保存原始条件和待修原因；本轮未完成的查询或计算不作为成功结果。"}], stopReason: "stop" as const}};
++        }
+         const taskIndex = await request.semanticTasks?.planIndex();
+         const task = taskIndex?.focus ? await request.semanticTasks?.plan(taskIndex.focus) : undefined;
+         const contextOnly = receipts.length > 0 && receipts.every(message => ["business_context_read", "business_skill_read", ACTION_REQUIRED].includes(message.toolName));
+@@ -898,6 +920,9 @@
+     input: PromptInput,
+     deps: { actor: BackendUser; backend: BackendClient },
+   ): Promise<AdmitOutcome> {
++    if ((await hosted.session.getValue(cancelledRequestValue(input.request_id), BACKGROUND_CONTEXT))?.value) {
++      return {ok: false, code: "REQUEST_CANCELLED", message: "此次提问已停止，未接纳新的执行。"};
++    }
+     if (hosted.readOnlyReason) return {ok: false, code: hosted.readOnlyReason,
+       message: "此会话使用已停用的旧查询协议，历史记录保留只读。请新建会话重新提问；在途旧任务需先核对原结果，不能自动续跑。"};
+     const fingerprint = promptFingerprint({ ...input });
+@@ -1145,6 +1170,15 @@
+   /** 显式停止：原生取消指定 operation；不删除任何历史 */
+   async abort(hosted: HostedSession, operationId: string): Promise<void> {
+     await hosted.lane.requestAbort(operationId, BACKGROUND_CONTEXT);
++  }
++
++  /** 停止与接纳共用会话锁；accepted尚未到达浏览器时也只取消指定request，不误停其它操作。 */
++  async cancelRequest(hosted: HostedSession, requestId: string): Promise<void> {
++    await this.exclusiveAdmission(hosted.sessionId, async () => {
++      await hosted.session.setValue(cancelledRequestValue(requestId), true, BACKGROUND_CONTEXT);
++      const request = await hosted.session.getValue(requestValue(requestId), BACKGROUND_CONTEXT);
++      if (request) await this.abort(hosted, request.value.operationId);
++    });
+   }
+ 
+   /**
+--- baseline/agent-service/src/requestContext.ts
++++ candidate/agent-service/src/requestContext.ts
+@@ -77,7 +77,7 @@
+   businessProtocol?: "fixed_v1" | "semantic_v2";
+   semanticTasks?: import("./semantic-task/store.js").NativeSemanticTaskStore;
+   /** 宿主绑定的任务步骤；模型参数不能切换目标来源或领取执行许可。 */
+-  semanticStep?: {planRef: string; rootOperationId: string; revision: number; kind: "query" | "availability" | "calculation"; analysis: boolean; calendar?: {ranges: Array<{start: string; end: string; dates?: string[]}>; unresolved: string[]}; partialCalendar?: boolean; referenceYear?: number;
++  semanticStep?: {planRef: string; rootOperationId: string; revision: number; kind: "query" | "availability" | "calculation"; analysis: boolean; calendar?: {ranges: Array<{start: string; end: string; dates?: string[]}>; unresolved: string[]}; partialCalendar?: boolean; jointCoverage?: boolean; referenceYear?: number;
+     analysisSelection?: {receipt: string; codes: string[]; orgs: string[]; time: unknown}};
+   /** 仅服务端执行适配器绑定，绝不从模型参数读取。 */
+   businessExecutionFrame?: string;
+--- baseline/agent-service/src/routes.ts
++++ candidate/agent-service/src/routes.ts
+@@ -155,8 +155,10 @@
+     if (!hosted) return c.json({ detail: "会话不存在" }, 404);
+     const body: Record<string, unknown> = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+     const operationId = typeof body.operation_id === "string" ? body.operation_id : "";
+-    if (!operationId) return c.json({ detail: "operation_id 不能为空" }, 400);
+-    await host.abort(hosted, operationId);
++    const requestId = typeof body.request_id === "string" ? body.request_id.trim() : "";
++    if (!!operationId === !!requestId || requestId.length > 128) return c.json({detail: "请指定唯一的 operation_id 或 request_id"}, 400);
++    if (requestId) await host.cancelRequest(hosted, requestId);
++    else await host.abort(hosted, operationId);
+     return c.body(null, 204);
+   });
+ 
+--- baseline/agent-service/src/semantic-task/planService.ts
++++ candidate/agent-service/src/semantic-task/planService.ts
+@@ -72,6 +72,13 @@
+       }
+     }
+     if (!plan) {
++      if (focus && input.targets.every(target => target.source.kind === "new")
++        && input.targets.some(target => target.operations.some(op => ["organizations", "metrics"].includes(op.field)))) {
++        const current = await this.request.backend.inspectBusinessGoal(this.request.originalMessage, turn.businessDate, {signal:this.signal});
++        if (current.fragments.every(fragment => !fragment.organizations.length && !fragment.mentions.length)) {
++          fail("HISTORY_SOURCE_REQUIRED", "本轮没有新的机构或指标依据；若是补充或修改已有任务，请使用current或先business_context_read选择真实reference。原任务焦点仍保留，不能用new重填历史身份。");
++        }
++      }
+       const refs = input.targets.filter(target => target.source.kind !== "new");
+       const base = refs.length ? refs[0]!.source.kind === "reference" ? await this.store.plan(refs[0]!.source.task_ref) : focus : undefined;
+       if (refs.some(target => target.source.kind === "current") && !focus) fail("REFERENCE_UNAVAILABLE", "当前没有可续接任务，请读取历史或新建目标。");
+@@ -91,12 +98,13 @@
+       // 跨轮沿用原始义务，新的变更仍由各子步骤绑定真实本轮消息。
+     }
+     plan.intent = input.intent === "query" && plan.intent === "analyze" ? "analyze" : input.intent;
++    const previouslyAdmitted = !!plan.admitted;
+     plan.revision++; delete plan.admitted; plan.issues = []; plan.status = "active"; plan.completion = "unmet";
+     const analysis = input.intent === "analyze" || plan.intent === "analyze";
+     const isNewGoal = !plan.steps.length;
+-    const canRegroupDraft = !isNewGoal && plan.goalOperationId === this.request.operationId
++    const canRegroupDraft = !isNewGoal && !previouslyAdmitted && plan.goalOperationId === this.request.operationId
+       && input.targets.every(target => target.source.kind === "new")
+-      && plan.steps.every(step => step.source.kind === "new" && ["blocked", "draft", "waiting_dependency"].includes(step.status));
++      && plan.steps.every(step => step.source.kind === "new" && ["blocked", "draft", "ready", "waiting_dependency"].includes(step.status));
+     if (!isNewGoal && plan.operationId === this.request.operationId) {
+       const years = new Set<string>();
+       for (const step of plan.steps) if (step.taskRef) {
+@@ -114,7 +122,7 @@
+       const proposedKind = target.operations.some(op => op.field === "calculation") ? "calculation" : input.intent === "availability" || target.operations.some(op => op.field === "availability") ? "availability" : "query";
+       let step: SemanticPlanStep | undefined;
+       if (target.source.kind === "reference") {
+-        const saved = await this.store.planReference(target.source.target_ref);
++        const saved = await this.store.planReference(target.source.target_ref, target.source.task_ref);
+         if (!saved || saved.planRef !== target.source.task_ref) fail("REFERENCE_INVALID", "目标引用未签发或与任务不配对。");
+         const parent = await this.store.plan(saved!.planRef);
+         if (!parent || parent.owner !== this.request.actor.id || !parent.steps.some(item => item.targetRef === (target.source as {target_ref: string}).target_ref)) fail("REFERENCE_REVISION_CONFLICT", "目标已修订，请重新读取上下文。");
+@@ -210,7 +218,15 @@
+         if ((step.label?.length ?? 0) > 80) fail("CALCULATION_LABEL_TOO_LONG", "计算结果名称需在80字以内。");
+         step.dependencies = formula.labels.map(label => plan.steps.find(item => item.kind === "query" && aliases(item).includes(label))!.id);
+         step.status = "waiting_dependency"; step.issues = [];
+-      } catch (error) {step.status = "blocked"; step.issues = [error instanceof SemanticConflict ? error.issue : problem("CALCULATION_INVALID", "计算目标尚未确定。")];}
++      } catch (error) {
++        step.status = "blocked";
++        const multiple = plan.steps.some(item => item.kind === "query" && tasks.has(item.id) &&
++          (codes(tasks.get(item.id)!, "organizations").length > 1 || codes(tasks.get(item.id)!, "metrics").length > 1 ||
++           (tasks.get(item.id)!.target.fields.time?.resolvedValue as {dates?: string[]})?.dates?.length));
++        step.issues = [error instanceof SemanticConflict ? {...error.issue, message:error.issue.message + (multiple
++          ? " 当前来源含多个成员；逐成员相减时请把来源重组为各自条件完整的查询目标，用objective命名后引用。尚未执行的草案可用完整new提案重组，不能读取尚未执行的结果。"
++          : "")} : problem("CALCULATION_INVALID", "计算目标尚未确定。")];
++      }
+     }
+     if ((input.intent === "calculate" || goal.requires_calculation) && !plan.steps.some(step => step.kind === "calculation")) plan.issues.push(problem("CALCULATION_REQUIRED", "计算请求必须明确计算含义，不能仅执行查询。"));
+     plan.issues.push(...plan.steps.flatMap(step => step.issues));
+@@ -219,7 +235,7 @@
+     const status = plan.issues.some(issue => issue.category === "permission") ? "denied"
+       : plan.issues.some(issue => issue.category === "capability" && issue.remediation === "stop") ? "unsupported"
+       : plan.issues.some(issue => issue.category === "infrastructure") ? "failed"
+-      : plan.issues.length || blocking ? plan.issues.some(issue => issue.remediation === "user") ? "needs_user" : "needs_interpretation"
++      : plan.issues.length || blocking ? plan.issues.some(issue => issue.remediation === "pi") ? "needs_interpretation" : plan.issues.some(issue => issue.remediation === "user") ? "needs_user" : "needs_interpretation"
+       : input.intent === "prepare" ? "prepared" : input.intent === "reuse" ? "reused" : "ready";
+     if (status === "ready" || status === "reused") plan.admitted = {operationId: plan.operationId, revision: plan.revision, digest: digest(plan)};
+     plan.status = status === "needs_user" ? "waiting_input" : ["denied", "unsupported", "failed"].includes(status) ? "stopped" : "active";
+@@ -243,7 +259,7 @@
+   }
+   private child(plan: SemanticPlan, step: SemanticPlanStep): AskMetricRequestContext {
+     return {...this.request, operationId: step.operationId, originalMessage: step.sourceQuestion,
+-      semanticStep: {planRef: plan.ref, rootOperationId: plan.operationId, revision: plan.revision, kind: step.kind, ...(step.calendar ? {calendar: step.calendar} : {}), analysis: plan.intent === "analyze", partialCalendar: plan.steps.filter(item => item.kind === "query").length > 1, ...(plan.referenceYear ? {referenceYear: plan.referenceYear} : /(?<!\d)(\d{4})年/u.exec(plan.originalMessage)?.[1] ? {referenceYear: Number(/(?<!\d)(\d{4})年/u.exec(plan.originalMessage)![1])} : {})}};
++      semanticStep: {planRef: plan.ref, rootOperationId: plan.operationId, revision: plan.revision, kind: step.kind, ...(step.calendar ? {calendar: step.calendar} : {}), analysis: plan.intent === "analyze", partialCalendar: plan.steps.filter(item => item.kind === "query").length > 1, jointCoverage: plan.steps.filter(item => item.kind === "query").length > 1, ...(plan.referenceYear ? {referenceYear: plan.referenceYear} : /(?<!\d)(\d{4})年/u.exec(plan.originalMessage)?.[1] ? {referenceYear: Number(/(?<!\d)(\d{4})年/u.exec(plan.originalMessage)![1])} : {})}};
+   }
+   private async groupAdmission(plan: SemanticPlan, goal: Goal, tasks: Map<string, SemanticTask>, analysis: boolean, initial: boolean, admissionGoal: Goal) {
+     const query = plan.steps.filter(step => step.kind === "query");
+@@ -274,7 +290,9 @@
+         return selected.codes?.length ? [{text: mention.text, start: mention.start, end: mention.end, codes: selected.codes}] : [];
+       });
+       return {target_ref: step.targetRef, fragment, origin: analysis ? "analysis_selected" as const : initial ? "user_explicit" as const : "history" as const,
+-        spec: canonical(task), ...(task.target.coverage ? (() => {const coverage = metricCoverageSource(task.target.coverage!.question, task.target.coverage!.mentions, task.target.coverage!.removed);
++        spec: canonical(task), ...(typeof task.target.fields.metrics?.metadata?.semanticSelectionReceipt==="string"
++          ? {source_semantic_receipt:task.target.fields.metrics.metadata.semanticSelectionReceipt} : {}),
++        ...(task.target.coverage ? (() => {const coverage = metricCoverageSource(task.target.coverage!.question, task.target.coverage!.mentions, task.target.coverage!.removed);
+           return {source_question: coverage.source_question, bindings: coverage.source_metric_bindings, exclusions: coverage.source_metric_exclusions};})() : {})};
+     });
+     if (steps.some(step => !step.spec.metric_codes.length || !step.spec.org_codes?.length || !step.spec.time || !step.spec.selection)) return;
+--- baseline/agent-service/src/semantic-task/prompt.ts
++++ candidate/agent-service/src/semantic-task/prompt.ts
+@@ -5,6 +5,7 @@
+ 你是唯一理解、规划、调用工具和组织答案的Agent。直接理解用户原始表达和历史指代，不要求固定问法。
+ 业务工具只有版本2语义提议协议：resolve_business_turn的protocol_version=2、intent、targets，目标内source和operations。所有字段变化显式用set/add/replace/exclude/clear/confirm；追加不隐藏在set文本中。值用业务表达，不填写内部代码、索引、原文证明、预计数量、版本或许可。
+ 精确完整请求直接query；新建字段用set，add用于已存在的确定集合追加成员。未变化条件通过current或宿主签发引用继承。当前目标不唯一或历史来源不明时先business_context_read，选择真实task_ref/target_ref。参数纠错保留其它有效和未决修改；尚未获准的new提案可用完整new提案重组，历史引用仍沿用已绑定来源。
++同一目标同一字段只能有一次set；同范围多个指标或机构写入同一次set的value业务清单，不连续提交多个set。需要分别引用机构或日期进行计算时，建立各自条件完整的来源目标，并用objective命名后引用；不能创建只有“本期/基期”名称却没有来源条件的空查询。
+ 字段必须保留用户实际机构、指标口径、日期范围、频率和操作。目录、权限和日历由宿主核验，不能为了执行选择任意候选、缩短范围或删除目标。用户仅改日期时不能确认指标候选；确认须明确作用于已保存候选和本轮同意，保留否定和转折。
+ metrics保留完整指标业务名称，名称中的统计口径不拆入selection。selection只表达指定时点、区间最新或全部数据点；明确单日由宿主确定指定时点，可省略selection。近N年有多个合理日历含义时提交原表达，由事实服务给出范围选项，不自行换成年末日期。
+ 根据反馈继续同一工具循环：needs_interpretation据原句和目录修正；needs_user等待必要用户选择；ready由宿主执行许可；unknown仅回查原命令。succeeded是步骤证据，只有全部目标有证据且答案交付才能结束。
+--- baseline/agent-service/src/semantic-task/service.ts
++++ candidate/agent-service/src/semantic-task/service.ts
+@@ -43,8 +43,16 @@
+   const previous = target.fields[field], candidates = previous?.candidates ?? [];
+   const clauses = turn.originalMessage.split(/[，,。；;]|但是|不过|但/u);
+   // 只用真实用户原句选择已保存候选，模型填写的确认文本不能建立选择事实。
+-  const acceptable = candidates.filter(candidate => typeof candidate.value === "string" && clauses.some(clause =>
+-    hasInputEvidence(clause, candidate.value as string) && !/(?:不(?:要|用|选|是|需要)|别(?:用|选)|取消)/u.test(clause)));
++  const acceptable = candidates.filter(candidate => {
++    if (typeof candidate.value !== "string") return false;
++    // 日历候选的名称与括号内范围是同一已保存身份；用户按唯一名称选择时无需复述展示附注。
++    const calendar = field === "time" && candidate.metadata?.calendar;
++    const label = calendar ? candidate.value.split(/[（(]/u)[0]!.trim() : undefined;
++    const uniqueLabel = label && candidates.filter(item => typeof item.value === "string" && item.value.split(/[（(]/u)[0]!.trim() === label).length === 1;
++    return clauses.some(clause => (hasInputEvidence(clause, candidate.value as string) || uniqueLabel && hasInputEvidence(clause, label!))
++      && !(field === "time" && /^\s*(?:指标|机构)(?:选|用|就用|改|为|是)/u.test(clause))
++      && !/(?:不(?:要|用|选|是|需要)|别(?:用|选)|取消)/u.test(clause));
++  });
+   const pending = Object.entries(target.fields).filter(([, value]) => value.resolutionStatus !== "resolved" && value.candidates?.length).map(([name]) => name);
+   const ordinal = clauses.map(candidateOrdinal).find(choice => choice && (choice.field === field || !choice.field && pending.length === 1));
+   const accepts = pending.length === 1 && clauses.some(clause => /^(?:好(?:的)?|是(?:的)?|可以|确认|同意|就按你说的)[！!。\s]*$/u.test(clause.trim()));
+@@ -106,12 +114,19 @@
+       if (cached?.resolutionStatus === "resolved" && !task.target.pending[field]
+         && cached.metadata?.semanticTurn === turn.operationId && cached.metadata?.semanticOperations === JSON.stringify(operations)) {
+         target.fields[field] = structuredClone(cached);
++        if (field === "availability") {
++          // 一个语义字段编译出多个执行字段；修复其它字段时须复用整份规范结果，不能只保留入口字段。
++          for (const derived of ["dimension", "match", "page", "page_size"]) {
++            const value = task.target.fields[derived];
++            if (value) target.fields[derived] = structuredClone(value);
++          }
++        }
+         delete target.pending[field];
+         if (field === "metrics") entityValue(turn.baseline?.fields.metrics).codes.filter(code => !entityValue(cached).codes.includes(code)).forEach(code => removed.add(code));
+         continue;
+       }
+       if (operations.filter(operation => operation.action === "set" || operation.action === "clear").length > 1) {
+-        target.pending[field] = "同一字段存在冲突的完整替换或清除";
++        target.pending[field] = `同一目标的${field}只能有一次set或clear。多个成员请用一次set，value写完整业务清单；修正本字段operations后重提，不能重复冲突动作。`;
+         task.issues.push(issue("CONFLICTING_OPERATIONS", field, target.pending[field]!));
+         continue;
+       }
+@@ -190,10 +205,20 @@
+     const availability = this.request.semanticStep?.kind === "availability";
+     const required = availability ? ["organizations", "availability"] : ["organizations", "metrics", "time"];
+     if (operationKind === "rank_position") required.push("comparison_organizations");
++    let missingFacts: Awaited<ReturnType<AskMetricRequestContext["backend"]["inspectBusinessGoal"]>> | undefined;
+     for (const field of required) {
+       if (!target.fields[field] || target.fields[field]!.resolutionStatus !== "resolved") {
+         target.pending[field] ??= typeof target.fields[field]?.rawValue === "string" ? target.fields[field]!.rawValue as string : "尚未确定";
+-        if (!task.issues.some(item => item.field === field)) task.issues.push(issue("FIELD_REQUIRED", field, `请补充或确定${({organizations: "机构", metrics: "指标", time: "日期范围", comparison_organizations: "位次比较总体", availability: "要发现指标还是日期"} as Record<string,string>)[field]}。`, "user"));
++        if (!task.issues.some(item => item.field === field)) {
++          if (this.request.semanticStep) missingFacts ??= await this.request.backend.inspectBusinessGoal(turn.originalMessage, turn.businessDate, {signal: this.signal}, this.request.semanticStep.referenceYear);
++          const supplied = missingFacts?.fragments.some(fragment => field === "organizations" ? fragment.organizations.length > 0
++            : field === "metrics" ? fragment.mentions.some(mention => mention.resolution.status === "resolved")
++            : field === "time" ? fragment.calendar.ranges.length > 0 && !fragment.calendar.unresolved.length
++            : field === "comparison_organizations" ? fragment.organizations.length > 1 : false);
++          const name = ({organizations: "机构", metrics: "指标", time: "日期范围", comparison_organizations: "位次比较总体", availability: "要发现指标还是日期"} as Record<string,string>)[field];
++          task.issues.push(issue(supplied ? "PROPOSAL_FIELD_OMITTED" : "FIELD_REQUIRED", field,
++            supplied ? `原始目标已提供${name}，请按原始绑定补齐或重组提案，不能把内部遗漏转成用户缺项。` : `请补充或确定${name}。`, supplied ? "pi" : "user"));
++        }
+       }
+     }
+     const time = target.fields.time?.resolvedValue as {start?: string; end?: string; dates?: string[]} | undefined;
+@@ -242,6 +267,8 @@
+     if (this.request.semanticStep) {
+       const schema = createCapabilities().get(task.capability ?? "metric_query");
+       for (const validation of validateFrame(schema, target.fields).issues) {
++        // 取数方式依赖日历；日期尚未确定时不制造“缺少selection”的模型错误或重复追问。
++        if (validation.field === "selection" && target.fields.time?.resolutionStatus !== "resolved") continue;
+         if (task.issues.some(item => item.field === validation.field)) continue;
+         const definition = schema.fields[validation.field];
+         const bounds = definition?.validation;
+@@ -370,6 +397,31 @@
+         }
+         if (entity === "metric" && operation.action !== "exclude") {
+           const original = await metricMentions(this.request);
++          const members = splitNames(raw);
++          const explicit = original.mentions.filter(mention => mention.resolution.status === "resolved" && checkedEntity(mention.resolution.value));
++          if (operation.action === "set" && members.length > 1) {
++            // 整个清单不能用一次子串匹配。用原句已确定身份逐成员对齐，只有唯一配对才补全口径。
++            const choices = members.map(member => {
++              const exact = explicit.filter(mention => [mention.text, ...(mention.resolution.value as EntityValue).names].some(name=>normalizeInputEvidence(name)===normalizeInputEvidence(member)));
++              return exact.length ? exact : explicit.filter(mention => hasInputEvidence(mention.text, member));
++            });
++            const assigned = new Map<number, (typeof explicit)[number]>();
++            const used = new Set<string>();
++            for (let count=0;count<members.length;count++) {
++              let progress=false;
++              choices.forEach((options,i)=>{
++                if(assigned.has(i))return;
++                const remaining=options.filter(mention=>!used.has(JSON.stringify((mention.resolution.value as EntityValue).codes)));
++                if(remaining.length===1){assigned.set(i,remaining[0]!);used.add(JSON.stringify((remaining[0]!.resolution.value as EntityValue).codes));progress=true;}
++              });
++              if(!progress)break;
++            }
++            if(assigned.size===members.length){
++              const aligned=members.map((_,i)=>assigned.get(i)!);
++              raw=aligned.map(mention=>mention.text).join("、");
++              response=await this.request.backend.resolveBusinessField(entity,aligned.flatMap(mention=>(mention.resolution.value as EntityValue).codes),{signal:this.signal});
++            }
++          }
+           let matching = original.mentions.filter(mention => mention.resolution.status === "resolved" && checkedEntity(mention.resolution.value)
+             && (hasInputEvidence(mention.text, raw) || mention.resolution.value.names.some(name => hasInputEvidence(name, raw)))
+             && !(operation.action === "replace" && hasInputEvidence(mention.text, operation.subject)));
+@@ -416,6 +468,17 @@
+           }
+         }
+       }
++      if (entity === "organization" && ["ambiguous", "needs_confirmation"].includes(response.status) && operation.action === "set") {
++        const anchored = response.metadata?.source_codes;
++        const inherited = entityValue(previous).codes;
++        const exact = Array.isArray(anchored) && anchored.length === 1 ? anchored
++          : Array.isArray(anchored) && !anchored.length && previous?.resolutionStatus === "resolved" && inherited.length === 1 ? inherited : [];
++        if (exact.length === 1 && response.candidates?.some(candidate => candidate.code === exact[0])) {
++          // 确定身份来自完整原句或可信继承；模型缩写不是一次新的用户候选确认。
++          const identity = await this.request.backend.resolveBusinessField("organization", exact as string[], {signal: this.signal});
++          if (identity.status === "resolved" && checkedEntity(identity.value)) response = {...identity, metadata: {...response.metadata, source_codes: exact}};
++        }
++      }
+       const value = response.value;
+       if (response.status !== "resolved" || !checkedEntity(value)) {
+         target.fields[field] = {rawValue: raw, resolutionStatus: response.status === "resolved" ? "temporary_error" : response.status,
+@@ -423,7 +486,7 @@
+         target.pending[field] = raw;
+         const original = field === "metrics" ? await metricMentions(this.request) : undefined;
+         const modelMismatch = original?.mentions.length && original.mentions.every(mention => mention.resolution.status === "resolved")
+-          && original.mentions.some(mention => hasInputEvidence(mention.text, raw)) && ["ambiguous", "needs_confirmation"].includes(response.status);
++          && splitNames(raw).every(member=>original.mentions.some(mention => hasInputEvidence(mention.text, member))) && ["ambiguous", "needs_confirmation"].includes(response.status);
+         if (modelMismatch) throw new SemanticConflict(issue("MODEL_FIELD_NOT_ALIGNED", field,
+           `用户原句已明确指标：${original!.mentions.map(mention => mention.text).join("、")}。当前提议未保留本阶段完整口径，请根据原始目标修正，不向用户重复确认。`));
+         const analysisSelection = field === "metrics" && this.request.semanticStep?.analysis && !(await metricMentions(this.request)).mentions.length;
+@@ -431,10 +494,15 @@
+           : issue("ENTITY_NOT_DETERMINED", field, `请确定${field === "metrics" ? "指标口径" : "机构名称"}：${raw}。`, "user", "catalog"));
+       }
+       if (operation.action !== "confirm" && entity === "organization") {
+-        const anchored = response.metadata?.source_codes;
++        let anchored = response.metadata?.source_codes;
++        if (Array.isArray(anchored) && !anchored.length && operation.action === "set" && previous?.resolutionStatus === "resolved"
++          && JSON.stringify([...value.codes].sort()) === JSON.stringify([...entityValue(previous).codes].sort())) {
++          anchored = entityValue(previous).codes;
++          response.metadata = {...response.metadata, source_codes: anchored};
++        }
+         if (!Array.isArray(anchored) || value.codes.some(code => !anchored.includes(code))) throw new SemanticConflict(issue("ENTITY_SOURCE_NOT_ESTABLISHED", field, "提议机构尚未与原始问题中的目录实体对应，请保留用户机构重新解释。"));
+         if (operation.action === "set" && !turn.operations.comparison_organizations && field !== "comparison_organizations"
+-          && anchored.some(code => !value.codes.includes(String(code)))) throw new SemanticConflict(issue("GOAL_OBLIGATION_UNCOVERED", field, "原句还有机构没有进入提案，不能执行半份查询。同一榜单的比较机构应合并在同一个目标内，不能拆成各自的榜单。"));
++          && !this.request.semanticStep?.jointCoverage && anchored.some(code => !value.codes.includes(String(code)))) throw new SemanticConflict(issue("GOAL_OBLIGATION_UNCOVERED", field, "原句还有机构没有进入提案，不能执行半份查询。普通取值或计算来源可以拆成多个明确绑定目标，并在同一提案提交完整范围；同一榜单须保留完整比较总体。"));
+       }
+       let next = value;
+       const actual = pendingAction ?? operation;
+--- baseline/agent-service/src/semantic-task/store.ts
++++ candidate/agent-service/src/semantic-task/store.ts
+@@ -88,8 +88,10 @@
+       ?? {version: 0, order: [], operations: {}});
+   }
+   async plan(ref: string) {return structuredClone((await this.session.getValue(value<SemanticPlan>(NS, `plans/${ref}`), BACKGROUND_CONTEXT))?.value);}
+-  async planReference(ref: string) {
+-    return structuredClone((await this.session.getValue(value<{planRef: string; step: SemanticPlanStep}>(NS, `plans/reference/${ref}`), BACKGROUND_CONTEXT))?.value);
++  async planReference(ref: string, planRef: string) {
++    // 历史派生计划可以引用同一目标；配对身份以所属计划正文为准，不能被单目标索引覆盖。
++    const plan = await this.plan(planRef), step = plan?.steps.find(item => item.targetRef === ref);
++    return step ? {planRef, step: structuredClone(step)} : undefined;
+   }
+   async savePlan(plan: SemanticPlan, expectedVersion: number, focus = true) {
+     return this.session.mutate(async (tx, context) => {
+--- baseline/agent-service/src/sessionProjection.ts
++++ candidate/agent-service/src/sessionProjection.ts
+@@ -102,6 +102,7 @@
+       details?: unknown;
+       isError?: boolean;
+       errorMessage?: string;
++      stopReason?: string;
+       businessProtocol?: string;
+     };
+     const timestamp = message.timestamp ?? entry.timestamp ?? null;
+@@ -118,14 +119,14 @@
+       conversationAnswerAt = undefined;
+       messages.push({
+         role: "assistant",
+-        text: toolCallNames(message.content).length ? "" : frameTurn && message.errorMessage
++        text: message.stopReason === "aborted" ? "已停止生成。" : toolCallNames(message.content).length ? "" : frameTurn && message.errorMessage
+           ? incompleteAnswer(message.errorMessage)
+           : frameTurn ? visibleText(message.content) : visibleText(message.content) === EVIDENCE_BLOCKED_ANSWER
+           ? EVIDENCE_BLOCKED_ANSWER : visibleText(message.content) === TOOL_LIMIT_ANSWER
+           ? [combinedEvidenceAnswer(evidence), TOOL_LIMIT_ANSWER].filter(Boolean).join("\n\n") : evidence.length
+           ? combinedEvidenceAnswer(evidence) + (message.errorMessage ? "\n\n本轮处理未完成，以上仅为已取得的结果。" : "")
+           : contextClarification ? visibleText(message.content) : safeUnverifiedText(visibleText(message.content), question),
+-        ...(message.errorMessage ? {error: incompleteAnswer(message.errorMessage)} : {}),
++        ...(message.errorMessage && message.stopReason !== "aborted" ? {error: incompleteAnswer(message.errorMessage)} : {}),
+         ...(frameTurn ? {business_protocol: "frame_v1" as const} : {}),
+         tools: toolCallNames(message.content),
+         tool_calls: Array.isArray(message.content) ? (message.content as MessageContentBlock[])
+--- baseline/backend-next/src/ask_metric/api/routes/business_context.py
++++ candidate/backend-next/src/ask_metric/api/routes/business_context.py
+@@ -12,7 +12,7 @@
+ from ask_metric.application.field_resolution import resolve_catalog_field, resolve_date_field, source_calendar_constraints, source_organization_codes
+ from ask_metric.application.metric_candidates import metric_candidate_index
+ from ask_metric.application.goal_facts import inspect_goal
+-from ask_metric.application.analysis_selection import issue_selection
++from ask_metric.application.analysis_selection import issue_selection, verify_selection
+ from ask_metric.application.organization_query_scope import resolve_query_scope
+ from ask_metric.application.ports import PermissionDeniedError, ScopedOrganizationPermissionService
+ from ask_metric.application.requests import ActorContext
+@@ -59,6 +59,7 @@
+     origin: Literal["user_explicit", "history", "analysis_selected"]
+     spec: BasicQuerySpec
+     source_question: str | None = Field(default=None, min_length=1, max_length=8000)
++    source_semantic_receipt: str | None = Field(default=None, min_length=1, max_length=16000, repr=False)
+     bindings: list[dict] = Field(default_factory=list, max_length=100)
+     exclusions: list[dict] = Field(default_factory=list, max_length=100)
+ 
+@@ -91,17 +92,28 @@
+         organizations = uow.organization_catalog.list_enabled()
+         allowed = permissions.authorized_org_codes(actor=actor, available_org_codes={item.code for item in organizations})
+     facts = inspect_goal(payload.goal, payload.business_date, catalog, [item for item in organizations if item.code in allowed], reference_year=payload.reference_year)
++    # 重规划保留的旧草案不能与新来源重复取同一份事实；操作或比较总体不同的查询独立核验。
++    for number, step in enumerate(payload.steps):
++        for previous in payload.steps[:number]:
++            same_operation = step.spec.operation == previous.spec.operation and step.spec.selection == previous.spec.selection and step.spec.comparison_scope == previous.spec.comparison_scope
++            if same_operation and step.spec.time == previous.spec.time and set(step.spec.org_codes) & set(previous.spec.org_codes) and set(step.spec.metric_codes) & set(previous.spec.metric_codes):
++                raise ApplicationError("PLAN_SOURCE_OVERLAP", "提案含重叠的查询来源。未执行草案请用完整new提案重组为不重叠的来源；已有正式结果请引用复用。", status_code=409)
+     for step in payload.steps:
+         if step.spec.organization_scope or not set(step.spec.org_codes) <= allowed or (step.spec.comparison_scope and (step.spec.comparison_scope.organization_scope or not set(step.spec.comparison_scope.org_codes) <= allowed)):
+             raise HTTPException(status_code=403, detail="任务范围不可签发")
+         if step.origin == "analysis_selected" and not payload.analysis:
+             raise ApplicationError("ANALYSIS_NOT_AUTHORIZED", "普通查询不能使用分析选指标来源。", status_code=409)
+         if step.origin == "history":
+-            if not step.source_question:
++            if step.source_semantic_receipt:
++                # 历史来源复用已签发身份与范围，但当前权限、目录和会话归属仍重新核验。
++                verify_selection(step.source_semantic_receipt, owner=actor.user_id, conversation=payload.conversation_id,
++                    codes=step.spec.metric_codes, scope=step.spec.model_dump(mode="json", exclude_none=True), catalog=catalog, secret=settings.jwt_secret)
++            elif not step.source_question:
+                 raise ApplicationError("HISTORY_SOURCE_MISSING", "历史条件需要保留原始绑定依据。", status_code=409)
+-            _verify_metric_coverage(step.source_question, step.spec.metric_codes, catalog,
+-                [SourceMetricBinding.model_validate(item) for item in step.bindings],
+-                [SourceMetricSpan.model_validate(item) for item in step.exclusions])
++            else:
++                _verify_metric_coverage(step.source_question, step.spec.metric_codes, catalog,
++                    [SourceMetricBinding.model_validate(item) for item in step.bindings],
++                    [SourceMetricSpan.model_validate(item) for item in step.exclusions])
+     # 每个显式片段独立对账，禁止把甲行六月/乙行七月改成机构、日期和指标的交叉组合。
+     for number, fragment in enumerate(facts["fragments"]):
+         steps = [step for step in payload.steps if step.fragment == number]
+@@ -112,6 +124,9 @@
+         for step in steps:
+             if fragment["organizations"] and not set(step.spec.org_codes) <= set(fragment["organizations"]):
+                 raise ApplicationError("PLAN_TARGET_BINDING_CONFLICT", "机构与指标日期的原始绑定不符。", status_code=409)
++            # 榜单是整个比较总体上的操作；各机构分别取前N再求并集不能替代原榜单。
++            if step.spec.operation.kind == "ranking" and fragment["organizations"] and set(step.spec.org_codes) != set(fragment["organizations"]):
++                raise ApplicationError("PLAN_RANKING_SCOPE_INCOMPLETE", "同一榜单的完整比较机构须进入同一查询目标，请合并机构后重提。", status_code=409)
+             ranges = fragment["calendar"]["ranges"]
+             if ranges and not any(step.spec.time.start.isoformat() >= value["start"] and step.spec.time.end.isoformat() <= value["end"] for value in ranges):
+                 raise ApplicationError("PLAN_TARGET_BINDING_CONFLICT", "目标日期不属于对应原始片段。", status_code=409)
+--- baseline/backend-next/src/ask_metric/application/goal_facts.py
++++ candidate/backend-next/src/ask_metric/application/goal_facts.py
+@@ -30,6 +30,24 @@
+                     sum(value["start"] <= point <= value["end"] for point in points) == 1 for value in tail["ranges"]):
+                 return head
+         return result
++    # 只有每个并列项都有唯一机构和日期时才建立独立绑定；共享集合仍保留组合义务。
++    bound_chunks = []
++    for chunk in chunks:
++        parts = re.split(r"以及|与|和", chunk)
++        identities = [source_organization_codes(part, organizations) for part in parts]
++        calendars = [calendar_facts(part) for part in parts]
++        independently_bound = len(parts) > 1 and all(len(orgs) == 1 for orgs in identities) and all(
++            len(value["ranges"]) == 1 and not value["unresolved"] for value in calendars)
++        named = [index.mentions(part) for part in parts]
++        shared = [values for values in named if values]
++        same_metrics = shared and all(
++            [value["text"] for value in values] == [value["text"] for value in shared[0]] for values in shared)
++        if independently_bound and (all(named) or same_metrics):
++            shared_text = "、".join(value["text"] for value in shared[0]) if same_metrics else ""
++            bound_chunks.extend(part if mentions else part + "：" + shared_text for part, mentions in zip(parts, named))
++        else:
++            bound_chunks.append(chunk)
++    chunks = bound_chunks
+     inspected = []
+     for part in chunks:
+         mentions = index.mentions(part)
+@@ -42,11 +60,17 @@
+             inspected[-1]["question"] += "，" + part
+     if not inspected:
+         inspected = [{"question": question, "organizations": [], "calendar": {"ranges": [], "unresolved": []}, "mentions": []}]
+-    # 句首仅声明上下文时，与后一个指标目标合并；后置日期不另建空指标义务。
++    # 逗号只是表达边界。互补字段和同一目标的比较总体不另建空指标义务。
+     merged = []
+     for part in inspected:
+-        if merged and ((not merged[-1]["mentions"] and not part["organizations"]) or
+-                       (not part["mentions"] and not part["organizations"])):
++        previous = merged[-1] if merged else None
++        postfix_org = previous and not previous["organizations"] and not part["mentions"] and (
++            not part["calendar"]["ranges"] or not previous["calendar"]["ranges"] or
++            part["calendar"] == previous["calendar"])
++        comparison = previous and not part["mentions"] and not part["calendar"]["ranges"] and re.search(
++            r"(?:在|与|和|同).*(?:中|之间|相比).*(?:排第几|位次|排名|排位)", part["question"])
++        if previous and ((not previous["mentions"] and not part["organizations"]) or
++                         (not part["mentions"] and not part["organizations"]) or postfix_org or comparison):
+             previous = merged.pop()
+             part["question"] = previous["question"] + "，" + part["question"]
+             part["organizations"] = source_organization_codes(part["question"], organizations)
+--- baseline/backend-next/src/ask_metric/domain/time_expression.py
++++ candidate/backend-next/src/ask_metric/domain/time_expression.py
+@@ -241,11 +241,11 @@
+         return _month_range(
+             reference_year or today.year, month, month_end=bool(yearless_month_match.group(2))
+         )
+-    date_match = re.fullmatch(r"(\d{4})[-年](\d{1,2})[-月](\d{1,2})(?:日|号)?", value)
++    date_match = re.fullmatch(r"(\d{4})[-年](\d{1,2})[-月](\d{1,2})(?:日|号)?(?:当日|当天|这一天)?", value)
+     if date_match:
+         target = date(*map(int, date_match.groups()))
+         return LogicalTimeRange(start=target, end=target)
+-    yearless_date_match = re.fullmatch(r"(\d{1,2})月(\d{1,2})(?:日|号)", value)
++    yearless_date_match = re.fullmatch(r"(\d{1,2})月(\d{1,2})(?:日|号)(?:当日|当天|这一天)?", value)
+     if yearless_date_match:
+         target = date(reference_year or today.year, *map(int, yearless_date_match.groups()))
+         return LogicalTimeRange(start=target, end=target)
+--- baseline/backend-next/tests/test_semantic_task_calendar.py
++++ candidate/backend-next/tests/test_semantic_task_calendar.py
+@@ -53,3 +53,13 @@
+     assert ResolveFieldRequest(entity="metric", raw_values=["甲" * 4000]).raw_values[0] == "甲" * 4000
+     with pytest.raises(ValidationError):
+         ResolveFieldRequest(entity="metric", raw_values=["甲" * 4001])
++
++
++@pytest.mark.parametrize("expression", ["2026年5月30日当日", "2026-05-30当天", "2026年5月30日这一天"])
++def test_single_date_deictic_suffix_preserves_calendar(expression):
++    assert resolve_date_field(expression, date(2026, 10, 14))["value"] == {"start": "2026-05-30", "end": "2026-05-30"}
++
++
++def test_deictic_suffix_cannot_hide_range_or_invalid_day():
++    assert resolve_date_field("2026年2月30日当日", date(2026, 10, 14))["metadata"]["reason"] == "invalid_calendar"
++    assert resolve_date_field("2026年5月30日当日或次日", date(2026, 10, 14))["status"] != "resolved"
+--- baseline/backend-next/verification/test_semantic_plan.py
++++ candidate/backend-next/verification/test_semantic_plan.py
+@@ -40,6 +40,73 @@
+     assert goal["fragments"][1]["calendar"]["ranges"] == [{"start": "2026-06-30", "end": "2026-06-30"}]
+     shared = inspect_goal("合成机构甲2026年5月31日，查询合成收益金额当日数和合成规模金额当日数", date(2026, 10, 14), METRICS, ORGS)
+     assert len(shared["fragments"]) == 1 and len(shared["fragments"][0]["mentions"]) == 2
++
++
++@pytest.mark.parametrize("question", [
++    "合成收益金额当日数：2026年5月31日，合成机构甲",
++    "2026年5月31日，合成收益金额当日数，合成机构甲",
++    "合成收益金额当日数，合成机构甲，2026年5月31日",
++])
++def test_complementary_fields_form_one_target_regardless_of_order(question):
++    facts = inspect_goal(question, date(2026, 10, 14), METRICS, ORGS)
++    assert len(facts["fragments"]) == 1
++    assert facts["fragments"][0]["organizations"] == ["O1"]
++    assert len(admit(admission(question, [(0, spec())]))["receipts"]) == 1
++
++
++def test_postfixed_organizations_keep_distinct_complete_targets():
++    question = "合成收益金额当日数2026年5月31日，合成机构甲；合成规模金额当日数2026年6月30日，合成机构乙"
++    facts = inspect_goal(question, date(2026, 10, 14), METRICS, ORGS)
++    assert [part["organizations"] for part in facts["fragments"]] == [["O1"], ["O2"]]
++    assert len(admit(admission(question, [(0, spec()), (1, spec("O2", "M2", "2026-06-30"))]))["receipts"]) == 2
++    with pytest.raises(ApplicationError):
++        admit(admission(question, [(0, spec("O2")), (1, spec("O1", "M2", "2026-06-30"))]))
++
++
++def test_subject_position_population_is_same_target_not_an_empty_query():
++    question = "合成机构甲2026年5月31日的合成收益金额当日数，在合成机构甲、合成机构乙这两家中排第几？"
++    facts = inspect_goal(question, date(2026, 10, 14), METRICS, ORGS)
++    assert len(facts["fragments"]) == 1
++    position = {**spec(), "operation": {"kind": "rank_position"}, "comparison_scope": {"org_codes": ["O1", "O2"]}}
++    assert len(admit(admission(question, [(0, position)]))["receipts"]) == 1
++
++
++@pytest.mark.parametrize("conjunction", ["与", "和", "以及"])
++def test_coordinated_org_date_pairs_share_only_the_metric(conjunction):
++    question = f"分别查询合成机构甲2026年5月31日{conjunction}合成机构乙2026年6月30日的合成收益金额当日数"
++    facts = inspect_goal(question, date(2026, 10, 14), METRICS, ORGS)
++    assert [part["organizations"] for part in facts["fragments"]] == [["O1"], ["O2"]]
++    assert len(admit(admission(question, [(0, spec()), (1, spec("O2", day="2026-06-30"))]))["receipts"]) == 2
++    with pytest.raises(ApplicationError):
++        admit(admission(question, [(0, {**spec(), "org_codes": ["O1", "O2"]}), (1, {**spec(day="2026-06-30"), "org_codes": ["O1", "O2"]})]))
++
++
++def test_shared_orgs_and_dates_still_require_all_combinations():
++    question = "合成机构甲和合成机构乙2026年5月31日与2026年6月30日的合成收益金额当日数"
++    assert len(inspect_goal(question, date(2026, 10, 14), METRICS, ORGS)["fragments"]) == 1
++    with pytest.raises(ApplicationError):
++        admit(admission(question, [(0, spec()), (0, spec("O2", day="2026-06-30"))]))
++
++
++def test_overlapping_draft_sources_are_not_admitted_twice():
++    question = "查询合成机构甲和合成机构乙2026年5月31日的合成收益金额当日数"
++    combined = {**spec(), "org_codes": ["O1", "O2"]}
++    with pytest.raises(ApplicationError) as caught:
++        admit(admission(question, [(0, combined), (0, spec())]))
++    assert caught.value.code == "PLAN_SOURCE_OVERLAP"
++    assert len(admit(admission(question, [(0, spec()), (0, spec("O2"))]))["receipts"]) == 2
++
++
++def test_history_signed_source_survives_readmission_and_rechecks_scope():
++    original = admission("查合成机构甲2026年5月31日的合成收益金额当日数", [(0, spec())])
++    receipt = admit(original)["receipts"][0]["receipt"]
++    payload = admission("用刚才结果计算", [(0, spec())])
++    payload.steps[0].origin = "history"
++    payload.steps[0].source_semantic_receipt = receipt
++    assert len(admit(payload)["receipts"]) == 1
++    payload.steps[0].spec.org_codes = ["O2"]
++    with pytest.raises(ApplicationError):
++        admit(payload)
+ 
+ def test_admitted_scope_is_signed_and_verified_again_at_execution():
+     payload = admission("查合成机构甲2026年5月31日的合成收益金额当日数；合成机构乙2026年6月30日的合成规模金额当日数", [(0, spec()), (1, spec("O2", "M2", "2026-06-30"))])
+--- baseline/deploy/package/README.md
++++ candidate/deploy/package/README.md
+@@ -125,11 +125,11 @@
+ ```
+ 
+ `AGENT_COMPACT_TURN_ARGS` 是旧配置兼容项，不再选择新会话工具格式。
+-`AGENT_BUSINESS_PROTOCOL=fixed_v1` 保持当前默认入口；`semantic_v2` 仅供阶段二候选验收，
+-接入精确取值、条件准备和结果重显。复合目标、排名及分析计算仍待接入，不能默认切换上线。
++`AGENT_BUSINESS_PROTOCOL=semantic_v2` 为新会话默认入口，已贯通查询、复合目标、排名、覆盖、计算和结果驱动规划。
++阶段4按用户要求先切换本地并交付手测，自动稳定性验收尚未完成；模板默认值变化不代表已部署生产。
+ 修改此配置后重启 agent-service，只影响随后创建的会话。已有会话、原生 operation 及恢复始终沿用保存的协议；
+ 新协议 Session 使用增量领域值，无需本次数据库迁移。回到 fixed_v1 默认值仍须运行支持两种 Session 的新版服务；
+-不能用旧二进制恢复 semantic_v2 的 READY 或在途操作。详细范围与回退见[阶段二实现](../../docs/pi-semantic-task/implementation-phase2.md)。
++不能用旧二进制恢复 semantic_v2 的 READY 或在途操作。详细范围与回退见[阶段4说明](../../docs/pi-semantic-task/implementation-phase4.md)。
+ 
+ 模型超时使用两阶段配置：`AGENT_MODEL_FIRST_RESPONSE_TIMEOUT_MS` 控制首次有效输出等待，
+ `AGENT_MODEL_STREAM_IDLE_TIMEOUT_MS` 控制开始输出后的空闲时限，默认均为 30000 毫秒。
+--- baseline/deploy/package/runtime/agent.env.example
++++ candidate/deploy/package/runtime/agent.env.example
+@@ -10,9 +10,9 @@
+ AGENT_ANSWER_STREAMING=false
+ # 旧配置兼容项；新模型统一使用固定请求协议，此值不再切换模型入口。
+ AGENT_COMPACT_TURN_ARGS=false
+-# 新建会话业务协议：fixed_v1（默认）或 semantic_v2（阶段二候选）。
++# 新建会话业务协议：semantic_v2（默认）或 fixed_v1（回退新会话）。
+ # 既有会话及在途操作保持原协议；候选暂不提供复合、排名和分析计算。
+-AGENT_BUSINESS_PROTOCOL=fixed_v1
++AGENT_BUSINESS_PROTOCOL=semantic_v2
+ 
+ # FastAPI 后端内网地址；agent 工具调用透传用户 Bearer
+ BACKEND_BASE_URL=http://127.0.0.1:@BACKEND_PORT@
+--- baseline/frontend-vue/specs/components/chat/BackendNextChatPanel.spec.ts
++++ candidate/frontend-vue/specs/components/chat/BackendNextChatPanel.spec.ts
+@@ -1,10 +1,12 @@
+-import { beforeEach, describe, expect, it, vi } from "vitest"
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+ import { createSSRApp } from "vue"
+ import { renderToString } from "@vue/server-renderer"
+ import BackendNextChatPanel from "../../../src/components/chat/BackendNextChatPanel.vue"
+ import type { AgentSessionDetail, AgentStreamEvent } from "@/lib/agentApi"
++import * as agentApi from "@/lib/agentApi"
+ 
+ vi.mock("@/components/chat/CatalogQuestionComposer.vue", () => ({ default: { render: () => null } }))
++vi.mock("@/composables/useAuth", () => ({useAuth:()=>({user:{value:{id:"synthetic-user",role_code:"USER",org_name:"合成机构"}}})}))
+ 
+ const notice = "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。"
+ const detail: AgentSessionDetail = {
+@@ -16,12 +18,17 @@
+ }
+ type Message = { id: string; role: string; content: string; status?: string; failureNotice?: string; nativeAnswer?: boolean }
+ type PanelState = {
++  activeConversationId: string
++  activeConversationStorageKey: string
++  handleNewConversation(): void
++  loadHistory(expectedUserId: string): Promise<void>
+   conversations: Array<{ id: string; serverId: string; messages: Message[]; running: boolean }>
+   conversationFromDetail(detail: AgentSessionDetail): { messages: Message[] }
+   handleStreamEvent(conversationId: string, assistantId: string, event: AgentStreamEvent): void
+   failMessage(conversationId: string, assistantId: string, error: unknown): void
+ }
+ let state: PanelState
++afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals()})
+ 
+ beforeEach(async () => {
+   const app = createSSRApp(BackendNextChatPanel)
+@@ -35,6 +42,20 @@
+ })
+ 
+ describe("断网失败消息的实际页面处理链", () => {
++  it("历史列表迟到不能把用户刚新建的空草稿切回旧会话", async()=>{
++    const stored = new Map<string,string>([[state.activeConversationStorageKey,"old-session"]])
++    vi.stubGlobal("localStorage",{getItem:(k:string)=>stored.get(k)??null,setItem:(k:string,v:string)=>stored.set(k,v),removeItem:(k:string)=>stored.delete(k)})
++    let release!: (value:Awaited<ReturnType<typeof agentApi.listAgentSessions>>)=>void
++    vi.spyOn(agentApi,"listAgentSessions").mockImplementation(()=>new Promise(resolve=>{release=resolve}))
++    const getSession=vi.spyOn(agentApi,"getAgentSession")
++    const pending=state.loadHistory("synthetic-user")
++    state.handleNewConversation()
++    const draft=state.activeConversationId
++    release({items:[{session_id:"old-session",created_at:"",last_active_at:"",running:false}]})
++    await pending
++    expect(state.activeConversationId).toBe(draft)
++    expect(getSession).not.toHaveBeenCalled()
++  })
+   it("刷新读取历史只产生一个失败提示", () => {
+     const messages = state.conversationFromDetail(detail).messages
+     expect(messages).toHaveLength(2)
+--- baseline/frontend-vue/specs/lib/agentApi.spec.ts
++++ candidate/frontend-vue/specs/lib/agentApi.spec.ts
+@@ -1,5 +1,5 @@
+ import {afterEach, expect, it, vi} from "vitest"
+-import {observeAgentSession, promptAgentSession} from "../../src/lib/agentApi"
++import {observeAgentSession, promptAgentSession, cancelAgentRequest, cancelAgentOperation} from "../../src/lib/agentApi"
+ 
+ vi.mock("@/lib/authSession", () => ({getAccessToken: () => "synthetic", clearAccessToken: vi.fn(), setAuthFailureReason: vi.fn()}))
+ afterEach(() => vi.unstubAllGlobals())
+@@ -23,3 +23,11 @@
+   await observeAgentSession("synthetic", {onEvent: received})
+   expect((fetcher.mock.calls[1] as unknown as [string, RequestInit])[1].headers).not.toHaveProperty("X-Agent-Answer-Streaming")
+ });
++
++
++it("停止支持accepted前的request身份，并保留旧operation停止接口",async()=>{
++ const fetcher=vi.fn(async()=>new Response(null,{status:204}));vi.stubGlobal("fetch",fetcher);
++ await cancelAgentRequest("session-one","request-one");await cancelAgentOperation("session-one","operation-one");
++ expect((fetcher.mock.calls[0] as unknown as [string,RequestInit])[1].body).toBe(JSON.stringify({request_id:"request-one"}));
++ expect((fetcher.mock.calls[1] as unknown as [string,RequestInit])[1].body).toBe(JSON.stringify({operation_id:"operation-one"}));
++});
+--- baseline/frontend-vue/src/components/chat/BackendNextChatPanel.vue
++++ candidate/frontend-vue/src/components/chat/BackendNextChatPanel.vue
+@@ -24,6 +24,7 @@
+   AgentApiError,
+   AgentSessionNotFoundError,
+   cancelAgentOperation,
++  cancelAgentRequest,
+   createAgentSession,
+   deleteAgentSession,
+   getAgentSession,
+@@ -185,6 +186,7 @@
+ watch(activeConversationId, () => { autoOpenClarificationId.value = undefined }, { flush: "sync" })
+ const sendingConversationIds = ref(new Set<string>())
+ const abortControllers = new Map<string, AbortController>()
++const pendingPrompts = new Map<string, {requestId: string; cancelFailure?: Error}>()
+ const isHistoryLoading = ref(true)
+ const isConversationLoading = ref(false)
+ const isHistoryLoadingMore = ref(false)
+@@ -808,6 +810,8 @@
+     ...conversations.value.filter((item) => item.persisted || item.messages.length > 0),
+   ]
+   activeConversationId.value = conversation.id
++  // 用户主动新建立即撤销旧恢复焦点，避免迟到的历史列表把空草稿切回旧会话。
++  persistActiveConversation()
+   message.value = ""
+   historyError.value = ""
+   void scrollToBottom()
+@@ -905,13 +909,17 @@
+   markConversationSending(conversationId, true)
+   const controller = new AbortController()
+   abortControllers.set(conversationId, controller)
++  pendingPrompts.set(conversationId, {requestId: input.request_id})
+   await scrollToBottom()
+   try {
+     const serverId = await ensureServerSession(conversationId)
++    if (controller.signal.aborted) throw new DOMException("已停止生成", "AbortError")
+     await streamPrompt(conversationId, serverId, input, assistantId, controller)
+   } catch (error) {
++    const cancelFailure = pendingPrompts.get(conversationId)?.cancelFailure
+     // 404 不自动新建会话并重发：输入保留在消息里，由用户决定下一步
+-    if (error instanceof AgentApiError && (error.status === 0 || error.status === 409)) {
++    if (cancelFailure) failMessage(conversationId, assistantId, cancelFailure)
++    else if (error instanceof AgentApiError && (error.status === 0 || error.status === 409)) {
+       await reconnectConversation(conversationId, assistantId, controller)
+     } else failMessage(conversationId, assistantId, error)
+   } finally {
+@@ -925,6 +933,7 @@
+     }
+     updateAssistantMessage(conversationId, assistantId, (item) => ({ ...item, elapsedMs: performance.now() - startedAt }))
+     abortControllers.delete(conversationId)
++    pendingPrompts.delete(conversationId)
+     markConversationSending(conversationId, false)
+     persistActiveConversation()
+     await scrollToBottom()
+@@ -1239,11 +1248,14 @@
+   const conversation = activeConversation.value
+   if (!conversation || !activeConversationIsSending.value) return
+   const operationId = conversation.activeOperationId
+-  if (conversation.serverId && operationId) {
++  const pending = pendingPrompts.get(conversation.id)
++  if (conversation.serverId && (pending || operationId)) {
+     try {
+-      await cancelAgentOperation(conversation.serverId, operationId)
++      if (pending) await cancelAgentRequest(conversation.serverId, pending.requestId)
++      else await cancelAgentOperation(conversation.serverId, operationId!)
+     } catch {
+-      // 取消失败不阻断本地观察停止；执行状态以重连快照为准
++      // 停止观察不代表后台已取消；保留未确认状态，不能交付“已停止”的成功说明。
++      if (pending) pending.cancelFailure = new Error("停止请求尚未确认，后台任务可能仍在执行，请重新打开会话核对状态。")
+     }
+   }
+   abortControllers.get(conversation.id)?.abort()
+--- baseline/frontend-vue/src/lib/agentApi.ts
++++ candidate/frontend-vue/src/lib/agentApi.ts
+@@ -227,6 +227,13 @@
+   })
+ }
+ 
++/** accepted之前按浏览器已生成的请求身份停止；服务端持久化取消，迟到的同一请求不能开始执行。 */
++export function cancelAgentRequest(sessionId: string, requestId: string) {
++  return request<void>(`/sessions/${encodeURIComponent(sessionId)}/cancel`, {
++    method: "POST", body: JSON.stringify({request_id: requestId}),
++  })
++}
++
+ export interface AgentPromptOptions {
+   signal?: AbortSignal
+   onEvent: (event: AgentStreamEvent) => void

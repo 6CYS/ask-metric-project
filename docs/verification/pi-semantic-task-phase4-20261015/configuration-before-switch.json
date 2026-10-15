@@ -1,0 +1,22 @@
+{
+  "kind": "supplemental_source_before_phase4_configuration_edits",
+  "contains_credentials": false,
+  "files": [
+    {
+      "path": "agent-service/.env.example",
+      "sha256": "7458cbf78f4b91709bb352f6d0c9543a26be3f27b51d997a095a5d1f629e74e3"
+    },
+    {
+      "path": "agent-service/README.md",
+      "sha256": "cd12b309fce55f09964459d29a5fd99f7c98ab42ca3fbe750aa6ad875cc55903"
+    },
+    {
+      "path": "deploy/package/runtime/agent.env.example",
+      "sha256": "a671da7be353a1b577d1c37de27486d3701ada76bae76aae7aa77fa89dcb1544"
+    },
+    {
+      "path": "deploy/package/README.md",
+      "sha256": "a125840457712e1ec284361e558e6859b6b95e159d93f497d2d9a70e545d96d3"
+    }
+  ]
+}

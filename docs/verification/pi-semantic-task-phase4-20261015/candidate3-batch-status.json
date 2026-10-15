@@ -1,0 +1,6 @@
+{
+  "status": "stopped_after_gate_failure",
+  "reason": "observed repair loop in cross-org difference; live historical signed source not carried into readmission",
+  "reports_preserved": true,
+  "counts_are_partial": true
+}

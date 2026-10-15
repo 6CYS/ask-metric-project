@@ -25,6 +25,7 @@ class SupportedQueryShape(StrEnum):
     METRIC_TREND = "metric_trend"
     METRIC_PERIOD_COMPARE = "metric_period_compare"
     METRIC_RANKING = "metric_ranking"
+    METRIC_RANK_POSITION = "metric_rank_position"
 
 
 class QueryTemplateId(StrEnum):
@@ -254,12 +255,19 @@ class QueryPlanner:
                 "Ranking across multiple dates or time windows is not supported"
             )
         operation = next(
-            (item for item in dsl.ops if item.get("type") in {"ranking", "top_n"}),
+            (item for item in dsl.ops if item.get("type") in {"ranking", "top_n", "rank_position"}),
             None,
         )
         if operation is None:
             raise QueryPlanError("Ranking shape requires ranking or top_n operation")
-        raw_limit = operation.get("top_n") or operation.get("n")
+        is_position = operation.get("type") == "rank_position"
+        subjects: list[str] = []
+        if is_position:
+            subjects = _validate_codes(dsl.options.get("rank_subject_codes") or [],
+                                       "rank_subject_codes", max_items=MAX_ORG_CODES)
+            if not set(subjects).issubset(org_names):
+                raise QueryPlanError("Rank position requires authorized subjects within comparison scope")
+        raw_limit = self.max_limit if is_position else operation.get("top_n") or operation.get("n")
         if operation.get("type") == "ranking" and raw_limit is None and org_names:
             raise UnsupportedQueryError(
                 "A single organization's rank must use an official precomputed ranking metric"
@@ -274,6 +282,8 @@ class QueryPlanner:
         if direction not in {"asc", "desc"}:
             raise QueryPlanError("Ranking direction must be asc or desc")
         parameters: dict[str, Any] = {"limit": raw_limit}
+        if is_position:
+            parameters["rank_subject_codes"] = subjects
         if dsl.time.preset == "latest":
             template = QueryTemplateId(f"metric_ranking_latest_{direction}")
             return template, parameters
@@ -420,6 +430,9 @@ def _validate_time_range(dsl: LogicalDSL) -> None:
         raise QueryPlanError("Time range requires both start and end dates")
     if start is not None and end is not None and start > end:
         raise QueryPlanError("Time range start cannot be after end")
+    # 跨度硬上限与字段解析的 model_value 复核口径一致（约十年）。
+    if start is not None and end is not None and (end - start).days > 3660:
+        raise QueryPlanError("Time range cannot span more than 3660 days")
 
 
 def _resolve_base_date(

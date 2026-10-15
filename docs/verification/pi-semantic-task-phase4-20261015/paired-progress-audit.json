@@ -1,0 +1,560 @@
+{
+  "source_report": "../docs/verification/pi-semantic-task-phase4-20261015/paired.json",
+  "mode": "paired",
+  "finished": false,
+  "source_hashes_match": true,
+  "source_hash_checks": [
+    {
+      "path": "src/harnessHost.ts",
+      "matches": true
+    },
+    {
+      "path": "src/sessionProjection.ts",
+      "matches": true
+    },
+    {
+      "path": "src/config.ts",
+      "matches": true
+    },
+    {
+      "path": "src/models.ts",
+      "matches": true
+    },
+    {
+      "path": "src/semantic-task/planService.ts",
+      "matches": true
+    },
+    {
+      "path": "src/semantic-task/service.ts",
+      "matches": true
+    },
+    {
+      "path": "src/semantic-task/tools.ts",
+      "matches": true
+    },
+    {
+      "path": "src/semantic-task/feedback.ts",
+      "matches": true
+    },
+    {
+      "path": "src/semantic-task/prompt.ts",
+      "matches": true
+    },
+    {
+      "path": "src/business-context/service.ts",
+      "matches": true
+    },
+    {
+      "path": "src/prompts/businessSystemPrompt.ts",
+      "matches": true
+    },
+    {
+      "path": "scripts/check-semantic-phase4.ts",
+      "matches": true
+    },
+    {
+      "path": "scripts/phase4-synthetic-backend.ts",
+      "matches": true
+    },
+    {
+      "path": "scripts/semantic-task-fixture.py",
+      "matches": true
+    },
+    {
+      "path": "scripts/generic-query-fixture.py",
+      "matches": true
+    },
+    {
+      "path": "../backend-next/src/ask_metric/api/routes/business_context.py",
+      "matches": true
+    },
+    {
+      "path": "../backend-next/src/ask_metric/application/goal_facts.py",
+      "matches": true
+    }
+  ],
+  "passed": 18,
+  "total": 25,
+  "expected_total": 32,
+  "groups": [
+    {
+      "case_id": "colloquial_exact",
+      "classification": "both_passed"
+    },
+    {
+      "case_id": "iso_date",
+      "classification": "both_passed"
+    },
+    {
+      "case_id": "metric_before_org",
+      "classification": "candidate_only_failure"
+    },
+    {
+      "case_id": "missing_date_followup",
+      "classification": "candidate_only_failure"
+    },
+    {
+      "case_id": "basis_confirmation",
+      "classification": "both_passed"
+    },
+    {
+      "case_id": "catalog_typo",
+      "classification": "both_passed"
+    },
+    {
+      "case_id": "shared_two_metrics",
+      "classification": "candidate_only_failure"
+    },
+    {
+      "case_id": "shared_two_orgs",
+      "classification": "both_passed"
+    },
+    {
+      "case_id": "bound_targets",
+      "classification": "baseline_only_failure"
+    },
+    {
+      "case_id": "rank_top_two",
+      "classification": "both_passed"
+    },
+    {
+      "case_id": "subject_position",
+      "classification": "shared_failure"
+    },
+    {
+      "case_id": "cross_org_difference",
+      "classification": "both_passed"
+    },
+    {
+      "case_id": "result_driven_new_variant",
+      "classification": "pending"
+    },
+    {
+      "case_id": "historical_date_change",
+      "classification": "pending"
+    },
+    {
+      "case_id": "empty_result",
+      "classification": "pending"
+    },
+    {
+      "case_id": "null_value",
+      "classification": "pending"
+    }
+  ],
+  "tasks": [
+    {
+      "case_id": "colloquial_exact",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 13467,
+          "executions": 1
+        }
+      ]
+    },
+    {
+      "case_id": "colloquial_exact",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 17536,
+          "executions": 1
+        }
+      ]
+    },
+    {
+      "case_id": "iso_date",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 14366,
+          "executions": 1
+        }
+      ]
+    },
+    {
+      "case_id": "iso_date",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 7429,
+          "executions": 1
+        }
+      ]
+    },
+    {
+      "case_id": "metric_before_org",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 17788,
+          "executions": 1
+        }
+      ]
+    },
+    {
+      "case_id": "metric_before_org",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "passed": false,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": false,
+          "failure": "BUSINESS_EXECUTION_REQUIRED",
+          "model_calls": 9,
+          "elapsed_ms": 42014,
+          "executions": 0
+        }
+      ]
+    },
+    {
+      "case_id": "missing_date_followup",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "passed": false,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 1,
+          "elapsed_ms": 12547,
+          "executions": 0
+        },
+        {
+          "turn": 2,
+          "passed": false,
+          "failure": "BUSINESS_EXECUTION_REQUIRED",
+          "model_calls": 2,
+          "elapsed_ms": 11144,
+          "executions": 0
+        }
+      ]
+    },
+    {
+      "case_id": "missing_date_followup",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 1,
+          "elapsed_ms": 5736,
+          "executions": 0
+        },
+        {
+          "turn": 2,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 7392,
+          "executions": 1
+        }
+      ]
+    },
+    {
+      "case_id": "basis_confirmation",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 13204,
+          "executions": 0
+        },
+        {
+          "turn": 2,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 9157,
+          "executions": 1
+        }
+      ]
+    },
+    {
+      "case_id": "basis_confirmation",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 1,
+          "elapsed_ms": 6427,
+          "executions": 0
+        },
+        {
+          "turn": 2,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 13786,
+          "executions": 1
+        }
+      ]
+    },
+    {
+      "case_id": "catalog_typo",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 9677,
+          "executions": 1
+        }
+      ]
+    },
+    {
+      "case_id": "catalog_typo",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 5428,
+          "executions": 1
+        }
+      ]
+    },
+    {
+      "case_id": "shared_two_metrics",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 4779,
+          "executions": 1
+        }
+      ]
+    },
+    {
+      "case_id": "shared_two_metrics",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "passed": false,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": false,
+          "failure": "BUSINESS_EXECUTION_REQUIRED",
+          "model_calls": 2,
+          "elapsed_ms": 8545,
+          "executions": 0
+        }
+      ]
+    },
+    {
+      "case_id": "shared_two_orgs",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 10879,
+          "executions": 1
+        }
+      ]
+    },
+    {
+      "case_id": "shared_two_orgs",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 6669,
+          "executions": 1
+        }
+      ]
+    },
+    {
+      "case_id": "bound_targets",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "passed": false,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": false,
+          "failure": "DELIVERY_NOT_INCOMPLETE",
+          "model_calls": 4,
+          "elapsed_ms": 27584,
+          "executions": 0
+        }
+      ]
+    },
+    {
+      "case_id": "bound_targets",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 19916,
+          "executions": 2
+        }
+      ]
+    },
+    {
+      "case_id": "rank_top_two",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 13231,
+          "executions": 1
+        }
+      ]
+    },
+    {
+      "case_id": "rank_top_two",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 2,
+          "elapsed_ms": 5559,
+          "executions": 1
+        }
+      ]
+    },
+    {
+      "case_id": "subject_position",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "passed": false,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": false,
+          "failure": "BUSINESS_EXECUTION_REQUIRED",
+          "model_calls": 1,
+          "elapsed_ms": 3250,
+          "executions": 0
+        }
+      ]
+    },
+    {
+      "case_id": "subject_position",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "passed": false,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": false,
+          "failure": "BUSINESS_EXECUTION_REQUIRED",
+          "model_calls": 10,
+          "elapsed_ms": 75518,
+          "executions": 0
+        }
+      ]
+    },
+    {
+      "case_id": "cross_org_difference",
+      "protocol": "semantic_v2",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 5,
+          "elapsed_ms": 34618,
+          "executions": 2
+        }
+      ]
+    },
+    {
+      "case_id": "cross_org_difference",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "passed": true,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "model_calls": 4,
+          "elapsed_ms": 19716,
+          "executions": 1
+        }
+      ]
+    },
+    {
+      "case_id": "result_driven_new_variant",
+      "protocol": "fixed_v1",
+      "repetition": 1,
+      "passed": false,
+      "turns": [
+        {
+          "turn": 1,
+          "passed": false,
+          "failure": "DELIVERY_NOT_INCOMPLETE",
+          "model_calls": 4,
+          "elapsed_ms": 15070,
+          "executions": 0
+        }
+      ]
+    }
+  ],
+  "independent_production_corpus": false,
+  "natural_language_factual_attribution_audited": false,
+  "note": "统计完整任务；重复不增加独立样本数；新旧同源码和预算，不等于Git历史版本对照；不足以声明95%覆盖率。"
+}

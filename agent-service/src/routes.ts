@@ -13,6 +13,8 @@ import { getLegacySession, listLegacySessions, projectLegacyMessages } from "./l
 import type { NativeSessionStore } from "./nativeSessions.js";
 import { projectEntries, projectSnapshot, projectWatchEvent, projectBusinessTasks, type ProjectedMessage } from "./sessionProjection.js";
 import {AnswerStreamProjector} from "./answerStream.js";
+import {historySources} from "./historySources.js";
+import {isCalendarDate} from "./tools/shared.js";
 
 type Variables = { user: BackendUser; token: string; startedAt: number; authMs: number };
 
@@ -100,8 +102,7 @@ export function createApp(
       // 旧会话只读回退：不续跑、不可提问
       const legacy = getLegacySession(config.dataDir, user.id, c.req.param("id"));
       if (!legacy) return c.json({ detail: "会话不存在" }, 404);
-      const messages = legacyMessagesWithVerifiableAnswers(projectLegacyMessages(legacy));
-      await authorizeHistory(messages, new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs));
+      const messages = await redactInaccessibleHistory(legacyMessagesWithVerifiableAnswers(projectLegacyMessages(legacy)), createHistoryAuthorizer(new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs)));
       return c.json({
         session_id: legacy.id,
         title: legacy.title,
@@ -112,8 +113,7 @@ export function createApp(
       });
     }
     const entries = await hosted.lane.findEntries({ order: "oldestFirst" }, BACKGROUND_CONTEXT);
-    const messages = projectEntries(entries);
-    await authorizeHistory(messages, new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs));
+    const messages = await redactInaccessibleHistory(projectEntries(entries), createHistoryAuthorizer(new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs)));
     const info = await hosted.lane.inspectExecution(BACKGROUND_CONTEXT);
     // 重启后存在未完成 operation 时，借本次已认证请求重新授权恢复
     if (!hosted.readOnlyReason && hosted.open.length > 0) {
@@ -155,8 +155,10 @@ export function createApp(
     if (!hosted) return c.json({ detail: "会话不存在" }, 404);
     const body: Record<string, unknown> = await c.req.json<Record<string, unknown>>().catch(() => ({}));
     const operationId = typeof body.operation_id === "string" ? body.operation_id : "";
-    if (!operationId) return c.json({ detail: "operation_id 不能为空" }, 400);
-    await host.abort(hosted, operationId);
+    const requestId = typeof body.request_id === "string" ? body.request_id.trim() : "";
+    if (!!operationId === !!requestId || requestId.length > 128) return c.json({detail: "请指定唯一的 operation_id 或 request_id"}, 400);
+    if (requestId) await host.cancelRequest(hosted, requestId);
+    else await host.abort(hosted, operationId);
     return c.body(null, 204);
   });
 
@@ -168,7 +170,6 @@ export function createApp(
     const sessionId = hosted.sessionId;
     const backend = new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs);
     const authorize = createHistoryAuthorizer(backend);
-    await authorize(projectEntries(await hosted.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT)));
     return streamSSE(c, async (stream) => {
       const send = authorizedSender(authorize, async (type, data) => stream.writeSSE({
         event: type,
@@ -193,7 +194,12 @@ export function createApp(
           stream.onAbort(() => { watch.unsubscribe(); resolve(); });
           watch.start((event) => {
             const projected = projectWatchEvent(event);
-            if (projected) void send(projected.type, projected as unknown as Record<string, unknown>).catch(() => {});
+            if (projected) {
+              void send(projected.type, projected as unknown as Record<string, unknown>).catch(() => {});
+              if (projected.type === "tool_end" && projected.answer) void send("message_done", {
+                text: projected.answer.text, entry_id: projected.answer.entry_id,
+              }).catch(() => {});
+            }
             if (event.type === "run_end") {
               void (async () => {
                 const messages = projectEntries(await hosted.lane.findEntries({ order: "oldestFirst" }, BACKGROUND_CONTEXT));
@@ -236,8 +242,7 @@ export function createApp(
     const token = c.get("token");
     const backend = new BackendClient(config.backendBaseUrl, token, config.backendTimeoutMs);
     const authorize = createHistoryAuthorizer(backend);
-    // 先复核持久化结果，再让历史进入模型或 accepted 快照；新问题不能绕过旧结果撤权。
-    await authorize(projectEntries(await hosted.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT)));
+    // 失权历史按回合屏蔽；当前输入和真正引用的来源仍分别经过后端权限门禁。
     const admitted = await host.admitPrompt(hosted, input, { actor: user, backend });
     if (!admitted.ok) {
       const status = ["SESSION_BUSY", "LEGACY_QUERY_REQUIRES_NEW_TURN"].includes(admitted.code) ? 409 : 400;
@@ -272,7 +277,7 @@ export function createApp(
             ...data,
           }),
         });
-        if (timings && timings.firstVisibleAt === undefined && (type === "answer_delta"
+        if (timings && timings.firstVisibleAt === undefined && (type === "message_done" && typeof data.text === "string" && data.text.trim() || type === "answer_delta"
           && typeof data.text === "string" && data.text.trim() || type === "snapshot"
           && hasCurrentAnswer(data.messages as ProjectedMessage[]))) timings.firstVisibleAt = performance.now();
         if (type === "answer_reset" || type === "answer_delta" && !streamedCalls.has(Number(data.call_seq))) {
@@ -293,7 +298,12 @@ export function createApp(
       await send("accepted", { snapshot: projectSnapshot(watch.snapshot) }).catch(() => {});
       watch.start((event) => {
         const projected = projectWatchEvent(event);
-        if (projected) void send(projected.type, projected as unknown as Record<string, unknown>).catch(() => {});
+        if (projected) {
+          void send(projected.type, projected as unknown as Record<string, unknown>).catch(() => {});
+          if (projected.type === "tool_end" && projected.answer) void send("message_done", {
+            text: projected.answer.text, entry_id: projected.answer.entry_id,
+          }).catch(() => {});
+        }
         if (answerStreaming) projector.onWatchEvent(event, admitted.request.answerStream);
       });
       // 模型重试与工具执行期间没有原生事件可投影；心跳既避免代理按空闲断连，
@@ -348,14 +358,14 @@ function hasCurrentAnswer(messages: ProjectedMessage[]): boolean {
 }
 
 /** 解析并校验协议 V3 输入；非法字段整体拒绝，不猜测补齐 */
-function parsePromptInput(body: Record<string, unknown>): PromptInput | null {
+export function parsePromptInput(body: Record<string, unknown>): PromptInput | null {
   const message = typeof body.message === "string" ? body.message.trim() : "";
   const requestId = typeof body.request_id === "string" ? body.request_id.trim() : "";
   if (!message || message.length > MESSAGE_MAX_LENGTH || !requestId || requestId.length > 128) {
     return null;
   }
   const input: PromptInput = { protocol_version: 3, request_id: requestId, message };
-  const allowed = new Set(["protocol_version", "request_id", "message", "clarification_target", "selected_answers", "clarification_selection"]);
+  const allowed = new Set(["protocol_version", "request_id", "message", "clarification_target", "selected_answers", "clarification_selection", "time_override"]);
   if (Object.keys(body).some(key => !allowed.has(key))) return null;
   const target = body.clarification_target;
   if (target !== undefined) {
@@ -389,11 +399,20 @@ function parsePromptInput(body: Record<string, unknown>): PromptInput | null {
       || !optionIds.every(id => typeof id === "string" && id.length > 0 && id.length <= 300)) return null;
     input.clarification_selection = {frame_id: frameId, option_ids: [...new Set(optionIds as string[])]};
   }
+  // 前端“切换口径”重查：显式时间覆盖，只接受真实日历日期且 start 不晚于 end。
+  const timeOverride = body.time_override;
+  if (timeOverride !== undefined) {
+    if (!timeOverride || typeof timeOverride !== "object" || Array.isArray(timeOverride)) return null;
+    const {start, end, ...extra} = timeOverride as Record<string, unknown>;
+    if (Object.keys(extra).length || typeof start !== "string" || typeof end !== "string"
+      || !isCalendarDate(start) || !isCalendarDate(end) || start > end) return null;
+    input.time_override = {start, end};
+  }
   return input;
 }
 
 
-class HistoryAuthorizationError extends Error {
+export class HistoryAuthorizationError extends Error {
   constructor(readonly code: string, readonly status: 403 | 409 | 503) {
     super(status === 403 ? "历史结果涉及当前无权查看的机构，暂不能读取此会话。"
       : status === 409 ? "历史结果缺少可复核的范围或结果引用，暂不能安全读取，请新建会话查询。"
@@ -421,60 +440,33 @@ const object = (value: unknown): Record<string, unknown> | undefined =>
 
 /** 单轮提问内共享的复核结果：已验证的任务与机构范围不重复请求 backend。 */
 export interface HistoryAuthorizationCache {
-  tasks: Set<string>;
+  tasks: Map<string, string | undefined>;
   scopes: Set<string>;
 }
 
 /** 缓存的正文不是授权票据；只复核持久化结果引用/范围，绝不重新执行指标 SQL。 */
 export async function authorizeHistory(messages: ProjectedMessage[], backend: BackendClient,
   cache?: HistoryAuthorizationCache): Promise<void> {
-  const tasks = new Set<string>();
-  const organizationScopes: string[][] = [];
-  const unknown = () => {throw new HistoryAuthorizationError("HISTORY_SCOPE_UNAVAILABLE", 409);};
-  const addTask = (value: unknown) => {
-    if (typeof value !== "string" || !value) unknown();
-    tasks.add(value as string);
-  };
-  for (const message of messages) {
-    if (message.role !== "tool") continue;
-    const outer = object(message.details);
-    if (!outer) continue;
-    const details = object(outer.result) ?? outer;
-    if (!["succeeded", "SUCCEEDED"].includes(String(details.status))) continue;
-    const kind = String(details.kind ?? outer.kind);
-    if (["metric_query_structured", "metric_ask", "metric_read"].includes(kind)) {
-      addTask(details.task_id ?? outer.task_id);
-    } else if (kind === "metric_calculate") {
-      const inputs = object(details.inputs);
-      if (!inputs || !Object.keys(inputs).length) unknown();
-      let facts = 0;
-      for (const input of Object.values(inputs!)) {
-        const source = object(input);
-        if (source?.kind === "user_constant") continue;
-        addTask(source?.task_id);
-        facts += 1;
-      }
-      if (!facts) unknown();
-    } else if (kind === "data_availability") {
-      const codes = object(details.request)?.org_codes;
-      if (!Array.isArray(codes) || !codes.length || !codes.every(code => typeof code === "string" && code)) unknown();
-      organizationScopes.push(codes as string[]);
-    } else if (Array.isArray(details.rows) || Array.isArray(details.facts)) {
-      // 不把未知旧工具的成功结果当作无需权限的文本。
-      unknown();
-    }
-  }
+  const unknown = (): never => {throw new HistoryAuthorizationError("HISTORY_SCOPE_UNAVAILABLE", 409);};
+  const {tasks, organizationScopes} = historySources(messages.flatMap(message => message.role === "tool" ? [message.details] : []), unknown);
   try {
-    const pendingTasks = [...tasks].filter(taskId => !cache?.tasks.has(taskId));
-    await Promise.all(pendingTasks.map(async taskId => {
+    // 同轮去重仍核对新出现的 result_id，不能借已经授权的 task_id 掩盖另一份结果引用。
+    for (const [taskId, resultId] of tasks) if (cache?.tasks.has(taskId) && resultId
+      && cache.tasks.get(taskId) !== resultId) unknown();
+    const pendingTasks = [...tasks].filter(([taskId]) => !cache?.tasks.has(taskId));
+    const checked = await Promise.all(pendingTasks.map(async ([taskId, resultId]) => {
       const task = await backend.getTask(taskId);
-      if (task.task_id !== taskId || task.status !== "SUCCEEDED") unknown();
+      if (task.task_id !== taskId || task.status !== "SUCCEEDED" || task.result?.task_id && task.result.task_id !== taskId
+        || resultId && task.result?.result_id !== resultId) unknown();
+      return [taskId, task.result?.result_id] as const;
     }));
-    for (const taskId of pendingTasks) cache?.tasks.add(taskId);
+    for (const [taskId, resultId] of checked) cache?.tasks.set(taskId, resultId);
     const scopeKey = (codes: string[]) => JSON.stringify([...codes].sort());
-    const pendingScopes = organizationScopes.filter(codes => !cache?.scopes.has(scopeKey(codes)));
+    const uniqueScopes = new Map(organizationScopes.map(codes => [scopeKey(codes), codes]));
+    const pendingScopes = [...uniqueScopes.values()].filter(codes => !cache?.scopes.has(scopeKey(codes)));
     await Promise.all(pendingScopes.map(async codes => {
       const resolved = await backend.resolveBusinessField("organization", codes);
+      if (resolved.status === "temporary_error") throw new HistoryAuthorizationError("HISTORY_AUTHORIZATION_UNAVAILABLE", 503);
       const current = object(resolved.value)?.codes;
       if (resolved.status !== "resolved" || !Array.isArray(current)
         || new Set(current).size !== new Set(codes).size || codes.some(code => !current.includes(code))) {
@@ -499,8 +491,22 @@ export async function authorizeHistory(messages: ProjectedMessage[], backend: Ba
  * 不重复请求 backend；下一轮提问使用新实例重新全量复核，撤权在轮间即时生效。
  */
 export function createHistoryAuthorizer(backend: BackendClient): (messages: ProjectedMessage[]) => Promise<void> {
-  const cache: HistoryAuthorizationCache = { tasks: new Set(), scopes: new Set() };
+  const cache: HistoryAuthorizationCache = { tasks: new Map(), scopes: new Set() };
   return messages => authorizeHistory(messages, backend, cache);
+}
+
+/** 一条旧证据失权时屏蔽整轮正文及明细，保留问题和稳定消息身份；不修改原生账本。 */
+export async function redactInaccessibleHistory(messages: ProjectedMessage[], authorize: (messages: ProjectedMessage[]) => Promise<void>) {
+  const turns: ProjectedMessage[][] = [];
+  for (const message of messages) {if (message.role === "user" || !turns.length) turns.push([]); turns.at(-1)!.push(message);}
+  return (await Promise.all(turns.map(async turn => {
+    try {await authorize(turn); return turn;}
+    catch (error) {
+      if (!(error instanceof HistoryAuthorizationError) || ![403,409].includes(error.status)) throw error;
+      return turn.map(message => message.role === "assistant" ? {...message, text: "此轮历史结果当前不可访问。", tools: [], tool_calls: [], error: undefined}
+        : message.role === "tool" ? {...message, details: {status: "denied", error_code: error.code, history_redacted: true}, is_error: true} : message);
+    }
+  }))).flat();
 }
 
 /** 授权与事件发送串行，某条证据失权后不再发送后续正文或快照。 */
@@ -512,7 +518,10 @@ function authorizedSender(authorize: (messages: ProjectedMessage[]) => Promise<v
       const snapshot = object(data.snapshot);
       const messages = data.messages ?? snapshot?.messages;
       try {
-        if (Array.isArray(messages)) await authorize(messages as ProjectedMessage[]);
+        if (Array.isArray(messages)) {
+          const safe = await redactInaccessibleHistory(messages as ProjectedMessage[], authorize);
+          data = data.messages ? {...data, messages: safe} : {...data, snapshot: {...snapshot, messages: safe}};
+        }
         if (type === "tool_end") await authorize([{
           role: "tool", tool: String(data.tool ?? ""), tool_call_id: String(data.tool_call_id ?? ""),
           details: data.details, is_error: Boolean(data.isError), timestamp: null, entry_id: "live",

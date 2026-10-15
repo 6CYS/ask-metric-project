@@ -1,0 +1,2293 @@
+{
+  "phase": "repair-candidate-v2",
+  "created_at": "2026-10-14T00:47:53.442Z",
+  "environment": "configured_real_model_isolated_synthetic_backend",
+  "real_database": false,
+  "production_accessed": false,
+  "synthetic_values": true,
+  "source_root": "/private/tmp/harness-autonomy-01a135ad/candidate-v2",
+  "source_hashes": {
+    "config/metric-analysis-catalog.json": "45928eb74bb6d4adcb047eb04702881ff7262e0701e0dd804ca2323e302fee2f",
+    "package-lock.json": "a626106e191ba5cf2799a8232b58125c2a3293485890bd96910caabc5a6ebd1e",
+    "package.json": "9d4ef263367681d61e7f3aa161b6bde7d66875755b9893e41752ea65654fb22a",
+    "skills/analysis-boundary/SKILL.md": "2eddf4a8e6dd2f4c642fb092f2c7779df8b021add8298f1c8859eaedc77fc6fc",
+    "skills/business-analysis/SKILL.md": "f090ad89246e5c53e4e80caeae041f06fa6436d269dd1f4d9c9c73b9c4e39bff",
+    "skills/data-coverage/SKILL.md": "3a835b9f516deaff7b3b37da88b403732c9a634453e0044f860bd2bc57209c46",
+    "skills/metric-query/SKILL.md": "23fb26e813963909f03475e2ac5110e9f888a0b7172eaa29d81223c761f7d0aa",
+    "skills/result-calculation/SKILL.md": "106a60839701656de00cc766badeda237770db0a55646183044db18018f678ec",
+    "src/analysisCatalog.ts": "7c3f6b04858a605a1f3da92f8b5e9771e02d977432ae5bf6ec6cbfff5e7da4ab",
+    "src/answerEvidence.ts": "2d299c1deac2ff65bf2273a53a5fad9c599c975ee41867bf3e6fd7ca34aae826",
+    "src/answerStream.ts": "c81b9057ada70f931decfc47384e6e28e4c0ab93d23b8c71c57f66690cb52bd1",
+    "src/backendClient.ts": "faf03f2b38db3d3e2914caa459b6ec12b169038e7621a0ef5e0f8e27532bd346",
+    "src/business-context/adapters.ts": "e8bd5967a59456c214cadb56120ae6c76da5dd82927009e6d1a4432db8576af1",
+    "src/business-context/analysis.ts": "ac6146948fa3dfa30134b09ad176493013a297add626dae18f461dd67de16492",
+    "src/business-context/capabilities.ts": "520f71bf0a3f09e2b16073af25e2de856a383670a811008b5ea38a0387cec452",
+    "src/business-context/clarificationOptions.ts": "cff3c87dc985b7e8c84963b2999d7a5f7c0d4321d8bd8ec01977dca9fef81df4",
+    "src/business-context/clarificationPresentation.ts": "e464fd71b22a1542d7178e6d5e66d2f3ff3189815eaaa41ca72372d707167b8a",
+    "src/business-context/continuation.ts": "2720263c7e1c25fee259f61565246c47725b3946ffc4aec7ab32de15d2c9c177",
+    "src/business-context/core.ts": "053114edd64ac8a89e4171ddde09ce5fc547f307d897f5e34d483e24d54db059",
+    "src/business-context/fieldClarification.ts": "34a58afb200961d9f7ae296be18cf44680796db2c61e69c41a88385c0d131db6",
+    "src/business-context/historyReferences.ts": "85aed88c4a270e5eb37045168b81148cd9c11d688e1f4a04d11f75a457e9dade",
+    "src/business-context/inputError.ts": "089d126bd137bb1f59b5c441990f4f9a996f14b9cd3115679f76bfd6de2b32d0",
+    "src/business-context/inputEvidence.ts": "fb30fdc38f779bf50c01de1bf222b93dcc28dc9dd70686d37bbe91ee3ac4b2b8",
+    "src/business-context/metricMentions.ts": "4ee6ca4e044f0170d8d76154e1580edde6e376cc30d1a39c238dcee135caed82",
+    "src/business-context/modelView.ts": "34e84cf0bd24b2ca9cf5f4419687d7279e26d909469fd1b99457396ca9dd6061",
+    "src/business-context/resolutionFailure.ts": "a91fdebc04c9ed12f67772e65fe22e37103990a7a265380e2b8b4f464203fa11",
+    "src/business-context/resolvers.ts": "c4cbd9bd2e2a7be27a09e7d8c4819e0f2a714df03782ee0c4e6e8c8dde8a6da4",
+    "src/business-context/service.ts": "390bbbd65e1a502a6ccd4e5e34d86e768f1d9b009cfb356cdf50db9c82feb72c",
+    "src/business-context/store.ts": "5c39017fff453e4d058bbc79331e0da95c8bcf2742670e0e7c48dd1c15a4e490",
+    "src/business-context/turnArgs.ts": "728f92203e36223e2c86ac667b470cd0fd313dd6542b86748380096ce9c3dc4e",
+    "src/business-context/turnAttempt.ts": "cf4cb2d1db1b1a9cab967b2965326311bde798f11a56f69fa69bef4abab3e989",
+    "src/business-context/turnDialect.ts": "fe1831e439558028d0efacd1e3dee766f95999237e7ba430604063d376646568",
+    "src/business-context/types.ts": "86eaa17984300778f96172dad353f34b283a8d2db4b32d403c7a814de9f6d4ba",
+    "src/businessSkills.ts": "f401d37509aae04f7db2c63f8669afb18b248803db5686286cdd28fd54d6ad2b",
+    "src/config.ts": "3823346c2fd617281213a2e3d42f0b87e75035b904abdc79c5bed2d9442e3ba7",
+    "src/harnessHost.ts": "d3bb2187aefb11240c80a8a1c42e93ba97fa72c6527bbb0aa64de77e054b95ac",
+    "src/legacySessions.ts": "94ff16d9ec0eae14c473d31fc5bec8a56e64356838f121f3fcf7b610336811fe",
+    "src/modelContext.ts": "4cedbaa39d14a7895ece5bf031cb91bf6af17c739a2c35a2e267e75f7529dd6b",
+    "src/modelStreamDiagnostics.ts": "759629cce41d7c601da5aa7d8dc0916f2313aca6af2a285bb38462e558c9399c",
+    "src/modelUsage.ts": "3b20fb3fbf9f8d10c9a39a33354f6487dcb6e6ad369a3f2c12ebb3d81e51420c",
+    "src/models.ts": "92adb5f883f6985309d954ffe7d25ba746890f0ba629bcc596421e2865ae0495",
+    "src/nativeSessions.ts": "b2556ab8f18014bb0b8f65b8a2d247d9e47b37575986ca33aa60eba2cfbed112",
+    "src/prompts/businessSystemPrompt.ts": "b4bffab4fdad5a0833b1d2edd440ed3955a66da3dfc3ff91d4f71ab1220d0fb1",
+    "src/queryContext.ts": "c48e6930b6989d6215e024a7309545d9575f3e3f017ad1471379d30bef708b63",
+    "src/replyGuard.ts": "72e927824a28344b83c045c25c8145c61953f3ffc9e82112f7fbaa3f4e488ba6",
+    "src/requestContext.ts": "9a08984975d6ab49a74621c1be2df5857720c4435b752f1c3a69379b367ee439",
+    "src/routes.ts": "a9e36dd8646662f4d2fc4bcb569d9276842ed74794dff52d3c77ae4b8deb214b",
+    "src/server.ts": "19cb68e7e624a7483f083684de47ec2185b71496dc769638b7ec7e947744688f",
+    "src/sessionProjection.ts": "987c99f5984de0709bad2189afea1997107b119c99f0f0fe4a6982f35e2457cd",
+    "src/sm4ConfigCrypto.ts": "f397fb3457b536c588b9eee9f8a4f1e33ee1ffa5943376431be2827a56b043ac",
+    "src/toolAudit.ts": "74e7557a4939317a031c56ecb291933beb9714076a9c330dbf0a6b11f3c28c23",
+    "src/toolRecovery.ts": "6f17122a589c6ef94f92570c446c66bac47f5f943aa8bbc5beb330c1a357a80c",
+    "src/tools/analysisTask.ts": "596601a157ae75b3187c3c4b7271498b3122dd179471b723d616f39ac93e1a1f",
+    "src/tools/answerPresent.ts": "c2038d8368e1278a85f212ca7e38327f211aff813595a6a6754a968b33661211",
+    "src/tools/businessCapability.ts": "c6073a3b4b3c39c5bfcf313550bbf0bbb209f92afbad546eb53659cd4e281e35",
+    "src/tools/businessContext.ts": "c69150700cd36be2d73ee250224e3060919763a78564a769026946a61bc57e89",
+    "src/tools/businessTurnV2.ts": "11e3a1f9349850a2d036cf8d53b38a1e4ab2f22e2086ba344d9c9aaa6314f5e0",
+    "src/tools/catalog.ts": "b77959b6589da985ab1454c74e109106e35da08d09d6ba73982a8190ec185dce",
+    "src/tools/dataAvailability.ts": "60313aab8ffea6feac48f58134a979635a4f93dad0124cb4f0578400d1ffe522",
+    "src/tools/index.ts": "b26b4ff4ed72629cb7be0a30edf93d6bc92724a891d6130ef3010aaecada3de4",
+    "src/tools/metricCalculate.ts": "a59210c323b598d906ab1722846649551f0d8dc9b81ea1e266a04cbecf7dc088",
+    "src/tools/metricCatalogOverview.ts": "ebe838422374cbe06f4a448a9d55883c07b1cc54cc61a0a52ef0eaf0958e2cfe",
+    "src/tools/metricCatalogSearch.ts": "4115a1f839d08c1ce38c5430278373795222bb240de4c3e05fe905d3e8694dde",
+    "src/tools/orgCatalogSearch.ts": "2c06229c37fa9f2e8b9fa9459abced6d983dbfc0989086487b521f9e23cb0411",
+    "src/tools/readTools.ts": "046943e117e2697a369b95984b2b17ee2972f2471a189a30074221f422fb7b06",
+    "src/tools/schemaReferences.ts": "7c8f0134aec2260cf8de65851631ef3f41bf3efd112f4a989857e5b4de715bc1",
+    "src/tools/shared.ts": "8a2a67c9c9236bc29a8e0caa8a28c0f10827a361d3fe3d5f44f475791a9726df",
+    "src/tools/structuredQuery.ts": "b2e47501c7b9fef8d31b0ef354fb7681e479f485f644d9e57c81c954d7aa2473",
+    "src/tools/testUtils.ts": "07a3f4657f40cab4b04284a7e4b28d063ef5c5e416f918340c917d2636498055",
+    "src/tools/turnContract.ts": "0749166e543182ffe0e4f081c0eb4a10dd43fce579f9a34b013a7ab90ab192c6",
+    "src/types/sm-crypto.d.ts": "5b7b74bc1fc8cb668331a0fcc48d86390ccc25adb3cad4f77c5133394cb54ff7"
+  },
+  "source_changed_during_run": false,
+  "script_sha256": "c1408bd493e2cda0db34c4fa595d09079f6a95a1a82cefd2758746b538344a0b",
+  "dataset_sha256": "c4c5f40085eaa3da457ef910182061e9501ae3999fb8b8b883ccfb0fdd9217d2",
+  "workbook_sha256": "2c720f26d4d7a3f52df7d90e1d9a898816ad3365d862ab9bad452f2e4b606ef8",
+  "model_signature": {
+    "name": "deepseek-ai/DeepSeek-V4-Flash",
+    "max_tokens": 8192,
+    "context_window": 128000,
+    "extra_body": {
+      "enable_thinking": false,
+      "temperature": 0
+    },
+    "suffix_sha256": "c20b6b4e71fc88e1c67af02d36306644db844546d4a5cb5e9fdc4ab15bc98f60",
+    "compact_turn_args": false
+  },
+  "repetitions": 1,
+  "scenarios": [
+    "explicit_and_selected_metrics",
+    "result_driven_missing_data"
+  ],
+  "session_data": "/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/autonomy-repair-candidate-v2-1auXs9",
+  "native_recordings": [
+    {
+      "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/repair-candidate-v2-native/2026-10-14T00-45-59-549Z_01a137df-8b7d-74db-a0c5-df51a6078249.jsonl",
+      "sha256": "f5bb044aaf8d5cac6aef9a4d8e261eace69bca1e649811c143fa1d60a5895b3b",
+      "bytes": 626675
+    },
+    {
+      "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/repair-candidate-v2-native/2026-10-14T00-46-55-029Z_01a137e0-6435-74db-a0c5-df7f5d134d69.jsonl",
+      "sha256": "5a498b9087196f78740dc5759aacef890e231dcf32ab88ba4779d60dd390744f",
+      "bytes": 529414
+    }
+  ],
+  "provider_budget": {
+    "limit": 20,
+    "used": 12,
+    "denied": 0,
+    "exhausted": false
+  },
+  "sampling": "fixed repetitions; preserve every failed sample; no selective reruns",
+  "summary": {
+    "planned_turns": 2,
+    "turns": 2,
+    "passed": 0,
+    "failed": 2,
+    "budget_errors": 0,
+    "infrastructure_failures": 0,
+    "business_failures": 2,
+    "token_usage": {
+      "input": 130773,
+      "output": 6011,
+      "cacheRead": 73984,
+      "cacheWrite": 0,
+      "totalTokens": 210768
+    },
+    "usage_reported_generations": 12,
+    "usage_unavailable_generations": 0,
+    "by_category": {
+      "precise": {
+        "total": 0,
+        "passed": 0
+      },
+      "context": {
+        "total": 0,
+        "passed": 0
+      },
+      "analysis": {
+        "total": 2,
+        "passed": 0
+      }
+    }
+  },
+  "turns": [
+    {
+      "repeat": 1,
+      "scenario": "explicit_and_selected_metrics",
+      "category": "analysis",
+      "turn": 1,
+      "session_id": "01a137df-8b7d-74db-a0c5-df51a6078249",
+      "message": "分析合成机构甲2026年7月31日的存款。机构各项存款余额和机构个人存款余额必须查询；另外请你从正式目录选择能反映增长和结构的指标补充描述性分析。不要推断原因。",
+      "expected": {
+        "kind": "analysis",
+        "orgs": [
+          "SYNTH_O1"
+        ],
+        "date": "2026-07-31",
+        "must_codes": [
+          "ORG_VRS_DEPT_BAL",
+          "ORG_PSON_DEPT_BAL"
+        ],
+        "min_distinct_codes": 3,
+        "requires_plan": true
+      },
+      "passed": false,
+      "failure": "ANALYSIS_SELECTED_ADDITIONAL_METRICS",
+      "failure_class": "business_or_runtime",
+      "model_generated": true,
+      "model_errors": [],
+      "model_usage": {
+        "raw": [
+          {
+            "stop_reason": "toolUse",
+            "response_id": "01a137df8e54fe5ed8f2069dc4f03b55",
+            "raw_usage": {
+              "input": 11076,
+              "output": 153,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "reasoning": 0,
+              "totalTokens": 11229,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "usage_reported": true
+          },
+          {
+            "stop_reason": "toolUse",
+            "response_id": "01a137dfa03e40631fdb69c034634563",
+            "raw_usage": {
+              "input": 12312,
+              "output": 142,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "reasoning": 0,
+              "totalTokens": 12454,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "usage_reported": true
+          },
+          {
+            "stop_reason": "toolUse",
+            "response_id": "01a137dfcb88d23472f49dafe826216b",
+            "raw_usage": {
+              "input": 9684,
+              "output": 1228,
+              "cacheRead": 12288,
+              "cacheWrite": 0,
+              "reasoning": 0,
+              "totalTokens": 23200,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "usage_reported": true
+          },
+          {
+            "stop_reason": "toolUse",
+            "response_id": "01a137dfd8afb95b68cf3088198495c2",
+            "raw_usage": {
+              "input": 14821,
+              "output": 958,
+              "cacheRead": 8192,
+              "cacheWrite": 0,
+              "reasoning": 0,
+              "totalTokens": 23971,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "usage_reported": true
+          },
+          {
+            "stop_reason": "stop",
+            "response_id": "01a137e02fd0de171d6b10e10c092a50",
+            "raw_usage": {
+              "input": 1526,
+              "output": 586,
+              "cacheRead": 22528,
+              "cacheWrite": 0,
+              "reasoning": 0,
+              "totalTokens": 24640,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "usage_reported": true
+          }
+        ],
+        "totals": {
+          "input": 49419,
+          "output": 3067,
+          "cacheRead": 43008,
+          "cacheWrite": 0,
+          "totalTokens": 95494
+        },
+        "usage_reported_generations": 5,
+        "usage_unavailable_generations": 0,
+        "first_request_prompt_tokens": 11076,
+        "first_successful_request_prompt_tokens": 11076,
+        "first_request_reported_total_minus_output_tokens": 11076,
+        "accounting": "pi-ai provider usage: prompt=input+cacheRead+cacheWrite; preserve raw counters; unavailable is null, never inferred from characters"
+      },
+      "tools": [
+        {
+          "id": "01a137df9d5f161a988159de43bf12b9",
+          "name": "resolve_business_turn",
+          "args": {
+            "capability": "metric_query",
+            "base": null,
+            "mode": "execute",
+            "set": {
+              "metrics": {
+                "fromQuestion": true,
+                "mentionIndexes": [
+                  1,
+                  2
+                ]
+              },
+              "organizations": "合成机构甲",
+              "time": "2026年7月31日",
+              "selection": "exact",
+              "operation": {
+                "kind": "value"
+              }
+            }
+          }
+        },
+        {
+          "id": "01a137dfa5dcc257ecd1596ee6129e69",
+          "name": "catalog",
+          "args": {
+            "action": "explore",
+            "keyword": "存款"
+          }
+        },
+        {
+          "id": "01a137dfa67d51b1f7f8111fba34e3c1",
+          "name": "catalog",
+          "args": {
+            "action": "explore",
+            "keyword": "存款余额"
+          }
+        },
+        {
+          "id": "01a137dfe32f9e7e9ef143b64e25e007",
+          "name": "analysis_task",
+          "args": {
+            "action": "create",
+            "goal": "分析合成机构甲2026年7月31日的存款情况，包括必须查询的机构各项存款余额和机构个人存款余额，并从正式目录选择反映增长和结构的指标补充描述性分析。不推断原因。",
+            "base": null,
+            "organizations": "合成机构甲",
+            "time": "2026年7月31日",
+            "metrics": [
+              "机构各项存款余额",
+              "机构个人存款余额"
+            ],
+            "targets": [
+              {
+                "targetId": "t1",
+                "organizations": "合成机构甲",
+                "time": "2026年7月31日",
+                "metrics": [
+                  "机构各项存款余额",
+                  "机构个人存款余额"
+                ],
+                "requirementIds": [
+                  "r1"
+                ]
+              },
+              {
+                "targetId": "t2",
+                "organizations": "合成机构甲",
+                "time": "2026年7月31日",
+                "requirementIds": [
+                  "r2"
+                ]
+              }
+            ],
+            "steps": [
+              {
+                "id": "s1",
+                "kind": "query",
+                "purpose": "查询合成机构甲2026年7月31日的机构各项存款余额和机构个人存款余额（必须查询项）",
+                "requirementIds": [
+                  "r1"
+                ],
+                "targetId": "t1",
+                "selections": [
+                  {
+                    "catalogRef": "catalogRef:ORG_VRS_DEPT_BAL:faf62cbf7446884e",
+                    "metricCode": "ORG_VRS_DEPT_BAL",
+                    "metricName": "机构各项存款余额",
+                    "unit": "亿元",
+                    "basis": "当日数"
+                  },
+                  {
+                    "catalogRef": "catalogRef:ORG_PSON_DEPT_BAL:...",
+                    "metricCode": "ORG_PSON_DEPT_BAL",
+                    "metricName": "机构个人存款余额",
+                    "unit": "亿元",
+                    "basis": "当日数"
+                  }
+                ],
+                "selection": "exact"
+              },
+              {
+                "id": "s2",
+                "kind": "query",
+                "purpose": "查询反映增长的指标：机构各项存款余额较年初增幅、机构各项存款余额较同期增幅",
+                "requirementIds": [
+                  "r2"
+                ],
+                "targetId": "t2",
+                "selections": [
+                  {
+                    "catalogRef": "catalogRef:ORG_VRS_DEPT_BAL_CMPBGNYR_INCRRNG:4205855018d7ff94",
+                    "metricCode": "ORG_VRS_DEPT_BAL_CMPBGNYR_INCRRNG",
+                    "metricName": "机构各项存款余额较年初增幅",
+                    "unit": "%",
+                    "basis": "较年初增幅"
+                  },
+                  {
+                    "catalogRef": "catalogRef:ORG_VRS_DEPT_BAL_CMP_SAMEPRD_INCRRNG:7db81eca7d3b21eb",
+                    "metricCode": "ORG_VRS_DEPT_BAL_CMP_SAMEPRD_INCRRNG",
+                    "metricName": "机构各项存款余额较同期增幅",
+                    "unit": "%",
+                    "basis": "较同期增幅"
+                  }
+                ],
+                "selection": "exact"
+              },
+              {
+                "id": "s3",
+                "kind": "query",
+                "purpose": "查询反映结构的指标：机构个人存款余额占比、机构对公存款余额占比",
+                "requirementIds": [
+                  "r2"
+                ],
+                "targetId": "t2",
+                "selections": [
+                  {
+                    "catalogRef": "catalogRef:ORG_PSON_DEPT_BAL_PRPR:...",
+                    "metricCode": "ORG_PSON_DEPT_BAL_PRPR",
+                    "metricName": "机构个人存款余额占比",
+                    "unit": "%",
+                    "basis": "当日数"
+                  },
+                  {
+                    "catalogRef": "catalogRef:ORG_CORP_DEPT_BAL_PRPR:...",
+                    "metricCode": "ORG_CORP_DEPT_BAL_PRPR",
+                    "metricName": "机构对公存款余额占比",
+                    "unit": "%",
+                    "basis": "当日数"
+                  }
+                ],
+                "selection": "exact"
+              }
+            ],
+            "metricMode": "add"
+          }
+        },
+        {
+          "id": "01a137dfe76118e27e10d3ed45eb0e8c",
+          "name": "analysis_task",
+          "args": {
+            "action": "create",
+            "goal": "分析合成机构甲2026年7月31日的存款情况，包括必须查询的机构各项存款余额和机构个人存款余额，并从正式目录选择反映增长和结构的指标补充描述性分析。不推断原因。",
+            "base": null,
+            "organizations": "合成机构甲",
+            "time": "2026年7月31日",
+            "metrics": [
+              "机构各项存款余额",
+              "机构个人存款余额"
+            ],
+            "targets": [
+              {
+                "targetId": "t1",
+                "organizations": "合成机构甲",
+                "time": "2026年7月31日",
+                "metrics": [
+                  "机构各项存款余额",
+                  "机构个人存款余额"
+                ],
+                "requirementIds": [
+                  "r1"
+                ]
+              },
+              {
+                "targetId": "t2",
+                "organizations": "合成机构甲",
+                "time": "2026年7月31日",
+                "requirementIds": [
+                  "r2"
+                ]
+              }
+            ],
+            "steps": [
+              {
+                "id": "s1",
+                "kind": "query",
+                "purpose": "查询合成机构甲2026年7月31日的机构各项存款余额和机构个人存款余额（必须查询项）",
+                "requirementIds": [
+                  "r1"
+                ],
+                "targetId": "t1",
+                "selections": [
+                  {
+                    "catalogRef": "catalogRef:ORG_VRS_DEPT_BAL:faf62cbf7446884e",
+                    "metricCode": "ORG_VRS_DEPT_BAL",
+                    "metricName": "机构各项存款余额",
+                    "unit": "亿元",
+                    "basis": "当日数"
+                  },
+                  {
+                    "catalogRef": "catalogRef:ORG_PSON_DEPT_BAL:...",
+                    "metricCode": "ORG_PSON_DEPT_BAL",
+                    "metricName": "机构个人存款余额",
+                    "unit": "亿元",
+                    "basis": "当日数"
+                  }
+                ],
+                "selection": "exact"
+              },
+              {
+                "id": "s2",
+                "kind": "query",
+                "purpose": "查询反映增长的指标：机构各项存款余额较年初增幅、机构各项存款余额较同期增幅",
+                "requirementIds": [
+                  "r2"
+                ],
+                "targetId": "t2",
+                "selections": [
+                  {
+                    "catalogRef": "catalogRef:ORG_VRS_DEPT_BAL_CMPBGNYR_INCRRNG:4205855018d7ff94",
+                    "metricCode": "ORG_VRS_DEPT_BAL_CMPBGNYR_INCRRNG",
+                    "metricName": "机构各项存款余额较年初增幅",
+                    "unit": "%",
+                    "basis": "较年初增幅"
+                  },
+                  {
+                    "catalogRef": "catalogRef:ORG_VRS_DEPT_BAL_CMP_SAMEPRD_INCRRNG:7db81eca7d3b21eb",
+                    "metricCode": "ORG_VRS_DEPT_BAL_CMP_SAMEPRD_INCRRNG",
+                    "metricName": "机构各项存款余额较同期增幅",
+                    "unit": "%",
+                    "basis": "较同期增幅"
+                  }
+                ],
+                "selection": "exact"
+              },
+              {
+                "id": "s3",
+                "kind": "query",
+                "purpose": "查询反映结构的指标：机构个人存款余额占比、机构对公存款余额占比",
+                "requirementIds": [
+                  "r2"
+                ],
+                "targetId": "t2",
+                "selections": [
+                  {
+                    "catalogRef": "catalogRef:ORG_PSON_DEPT_BAL_PRPR:...",
+                    "metricCode": "ORG_PSON_DEPT_BAL_PRPR",
+                    "metricName": "机构个人存款余额占比",
+                    "unit": "%",
+                    "basis": "当日数"
+                  },
+                  {
+                    "catalogRef": "catalogRef:ORG_CORP_DEPT_BAL_PRPR:...",
+                    "metricCode": "ORG_CORP_DEPT_BAL_PRPR",
+                    "metricName": "机构对公存款余额占比",
+                    "unit": "%",
+                    "basis": "当日数"
+                  }
+                ],
+                "selection": "exact"
+              }
+            ],
+            "metricMode": "add"
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "id": "01a137df9d5f161a988159de43bf12b9",
+          "name": "resolve_business_turn",
+          "is_error": false,
+          "details": {
+            "kind": "metric_query_structured",
+            "task_id": "synthetic-query-1",
+            "version": 1,
+            "result_id": "result-synthetic-query-1",
+            "public_answer": "隔离合成数据查询完成；这些值不是数据湖事实。",
+            "status": "succeeded",
+            "columns": [
+              "fact_id",
+              "task_id",
+              "field",
+              "value",
+              "unit",
+              "metric_code",
+              "metric_name",
+              "org_code",
+              "org_name",
+              "date",
+              "stat_date",
+              "metric_value"
+            ],
+            "rows": [
+              {
+                "fact_id": "fact:synthetic-query-1:0:metric_value",
+                "task_id": "synthetic-query-1",
+                "field": "metric_value",
+                "value": "1000",
+                "unit": "亿元",
+                "metric_code": "ORG_VRS_DEPT_BAL",
+                "metric_name": "机构各项存款余额",
+                "org_code": "SYNTH_O1",
+                "org_name": "合成机构甲",
+                "date": "2026-07-31",
+                "stat_date": "2026-07-31",
+                "metric_value": "1000"
+              },
+              {
+                "fact_id": "fact:synthetic-query-1:1:metric_value",
+                "task_id": "synthetic-query-1",
+                "field": "metric_value",
+                "value": "600",
+                "unit": "亿元",
+                "metric_code": "ORG_PSON_DEPT_BAL",
+                "metric_name": "机构个人存款余额",
+                "org_code": "SYNTH_O1",
+                "org_name": "合成机构甲",
+                "date": "2026-07-31",
+                "stat_date": "2026-07-31",
+                "metric_value": "600"
+              }
+            ],
+            "row_count": 2,
+            "truncated": false,
+            "frame_id": "970d7e78-dcfb-49ce-825e-8f33ea192f38",
+            "delivery": "business_evidence_v1",
+            "display_conditions": [
+              {
+                "label": "指标",
+                "value": "机构各项存款余额、机构个人存款余额"
+              },
+              {
+                "label": "机构",
+                "value": "合成机构甲"
+              },
+              {
+                "label": "日期",
+                "value": "2026-07-31"
+              }
+            ]
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"status\":\"succeeded\",\"task_id\":\"synthetic-query-1\",\"version\":1,\"result_id\":\"result-synthetic-query-1\",\"query_evidence\":{\"logical_dsl\":{\"conversation_id\":\"synthetic-autonomy-conversation\",\"calculation_context\":{\"scope_id\":\"01a137df-8b81-74db-a0c5-df52d875b447\",\"user_question\":\"分析合成机构甲2026年7月31日的存款。机构各项存款余额和机构个人存款余额必须查询；另外请你从正式目录选择能反映增长和结构的指标补充描述性分析。不要推断原因。\"},\"source_question\":\"分析合成机构甲2026年7月31日的存款。机构各项存款余额和机构个人存款余额必须查询；另外请你从正式目录选择能反映增长和结构的指标补充描述性分析。不要推断原因。\",\"source_metric_bindings\":[{\"start\":21,\"end\":29,\"text\":\"机构各项存款余额\",\"codes\":[\"ORG_VRS_DEPT_BAL\"]},{\"start\":30,\"end\":38,\"text\":\"机构个人存款余额\",\"codes\":[\"ORG_PSON_DEPT_BAL\"]}],\"metric_codes\":[\"ORG_VRS_DEPT_BAL\",\"ORG_PSON_DEPT_BAL\"],\"schema_version\":2,\"org_codes\":[\"SYNTH_O1\"],\"time\":{\"start\":\"2026-07-31\",\"end\":\"2026-07-31\"},\"selection\":\"exact\",\"operation\":{\"kind\":\"value\"}},\"synthetic_data\":true,\"missing_metric_codes\":[],\"missing_metric_notice\":null},\"columns\":[\"fact_id\",\"task_id\",\"field\",\"value\",\"unit\",\"metric_code\",\"metric_name\",\"org_code\",\"org_name\",\"date\",\"stat_date\",\"metric_value\"],\"sample_rows\":[{\"fact_id\":\"fact:synthetic-query-1:0:metric_value\",\"task_id\":\"synthetic-query-1\",\"field\":\"metric_value\",\"value\":\"1000\",\"unit\":\"亿元\",\"metric_code\":\"ORG_VRS_DEPT_BAL\",\"metric_name\":\"机构各项存款余额\",\"org_code\":\"SYNTH_O1\",\"org_name\":\"合成机构甲\",\"date\":\"2026-07-31\",\"stat_date\":\"2026-07-31\",\"metric_value\":\"1000\"},{\"fact_id\":\"fact:synthetic-query-1:1:metric_value\",\"task_id\":\"synthetic-query-1\",\"field\":\"metric_value\",\"value\":\"600\",\"unit\":\"亿元\",\"metric_code\":\"ORG_PSON_DEPT_BAL\",\"metric_name\":\"机构个人存款余额\",\"org_code\":\"SYNTH_O1\",\"org_name\":\"合成机构甲\",\"date\":\"2026-07-31\",\"stat_date\":\"2026-07-31\",\"metric_value\":\"600\"}],\"facts\":[{\"fact_id\":\"fact:synthetic-query-1:0:metric_value\",\"task_id\":\"synthetic-query-1\",\"field\":\"metric_value\",\"value\":\"1000\",\"unit\":\"亿元\",\"metric_code\":\"ORG_VRS_DEPT_BAL\",\"metric_name\":\"机构各项存款余额\",\"org_code\":\"SYNTH_O1\",\"org_name\":\"合成机构甲\",\"date\":\"2026-07-31\"},{\"fact_id\":\"fact:synthetic-query-1:1:metric_value\",\"task_id\":\"synthetic-query-1\",\"field\":\"metric_value\",\"value\":\"600\",\"unit\":\"亿元\",\"metric_code\":\"ORG_PSON_DEPT_BAL\",\"metric_name\":\"机构个人存款余额\",\"org_code\":\"SYNTH_O1\",\"org_name\":\"合成机构甲\",\"date\":\"2026-07-31\"}],\"fact_count\":2,\"facts_truncated\":false,\"row_count\":2,\"truncated\":false,\"error_code\":null,\"message\":\"隔离合成数据查询完成；这些值不是数据湖事实。\",\"display_hint\":\"明细数据已在用户界面以结果表展示，回答正文不要逐条罗列数值，简洁概括即可。\",\"frame_id\":\"970d7e78-dcfb-49ce-825e-8f33ea192f38\",\"result_ref\":\"query:synthetic-query-1:result-synthetic-query-1\",\"ready_frame_id\":\"a1fec67a-8777-4067-af7f-93fcce05402e\",\"next_step\":\"条件已全部确定，查询已执行。请直接依据本回执组织回答，不要再向用户确认，也不要重复取数。\"}"
+            }
+          ]
+        },
+        {
+          "id": "01a137dfa5dcc257ecd1596ee6129e69",
+          "name": "catalog",
+          "is_error": false,
+          "details": {
+            "kind": "catalog",
+            "action": "explore",
+            "status": "succeeded"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"source\":{\"name\":\"存款指标完整映射_22维度-完整版.xlsx\",\"sha256\":\"5be02877569c6b98bc0537bd5a2d4dbb586e20c55e91ecf99a86b603ac63c658\"},\"dimensions\":[\"当日数\",\"较年初\",\"较年初增幅\",\"较上月\",\"较上月增幅\",\"较上季\",\"较上季增幅\",\"较同期\",\"较同期增幅\",\"较同期期末\",\"较同期期末增幅\",\"较上日\",\"较上日增幅\",\"较基数\",\"较基数增幅\",\"较年初增量计划值\",\"较年初增量完成率\",\"全省均值\",\"第一层级均值\",\"第二层级均值\",\"第三层级均值\",\"第四层级均值\"],\"groups\":[{\"label\":\"各项存款（亿元）\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"context_heading\":\"各项存款（亿元）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A2\"},\"calculation_formula\":null},{\"label\":\"1.个人存款（亿元）\",\"base_code\":\"ORG_PSON_DEPT_BAL\",\"base_name\":\"机构个人存款余额\",\"context_heading\":\"1.个人存款（亿元）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A3\"},\"calculation_formula\":null},{\"label\":\"个人存款占比（%）\",\"base_code\":\"ORG_PSON_DEPT_BAL_PRPR\",\"base_name\":\"机构个人存款余额占比\",\"context_heading\":\"个人存款占比（%）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A4\"},\"calculation_formula\":null},{\"label\":\"1.1.1个人活期存款（亿元）\",\"base_code\":\"ORG_PSON_DEDMDPT_BAL\",\"base_name\":\"机构个人活期存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A5\"},\"calculation_formula\":null},{\"label\":\"个人活期存款占个人存款比（%）\",\"base_code\":\"ORG_PSON_DEDMDPT_BAL_PRPR\",\"base_name\":\"机构个人活期存款余额占比\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A6\"},\"calculation_formula\":null},{\"label\":\"1.1.2个人定期存款（亿元）\",\"base_code\":\"ORG_PSON_TMDST_BAL\",\"base_name\":\"机构个人定期存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A7\"},\"calculation_formula\":null},{\"label\":\"个人定期存款占个人存款比（%）\",\"base_code\":null,\"base_name\":\"（占比/计算项）\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A8\"},\"calculation_formula\":null},{\"label\":\"其中：一年期及以下（亿元）\",\"base_code\":\"ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人一年期及以下整存整取存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A9\"},\"calculation_formula\":null},{\"label\":\"二年期（亿元）\",\"base_code\":\"ORG_PSON_Y2_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人两年期整存整取存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A11\"},\"calculation_formula\":null},{\"label\":\"三年期（亿元）\",\"base_code\":\"ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人三年期整存整取存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A13\"},\"calculation_formula\":null},{\"label\":\"五年期（亿元）\",\"base_code\":\"ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人五年期整存整取存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A15\"},\"calculation_formula\":null},{\"label\":\"2.对公存款（亿元）\",\"base_code\":\"ORG_CORP_DEPT_BAL\",\"base_name\":\"机构对公存款余额\",\"context_heading\":\"2.对公存款（亿元）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A17\"},\"calculation_formula\":null},{\"label\":\"对公存款占比（%）\",\"base_code\":\"ORG_CORP_DEPT_BAL_PRPR\",\"base_name\":\"机构对公存款余额占比\",\"context_heading\":\"对公存款占比（%）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A18\"},\"calculation_formula\":null},{\"label\":\"2.1.1对公活期存款（亿元）\",\"base_code\":\"ORG_CORP_DEDMDPT_BAL\",\"base_name\":\"机构对公活期存款余额\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A19\"},\"calculation_formula\":null},{\"label\":\"对公活期存款占对公存款比（%）\",\"base_code\":\"ORG_CORP_DEDMDPT_BAL_PRPR\",\"base_name\":\"机构对公活期存款余额占比\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A20\"},\"calculation_formula\":null},{\"label\":\"2.1.2对公定期存款（亿元）\",\"base_code\":\"ORG_CORP_TMDST_BAL\",\"base_name\":\"机构对公定期存款余额\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A21\"},\"calculation_formula\":null},{\"label\":\"对公定期存款占对公存款比（%）\",\"base_code\":null,\"base_name\":\"（占比/计算项）\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A22\"},\"calculation_formula\":null},{\"label\":\"其中：保证金存款（亿元）\",\"base_code\":\"ORG_CORP_MRGN_DEPT_BAL\",\"base_name\":\"机构对公保证金存款余额\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A23\"},\"calculation_formula\":null},{\"label\":\"保证金存款占对公存款比（%）\",\"base_code\":null,\"base_name\":\"（占比/计算项）\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A24\"},\"calculation_formula\":null},{\"label\":\"其中：非银存款（亿元）\",\"base_code\":\"ORG_CUR_DAY_NBNKNIDSTY_ITRBNK_DEPT_BAL\",\"base_name\":\"机构当日非银行业同业存款余额\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A25\"},\"calculation_formula\":null},{\"label\":\"非银存款占对公存款比（%）\",\"base_code\":null,\"base_name\":\"（占比/计算项）\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A26\"},\"calculation_formula\":null},{\"label\":\"3.存款市场份额（%）\",\"base_code\":\"ORG_DEPT_MRKT_SHR_RT\",\"base_name\":\"机构存款市场份额比率\",\"context_heading\":\"3.存款市场份额（%）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A27\"},\"calculation_formula\":null},{\"label\":\"4.全部3年期以上存款占比（%）\",\"base_code\":\"ORG_THRYRTEM_ABV_TMDST_BAL_PRPR\",\"base_name\":\"机构三年期限以上定期存款余额占比\",\"context_heading\":\"4.全部3年期以上存款占比（%）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A28\"},\"calculation_formula\":null},{\"label\":\"5.活期存款占比（%）（不含协定存款）\",\"base_code\":\"ORG_DEDMDPT_BAL_PRPR\",\"base_name\":\"机构活期存款余额占比_含协定\",\"context_heading\":\"5.活期存款占比（%）（不含协定存款）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A29\"},\"calculation_formula\":null,\"status\":\"definition_conflict\"},{\"label\":\"6.活期存款占比（%）（含协定存款）\",\"base_code\":\"ORG_DEDMDPT_BAL_PRPR\",\"base_name\":\"机构活期存款余额占比_含协定\",\"context_heading\":\"6.活期存款占比（%）（含协定存款）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A30\"},\"calculation_formula\":null,\"status\":\"definition_conflict\"}],\"total\":440,\"page\":1,\"page_size\":12,\"has_more\":true,\"next_page\":2,\"items\":[{\"code\":\"ORG_VRS_DEPT_BAL\",\"dimension\":\"当日数\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"business_label\":\"各项存款（亿元）\",\"aliases\":[\"各项存款\",\"存款余额\",\"存款总额\",\"总存款\",\"揽储总量\"],\"name\":\"机构各项存款余额\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"I2\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL:faf62cbf7446884e\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL:faf62cbf7446884e\",\"metricCode\":\"ORG_VRS_DEPT_BAL\",\"metricName\":\"机构各项存款余额\",\"unit\":\"亿元\",\"basis\":\"当日数\"}},{\"code\":\"ORG_PSON_DEPT_BAL_CMPBGNYR\",\"dimension\":\"较年初\",\"base_code\":\"ORG_PSON_DEPT_BAL\",\"base_name\":\"机构个人存款余额\",\"business_label\":\"1.个人存款（亿元）\",\"aliases\":[\"个人存款\",\"储蓄存款\",\"居民储蓄\",\"个人存\",\"储蓄\",\"老百姓存的钱\"],\"name\":\"机构个人存款余额较年初\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"J3\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_PSON_DEPT_BAL_CMPBGNYR:2eee998d59c9163c\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_DEPT_BAL_CMPBGNYR:2eee998d59c9163c\",\"metricCode\":\"ORG_PSON_DEPT_BAL_CMPBGNYR\",\"metricName\":\"机构个人存款余额较年初\",\"unit\":\"亿元\",\"basis\":\"较年初\"}},{\"code\":\"ORG_PSON_DEPT_BAL_PRPR_CMPBGNYR_INCRRNG\",\"dimension\":\"较年初增幅\",\"base_code\":\"ORG_PSON_DEPT_BAL_PRPR\",\"base_name\":\"机构个人存款余额占比\",\"business_label\":\"个人存款占比（%）\",\"aliases\":[\"个人存款余额占比\",\"储蓄存款占比\",\"个人存占比\",\"储蓄占比\"],\"name\":\"机构个人存款余额占比较年初增幅\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"K4\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_PSON_DEPT_BAL_PRPR_CMPBGNYR_INCRRNG:1d445ddb8a75fa31\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_DEPT_BAL_PRPR_CMPBGNYR_INCRRNG:1d445ddb8a75fa31\",\"metricCode\":\"ORG_PSON_DEPT_BAL_PRPR_CMPBGNYR_INCRRNG\",\"metricName\":\"机构个人存款余额占比较年初增幅\",\"unit\":\"%\",\"basis\":\"较年初增幅\"}},{\"code\":\"ORG_PSON_DEDMDPT_BAL_CMPRLATMO\",\"dimension\":\"较上月\",\"base_code\":\"ORG_PSON_DEDMDPT_BAL\",\"base_name\":\"机构个人活期存款余额\",\"business_label\":\"1.1.1个人活期存款（亿元）\",\"aliases\":[\"个人活期\",\"储蓄活期\",\"个人活期存款\",\"个人活期账\"],\"name\":\"机构个人活期存款余额较上月\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"L5\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_PSON_DEDMDPT_BAL_CMPRLATMO:a047f67a43456abb\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_DEDMDPT_BAL_CMPRLATMO:a047f67a43456abb\",\"metricCode\":\"ORG_PSON_DEDMDPT_BAL_CMPRLATMO\",\"metricName\":\"机构个人活期存款余额较上月\",\"unit\":\"亿元\",\"basis\":\"较上月\"}},{\"code\":\"ORG_PSON_DEDMDPT_BAL_PRPR_CMPRLATMO_INCRRNG\",\"dimension\":\"较上月增幅\",\"base_code\":\"ORG_PSON_DEDMDPT_BAL_PRPR\",\"base_name\":\"机构个人活期存款余额占比\",\"business_label\":\"个人活期存款占个人存款比（%）\",\"aliases\":[\"个人活期占比\",\"储蓄活期比例\",\"个人活期比\",\"活期比例\"],\"name\":\"机构个人活期存款余额占比较上月增幅\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"M6\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_PSON_DEDMDPT_BAL_PRPR_CMPRLATMO_INCRRNG:2fcb02c9002b0486\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_DEDMDPT_BAL_PRPR_CMPRLATMO_INCRRNG:2fcb02c9002b0486\",\"metricCode\":\"ORG_PSON_DEDMDPT_BAL_PRPR_CMPRLATMO_INCRRNG\",\"metricName\":\"机构个人活期存款余额占比较上月增幅\",\"unit\":\"%\",\"basis\":\"较上月增幅\"}},{\"code\":\"ORG_PSON_TMDST_BAL_CMPRPVSQRT\",\"dimension\":\"较上季\",\"base_code\":\"ORG_PSON_TMDST_BAL\",\"base_name\":\"机构个人定期存款余额\",\"business_label\":\"1.1.2个人定期存款（亿元）\",\"aliases\":[\"个人定期\",\"储蓄定期\",\"个人定期存款\",\"个人定存\",\"个人死期\"],\"name\":\"机构个人定期存款余额较上季\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"N7\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_PSON_TMDST_BAL_CMPRPVSQRT:730bc72a8b4c8273\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_TMDST_BAL_CMPRPVSQRT:730bc72a8b4c8273\",\"metricCode\":\"ORG_PSON_TMDST_BAL_CMPRPVSQRT\",\"metricName\":\"机构个人定期存款余额较上季\",\"unit\":\"亿元\",\"basis\":\"较上季\"}},{\"code\":\"ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL_CMPRPVSQRT_INCRRNG\",\"dimension\":\"较上季增幅\",\"base_code\":\"ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人一年期及以下整存整取存款余额\",\"business_label\":\"其中：一年期及以下（亿元）\",\"aliases\":[],\"name\":\"机构个人一年期及以下整存整取存款余额较上季增幅\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"O9\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL_CMPRPVSQRT_INCRRNG:51a18417631b60aa\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL_CMPRPVSQRT_INCRRNG:51a18417631b60aa\",\"metricCode\":\"ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL_CMPRPVSQRT_INCRRNG\",\"metricName\":\"机构个人一年期及以下整存整取存款余额较上季增幅\",\"unit\":\"%\",\"basis\":\"较上季增幅\"}},{\"code\":\"ORG_PSON_Y2_FIXDEP_DEPT_BAL_CMP_SAMEPRD\",\"dimension\":\"较同期\",\"base_code\":\"ORG_PSON_Y2_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人两年期整存整取存款余额\",\"business_label\":\"二年期（亿元）\",\"aliases\":[\"个人两年期定存\",\"个人两年定期\",\"两年定存\",\"两年死期\"],\"name\":\"机构个人两年期整存整取存款余额较同期\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"P11\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_PSON_Y2_FIXDEP_DEPT_BAL_CMP_SAMEPRD:d0a87a2309f90ba5\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_Y2_FIXDEP_DEPT_BAL_CMP_SAMEPRD:d0a87a2309f90ba5\",\"metricCode\":\"ORG_PSON_Y2_FIXDEP_DEPT_BAL_CMP_SAMEPRD\",\"metricName\":\"机构个人两年期整存整取存款余额较同期\",\"unit\":\"亿元\",\"basis\":\"较同期\"}},{\"code\":\"ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL_CMP_SAMEPRD_INCRRNG\",\"dimension\":\"较同期增幅\",\"base_code\":\"ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人三年期整存整取存款余额\",\"business_label\":\"三年期（亿元）\",\"aliases\":[\"个人三年期定存\",\"个人三年定期\",\"三年定存\",\"三年死期\"],\"name\":\"机构个人三年期整存整取存款余额较同期增幅\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"Q13\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL_CMP_SAMEPRD_INCRRNG:492ebe66ed417dbb\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL_CMP_SAMEPRD_INCRRNG:492ebe66ed417dbb\",\"metricCode\":\"ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL_CMP_SAMEPRD_INCRRNG\",\"metricName\":\"机构个人三年期整存整取存款余额较同期增幅\",\"unit\":\"%\",\"basis\":\"较同期增幅\"}},{\"code\":\"ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL_CMP_SAMEPRD_TERMEND\",\"dimension\":\"较同期期末\",\"base_code\":\"ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人五年期整存整取存款余额\",\"business_label\":\"五年期（亿元）\",\"aliases\":[],\"name\":\"机构个人五年期整存整取存款余额较同期期末\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"R15\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL_CMP_SAMEPRD_TERMEND:5e974d0b8072e5b6\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL_CMP_SAMEPRD_TERMEND:5e974d0b8072e5b6\",\"metricCode\":\"ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL_CMP_SAMEPRD_TERMEND\",\"metricName\":\"机构个人五年期整存整取存款余额较同期期末\",\"unit\":\"亿元\",\"basis\":\"较同期期末\"}},{\"code\":\"ORG_CORP_DEPT_BAL_CMP_SAMEPRD_TERMEND_INCRRNG\",\"dimension\":\"较同期期末增幅\",\"base_code\":\"ORG_CORP_DEPT_BAL\",\"base_name\":\"机构对公存款余额\",\"business_label\":\"2.对公存款（亿元）\",\"aliases\":[\"对公存款\",\"单位存款\",\"企业存款\",\"公司存款\",\"对公存\"],\"name\":\"机构对公存款余额较同期期末增幅\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"S17\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_CORP_DEPT_BAL_CMP_SAMEPRD_TERMEND_INCRRNG:1088d17910d28028\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_CORP_DEPT_BAL_CMP_SAMEPRD_TERMEND_INCRRNG:1088d17910d28028\",\"metricCode\":\"ORG_CORP_DEPT_BAL_CMP_SAMEPRD_TERMEND_INCRRNG\",\"metricName\":\"机构对公存款余额较同期期末增幅\",\"unit\":\"%\",\"basis\":\"较同期期末增幅\"}},{\"code\":\"ORG_CORP_DEPT_BAL_PRPR_CMPRPRSDAY\",\"dimension\":\"较上日\",\"base_code\":\"ORG_CORP_DEPT_BAL_PRPR\",\"base_name\":\"机构对公存款余额占比\",\"business_label\":\"对公存款占比（%）\",\"aliases\":[\"对公存款占比\",\"单位存款占比\",\"对公占比\",\"企业存款占比\"],\"name\":\"机构对公存款余额占比较上日\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"T18\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_CORP_DEPT_BAL_PRPR_CMPRPRSDAY:b351aa2b6f46a45f\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_CORP_DEPT_BAL_PRPR_CMPRPRSDAY:b351aa2b6f46a45f\",\"metricCode\":\"ORG_CORP_DEPT_BAL_PRPR_CMPRPRSDAY\",\"metricName\":\"机构对公存款余额占比较上日\",\"unit\":\"%\",\"basis\":\"较上日\"}}],\"warnings\":[\"Workbook contains mapping metadata, not observed lake values.\",\"Do not import conflicting aliases until scope is verified against the authoritative catalog.\",\"Eight calculation rows have neither metric codes nor formulas; labels alone do not authorize formula inference.\",\"Units are displayed business units, not verified storage units; verify against the formal catalog.\"],\"relationships_verified\":false,\"notice\":\"分组不证明可加总或因果关系；无公式节点不能自动计算。指标值及单位取正式工具回执。\"}"
+            }
+          ]
+        },
+        {
+          "id": "01a137dfa67d51b1f7f8111fba34e3c1",
+          "name": "catalog",
+          "is_error": false,
+          "details": {
+            "kind": "catalog",
+            "action": "explore",
+            "status": "succeeded"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"source\":{\"name\":\"存款指标完整映射_22维度-完整版.xlsx\",\"sha256\":\"5be02877569c6b98bc0537bd5a2d4dbb586e20c55e91ecf99a86b603ac63c658\"},\"dimensions\":[\"当日数\",\"较年初\",\"较年初增幅\",\"较上月\",\"较上月增幅\",\"较上季\",\"较上季增幅\",\"较同期\",\"较同期增幅\",\"较同期期末\",\"较同期期末增幅\",\"较上日\",\"较上日增幅\",\"较基数\",\"较基数增幅\",\"较年初增量计划值\",\"较年初增量完成率\",\"全省均值\",\"第一层级均值\",\"第二层级均值\",\"第三层级均值\",\"第四层级均值\"],\"groups\":[{\"label\":\"各项存款（亿元）\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"context_heading\":\"各项存款（亿元）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A2\"},\"calculation_formula\":null},{\"label\":\"1.个人存款（亿元）\",\"base_code\":\"ORG_PSON_DEPT_BAL\",\"base_name\":\"机构个人存款余额\",\"context_heading\":\"1.个人存款（亿元）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A3\"},\"calculation_formula\":null},{\"label\":\"个人存款占比（%）\",\"base_code\":\"ORG_PSON_DEPT_BAL_PRPR\",\"base_name\":\"机构个人存款余额占比\",\"context_heading\":\"个人存款占比（%）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A4\"},\"calculation_formula\":null},{\"label\":\"1.1.1个人活期存款（亿元）\",\"base_code\":\"ORG_PSON_DEDMDPT_BAL\",\"base_name\":\"机构个人活期存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A5\"},\"calculation_formula\":null},{\"label\":\"个人活期存款占个人存款比（%）\",\"base_code\":\"ORG_PSON_DEDMDPT_BAL_PRPR\",\"base_name\":\"机构个人活期存款余额占比\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A6\"},\"calculation_formula\":null},{\"label\":\"1.1.2个人定期存款（亿元）\",\"base_code\":\"ORG_PSON_TMDST_BAL\",\"base_name\":\"机构个人定期存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A7\"},\"calculation_formula\":null},{\"label\":\"其中：一年期及以下（亿元）\",\"base_code\":\"ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人一年期及以下整存整取存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A9\"},\"calculation_formula\":null},{\"label\":\"二年期（亿元）\",\"base_code\":\"ORG_PSON_Y2_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人两年期整存整取存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A11\"},\"calculation_formula\":null},{\"label\":\"三年期（亿元）\",\"base_code\":\"ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人三年期整存整取存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A13\"},\"calculation_formula\":null},{\"label\":\"五年期（亿元）\",\"base_code\":\"ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人五年期整存整取存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A15\"},\"calculation_formula\":null},{\"label\":\"2.对公存款（亿元）\",\"base_code\":\"ORG_CORP_DEPT_BAL\",\"base_name\":\"机构对公存款余额\",\"context_heading\":\"2.对公存款（亿元）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A17\"},\"calculation_formula\":null},{\"label\":\"对公存款占比（%）\",\"base_code\":\"ORG_CORP_DEPT_BAL_PRPR\",\"base_name\":\"机构对公存款余额占比\",\"context_heading\":\"对公存款占比（%）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A18\"},\"calculation_formula\":null},{\"label\":\"2.1.1对公活期存款（亿元）\",\"base_code\":\"ORG_CORP_DEDMDPT_BAL\",\"base_name\":\"机构对公活期存款余额\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A19\"},\"calculation_formula\":null},{\"label\":\"对公活期存款占对公存款比（%）\",\"base_code\":\"ORG_CORP_DEDMDPT_BAL_PRPR\",\"base_name\":\"机构对公活期存款余额占比\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A20\"},\"calculation_formula\":null},{\"label\":\"2.1.2对公定期存款（亿元）\",\"base_code\":\"ORG_CORP_TMDST_BAL\",\"base_name\":\"机构对公定期存款余额\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A21\"},\"calculation_formula\":null},{\"label\":\"其中：保证金存款（亿元）\",\"base_code\":\"ORG_CORP_MRGN_DEPT_BAL\",\"base_name\":\"机构对公保证金存款余额\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A23\"},\"calculation_formula\":null},{\"label\":\"其中：非银存款（亿元）\",\"base_code\":\"ORG_CUR_DAY_NBNKNIDSTY_ITRBNK_DEPT_BAL\",\"base_name\":\"机构当日非银行业同业存款余额\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A25\"},\"calculation_formula\":null},{\"label\":\"3.存款市场份额（%）\",\"base_code\":\"ORG_DEPT_MRKT_SHR_RT\",\"base_name\":\"机构存款市场份额比率\",\"context_heading\":\"3.存款市场份额（%）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A27\"},\"calculation_formula\":null},{\"label\":\"4.全部3年期以上存款占比（%）\",\"base_code\":\"ORG_THRYRTEM_ABV_TMDST_BAL_PRPR\",\"base_name\":\"机构三年期限以上定期存款余额占比\",\"context_heading\":\"4.全部3年期以上存款占比（%）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A28\"},\"calculation_formula\":null},{\"label\":\"5.活期存款占比（%）（不含协定存款）\",\"base_code\":\"ORG_DEDMDPT_BAL_PRPR\",\"base_name\":\"机构活期存款余额占比_含协定\",\"context_heading\":\"5.活期存款占比（%）（不含协定存款）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A29\"},\"calculation_formula\":null,\"status\":\"definition_conflict\"},{\"label\":\"6.活期存款占比（%）（含协定存款）\",\"base_code\":\"ORG_DEDMDPT_BAL_PRPR\",\"base_name\":\"机构活期存款余额占比_含协定\",\"context_heading\":\"6.活期存款占比（%）（含协定存款）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A30\"},\"calculation_formula\":null,\"status\":\"definition_conflict\"}],\"total\":440,\"page\":1,\"page_size\":12,\"has_more\":true,\"next_page\":2,\"items\":[{\"code\":\"ORG_VRS_DEPT_BAL\",\"dimension\":\"当日数\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"business_label\":\"各项存款（亿元）\",\"aliases\":[\"各项存款\",\"存款余额\",\"存款总额\",\"总存款\",\"揽储总量\"],\"name\":\"机构各项存款余额\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"I2\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL:faf62cbf7446884e\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL:faf62cbf7446884e\",\"metricCode\":\"ORG_VRS_DEPT_BAL\",\"metricName\":\"机构各项存款余额\",\"unit\":\"亿元\",\"basis\":\"当日数\"}},{\"code\":\"ORG_VRS_DEPT_BAL_CMPBGNYR\",\"dimension\":\"较年初\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"business_label\":\"各项存款（亿元）\",\"aliases\":[\"各项存款\",\"存款余额\",\"存款总额\",\"总存款\",\"揽储总量\"],\"name\":\"机构各项存款余额较年初\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"J2\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMPBGNYR:3098436717a3e911\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMPBGNYR:3098436717a3e911\",\"metricCode\":\"ORG_VRS_DEPT_BAL_CMPBGNYR\",\"metricName\":\"机构各项存款余额较年初\",\"unit\":\"亿元\",\"basis\":\"较年初\"}},{\"code\":\"ORG_VRS_DEPT_BAL_CMPBGNYR_INCRRNG\",\"dimension\":\"较年初增幅\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"business_label\":\"各项存款（亿元）\",\"aliases\":[\"各项存款\",\"存款余额\",\"存款总额\",\"总存款\",\"揽储总量\"],\"name\":\"机构各项存款余额较年初增幅\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"K2\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMPBGNYR_INCRRNG:4205855018d7ff94\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMPBGNYR_INCRRNG:4205855018d7ff94\",\"metricCode\":\"ORG_VRS_DEPT_BAL_CMPBGNYR_INCRRNG\",\"metricName\":\"机构各项存款余额较年初增幅\",\"unit\":\"%\",\"basis\":\"较年初增幅\"}},{\"code\":\"ORG_VRS_DEPT_BAL_CMPRLATMO\",\"dimension\":\"较上月\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"business_label\":\"各项存款（亿元）\",\"aliases\":[\"各项存款\",\"存款余额\",\"存款总额\",\"总存款\",\"揽储总量\"],\"name\":\"机构各项存款余额较上月\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"L2\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMPRLATMO:b7e97b9375609eeb\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMPRLATMO:b7e97b9375609eeb\",\"metricCode\":\"ORG_VRS_DEPT_BAL_CMPRLATMO\",\"metricName\":\"机构各项存款余额较上月\",\"unit\":\"亿元\",\"basis\":\"较上月\"}},{\"code\":\"ORG_VRS_DEPT_BAL_CMPRLATMO_INCRRNG\",\"dimension\":\"较上月增幅\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"business_label\":\"各项存款（亿元）\",\"aliases\":[\"各项存款\",\"存款余额\",\"存款总额\",\"总存款\",\"揽储总量\"],\"name\":\"机构各项存款余额较上月增幅\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"M2\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMPRLATMO_INCRRNG:c03482c8d004ee66\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMPRLATMO_INCRRNG:c03482c8d004ee66\",\"metricCode\":\"ORG_VRS_DEPT_BAL_CMPRLATMO_INCRRNG\",\"metricName\":\"机构各项存款余额较上月增幅\",\"unit\":\"%\",\"basis\":\"较上月增幅\"}},{\"code\":\"ORG_VRS_DEPT_BAL_CMPRPVSQRT\",\"dimension\":\"较上季\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"business_label\":\"各项存款（亿元）\",\"aliases\":[\"各项存款\",\"存款余额\",\"存款总额\",\"总存款\",\"揽储总量\"],\"name\":\"机构各项存款余额较上季\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"N2\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMPRPVSQRT:da17d7041fa87030\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMPRPVSQRT:da17d7041fa87030\",\"metricCode\":\"ORG_VRS_DEPT_BAL_CMPRPVSQRT\",\"metricName\":\"机构各项存款余额较上季\",\"unit\":\"亿元\",\"basis\":\"较上季\"}},{\"code\":\"ORG_VRS_DEPT_BAL_CMPRPVSQRT_INCRRNG\",\"dimension\":\"较上季增幅\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"business_label\":\"各项存款（亿元）\",\"aliases\":[\"各项存款\",\"存款余额\",\"存款总额\",\"总存款\",\"揽储总量\"],\"name\":\"机构各项存款余额较上季增幅\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"O2\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMPRPVSQRT_INCRRNG:57f95c578f7f02ab\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMPRPVSQRT_INCRRNG:57f95c578f7f02ab\",\"metricCode\":\"ORG_VRS_DEPT_BAL_CMPRPVSQRT_INCRRNG\",\"metricName\":\"机构各项存款余额较上季增幅\",\"unit\":\"%\",\"basis\":\"较上季增幅\"}},{\"code\":\"ORG_VRS_DEPT_BAL_CMP_SAMEPRD\",\"dimension\":\"较同期\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"business_label\":\"各项存款（亿元）\",\"aliases\":[\"各项存款\",\"存款余额\",\"存款总额\",\"总存款\",\"揽储总量\"],\"name\":\"机构各项存款余额较同期\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"P2\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMP_SAMEPRD:267bc49e5bba4058\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMP_SAMEPRD:267bc49e5bba4058\",\"metricCode\":\"ORG_VRS_DEPT_BAL_CMP_SAMEPRD\",\"metricName\":\"机构各项存款余额较同期\",\"unit\":\"亿元\",\"basis\":\"较同期\"}},{\"code\":\"ORG_VRS_DEPT_BAL_CMP_SAMEPRD_INCRRNG\",\"dimension\":\"较同期增幅\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"business_label\":\"各项存款（亿元）\",\"aliases\":[\"各项存款\",\"存款余额\",\"存款总额\",\"总存款\",\"揽储总量\"],\"name\":\"机构各项存款余额较同期增幅\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"Q2\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMP_SAMEPRD_INCRRNG:7db81eca7d3b21eb\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMP_SAMEPRD_INCRRNG:7db81eca7d3b21eb\",\"metricCode\":\"ORG_VRS_DEPT_BAL_CMP_SAMEPRD_INCRRNG\",\"metricName\":\"机构各项存款余额较同期增幅\",\"unit\":\"%\",\"basis\":\"较同期增幅\"}},{\"code\":\"ORG_VRS_DEPT_BAL_CMP_SAMEPRD_TERMEND\",\"dimension\":\"较同期期末\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"business_label\":\"各项存款（亿元）\",\"aliases\":[\"各项存款\",\"存款余额\",\"存款总额\",\"总存款\",\"揽储总量\"],\"name\":\"机构各项存款余额较同期期末\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"R2\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMP_SAMEPRD_TERMEND:0c7b6d16bf3da3dc\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMP_SAMEPRD_TERMEND:0c7b6d16bf3da3dc\",\"metricCode\":\"ORG_VRS_DEPT_BAL_CMP_SAMEPRD_TERMEND\",\"metricName\":\"机构各项存款余额较同期期末\",\"unit\":\"亿元\",\"basis\":\"较同期期末\"}},{\"code\":\"ORG_VRS_DEPT_BAL_CMP_SAMEPRD_TERMEND_INCRRNG\",\"dimension\":\"较同期期末增幅\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"business_label\":\"各项存款（亿元）\",\"aliases\":[\"各项存款\",\"存款余额\",\"存款总额\",\"总存款\",\"揽储总量\"],\"name\":\"机构各项存款余额较同期期末增幅\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"S2\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMP_SAMEPRD_TERMEND_INCRRNG:243ea045417d54aa\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMP_SAMEPRD_TERMEND_INCRRNG:243ea045417d54aa\",\"metricCode\":\"ORG_VRS_DEPT_BAL_CMP_SAMEPRD_TERMEND_INCRRNG\",\"metricName\":\"机构各项存款余额较同期期末增幅\",\"unit\":\"%\",\"basis\":\"较同期期末增幅\"}},{\"code\":\"ORG_VRS_DEPT_BAL_CMPRPRSDAY\",\"dimension\":\"较上日\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"business_label\":\"各项存款（亿元）\",\"aliases\":[\"各项存款\",\"存款余额\",\"存款总额\",\"总存款\",\"揽储总量\"],\"name\":\"机构各项存款余额较上日\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"T2\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMPRPRSDAY:c7f86e2dbf05b281\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL_CMPRPRSDAY:c7f86e2dbf05b281\",\"metricCode\":\"ORG_VRS_DEPT_BAL_CMPRPRSDAY\",\"metricName\":\"机构各项存款余额较上日\",\"unit\":\"亿元\",\"basis\":\"较上日\"}}],\"warnings\":[\"Workbook contains mapping metadata, not observed lake values.\",\"Do not import conflicting aliases until scope is verified against the authoritative catalog.\",\"Eight calculation rows have neither metric codes nor formulas; labels alone do not authorize formula inference.\",\"Units are displayed business units, not verified storage units; verify against the formal catalog.\"],\"relationships_verified\":false,\"notice\":\"分组不证明可加总或因果关系；无公式节点不能自动计算。指标值及单位取正式工具回执。\"}"
+            }
+          ]
+        },
+        {
+          "id": "01a137dfe32f9e7e9ef143b64e25e007",
+          "name": "analysis_task",
+          "is_error": false,
+          "details": {
+            "kind": "analysis_task",
+            "status": "ARGUMENT_ERROR",
+            "retryable": true
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"status\":\"ARGUMENT_ERROR\",\"error_code\":\"ANALYSIS_ARGUMENT_INVALID\",\"message\":\"动作参数不完整或类型不符，请保留目标并按所选动作修正。\"}"
+            }
+          ]
+        },
+        {
+          "id": "01a137dfe76118e27e10d3ed45eb0e8c",
+          "name": "analysis_task",
+          "is_error": false,
+          "details": {
+            "kind": "analysis_task",
+            "status": "ARGUMENT_ERROR",
+            "retryable": true
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"status\":\"ARGUMENT_ERROR\",\"error_code\":\"ANALYSIS_ARGUMENT_INVALID\",\"message\":\"动作参数不完整或类型不符，请保留目标并按所选动作修正。\"}"
+            }
+          ]
+        }
+      ],
+      "query_calls": [
+        {
+          "spec": {
+            "conversation_id": "synthetic-autonomy-conversation",
+            "calculation_context": {
+              "scope_id": "01a137df-8b81-74db-a0c5-df52d875b447",
+              "user_question": "分析合成机构甲2026年7月31日的存款。机构各项存款余额和机构个人存款余额必须查询；另外请你从正式目录选择能反映增长和结构的指标补充描述性分析。不要推断原因。"
+            },
+            "source_question": "分析合成机构甲2026年7月31日的存款。机构各项存款余额和机构个人存款余额必须查询；另外请你从正式目录选择能反映增长和结构的指标补充描述性分析。不要推断原因。",
+            "source_metric_bindings": [
+              {
+                "start": 21,
+                "end": 29,
+                "text": "机构各项存款余额",
+                "codes": [
+                  "ORG_VRS_DEPT_BAL"
+                ]
+              },
+              {
+                "start": 30,
+                "end": 38,
+                "text": "机构个人存款余额",
+                "codes": [
+                  "ORG_PSON_DEPT_BAL"
+                ]
+              }
+            ],
+            "metric_codes": [
+              "ORG_VRS_DEPT_BAL",
+              "ORG_PSON_DEPT_BAL"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_O1"
+            ],
+            "time": {
+              "start": "2026-07-31",
+              "end": "2026-07-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "analysis": false,
+          "task_id": "synthetic-query-1",
+          "missing_codes": [],
+          "result": {
+            "task_id": "synthetic-query-1",
+            "result_id": "result-synthetic-query-1",
+            "status": "succeeded",
+            "facts": [
+              {
+                "fact_id": "fact:synthetic-query-1:0:metric_value",
+                "task_id": "synthetic-query-1",
+                "field": "metric_value",
+                "value": "1000",
+                "unit": "亿元",
+                "metric_code": "ORG_VRS_DEPT_BAL",
+                "metric_name": "机构各项存款余额",
+                "org_code": "SYNTH_O1",
+                "org_name": "合成机构甲",
+                "date": "2026-07-31"
+              },
+              {
+                "fact_id": "fact:synthetic-query-1:1:metric_value",
+                "task_id": "synthetic-query-1",
+                "field": "metric_value",
+                "value": "600",
+                "unit": "亿元",
+                "metric_code": "ORG_PSON_DEPT_BAL",
+                "metric_name": "机构个人存款余额",
+                "org_code": "SYNTH_O1",
+                "org_name": "合成机构甲",
+                "date": "2026-07-31"
+              }
+            ],
+            "rows": [
+              {
+                "fact_id": "fact:synthetic-query-1:0:metric_value",
+                "task_id": "synthetic-query-1",
+                "field": "metric_value",
+                "value": "1000",
+                "unit": "亿元",
+                "metric_code": "ORG_VRS_DEPT_BAL",
+                "metric_name": "机构各项存款余额",
+                "org_code": "SYNTH_O1",
+                "org_name": "合成机构甲",
+                "date": "2026-07-31",
+                "stat_date": "2026-07-31",
+                "metric_value": "1000"
+              },
+              {
+                "fact_id": "fact:synthetic-query-1:1:metric_value",
+                "task_id": "synthetic-query-1",
+                "field": "metric_value",
+                "value": "600",
+                "unit": "亿元",
+                "metric_code": "ORG_PSON_DEPT_BAL",
+                "metric_name": "机构个人存款余额",
+                "org_code": "SYNTH_O1",
+                "org_name": "合成机构甲",
+                "date": "2026-07-31",
+                "stat_date": "2026-07-31",
+                "metric_value": "600"
+              }
+            ],
+            "columns": [
+              "fact_id",
+              "task_id",
+              "field",
+              "value",
+              "unit",
+              "metric_code",
+              "metric_name",
+              "org_code",
+              "org_name",
+              "date",
+              "stat_date",
+              "metric_value"
+            ],
+            "row_count": 2,
+            "truncated": false,
+            "message": "隔离合成数据查询完成；这些值不是数据湖事实。",
+            "evidence": {
+              "logical_dsl": {
+                "conversation_id": "synthetic-autonomy-conversation",
+                "calculation_context": {
+                  "scope_id": "01a137df-8b81-74db-a0c5-df52d875b447",
+                  "user_question": "分析合成机构甲2026年7月31日的存款。机构各项存款余额和机构个人存款余额必须查询；另外请你从正式目录选择能反映增长和结构的指标补充描述性分析。不要推断原因。"
+                },
+                "source_question": "分析合成机构甲2026年7月31日的存款。机构各项存款余额和机构个人存款余额必须查询；另外请你从正式目录选择能反映增长和结构的指标补充描述性分析。不要推断原因。",
+                "source_metric_bindings": [
+                  {
+                    "start": 21,
+                    "end": 29,
+                    "text": "机构各项存款余额",
+                    "codes": [
+                      "ORG_VRS_DEPT_BAL"
+                    ]
+                  },
+                  {
+                    "start": 30,
+                    "end": 38,
+                    "text": "机构个人存款余额",
+                    "codes": [
+                      "ORG_PSON_DEPT_BAL"
+                    ]
+                  }
+                ],
+                "metric_codes": [
+                  "ORG_VRS_DEPT_BAL",
+                  "ORG_PSON_DEPT_BAL"
+                ],
+                "schema_version": 2,
+                "org_codes": [
+                  "SYNTH_O1"
+                ],
+                "time": {
+                  "start": "2026-07-31",
+                  "end": "2026-07-31"
+                },
+                "selection": "exact",
+                "operation": {
+                  "kind": "value"
+                }
+              },
+              "synthetic_data": true,
+              "missing_metric_codes": [],
+              "missing_metric_notice": null
+            }
+          }
+        }
+      ],
+      "calculation_specs": [],
+      "constraints": [],
+      "prepared": [],
+      "state": {
+        "sessionId": "01a137df-8b7d-74db-a0c5-df51a6078249",
+        "version": 3,
+        "frameOrder": [
+          "a1fec67a-8777-4067-af7f-93fcce05402e",
+          "7ba74811-bd99-4e3f-8528-b252d7fbc3d3",
+          "970d7e78-dcfb-49ce-825e-8f33ea192f38"
+        ],
+        "operations": {
+          "a1fec67a-8777-4067-af7f-93fcce05402e": "970d7e78-dcfb-49ce-825e-8f33ea192f38"
+        },
+        "focusFrameId": "970d7e78-dcfb-49ce-825e-8f33ea192f38",
+        "currentContext": {
+          "kind": "frame",
+          "frameId": "970d7e78-dcfb-49ce-825e-8f33ea192f38"
+        }
+      },
+      "focus": {
+        "frameId": "970d7e78-dcfb-49ce-825e-8f33ea192f38",
+        "sessionId": "01a137df-8b7d-74db-a0c5-df51a6078249",
+        "requestId": "1-explicit_and_selected_metrics-1",
+        "turnId": "01a137df-8b81-74db-a0c5-df52d875b447",
+        "capability": "metric_query",
+        "operationFrameId": "a1fec67a-8777-4067-af7f-93fcce05402e",
+        "fields": {
+          "metrics": {
+            "rawValue": [
+              "机构各项存款余额",
+              "机构个人存款余额"
+            ],
+            "resolvedValue": {
+              "codes": [
+                "ORG_VRS_DEPT_BAL",
+                "ORG_PSON_DEPT_BAL"
+              ],
+              "names": [
+                "机构各项存款余额",
+                "机构个人存款余额"
+              ]
+            },
+            "source": "explicit",
+            "resolver": "metric",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "extractedRawValues": [
+                "机构各项存款余额",
+                "机构个人存款余额"
+              ],
+              "referenceValues": [
+                "ORG_VRS_DEPT_BAL",
+                "ORG_PSON_DEPT_BAL",
+                "机构各项存款余额",
+                "机构个人存款余额"
+              ],
+              "questionText": "分析合成机构甲2026年7月31日的存款。机构各项存款余额和机构个人存款余额必须查询；另外请你从正式目录选择能反映增长和结构的指标补充描述性分析。不要推断原因。",
+              "mentionResolutions": [
+                {
+                  "text": "机构各项存款余额",
+                  "start": 21,
+                  "end": 29,
+                  "status": "resolved",
+                  "value": {
+                    "codes": [
+                      "ORG_VRS_DEPT_BAL"
+                    ],
+                    "names": [
+                      "机构各项存款余额"
+                    ]
+                  }
+                },
+                {
+                  "text": "机构个人存款余额",
+                  "start": 30,
+                  "end": 38,
+                  "status": "resolved",
+                  "value": {
+                    "codes": [
+                      "ORG_PSON_DEPT_BAL"
+                    ],
+                    "names": [
+                      "机构个人存款余额"
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "organizations": {
+            "rawValue": "合成机构甲",
+            "resolvedValue": {
+              "codes": [
+                "SYNTH_O1"
+              ],
+              "names": [
+                "合成机构甲"
+              ]
+            },
+            "source": "explicit",
+            "resolver": "organization",
+            "resolutionStatus": "resolved",
+            "metadata": {
+              "referenceValues": [
+                "SYNTH_O1",
+                "合成机构甲"
+              ]
+            }
+          },
+          "time": {
+            "rawValue": "2026年7月31日",
+            "resolvedValue": {
+              "start": "2026-07-31",
+              "end": "2026-07-31"
+            },
+            "source": "explicit",
+            "resolver": "date",
+            "resolutionStatus": "resolved"
+          },
+          "comparison_organizations": {
+            "source": "explicit",
+            "resolutionStatus": "missing"
+          },
+          "selection": {
+            "rawValue": "exact",
+            "resolvedValue": "exact",
+            "source": "explicit",
+            "resolver": "enum",
+            "resolutionStatus": "resolved"
+          },
+          "operation": {
+            "rawValue": {
+              "kind": "value"
+            },
+            "resolvedValue": {
+              "kind": "value"
+            },
+            "source": "explicit",
+            "resolver": "query_operation",
+            "resolutionStatus": "resolved"
+          }
+        },
+        "delta": {
+          "executionMode": "execute",
+          "fieldChanges": [
+            {
+              "fieldHint": "metrics",
+              "operation": "set",
+              "rawValue": {
+                "fromQuestion": true,
+                "mentionIndexes": [
+                  1,
+                  2
+                ]
+              }
+            },
+            {
+              "fieldHint": "organizations",
+              "operation": "set",
+              "rawValue": "合成机构甲"
+            },
+            {
+              "fieldHint": "time",
+              "operation": "set",
+              "rawValue": "2026年7月31日"
+            },
+            {
+              "fieldHint": "selection",
+              "operation": "set",
+              "rawValue": "exact"
+            },
+            {
+              "fieldHint": "operation",
+              "operation": "set",
+              "rawValue": {
+                "kind": "value"
+              }
+            }
+          ],
+          "capabilityHint": "metric_query",
+          "baseReference": null,
+          "fieldIntents": {
+            "organizations": {
+              "mode": "set",
+              "sourceText": "分析合成机构甲2026年7月31日的存款。机构各项存款余额和机构个人存款余额必须查询；另外请你从正式目录选择能反映增长和结构的指标补充描述性分析。不要推断原因。",
+              "expectedCount": null
+            },
+            "comparison_organizations": {
+              "mode": "inherit",
+              "sourceText": null,
+              "expectedCount": null
+            }
+          }
+        },
+        "issues": [],
+        "status": "success",
+        "createdAt": "2026-10-14T00:46:06.285Z",
+        "parentFrameId": "7ba74811-bd99-4e3f-8528-b252d7fbc3d3",
+        "resultRef": "query:synthetic-query-1:result-synthetic-query-1",
+        "resultSummary": {
+          "rowCount": 2,
+          "truncated": false
+        }
+      },
+      "frames": [
+        {
+          "frameId": "a1fec67a-8777-4067-af7f-93fcce05402e",
+          "sessionId": "01a137df-8b7d-74db-a0c5-df51a6078249",
+          "requestId": "1-explicit_and_selected_metrics-1",
+          "turnId": "01a137df-8b81-74db-a0c5-df52d875b447",
+          "capability": "metric_query",
+          "operationFrameId": "a1fec67a-8777-4067-af7f-93fcce05402e",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "机构各项存款余额",
+                "机构个人存款余额"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "ORG_VRS_DEPT_BAL",
+                  "ORG_PSON_DEPT_BAL"
+                ],
+                "names": [
+                  "机构各项存款余额",
+                  "机构个人存款余额"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "机构各项存款余额",
+                  "机构个人存款余额"
+                ],
+                "referenceValues": [
+                  "ORG_VRS_DEPT_BAL",
+                  "ORG_PSON_DEPT_BAL",
+                  "机构各项存款余额",
+                  "机构个人存款余额"
+                ],
+                "questionText": "分析合成机构甲2026年7月31日的存款。机构各项存款余额和机构个人存款余额必须查询；另外请你从正式目录选择能反映增长和结构的指标补充描述性分析。不要推断原因。",
+                "mentionResolutions": [
+                  {
+                    "text": "机构各项存款余额",
+                    "start": 21,
+                    "end": 29,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "ORG_VRS_DEPT_BAL"
+                      ],
+                      "names": [
+                        "机构各项存款余额"
+                      ]
+                    }
+                  },
+                  {
+                    "text": "机构个人存款余额",
+                    "start": 30,
+                    "end": 38,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "ORG_PSON_DEPT_BAL"
+                      ],
+                      "names": [
+                        "机构个人存款余额"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "合成机构甲",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_O1"
+                ],
+                "names": [
+                  "合成机构甲"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_O1",
+                  "合成机构甲"
+                ]
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月31日",
+              "resolvedValue": {
+                "start": "2026-07-31",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "comparison_organizations": {
+              "source": "explicit",
+              "resolutionStatus": "missing"
+            },
+            "selection": {
+              "rawValue": "exact",
+              "resolvedValue": "exact",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "value"
+              },
+              "resolvedValue": {
+                "kind": "value"
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1,
+                    2
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构甲"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月31日"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "exact"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "value"
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "organizations": {
+                "mode": "set",
+                "sourceText": "分析合成机构甲2026年7月31日的存款。机构各项存款余额和机构个人存款余额必须查询；另外请你从正式目录选择能反映增长和结构的指标补充描述性分析。不要推断原因。",
+                "expectedCount": null
+              },
+              "comparison_organizations": {
+                "mode": "inherit",
+                "sourceText": null,
+                "expectedCount": null
+              }
+            }
+          },
+          "issues": [],
+          "status": "ready",
+          "createdAt": "2026-10-14T00:46:06.278Z"
+        },
+        {
+          "frameId": "7ba74811-bd99-4e3f-8528-b252d7fbc3d3",
+          "sessionId": "01a137df-8b7d-74db-a0c5-df51a6078249",
+          "requestId": "1-explicit_and_selected_metrics-1",
+          "turnId": "01a137df-8b81-74db-a0c5-df52d875b447",
+          "capability": "metric_query",
+          "operationFrameId": "a1fec67a-8777-4067-af7f-93fcce05402e",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "机构各项存款余额",
+                "机构个人存款余额"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "ORG_VRS_DEPT_BAL",
+                  "ORG_PSON_DEPT_BAL"
+                ],
+                "names": [
+                  "机构各项存款余额",
+                  "机构个人存款余额"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "机构各项存款余额",
+                  "机构个人存款余额"
+                ],
+                "referenceValues": [
+                  "ORG_VRS_DEPT_BAL",
+                  "ORG_PSON_DEPT_BAL",
+                  "机构各项存款余额",
+                  "机构个人存款余额"
+                ],
+                "questionText": "分析合成机构甲2026年7月31日的存款。机构各项存款余额和机构个人存款余额必须查询；另外请你从正式目录选择能反映增长和结构的指标补充描述性分析。不要推断原因。",
+                "mentionResolutions": [
+                  {
+                    "text": "机构各项存款余额",
+                    "start": 21,
+                    "end": 29,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "ORG_VRS_DEPT_BAL"
+                      ],
+                      "names": [
+                        "机构各项存款余额"
+                      ]
+                    }
+                  },
+                  {
+                    "text": "机构个人存款余额",
+                    "start": 30,
+                    "end": 38,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "ORG_PSON_DEPT_BAL"
+                      ],
+                      "names": [
+                        "机构个人存款余额"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "合成机构甲",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_O1"
+                ],
+                "names": [
+                  "合成机构甲"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_O1",
+                  "合成机构甲"
+                ]
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月31日",
+              "resolvedValue": {
+                "start": "2026-07-31",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "comparison_organizations": {
+              "source": "explicit",
+              "resolutionStatus": "missing"
+            },
+            "selection": {
+              "rawValue": "exact",
+              "resolvedValue": "exact",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "value"
+              },
+              "resolvedValue": {
+                "kind": "value"
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1,
+                    2
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构甲"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月31日"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "exact"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "value"
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "organizations": {
+                "mode": "set",
+                "sourceText": "分析合成机构甲2026年7月31日的存款。机构各项存款余额和机构个人存款余额必须查询；另外请你从正式目录选择能反映增长和结构的指标补充描述性分析。不要推断原因。",
+                "expectedCount": null
+              },
+              "comparison_organizations": {
+                "mode": "inherit",
+                "sourceText": null,
+                "expectedCount": null
+              }
+            }
+          },
+          "issues": [],
+          "status": "executing",
+          "createdAt": "2026-10-14T00:46:06.283Z",
+          "parentFrameId": "a1fec67a-8777-4067-af7f-93fcce05402e"
+        },
+        {
+          "frameId": "970d7e78-dcfb-49ce-825e-8f33ea192f38",
+          "sessionId": "01a137df-8b7d-74db-a0c5-df51a6078249",
+          "requestId": "1-explicit_and_selected_metrics-1",
+          "turnId": "01a137df-8b81-74db-a0c5-df52d875b447",
+          "capability": "metric_query",
+          "operationFrameId": "a1fec67a-8777-4067-af7f-93fcce05402e",
+          "fields": {
+            "metrics": {
+              "rawValue": [
+                "机构各项存款余额",
+                "机构个人存款余额"
+              ],
+              "resolvedValue": {
+                "codes": [
+                  "ORG_VRS_DEPT_BAL",
+                  "ORG_PSON_DEPT_BAL"
+                ],
+                "names": [
+                  "机构各项存款余额",
+                  "机构个人存款余额"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "metric",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "extractedRawValues": [
+                  "机构各项存款余额",
+                  "机构个人存款余额"
+                ],
+                "referenceValues": [
+                  "ORG_VRS_DEPT_BAL",
+                  "ORG_PSON_DEPT_BAL",
+                  "机构各项存款余额",
+                  "机构个人存款余额"
+                ],
+                "questionText": "分析合成机构甲2026年7月31日的存款。机构各项存款余额和机构个人存款余额必须查询；另外请你从正式目录选择能反映增长和结构的指标补充描述性分析。不要推断原因。",
+                "mentionResolutions": [
+                  {
+                    "text": "机构各项存款余额",
+                    "start": 21,
+                    "end": 29,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "ORG_VRS_DEPT_BAL"
+                      ],
+                      "names": [
+                        "机构各项存款余额"
+                      ]
+                    }
+                  },
+                  {
+                    "text": "机构个人存款余额",
+                    "start": 30,
+                    "end": 38,
+                    "status": "resolved",
+                    "value": {
+                      "codes": [
+                        "ORG_PSON_DEPT_BAL"
+                      ],
+                      "names": [
+                        "机构个人存款余额"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "organizations": {
+              "rawValue": "合成机构甲",
+              "resolvedValue": {
+                "codes": [
+                  "SYNTH_O1"
+                ],
+                "names": [
+                  "合成机构甲"
+                ]
+              },
+              "source": "explicit",
+              "resolver": "organization",
+              "resolutionStatus": "resolved",
+              "metadata": {
+                "referenceValues": [
+                  "SYNTH_O1",
+                  "合成机构甲"
+                ]
+              }
+            },
+            "time": {
+              "rawValue": "2026年7月31日",
+              "resolvedValue": {
+                "start": "2026-07-31",
+                "end": "2026-07-31"
+              },
+              "source": "explicit",
+              "resolver": "date",
+              "resolutionStatus": "resolved"
+            },
+            "comparison_organizations": {
+              "source": "explicit",
+              "resolutionStatus": "missing"
+            },
+            "selection": {
+              "rawValue": "exact",
+              "resolvedValue": "exact",
+              "source": "explicit",
+              "resolver": "enum",
+              "resolutionStatus": "resolved"
+            },
+            "operation": {
+              "rawValue": {
+                "kind": "value"
+              },
+              "resolvedValue": {
+                "kind": "value"
+              },
+              "source": "explicit",
+              "resolver": "query_operation",
+              "resolutionStatus": "resolved"
+            }
+          },
+          "delta": {
+            "executionMode": "execute",
+            "fieldChanges": [
+              {
+                "fieldHint": "metrics",
+                "operation": "set",
+                "rawValue": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1,
+                    2
+                  ]
+                }
+              },
+              {
+                "fieldHint": "organizations",
+                "operation": "set",
+                "rawValue": "合成机构甲"
+              },
+              {
+                "fieldHint": "time",
+                "operation": "set",
+                "rawValue": "2026年7月31日"
+              },
+              {
+                "fieldHint": "selection",
+                "operation": "set",
+                "rawValue": "exact"
+              },
+              {
+                "fieldHint": "operation",
+                "operation": "set",
+                "rawValue": {
+                  "kind": "value"
+                }
+              }
+            ],
+            "capabilityHint": "metric_query",
+            "baseReference": null,
+            "fieldIntents": {
+              "organizations": {
+                "mode": "set",
+                "sourceText": "分析合成机构甲2026年7月31日的存款。机构各项存款余额和机构个人存款余额必须查询；另外请你从正式目录选择能反映增长和结构的指标补充描述性分析。不要推断原因。",
+                "expectedCount": null
+              },
+              "comparison_organizations": {
+                "mode": "inherit",
+                "sourceText": null,
+                "expectedCount": null
+              }
+            }
+          },
+          "issues": [],
+          "status": "success",
+          "createdAt": "2026-10-14T00:46:06.285Z",
+          "parentFrameId": "7ba74811-bd99-4e3f-8528-b252d7fbc3d3",
+          "resultRef": "query:synthetic-query-1:result-synthetic-query-1",
+          "resultSummary": {
+            "rowCount": 2,
+            "truncated": false
+          }
+        }
+      ],
+      "answer": "本轮工具调用未通过校验或执行；相同参数重复提交后仍得到相同失败，已停止重复尝试。原查询条件仍保留，未完成的查询或计算不作为成功结果。",
+      "measures": {
+        "tool_calls": 5,
+        "error_calls": 2,
+        "query_count": 1,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 5,
+        "provider_calls": 5,
+        "elapsed_ms": 55474
+      }
+    },
+    {
+      "repeat": 1,
+      "scenario": "result_driven_missing_data",
+      "category": "analysis",
+      "turn": 1,
+      "session_id": "01a137e0-6435-74db-a0c5-df7f5d134d69",
+      "message": "请描述合成机构甲2026年7月31日的存款总量和增长情况。请自主选择正式目录指标取数；如果某个增长指标查询无有效值，可以在同一机构和日期下选择其他正式增长指标继续验证，说明缺口，不得把缺值当零。",
+      "expected": {
+        "kind": "analysis",
+        "orgs": [
+          "SYNTH_O1"
+        ],
+        "date": "2026-07-31",
+        "must_codes": [
+          "ORG_VRS_DEPT_BAL"
+        ],
+        "min_distinct_codes": 2,
+        "requires_plan": true,
+        "requires_result_replan": true
+      },
+      "passed": false,
+      "failure": "ANALYSIS_ACTUALLY_QUERIED",
+      "failure_class": "business_or_runtime",
+      "model_generated": true,
+      "model_errors": [],
+      "model_usage": {
+        "raw": [
+          {
+            "stop_reason": "toolUse",
+            "response_id": "01a137e05e6c944a05848cd0d4f64ad5",
+            "raw_usage": {
+              "input": 10988,
+              "output": 81,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "reasoning": 0,
+              "totalTokens": 11069,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "usage_reported": true
+          },
+          {
+            "stop_reason": "toolUse",
+            "response_id": "01a137e08d82a318a9dca695ed5b620f",
+            "raw_usage": {
+              "input": 12390,
+              "output": 100,
+              "cacheRead": 256,
+              "cacheWrite": 0,
+              "reasoning": 0,
+              "totalTokens": 12746,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "usage_reported": true
+          },
+          {
+            "stop_reason": "toolUse",
+            "response_id": "01a137e07c729d30aed10f77e4da934e",
+            "raw_usage": {
+              "input": 12764,
+              "output": 60,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "reasoning": 0,
+              "totalTokens": 12824,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "usage_reported": true
+          },
+          {
+            "stop_reason": "toolUse",
+            "response_id": "01a137e0abb8d5fa5faccf423841d5fc",
+            "raw_usage": {
+              "input": 17418,
+              "output": 971,
+              "cacheRead": 512,
+              "cacheWrite": 0,
+              "reasoning": 0,
+              "totalTokens": 18901,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "usage_reported": true
+          },
+          {
+            "stop_reason": "toolUse",
+            "response_id": "01a137e0a7e54664ecca7803fce861e5",
+            "raw_usage": {
+              "input": 18629,
+              "output": 643,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "reasoning": 0,
+              "totalTokens": 19272,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "usage_reported": true
+          },
+          {
+            "stop_reason": "toolUse",
+            "response_id": "01a137e0da601f8e4a906287e6723db4",
+            "raw_usage": {
+              "input": 7046,
+              "output": 819,
+              "cacheRead": 12288,
+              "cacheWrite": 0,
+              "reasoning": 0,
+              "totalTokens": 20153,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "usage_reported": true
+          },
+          {
+            "stop_reason": "stop",
+            "response_id": "01a137e15c00d24fa03643dd053639d1",
+            "raw_usage": {
+              "input": 2119,
+              "output": 270,
+              "cacheRead": 17920,
+              "cacheWrite": 0,
+              "reasoning": 0,
+              "totalTokens": 20309,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "usage_reported": true
+          }
+        ],
+        "totals": {
+          "input": 81354,
+          "output": 2944,
+          "cacheRead": 30976,
+          "cacheWrite": 0,
+          "totalTokens": 115274
+        },
+        "usage_reported_generations": 7,
+        "usage_unavailable_generations": 0,
+        "first_request_prompt_tokens": 10988,
+        "first_successful_request_prompt_tokens": 10988,
+        "first_request_reported_total_minus_output_tokens": 10988,
+        "accounting": "pi-ai provider usage: prompt=input+cacheRead+cacheWrite; preserve raw counters; unavailable is null, never inferred from characters"
+      },
+      "tools": [
+        {
+          "id": "01a137e068e1a2b2b3f21f06082bb5a1",
+          "name": "business_skill_read",
+          "args": {
+            "name": "metric-query"
+          }
+        },
+        {
+          "id": "01a137e0695ba06f17ff7d4472413520",
+          "name": "business_skill_read",
+          "args": {
+            "name": "analysis-boundary"
+          }
+        },
+        {
+          "id": "01a137e096df07bf5c570545125daa18",
+          "name": "catalog",
+          "args": {
+            "action": "search",
+            "queries": [
+              {
+                "entity": "metric",
+                "keyword": "存款总量"
+              },
+              {
+                "entity": "metric",
+                "keyword": "存款增长"
+              },
+              {
+                "entity": "metric",
+                "keyword": "存款增幅"
+              }
+            ]
+          }
+        },
+        {
+          "id": "01a137e08bb88fa8192aca28a7a91291",
+          "name": "catalog",
+          "args": {
+            "action": "explore",
+            "keyword": "存款"
+          }
+        },
+        {
+          "id": "01a137e0b8e6c70aec6d5d5970250390",
+          "name": "analysis_task",
+          "args": {
+            "action": "create",
+            "goal": "描述合成机构甲2026年7月31日的存款总量和增长情况。自主选择正式目录指标取数；若某个增长指标查询无有效值，在同一机构和日期下选择其他正式增长指标继续验证，说明缺口，不得把缺值当零。",
+            "organizations": "合成机构甲",
+            "time": "2026年7月31日",
+            "metrics": {
+              "fromQuestion": true,
+              "mentionIndexes": [
+                1,
+                2
+              ]
+            },
+            "targets": [
+              {
+                "targetId": "t1",
+                "organizations": "合成机构甲",
+                "time": "2026年7月31日",
+                "metrics": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1,
+                    2
+                  ]
+                },
+                "requirementIds": [
+                  "r1",
+                  "r2"
+                ]
+              }
+            ],
+            "steps": [
+              {
+                "id": "s1",
+                "kind": "query",
+                "purpose": "查询合成机构甲2026年7月31日各项存款余额（存款总量）",
+                "requirementIds": [
+                  "r1"
+                ],
+                "targetId": "t1",
+                "selections": [
+                  {
+                    "catalogRef": "catalogRef:ORG_VRS_DEPT_BAL:48af71dbc662b676",
+                    "metricCode": "ORG_VRS_DEPT_BAL",
+                    "metricName": "机构各项存款余额",
+                    "unit": "亿元",
+                    "basis": "当日数"
+                  }
+                ],
+                "selection": "exact"
+              },
+              {
+                "id": "s2",
+                "kind": "query",
+                "purpose": "查询合成机构甲2026年7月31日各项存款余额的增长指标（较年初、较上月、较同期等）",
+                "requirementIds": [
+                  "r2"
+                ],
+                "targetId": "t1",
+                "selections": [
+                  {
+                    "catalogRef": "catalogRef:ORG_VRS_DEPT_BAL:48af71dbc662b676",
+                    "metricCode": "ORG_VRS_DEPT_BAL",
+                    "metricName": "机构各项存款余额",
+                    "unit": "亿元",
+                    "basis": "当日数"
+                  }
+                ],
+                "selection": "exact"
+              }
+            ],
+            "coverage": [
+              {
+                "requirementId": "r1",
+                "evidenceRefs": [
+                  "s1"
+                ]
+              },
+              {
+                "requirementId": "r2",
+                "evidenceRefs": [
+                  "s2"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "01a137e0b45810d3e42bdbad05d1c6e2",
+          "name": "analysis_task",
+          "args": {
+            "action": "create",
+            "goal": "描述合成机构甲2026年7月31日的存款总量和增长情况。自主选择正式目录指标取数；若某个增长指标查询无有效值，在同一机构和日期下选择其他正式增长指标继续验证，说明缺口，不得把缺值当零。",
+            "organizations": "合成机构甲",
+            "time": "2026年7月31日",
+            "metrics": {
+              "fromQuestion": true,
+              "mentionIndexes": [
+                1,
+                2
+              ]
+            },
+            "targets": [
+              {
+                "targetId": "t1",
+                "organizations": "合成机构甲",
+                "time": "2026年7月31日",
+                "metrics": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1,
+                    2
+                  ]
+                },
+                "requirementIds": [
+                  "r1",
+                  "r2"
+                ]
+              }
+            ],
+            "steps": [
+              {
+                "id": "s1",
+                "kind": "query",
+                "purpose": "查询合成机构甲2026年7月31日各项存款余额（存款总量）",
+                "requirementIds": [
+                  "r1"
+                ],
+                "targetId": "t1",
+                "selections": [
+                  {
+                    "catalogRef": "catalogRef:ORG_VRS_DEPT_BAL:48af71dbc662b676",
+                    "metricCode": "ORG_VRS_DEPT_BAL",
+                    "metricName": "机构各项存款余额",
+                    "unit": "亿元",
+                    "basis": "当日数"
+                  }
+                ],
+                "selection": "exact"
+              },
+              {
+                "id": "s2",
+                "kind": "query",
+                "purpose": "查询合成机构甲2026年7月31日各项存款余额的增长指标（较年初、较上月、较同期等）",
+                "requirementIds": [
+                  "r2"
+                ],
+                "targetId": "t1",
+                "selections": [
+                  {
+                    "catalogRef": "catalogRef:ORG_VRS_DEPT_BAL:48af71dbc662b676",
+                    "metricCode": "ORG_VRS_DEPT_BAL",
+                    "metricName": "机构各项存款余额",
+                    "unit": "亿元",
+                    "basis": "当日数"
+                  }
+                ],
+                "selection": "exact"
+              }
+            ],
+            "coverage": [
+              {
+                "requirementId": "r1",
+                "evidenceRefs": [
+                  "s1"
+                ]
+              },
+              {
+                "requirementId": "r2",
+                "evidenceRefs": [
+                  "s2"
+                ]
+              }
+            ],
+            "gaps": []
+          }
+        },
+        {
+          "id": "01a137e1089110b5f32b3ce898e45a79",
+          "name": "analysis_task",
+          "args": {
+            "action": "create",
+            "goal": "描述合成机构甲2026年7月31日的存款总量和增长情况。自主选择正式目录指标取数；若某个增长指标查询无有效值，在同一机构和日期下选择其他正式增长指标继续验证，说明缺口，不得把缺值当零。",
+            "organizations": "合成机构甲",
+            "time": "2026年7月31日",
+            "metrics": {
+              "fromQuestion": true,
+              "mentionIndexes": [
+                1,
+                2
+              ]
+            },
+            "targets": [
+              {
+                "targetId": "t1",
+                "organizations": "合成机构甲",
+                "time": "2026年7月31日",
+                "metrics": {
+                  "fromQuestion": true,
+                  "mentionIndexes": [
+                    1,
+                    2
+                  ]
+                },
+                "requirementIds": [
+                  "r1",
+                  "r2"
+                ]
+              }
+            ],
+            "steps": [
+              {
+                "id": "s1",
+                "kind": "query",
+                "purpose": "查询合成机构甲2026年7月31日各项存款余额（存款总量）",
+                "requirementIds": [
+                  "r1"
+                ],
+                "targetId": "t1",
+                "selections": [
+                  {
+                    "catalogRef": "catalogRef:ORG_VRS_DEPT_BAL:48af71dbc662b676",
+                    "metricCode": "ORG_VRS_DEPT_BAL",
+                    "metricName": "机构各项存款余额",
+                    "unit": "亿元",
+                    "basis": "当日数"
+                  }
+                ],
+                "selection": "exact"
+              },
+              {
+                "id": "s2",
+                "kind": "query",
+                "purpose": "查询合成机构甲2026年7月31日各项存款余额的增长指标（较年初、较上月、较同期等）",
+                "requirementIds": [
+                  "r2"
+                ],
+                "targetId": "t1",
+                "selections": [
+                  {
+                    "catalogRef": "catalogRef:ORG_VRS_DEPT_BAL:48af71dbc662b676",
+                    "metricCode": "ORG_VRS_DEPT_BAL",
+                    "metricName": "机构各项存款余额",
+                    "unit": "亿元",
+                    "basis": "当日数"
+                  }
+                ],
+                "selection": "exact"
+              }
+            ],
+            "coverage": [
+              {
+                "requirementId": "r1",
+                "evidenceRefs": [
+                  "s1"
+                ]
+              },
+              {
+                "requirementId": "r2",
+                "evidenceRefs": [
+                  "s2"
+                ]
+              }
+            ],
+            "gaps": []
+          }
+        }
+      ],
+      "receipts": [
+        {
+          "id": "01a137e068e1a2b2b3f21f06082bb5a1",
+          "name": "business_skill_read",
+          "is_error": false,
+          "details": {
+            "kind": "business_skill_read",
+            "status": "ok",
+            "name": "metric-query"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "## 适用任务\n\n用于判断经营指标的具体取值、排名、条件追问和历史重显。覆盖发现只说明记录范围；自定义运算还需要正式计算结果。参数结构与合法组合以工具 Schema 和回执为准，查阅本知识不是执行前置步骤。\n\n## 业务判断\n\n用户点名指标走原文解析与候选确认。用户授权 Agent 自主分析且分析工具可用时，可从正式目录选择相关指标，用可信引用关联分析要求；不能冒充用户点名指标或替换其明确要求。以下“不默认口径”等规则保护明确查询，不否定有依据的分析选择。\n\n正式目录中的指标名称是完整业务概念，名称里的“增幅”“较同期”“排名”可能属于指标本身，不擅自拆成公式；多个指标逐项保留。映射以正式目录解析结果为准，已确定映射可直接使用；未知、停用或仍有歧义时核对，不改用其他指标。用户只说基础指标时，由系统候选请用户选择统计口径，不默认当日数或某种增幅。同一基础指标下的多个口径确认一次即全部确定；回执注明“按某指标理解”时在回答中说明。\n\n指标、机构、时间和取值口径共同定义查询。缺少条件与没有数据是不同状态；指标在目录中不证明目标机构和日期有记录。机构别名由正式目录确定，机构集合与具体名称是不同输入；集合、同级和下辖范围均由服务端按正式层级及当前权限确定。全省各行或各家农商行的同级范围不混入省级汇总和下属支行，也不能把未知名称改成集合来扩大范围。\n\n结合本会话历史索引理解指代，声明所引用的来源字段及组合关系，不展开历史名称或生成编码。服务端核对来源所属会话、状态、权限和用户明确的数量。来源唯一时，不因缺少数量词而追问；有多个合理来源或数量不符时保留条件并澄清，不按最近若干条记录猜选对象。\n\n独立问题依据本轮明确条件；追问继承有依据且未修改的条件，本轮修改优先。仅换机构保留日期和指标，随后改日期沿用最新已确认机构。继承整笔业务与只引用其中一个字段是不同操作，按用户目标选择来源。失败修改不代表新条件已生效，也不能悄悄退回更早结果。新独立问题不因旧待澄清任务而被强行合并。\n\n数据覆盖记录中的机构和完整日期范围可作为追问依据。从覆盖列表选择指标或修改机构时，保留明确沿用的其他条件；分页样例不是完整范围，覆盖记录也不代表已完成数值查询。\n\n月末、整月和每日明细对应不同时间粒度。余额通常是时点存量，不能把每日余额相加作为月度余额；整月全部记录保留完整区间。明确单日按指定日取值（exact），仍可按该日排名；连续范围内寻找最后有数据日才使用 latest_in_range，不把整月自行改成月末或倒退日期。\n\n日期取数方式与查询目标独立。取值、榜单和对象位次使用不同契约：榜单需要前后方向与条数；位次需要关注对象和比较总体，不需要榜单条数。比较总体人数不等于返回条数。关注对象可以只有一个，排名仍须基于已确定的完整比较总体计算，再显示关注对象；不能先把总体过滤为关注对象。范围由正式目录、层级和当前权限核验，没有合法且唯一的依据时只澄清比较范围，不默认为全部机构。\n\n实际升降序由服务端按指标决定；单位为“名”的指标数字越小越靠前，不自行换算方向。同值沿用稳定排序规则，不扩大范围。结果区分请求比较总体、同一取数时点的有效样本与缺数，不将实际样本量冒充完整总体。换期间保留已明确目标及范围，取消排名后按新的取值目标执行。尚未支持的每日排名如实说明，不只取一天冒充完成。\n\n## 澄清与恢复\n\n只补充真正缺失或有歧义的业务选择，保留已知指标、机构和时间。用户已明确日期口径、排名方向或条数而模型漏参时，应依据原文或可信继承修正参数；无法唯一确定时，使用 Schema 声明的结构化澄清保存条件，不猜默认值，也不向用户索要技术字段。\n\n确认依托系统已保存的候选及本轮回复。候选由系统编号展示并确定所选项，不自行罗列或挑选；理解同意时保留完整否定和转折语义。单候选已有明确同意可确认；多候选须有明确选择；没有已存候选的同意不能凭空建立确认状态。只确认一个字段时，其余已知条件继承、未决候选继续保留。服务端保存的点选进度与恢复闸门以最新回执为准；同句修改其它条件须一起处理完成才能执行，不因局部确认完成就提前查询。\n\n对照判断：历史来源唯一但没有数量词，可以继续；存在多个合理来源，才核对所指对象。用户已给选择但参数不完整，修正调用；用户未给必要选择，保存并提问。依据具体语义判断，不把这些例子当作关键词规则。\n\n## 证据与完成\n\n只有正式任务回执能证明条件已更新或确认，不能凭对话文字声称已补充、已确认或再次缺项。历史重显展示已取得结果；改变机构、指标、日期或粒度是新的取数目标。历史值保留原日期和来源，零行成功结果也可正式回看。\n\n结果须对应用户目标的全部条件。缺数、截断、失败和未完成部分清楚说明；数值、单位和展示口径以权威回执为准。正式排名指标的“名”不等同于对其他数值重新排序。"
+            }
+          ]
+        },
+        {
+          "id": "01a137e0695ba06f17ff7d4472413520",
+          "name": "business_skill_read",
+          "is_error": false,
+          "details": {
+            "kind": "business_skill_read",
+            "status": "ok",
+            "name": "analysis-boundary"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "## 适用任务\n\n用于区分受支持的指标取值、覆盖发现、有界计算，与尚未支持的业务分析目标。按实际业务含义判断，不依靠指标名称中的单个词决定拒绝。\n\n## 业务判断\n\n系统支持经营指标查询、记录覆盖发现、正式历史结果查看及有界计算。工具提供 analysis_task 时，还支持在用户授权范围选择正式指标、标准方法和取证步骤，完成描述性比较、变化与综合判断。\n\n客户明细归因、因果、预测和血缘需要相应数据与专门方法。缺少时说明具体证据缺口；不能把描述性分析一概拒绝，也不能声称查询数据就证明了原因。分析工具未提供时如实说明当前能力。\n\n名称含“增幅”“较同期”“排名”的正式指标仍可查询，明确公式的数学计算也不等同于业务归因。应根据实际业务含义区分能力边界，不能仅凭这些词拒绝基础问数。\n\n## 澄清与边界\n\n按用户要求分别判断可支持部分与需要更多证据的部分。保持原目标，允许在授权范围完成可支持的取证；最终明确部分完成与未完成项，不静默换目标。用户明确改为其他问题时，依据新目标处理。\n\n## 证据与完成\n\n单个指标值、变化额或比率不能证明客户流失原因、客户构成、异常成因或未来趋势。不得虚构这些结论，也不能把取数或数学计算成功当作分析目标已经完成。"
+            }
+          ]
+        },
+        {
+          "id": "01a137e096df07bf5c570545125daa18",
+          "name": "catalog",
+          "is_error": false,
+          "details": {
+            "kind": "catalog",
+            "action": "search",
+            "status": "succeeded"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"status\":\"succeeded\",\"results\":[{\"total\":0,\"has_more\":false,\"items\":[],\"exact_matches\":[],\"semantic_suggestions\":[],\"entity\":\"metric\",\"keyword\":\"存款总量\",\"status\":\"succeeded\"},{\"total\":0,\"has_more\":false,\"items\":[],\"exact_matches\":[],\"semantic_suggestions\":[],\"entity\":\"metric\",\"keyword\":\"存款增长\",\"status\":\"succeeded\"},{\"total\":0,\"has_more\":false,\"items\":[],\"exact_matches\":[],\"semantic_suggestions\":[],\"entity\":\"metric\",\"keyword\":\"存款增幅\",\"status\":\"succeeded\"}],\"usage_hint\":\"用户点名指标仍走原文解析/确认；分析选择使用正式catalogRef。推荐不证明口径等价，has_more不代表完整集合。\"}"
+            }
+          ]
+        },
+        {
+          "id": "01a137e08bb88fa8192aca28a7a91291",
+          "name": "catalog",
+          "is_error": false,
+          "details": {
+            "kind": "catalog",
+            "action": "explore",
+            "status": "succeeded"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"source\":{\"name\":\"存款指标完整映射_22维度-完整版.xlsx\",\"sha256\":\"5be02877569c6b98bc0537bd5a2d4dbb586e20c55e91ecf99a86b603ac63c658\"},\"dimensions\":[\"当日数\",\"较年初\",\"较年初增幅\",\"较上月\",\"较上月增幅\",\"较上季\",\"较上季增幅\",\"较同期\",\"较同期增幅\",\"较同期期末\",\"较同期期末增幅\",\"较上日\",\"较上日增幅\",\"较基数\",\"较基数增幅\",\"较年初增量计划值\",\"较年初增量完成率\",\"全省均值\",\"第一层级均值\",\"第二层级均值\",\"第三层级均值\",\"第四层级均值\"],\"groups\":[{\"label\":\"各项存款（亿元）\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"context_heading\":\"各项存款（亿元）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A2\"},\"calculation_formula\":null},{\"label\":\"1.个人存款（亿元）\",\"base_code\":\"ORG_PSON_DEPT_BAL\",\"base_name\":\"机构个人存款余额\",\"context_heading\":\"1.个人存款（亿元）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A3\"},\"calculation_formula\":null},{\"label\":\"个人存款占比（%）\",\"base_code\":\"ORG_PSON_DEPT_BAL_PRPR\",\"base_name\":\"机构个人存款余额占比\",\"context_heading\":\"个人存款占比（%）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A4\"},\"calculation_formula\":null},{\"label\":\"1.1.1个人活期存款（亿元）\",\"base_code\":\"ORG_PSON_DEDMDPT_BAL\",\"base_name\":\"机构个人活期存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A5\"},\"calculation_formula\":null},{\"label\":\"个人活期存款占个人存款比（%）\",\"base_code\":\"ORG_PSON_DEDMDPT_BAL_PRPR\",\"base_name\":\"机构个人活期存款余额占比\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A6\"},\"calculation_formula\":null},{\"label\":\"1.1.2个人定期存款（亿元）\",\"base_code\":\"ORG_PSON_TMDST_BAL\",\"base_name\":\"机构个人定期存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A7\"},\"calculation_formula\":null},{\"label\":\"个人定期存款占个人存款比（%）\",\"base_code\":null,\"base_name\":\"（占比/计算项）\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A8\"},\"calculation_formula\":null},{\"label\":\"其中：一年期及以下（亿元）\",\"base_code\":\"ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人一年期及以下整存整取存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A9\"},\"calculation_formula\":null},{\"label\":\"二年期（亿元）\",\"base_code\":\"ORG_PSON_Y2_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人两年期整存整取存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A11\"},\"calculation_formula\":null},{\"label\":\"三年期（亿元）\",\"base_code\":\"ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人三年期整存整取存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A13\"},\"calculation_formula\":null},{\"label\":\"五年期（亿元）\",\"base_code\":\"ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人五年期整存整取存款余额\",\"context_heading\":\"1.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A15\"},\"calculation_formula\":null},{\"label\":\"2.对公存款（亿元）\",\"base_code\":\"ORG_CORP_DEPT_BAL\",\"base_name\":\"机构对公存款余额\",\"context_heading\":\"2.对公存款（亿元）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A17\"},\"calculation_formula\":null},{\"label\":\"对公存款占比（%）\",\"base_code\":\"ORG_CORP_DEPT_BAL_PRPR\",\"base_name\":\"机构对公存款余额占比\",\"context_heading\":\"对公存款占比（%）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A18\"},\"calculation_formula\":null},{\"label\":\"2.1.1对公活期存款（亿元）\",\"base_code\":\"ORG_CORP_DEDMDPT_BAL\",\"base_name\":\"机构对公活期存款余额\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A19\"},\"calculation_formula\":null},{\"label\":\"对公活期存款占对公存款比（%）\",\"base_code\":\"ORG_CORP_DEDMDPT_BAL_PRPR\",\"base_name\":\"机构对公活期存款余额占比\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A20\"},\"calculation_formula\":null},{\"label\":\"2.1.2对公定期存款（亿元）\",\"base_code\":\"ORG_CORP_TMDST_BAL\",\"base_name\":\"机构对公定期存款余额\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A21\"},\"calculation_formula\":null},{\"label\":\"对公定期存款占对公存款比（%）\",\"base_code\":null,\"base_name\":\"（占比/计算项）\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A22\"},\"calculation_formula\":null},{\"label\":\"其中：保证金存款（亿元）\",\"base_code\":\"ORG_CORP_MRGN_DEPT_BAL\",\"base_name\":\"机构对公保证金存款余额\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A23\"},\"calculation_formula\":null},{\"label\":\"保证金存款占对公存款比（%）\",\"base_code\":null,\"base_name\":\"（占比/计算项）\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A24\"},\"calculation_formula\":null},{\"label\":\"其中：非银存款（亿元）\",\"base_code\":\"ORG_CUR_DAY_NBNKNIDSTY_ITRBNK_DEPT_BAL\",\"base_name\":\"机构当日非银行业同业存款余额\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A25\"},\"calculation_formula\":null},{\"label\":\"非银存款占对公存款比（%）\",\"base_code\":null,\"base_name\":\"（占比/计算项）\",\"context_heading\":\"2.1按类型分\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A26\"},\"calculation_formula\":null},{\"label\":\"3.存款市场份额（%）\",\"base_code\":\"ORG_DEPT_MRKT_SHR_RT\",\"base_name\":\"机构存款市场份额比率\",\"context_heading\":\"3.存款市场份额（%）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A27\"},\"calculation_formula\":null},{\"label\":\"4.全部3年期以上存款占比（%）\",\"base_code\":\"ORG_THRYRTEM_ABV_TMDST_BAL_PRPR\",\"base_name\":\"机构三年期限以上定期存款余额占比\",\"context_heading\":\"4.全部3年期以上存款占比（%）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A28\"},\"calculation_formula\":null},{\"label\":\"5.活期存款占比（%）（不含协定存款）\",\"base_code\":\"ORG_DEDMDPT_BAL_PRPR\",\"base_name\":\"机构活期存款余额占比_含协定\",\"context_heading\":\"5.活期存款占比（%）（不含协定存款）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A29\"},\"calculation_formula\":null,\"status\":\"definition_conflict\"},{\"label\":\"6.活期存款占比（%）（含协定存款）\",\"base_code\":\"ORG_DEDMDPT_BAL_PRPR\",\"base_name\":\"机构活期存款余额占比_含协定\",\"context_heading\":\"6.活期存款占比（%）（含协定存款）\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"A30\"},\"calculation_formula\":null,\"status\":\"definition_conflict\"}],\"total\":440,\"page\":1,\"page_size\":12,\"has_more\":true,\"next_page\":2,\"items\":[{\"code\":\"ORG_VRS_DEPT_BAL\",\"dimension\":\"当日数\",\"base_code\":\"ORG_VRS_DEPT_BAL\",\"base_name\":\"机构各项存款余额\",\"business_label\":\"各项存款（亿元）\",\"aliases\":[\"各项存款\",\"存款余额\",\"存款总额\",\"总存款\",\"揽储总量\"],\"name\":\"机构各项存款余额\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"I2\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL:48af71dbc662b676\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_VRS_DEPT_BAL:48af71dbc662b676\",\"metricCode\":\"ORG_VRS_DEPT_BAL\",\"metricName\":\"机构各项存款余额\",\"unit\":\"亿元\",\"basis\":\"当日数\"}},{\"code\":\"ORG_PSON_DEPT_BAL_CMPBGNYR\",\"dimension\":\"较年初\",\"base_code\":\"ORG_PSON_DEPT_BAL\",\"base_name\":\"机构个人存款余额\",\"business_label\":\"1.个人存款（亿元）\",\"aliases\":[\"个人存款\",\"储蓄存款\",\"居民储蓄\",\"个人存\",\"储蓄\",\"老百姓存的钱\"],\"name\":\"机构个人存款余额较年初\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"J3\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_PSON_DEPT_BAL_CMPBGNYR:e1065e852a31bfb6\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_DEPT_BAL_CMPBGNYR:e1065e852a31bfb6\",\"metricCode\":\"ORG_PSON_DEPT_BAL_CMPBGNYR\",\"metricName\":\"机构个人存款余额较年初\",\"unit\":\"亿元\",\"basis\":\"较年初\"}},{\"code\":\"ORG_PSON_DEPT_BAL_PRPR_CMPBGNYR_INCRRNG\",\"dimension\":\"较年初增幅\",\"base_code\":\"ORG_PSON_DEPT_BAL_PRPR\",\"base_name\":\"机构个人存款余额占比\",\"business_label\":\"个人存款占比（%）\",\"aliases\":[\"个人存款余额占比\",\"储蓄存款占比\",\"个人存占比\",\"储蓄占比\"],\"name\":\"机构个人存款余额占比较年初增幅\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"K4\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_PSON_DEPT_BAL_PRPR_CMPBGNYR_INCRRNG:77e49dd3a2795f93\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_DEPT_BAL_PRPR_CMPBGNYR_INCRRNG:77e49dd3a2795f93\",\"metricCode\":\"ORG_PSON_DEPT_BAL_PRPR_CMPBGNYR_INCRRNG\",\"metricName\":\"机构个人存款余额占比较年初增幅\",\"unit\":\"%\",\"basis\":\"较年初增幅\"}},{\"code\":\"ORG_PSON_DEDMDPT_BAL_CMPRLATMO\",\"dimension\":\"较上月\",\"base_code\":\"ORG_PSON_DEDMDPT_BAL\",\"base_name\":\"机构个人活期存款余额\",\"business_label\":\"1.1.1个人活期存款（亿元）\",\"aliases\":[\"个人活期\",\"储蓄活期\",\"个人活期存款\",\"个人活期账\"],\"name\":\"机构个人活期存款余额较上月\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"L5\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_PSON_DEDMDPT_BAL_CMPRLATMO:935621b6e5023a67\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_DEDMDPT_BAL_CMPRLATMO:935621b6e5023a67\",\"metricCode\":\"ORG_PSON_DEDMDPT_BAL_CMPRLATMO\",\"metricName\":\"机构个人活期存款余额较上月\",\"unit\":\"亿元\",\"basis\":\"较上月\"}},{\"code\":\"ORG_PSON_DEDMDPT_BAL_PRPR_CMPRLATMO_INCRRNG\",\"dimension\":\"较上月增幅\",\"base_code\":\"ORG_PSON_DEDMDPT_BAL_PRPR\",\"base_name\":\"机构个人活期存款余额占比\",\"business_label\":\"个人活期存款占个人存款比（%）\",\"aliases\":[\"个人活期占比\",\"储蓄活期比例\",\"个人活期比\",\"活期比例\"],\"name\":\"机构个人活期存款余额占比较上月增幅\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"M6\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_PSON_DEDMDPT_BAL_PRPR_CMPRLATMO_INCRRNG:9cf4255c271aa2a4\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_DEDMDPT_BAL_PRPR_CMPRLATMO_INCRRNG:9cf4255c271aa2a4\",\"metricCode\":\"ORG_PSON_DEDMDPT_BAL_PRPR_CMPRLATMO_INCRRNG\",\"metricName\":\"机构个人活期存款余额占比较上月增幅\",\"unit\":\"%\",\"basis\":\"较上月增幅\"}},{\"code\":\"ORG_PSON_TMDST_BAL_CMPRPVSQRT\",\"dimension\":\"较上季\",\"base_code\":\"ORG_PSON_TMDST_BAL\",\"base_name\":\"机构个人定期存款余额\",\"business_label\":\"1.1.2个人定期存款（亿元）\",\"aliases\":[\"个人定期\",\"储蓄定期\",\"个人定期存款\",\"个人定存\",\"个人死期\"],\"name\":\"机构个人定期存款余额较上季\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"N7\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_PSON_TMDST_BAL_CMPRPVSQRT:a15a8dc724a2a35a\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_TMDST_BAL_CMPRPVSQRT:a15a8dc724a2a35a\",\"metricCode\":\"ORG_PSON_TMDST_BAL_CMPRPVSQRT\",\"metricName\":\"机构个人定期存款余额较上季\",\"unit\":\"亿元\",\"basis\":\"较上季\"}},{\"code\":\"ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL_CMPRPVSQRT_INCRRNG\",\"dimension\":\"较上季增幅\",\"base_code\":\"ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人一年期及以下整存整取存款余额\",\"business_label\":\"其中：一年期及以下（亿元）\",\"aliases\":[],\"name\":\"机构个人一年期及以下整存整取存款余额较上季增幅\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"O9\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL_CMPRPVSQRT_INCRRNG:29a8398b8f32a4c7\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL_CMPRPVSQRT_INCRRNG:29a8398b8f32a4c7\",\"metricCode\":\"ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL_CMPRPVSQRT_INCRRNG\",\"metricName\":\"机构个人一年期及以下整存整取存款余额较上季增幅\",\"unit\":\"%\",\"basis\":\"较上季增幅\"}},{\"code\":\"ORG_PSON_Y2_FIXDEP_DEPT_BAL_CMP_SAMEPRD\",\"dimension\":\"较同期\",\"base_code\":\"ORG_PSON_Y2_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人两年期整存整取存款余额\",\"business_label\":\"二年期（亿元）\",\"aliases\":[\"个人两年期定存\",\"个人两年定期\",\"两年定存\",\"两年死期\"],\"name\":\"机构个人两年期整存整取存款余额较同期\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"P11\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_PSON_Y2_FIXDEP_DEPT_BAL_CMP_SAMEPRD:724575756e4b1cf7\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_Y2_FIXDEP_DEPT_BAL_CMP_SAMEPRD:724575756e4b1cf7\",\"metricCode\":\"ORG_PSON_Y2_FIXDEP_DEPT_BAL_CMP_SAMEPRD\",\"metricName\":\"机构个人两年期整存整取存款余额较同期\",\"unit\":\"亿元\",\"basis\":\"较同期\"}},{\"code\":\"ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL_CMP_SAMEPRD_INCRRNG\",\"dimension\":\"较同期增幅\",\"base_code\":\"ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人三年期整存整取存款余额\",\"business_label\":\"三年期（亿元）\",\"aliases\":[\"个人三年期定存\",\"个人三年定期\",\"三年定存\",\"三年死期\"],\"name\":\"机构个人三年期整存整取存款余额较同期增幅\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"Q13\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL_CMP_SAMEPRD_INCRRNG:9e8aa57939a5a8cf\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL_CMP_SAMEPRD_INCRRNG:9e8aa57939a5a8cf\",\"metricCode\":\"ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL_CMP_SAMEPRD_INCRRNG\",\"metricName\":\"机构个人三年期整存整取存款余额较同期增幅\",\"unit\":\"%\",\"basis\":\"较同期增幅\"}},{\"code\":\"ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL_CMP_SAMEPRD_TERMEND\",\"dimension\":\"较同期期末\",\"base_code\":\"ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL\",\"base_name\":\"机构个人五年期整存整取存款余额\",\"business_label\":\"五年期（亿元）\",\"aliases\":[],\"name\":\"机构个人五年期整存整取存款余额较同期期末\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"R15\"},\"definition_conflict\":false,\"unit\":\"亿元\",\"catalogRef\":\"catalogRef:ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL_CMP_SAMEPRD_TERMEND:a4fc8e93272055b4\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL_CMP_SAMEPRD_TERMEND:a4fc8e93272055b4\",\"metricCode\":\"ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL_CMP_SAMEPRD_TERMEND\",\"metricName\":\"机构个人五年期整存整取存款余额较同期期末\",\"unit\":\"亿元\",\"basis\":\"较同期期末\"}},{\"code\":\"ORG_CORP_DEPT_BAL_CMP_SAMEPRD_TERMEND_INCRRNG\",\"dimension\":\"较同期期末增幅\",\"base_code\":\"ORG_CORP_DEPT_BAL\",\"base_name\":\"机构对公存款余额\",\"business_label\":\"2.对公存款（亿元）\",\"aliases\":[\"对公存款\",\"单位存款\",\"企业存款\",\"公司存款\",\"对公存\"],\"name\":\"机构对公存款余额较同期期末增幅\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"S17\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_CORP_DEPT_BAL_CMP_SAMEPRD_TERMEND_INCRRNG:ef083e7f8b161f8b\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_CORP_DEPT_BAL_CMP_SAMEPRD_TERMEND_INCRRNG:ef083e7f8b161f8b\",\"metricCode\":\"ORG_CORP_DEPT_BAL_CMP_SAMEPRD_TERMEND_INCRRNG\",\"metricName\":\"机构对公存款余额较同期期末增幅\",\"unit\":\"%\",\"basis\":\"较同期期末增幅\"}},{\"code\":\"ORG_CORP_DEPT_BAL_PRPR_CMPRPRSDAY\",\"dimension\":\"较上日\",\"base_code\":\"ORG_CORP_DEPT_BAL_PRPR\",\"base_name\":\"机构对公存款余额占比\",\"business_label\":\"对公存款占比（%）\",\"aliases\":[\"对公存款占比\",\"单位存款占比\",\"对公占比\",\"企业存款占比\"],\"name\":\"机构对公存款余额占比较上日\",\"source\":{\"sheet\":\"存款指标完整映射\",\"cell\":\"T18\"},\"definition_conflict\":false,\"unit\":\"%\",\"catalogRef\":\"catalogRef:ORG_CORP_DEPT_BAL_PRPR_CMPRPRSDAY:0e60f272e0169c88\",\"status\":\"verified\",\"identity\":{\"catalogRef\":\"catalogRef:ORG_CORP_DEPT_BAL_PRPR_CMPRPRSDAY:0e60f272e0169c88\",\"metricCode\":\"ORG_CORP_DEPT_BAL_PRPR_CMPRPRSDAY\",\"metricName\":\"机构对公存款余额占比较上日\",\"unit\":\"%\",\"basis\":\"较上日\"}}],\"warnings\":[\"Workbook contains mapping metadata, not observed lake values.\",\"Do not import conflicting aliases until scope is verified against the authoritative catalog.\",\"Eight calculation rows have neither metric codes nor formulas; labels alone do not authorize formula inference.\",\"Units are displayed business units, not verified storage units; verify against the formal catalog.\"],\"relationships_verified\":false,\"notice\":\"分组不证明可加总或因果关系；无公式节点不能自动计算。指标值及单位取正式工具回执。\"}"
+            }
+          ]
+        },
+        {
+          "id": "01a137e0b8e6c70aec6d5d5970250390",
+          "name": "analysis_task",
+          "is_error": false,
+          "details": {
+            "kind": "analysis_task",
+            "status": "ARGUMENT_ERROR",
+            "retryable": true
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"status\":\"ARGUMENT_ERROR\",\"error_code\":\"ANALYSIS_ARGUMENT_INVALID\",\"message\":\"动作参数不完整或类型不符，请保留目标并按所选动作修正。\"}"
+            }
+          ]
+        },
+        {
+          "id": "01a137e0b45810d3e42bdbad05d1c6e2",
+          "name": "analysis_task",
+          "is_error": false,
+          "details": {
+            "kind": "analysis_task",
+            "status": "ARGUMENT_ERROR",
+            "retryable": true
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"status\":\"ARGUMENT_ERROR\",\"error_code\":\"ANALYSIS_ARGUMENT_INVALID\",\"message\":\"动作参数不完整或类型不符，请保留目标并按所选动作修正。\"}"
+            }
+          ]
+        },
+        {
+          "id": "01a137e1089110b5f32b3ce898e45a79",
+          "name": "analysis_task",
+          "is_error": false,
+          "details": {
+            "kind": "analysis_task",
+            "status": "ARGUMENT_ERROR",
+            "retryable": true
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"status\":\"ARGUMENT_ERROR\",\"error_code\":\"ANALYSIS_ARGUMENT_INVALID\",\"message\":\"动作参数不完整或类型不符，请保留目标并按所选动作修正。\"}"
+            }
+          ]
+        }
+      ],
+      "query_calls": [],
+      "calculation_specs": [],
+      "constraints": [],
+      "prepared": [],
+      "state": {
+        "sessionId": "01a137e0-6435-74db-a0c5-df7f5d134d69",
+        "version": 0,
+        "frameOrder": [],
+        "operations": {}
+      },
+      "frames": [],
+      "answer": "本轮工具调用未通过校验或执行；相同参数重复提交后仍得到相同失败，已停止重复尝试。原查询条件仍保留，未完成的查询或计算不作为成功结果。",
+      "measures": {
+        "tool_calls": 7,
+        "error_calls": 3,
+        "query_count": 0,
+        "calculation_count": 0,
+        "coverage_count": 0,
+        "model_calls": 7,
+        "provider_calls": 7,
+        "elapsed_ms": 58398
+      }
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "provenance": "Generated from NativeAnalysisStore and BusinessToolRegistry actual calls with isolated synthetic backend fixtures; no production data.",
+  "constraints": {
+    "schema_version": 1,
+    "conversation_id": "conversation-a",
+    "analysis_id": "9c847213-7179-4bc6-bab2-ecea0b490b19",
+    "constraint_version": 1,
+    "source_question": "分析样本行三月底的存款情况",
+    "source_question_sha256": "f853e30fec8b5db397c9b46faa89db668b50124fc21debc646b730c5e8a07f62",
+    "targets": [
+      {
+        "target_id": "target-1",
+        "org_codes": [
+          "org-a"
+        ],
+        "time": {
+          "start": "2026-03-31",
+          "end": "2026-03-31"
+        },
+        "fixed_metric_codes": [],
+        "allowed_metric_codes": [],
+        "metric_selection_policy": "catalog"
+      }
+    ],
+    "requirements": [
+      {
+        "requirement_id": "r1",
+        "target_ids": [
+          "target-1"
+        ],
+        "description": "余额变化"
+      }
+    ]
+  },
+  "catalog_references": {
+    "conversation_id": "conversation-a",
+    "metric_codes": [
+      "metric-a"
+    ]
+  },
+  "prepare": {
+    "constraint_ref": "constraint-a",
+    "prepare_key": "caac3794745d4139babd03320a474f8d592341adff6be7407251d06b65a4dea8",
+    "step_id": "s1",
+    "step_revision": 1,
+    "target_id": "target-1",
+    "requirement_ids": [
+      "r1"
+    ],
+    "query": {
+      "schema_version": 2,
+      "metric_codes": [
+        "metric-a"
+      ],
+      "org_codes": [
+        "org-a"
+      ],
+      "time": {
+        "start": "2026-03-31",
+        "end": "2026-03-31"
+      },
+      "selection": "exact",
+      "operation": {
+        "kind": "value"
+      }
+    },
+    "catalog_refs": [
+      {
+        "metric_code": "metric-a",
+        "catalog_ref": "signed:metric-a"
+      }
+    ]
+  },
+  "execute": {
+    "prepared_query_ref": "prepared:s1"
+  }
+}

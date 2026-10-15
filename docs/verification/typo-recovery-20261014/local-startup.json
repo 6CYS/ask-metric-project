@@ -1,0 +1,59 @@
+{
+  "checked_at": "2026-10-14 10:26:05 +0800",
+  "scope": "local launch health and read-only readiness; no model/business query request submitted by validation",
+  "checks": [
+    {
+      "url": "http://127.0.0.1:5173/",
+      "status": 200,
+      "html": true
+    },
+    {
+      "url": "http://127.0.0.1:8010/health",
+      "status": 200,
+      "body": {
+        "status": "ok"
+      }
+    },
+    {
+      "url": "http://127.0.0.1:8010/health/ready",
+      "status": 200,
+      "body": {
+        "status": "ready"
+      }
+    },
+    {
+      "url": "http://127.0.0.1:8010/api/v1/query-readiness",
+      "status": 200,
+      "body": {
+        "status": "ready",
+        "message": "问数系统已就绪。",
+        "completed": 0,
+        "total": 0
+      }
+    },
+    {
+      "url": "http://127.0.0.1:8020/health",
+      "status": 200,
+      "body": {
+        "status": "ok"
+      }
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/v1/query-readiness",
+      "status": 200,
+      "body": {
+        "status": "ready",
+        "message": "问数系统已就绪。",
+        "completed": 0,
+        "total": 0
+      }
+    },
+    {
+      "url": "http://127.0.0.1:5173/agent-api/health",
+      "status": 200,
+      "body": {
+        "status": "ok"
+      }
+    }
+  ]
+}

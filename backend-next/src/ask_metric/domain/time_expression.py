@@ -1,4 +1,9 @@
-"""日期表达解析：business-context 日期字段与新执行链共用的确定性日历文法。"""
+"""日期表达解析：business-context 日期字段与新执行链共用的确定性日历文法。
+
+本模块是模型换算失效时的兜底路径：上游模型可直接提交换算好的日期，
+仅在模型未提交或结果不合法时才落到这里的确定性规则。文法冻结演进——
+不新增规则、不调整口径，只修 bug；新表达由模型换算路径承接。
+"""
 
 from __future__ import annotations
 
@@ -10,9 +15,13 @@ from ask_metric.domain.semantics import LogicalTimeRange
 
 
 class SemanticValidationError(ValueError):
-    def __init__(self, missing: list[str], message: str) -> None:
+    def __init__(
+        self, missing: list[str], message: str, *, reason: str = "invalid_calendar"
+    ) -> None:
         super().__init__(message)
         self.missing = missing
+        # reason 供调用方区分"表达不支持"（可由模型换算兜底）与"日历值非法"（不可兜底）。
+        self.reason = reason
 
 
 _CALENDAR_MONTH_TOKEN = r"(?:\d{1,2}|[一二三四五六七八九十]{1,3})"
@@ -39,6 +48,21 @@ CALENDAR_PERIOD_PATTERN = (
 )
 
 
+_LATEST_DATA_DATE_QUALIFIER = re.compile(
+    r"(?P<calendar>.+?)\s*(?:范围内|期间|内)\s*的?\s*"
+    r"(?:最后(?:一个)?|最新)\s*(?:有数据|有值|有记录)\s*的?\s*(?:日期|日)"
+)
+_CALENDAR_COMPARISON = re.compile(
+    rf"(\d{{4}})年({_CALENDAR_MONTH_TOKEN})月末(?:较|比|对比|比较)"
+    rf"({_CALENDAR_MONTH_TOKEN})月末"
+)
+
+
+def _qualified_calendar_expression(expression: str) -> str | None:
+    match = _LATEST_DATA_DATE_QUALIFIER.fullmatch(expression)
+    return match.group("calendar").strip() if match else None
+
+
 def parse_time_expression(
     expression: str | None,
     *,
@@ -49,6 +73,20 @@ def parse_time_expression(
     if not expression:
         return LogicalTimeRange(preset="latest" if default == "latest" else None)
     value = normalize_calendar_text(expression).strip()
+    calendar_expression = _qualified_calendar_expression(value)
+    if calendar_expression is not None:
+        # 原文可同时包含日历范围和取数限定；这里只确定边界，有数日由查询层选择。
+        # 重复限定、裸 latest 和未支持的日历文字不能被剥离后猜成合法范围。
+        if _qualified_calendar_expression(calendar_expression) is not None:
+            raise SemanticValidationError(["time"], "Repeated latest-data-date qualifier")
+        if _CALENDAR_COMPARISON.fullmatch(calendar_expression):
+            raise SemanticValidationError(["time"], "Latest data date requires a calendar range")
+        result = parse_time_expression(
+            calendar_expression, today=today, default=default, reference_year=reference_year,
+        )
+        if result.start is None or result.end is None:
+            raise SemanticValidationError(["time"], "Latest data date requires a calendar range")
+        return result
     if value in {"latest", "最新", "最近", "最新一期", "最近一期", "当前最新"}:
         return LogicalTimeRange(preset="latest")
     year_boundary = re.fullmatch(r"(?:(\d{4})年|(今年|本年|去年|上年|前年)|年)(末|底|初)", value)
@@ -90,11 +128,7 @@ def parse_time_expression(
             month,
             month_end=bool(previous_year_month_match.group(2)),
         )
-    compare_match = re.fullmatch(
-        rf"(\d{{4}})年({_CALENDAR_MONTH_TOKEN})月末(?:较|比|对比|比较)"
-        rf"({_CALENDAR_MONTH_TOKEN})月末",
-        value,
-    )
+    compare_match = _CALENDAR_COMPARISON.fullmatch(value)
     if compare_match:
         year = int(compare_match.group(1))
         current_month = _parse_calendar_month(compare_match.group(2))
@@ -165,27 +199,39 @@ def parse_time_expression(
     if value == "前年":
         year = today.year - 2
         return LogicalTimeRange(start=date(year, 1, 1), end=date(year, 12, 31))
+    complete_years = re.fullmatch(r"(?:近|最近|过去)\s*(\d+|[一二两三四五六七八九十]+)\s*个?完整年(?:度)?", value)
+    rolling_years = re.fullmatch(r"(?:向前)?滚动\s*(\d+|[一二两三四五六七八九十]+)\s*年\s*(?:[,，]?\s*截至(?:今天|今日))?", value)
+    if complete_years or rolling_years:
+        years = _parse_month_count((complete_years or rolling_years).group(1))
+        if not 1 <= years <= 100 or today.year - years < 1:
+            raise SemanticValidationError(["time"], "Relative time is outside supported range")
+        if complete_years:
+            return LogicalTimeRange(start=date(today.year - years, 1, 1), end=date(today.year - 1, 12, 31))
+        start_year = today.year - years
+        start_day = min(today.day, calendar.monthrange(start_year, today.month)[1])
+        return LogicalTimeRange(start=date(start_year, today.month, start_day), end=today)
     iso_range_match = re.fullmatch(
         r"(\d{4}-\d{1,2}-\d{1,2})\s*(?:至|到|~|～)\s*(\d{4}-\d{1,2}-\d{1,2})",
         value,
     )
     if iso_range_match:
-        start, end = (date.fromisoformat(item) for item in iso_range_match.groups())
+        start, end = (date(*map(int, item.split("-"))) for item in iso_range_match.groups())
         if start > end:
             raise SemanticValidationError(["time"], "Time range start is after end")
         return LogicalTimeRange(start=start, end=end)
     range_match = re.fullmatch(
-        rf"(\d{{4}})年({_CALENDAR_MONTH_TOKEN})月份?(?:末|底)?\s*"
+        rf"(?:(\d{{4}})年)?({_CALENDAR_MONTH_TOKEN})月份?(末|底)?\s*"
         rf"(?:至|到|~|～|-)\s*"
-        rf"(?:(\d{{4}})年)?({_CALENDAR_MONTH_TOKEN})月份?(?:末|底)?",
+        rf"(?:(\d{{4}})年)?({_CALENDAR_MONTH_TOKEN})月份?(末|底)?",
         value,
     )
     if range_match:
-        start_year = int(range_match.group(1))
+        start_year = int(range_match.group(1) or reference_year or today.year)
         start_month = _parse_calendar_month(range_match.group(2))
-        end_year = int(range_match.group(3) or start_year)
-        end_month = _parse_calendar_month(range_match.group(4))
-        start = date(start_year, start_month, 1)
+        end_year = int(range_match.group(4) or start_year)
+        end_month = _parse_calendar_month(range_match.group(5))
+        start = date(start_year, start_month, calendar.monthrange(start_year, start_month)[1]
+                     if range_match.group(3) else 1)
         end = date(end_year, end_month, calendar.monthrange(end_year, end_month)[1])
         if start > end:
             raise SemanticValidationError(["time"], "Time range start is after end")
@@ -204,11 +250,11 @@ def parse_time_expression(
         return _month_range(
             reference_year or today.year, month, month_end=bool(yearless_month_match.group(2))
         )
-    date_match = re.fullmatch(r"(\d{4})[-年](\d{1,2})[-月](\d{1,2})日?", value)
+    date_match = re.fullmatch(r"(\d{4})[-年](\d{1,2})[-月](\d{1,2})(?:日|号)?(?:当日|当天|这一天)?", value)
     if date_match:
         target = date(*map(int, date_match.groups()))
         return LogicalTimeRange(start=target, end=target)
-    yearless_date_match = re.fullmatch(r"(\d{1,2})月(\d{1,2})日", value)
+    yearless_date_match = re.fullmatch(r"(\d{1,2})月(\d{1,2})(?:日|号)(?:当日|当天|这一天)?", value)
     if yearless_date_match:
         target = date(reference_year or today.year, *map(int, yearless_date_match.groups()))
         return LogicalTimeRange(start=target, end=target)
@@ -232,7 +278,9 @@ def parse_time_expression(
             start=date(start_year, start_month_zero + 1, 1),
             end=today,
         )
-    raise SemanticValidationError(["time"], f"Unsupported time expression: {expression}")
+    raise SemanticValidationError(
+        ["time"], f"Unsupported time expression: {expression}", reason="unsupported_expression",
+    )
 
 
 # 离散多点分隔符：顿号、中英逗号、"和/及/与"。刻意不含"至/到/~/-"，
@@ -258,6 +306,9 @@ def parse_discrete_dates(
     parts = [part for part in _DISCRETE_SEPARATOR.split(normalized) if part and part.strip()]
     # 只有一段说明没有离散分隔（含区间表达），不构成离散集合。
     if len(parts) < 2:
+        return None
+    # 取数限定不能套到单个离散片段；整句须由完整日历范围文法校验。
+    if any(_qualified_calendar_expression(part.strip()) is not None for part in parts):
         return None
     resolved: list[date] = []
     inferred_year = reference_year

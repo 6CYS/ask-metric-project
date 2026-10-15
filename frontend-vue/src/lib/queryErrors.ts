@@ -24,6 +24,8 @@ export function friendlyQueryError(message?: string | null, errorCode?: string |
   const modelMessages: Record<string, string> = {
     MODEL_RESPONSE_INVALID: "模型返回格式异常，本次查询未完成。请联系管理员排查。",
     MODEL_REQUEST_TIMEOUT: "模型服务响应超时。请稍后重新查询。",
+    MODEL_FIRST_RESPONSE_TIMEOUT: "模型服务响应超时，请稍后重试。已确认的查询条件仍保留，无需重复输入。",
+    MODEL_STREAM_IDLE_EXCEEDED: "模型输出长时间没有进展，本轮未完成。已确认的查询条件仍保留，无需重复输入。",
     MODEL_DEADLINE_EXCEEDED: "模型服务响应超时，本次查询未完成。请稍后重新查询。",
     MODEL_STREAM_FAILED: "模型响应流中断，本次查询未完成。请稍后重新查询。",
     MODEL_CONNECTION_FAILED: "暂时无法连接模型服务。请稍后重新查询。",

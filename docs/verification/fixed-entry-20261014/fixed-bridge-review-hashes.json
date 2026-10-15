@@ -1,0 +1,8 @@
+{
+  "src/fixedTurnCompatibility.ts": "8f66f97303216a6e03048af93b679e4e2ded35b0080547e066dadffac34e12ab",
+  "src/harnessHost.ts": "00e4f1705d6b62d3be19a365203d36e8e127b08c0aea948f44e1fd61f41777c8",
+  "src/modelContext.ts": "146e477d203362af3bb9107ebadc97e8049b84f3db20939d5efc217fd41f6b3a",
+  "src/business-context/modelView.ts": "c61f3af55167d5bb90de0770a4ce76a697af361a86dedd50dd4ff5bdb1b0951c",
+  "src/business-context/fixedTurnArgs.ts": "8b38465ccf0c0005fc79be385433671c28aaa593b7c6a7aeffb490fa7528b5ef",
+  "src/tools/businessContext.ts": "e255452a174cf60a6bc8da168af783d9ef5b4d4adf7f6f6fc8b1af947409e488"
+}

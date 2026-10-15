@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { CapabilityRegistry, FieldResolverRegistry, mergeFields, resolveFrame, validateFrame, inheritableFrame } from "./core.js";
-import type { BusinessFrame, ContextDelta, FrameStore, ResolverContext } from "./types.js";
+import {Type, validateToolArguments} from "@earendil-works/pi-ai";
+import { CapabilityRegistry, FieldResolverRegistry, mergeFields, resolveFrame, validateFrame, inheritableFrame, validateFieldIntents, applyFieldIntentConstraints, preflightFieldRecovery, fieldLabels } from "./core.js";
+import type { BusinessFrame, ContextDelta, FieldInputCorrection, FrameStore, ResolverContext } from "./types.js";
 import { BusinessInputError } from "./inputError.js";
+import {withFieldClarification} from "./fieldClarification.js";
+import {clarificationOptions, selectOptions} from "./clarificationOptions.js";
+import {hasInputEvidence} from "./inputEvidence.js";
 
 /** 旧排名契约用 asc/desc 表达数值方向，名次类指标会取反；这类 Frame 须在新回合按新契约重建。 */
 function legacyRankingOrder(operation: unknown): boolean {
@@ -32,6 +36,23 @@ export class BusinessContextService {
   }
 
   async resolve(delta: ContextDelta, identity: TurnIdentity, context: ResolverContext): Promise<BusinessFrame> {
+    try {
+      return await this.resolveAtomic(delta, identity, context);
+    } catch (error) {
+      if (!(error instanceof BusinessInputError) || error.recovery) throw error;
+      // 已核验的选择不能因无关字段参数失败而丢失；只保存确认，不执行失败提案。
+      const preserved = await this.preserveBoundConfirmation(delta, identity, context, error.field.split(","));
+      if (!preserved) throw error;
+      throw new BusinessInputError(error.code, error.field, error.correction,
+        {frameId: preserved.frameId}, error.recovery, error.corrections);
+    }
+  }
+
+  private async resolveAtomic(delta: ContextDelta, identity: TurnIdentity, context: ResolverContext): Promise<BusinessFrame> {
+    // 模型入口的目标声明先于幂等读取，旧准备快照不能绕过新入口契约。
+    const declaredSchema = this.capabilities.list().find(schema => schema.capability === delta.capabilityHint);
+    await this.preflightRecovery(delta, identity, context);
+    if (declaredSchema) validateFieldIntents(declaredSchema, delta, context);
     // 先收敛上一轮遗留的执行中 Frame（会写入新快照并推进版本），再读取本轮解析所用的状态。
     await this.settleStaleExecution(delta, identity, context);
     let key = businessKey({phase: "resolve", ...identity, delta: {...delta, fieldChanges: [...delta.fieldChanges].sort((a, b) => a.fieldHint.localeCompare(b.fieldHint))}});
@@ -52,7 +73,9 @@ export class BusinessContextService {
     if (delta.fieldChanges.some(change => change.operation === "retain")
       && (delta.baseReference === null || !delta.baseReference && !state.focusFrameId)) {
       throw new BusinessInputError("NO_BASE_FOR_RETAIN", "$base",
-        "当前没有可继承的业务条件。请从本轮用户原文重新提交完整字段，不能把 retain 当作已确认条件，也不要让用户重复确认原文已给出的条件。原焦点未改变。");
+        delta.baseReference === null && state.focusFrameId
+          ? "baseReference=null 声明独立新问题，不能同时 retain 历史字段。请先从历史索引选择用户所指的继承来源；继续当前讨论时用 current。引用字段中的 sources 只组合该字段，不会替其他字段选择继承来源；不要重填历史名称和日期。原焦点未改变。"
+          : "当前没有可继承的业务条件。请从本轮用户原文重新提交完整字段，不能把 retain 当作已确认条件，也不要让用户重复确认原文已给出的条件。原焦点未改变。");
     }
     let base: BusinessFrame | undefined;
     let referenceIssue: "ambiguous" | "not_found" | "invalid" | undefined;
@@ -85,10 +108,44 @@ export class BusinessContextService {
       if (completed?.status === "success" && completed.resultRef) base = completed;
     }
     if ((base && !inheritableFrame(base)) || base?.status === "executing") referenceIssue = "invalid";
+    const recovering = state.focusFrameId ? await this.store.get(state.focusFrameId) : undefined;
+    if (delta.baseReference !== null && recovering?.recovery && base?.frameId !== recovering.frameId) {
+      throw new BusinessInputError("TURN_RECOVERY_REFERENCE_REQUIRED", "$base",
+        "已保存的候选确认仍有本轮变更待修正，请使用 retry_reference 指向恢复草稿并完成 pending_fields；不能回到旧快照忽略这些变更。明确独立的新目标使用 null。",
+        {frameId: recovering.frameId});
+    }
+    if (context.confirmationSelection) {
+      const selection = context.confirmationSelection;
+      const source = await this.store.get(selection.frameId);
+      const sourceSchema = source ? this.capabilities.list().find(item => item.capability === source.capability) : undefined;
+      const options = source && sourceSchema ? clarificationOptions(source, fieldLabels(sourceSchema)).flatMap(group => group.options) : [];
+      const recovered = base?.recovery?.selectionFrameId === selection.frameId
+        && businessKey([...base.recovery.optionIds].sort()) === businessKey([...selection.optionIds].sort());
+      if (!source || source.sessionId !== identity.sessionId || source.turnId === identity.turnId || !inheritableFrame(source)
+        || !selection.optionIds.length || new Set(selection.optionIds).size !== selection.optionIds.length
+        || selection.optionIds.some(id => !options.some(option => option.id === id))
+        || base?.frameId !== selection.frameId && !recovered) {
+        throw new BusinessInputError("CLARIFICATION_SELECTION_INVALID", "$confirmation",
+          "点选来源或选项已失效，不能将其应用到其它业务条件；请读取原待确认状态重新选择，未执行查询。");
+      }
+    }
     const capability = delta.capabilityHint ?? base?.capability ?? "";
     let schema;
     try { schema = this.capabilities.get(capability); } catch {
       throw new BusinessInputError("CAPABILITY_REQUIRED", "$capability", "无可继承能力时必须提供 capabilityHint，使用 business_context_read 中的能力名称；不要向用户询问内部能力名称。原焦点未改变。");
+    }
+    if (!declaredSchema) validateFieldIntents(schema, delta, context);
+    if (base?.recovery) {
+      const pending = base.recovery.pendingFields.filter(name => {
+        const change = delta.fieldChanges.find(item => item.fieldHint === name);
+        const saved = base.recovery!.pendingChanges?.find(item => item.field === name);
+        if (change) return change.operation === "retain" && saved?.mayRetain === false;
+        // 只把已校验的显式 inherit 作为撤销无依据提案；不能凭省略抹掉本轮真实变化。
+        return !(saved?.mayRetain === true && delta.fieldIntents?.[name]?.mode === "inherit");
+      });
+      if (pending.length) throw new BusinessInputError("TURN_CHANGES_PENDING", pending.join(","),
+        "已核验的选择已保存。按 pending_changes 处理剩余提案：有本轮依据的新值须修正并落实；允许保留旧值的项可显式 inherit 或 retain，不能仅省略所有待修字段。完成校验前不会执行查询。",
+        {frameId: base.frameId});
     }
     // 旧排名把父机构与实际目标混用，不能静默继承为新契约的普通取值。
     if (delta.executionMode !== "reuse_result" && base?.capability === "metric_query"
@@ -123,6 +180,24 @@ export class BusinessContextService {
         const merged = await mergeFields(schema, base, delta, this.resolvers, context);
         if (merged.issues.length) throw new BusinessInputError("FIELD_CHANGES_INVALID", "$fields", "fieldChanges 含未声明或重复字段。请按目标能力 Schema 修正字段，不要切换业务目标来绕过错误；原焦点未改变。");
         frame.fields = merged.fields;
+        // 宿主绑定的口径切换（前端 time_override）：等同用户本轮明确指定时间，覆盖继承或模型提交的取值。
+        if (context.timeOverride && schema.fields.time && frame.fields.time) {
+          frame.fields.time = {rawValue: {...context.timeOverride}, resolvedValue: {...context.timeOverride},
+            source: "explicit", resolver: "date", resolutionStatus: "resolved", metadata: {timeSource: "user_override"}};
+        }
+        let constrained = delta;
+        for (const saved of base?.recovery?.pendingChanges ?? []) {
+          if (saved.mayRetain || saved.expectedCount === undefined) continue;
+          const intent = delta.fieldIntents?.[saved.field];
+          if (intent?.expectedCount !== undefined && intent.expectedCount !== null && intent.expectedCount !== saved.expectedCount) {
+            throw new BusinessInputError("FIELD_INTENT_COUNT_CONFLICT", saved.field,
+              "恢复同一本轮变化须保留 pending_changes 中已核验的目标数量；不能用新数量或null删除约束。原条件及确认已保留。");
+          }
+          // 只补已保存约束供集合校验，模型原始 Delta 与其来源声明保持不变。
+          constrained = {...constrained, fieldIntents: {...constrained.fieldIntents, [saved.field]: {
+            mode: intent?.mode ?? "inherit", sourceText: intent?.sourceText ?? null, expectedCount: saved.expectedCount}}};
+        }
+        applyFieldIntentConstraints(schema, merged.fields, constrained, base);
         const validation = validateFrame(schema, merged.fields, merged.issues);
         const businessMissing = validation.issues.some(issue => issue.reason === "missing"
           && schema.fields[issue.field]?.required && !schema.fields[issue.field]?.missingIsArgumentError);
@@ -137,18 +212,41 @@ export class BusinessContextService {
         // 先保存真实业务缺项及已知条件；内部枚举待条件补齐后由模型修正，不交给用户填写。
         const visibleIssues = validation.issues.filter(issue => !(businessMissing && issue.reason === "missing"
           && schema.fields[issue.field]?.missingIsArgumentError));
-        const invalid = visibleIssues.filter(issue => (issue.reason === "missing" && schema.fields[issue.field]?.missingIsArgumentError)
-          || (issue.reason === "invalid" && (issue.message !== undefined || merged.fields[issue.field]?.metadata?.userInputIssue !== true)));
-        if (invalid.length) throw new BusinessInputError("FIELD_COMBINATION_INVALID", invalid.map(issue => issue.field).join(","),
-          invalid.map(issue => issue.message ?? `${issue.field} 是模型需提供的内部控制字段，按Schema修正参数并保留用户目标；${schema.fields[issue.field]?.description ?? ""}`).join("；"));
+        // 能力组合诊断可补充已有字段问题；同一字段/原因只交付一项，优先保留结构化合法边界。
+        const invalid = [...new Map(visibleIssues.filter(issue => (issue.reason === "missing" && schema.fields[issue.field]?.missingIsArgumentError)
+          || (issue.reason === "invalid" && (issue.message !== undefined || merged.fields[issue.field]?.metadata?.userInputIssue !== true)))
+          .map(issue => [`${issue.field}:${issue.reason}`, issue] as const)).values()];
+        if (invalid.length) {
+          const corrections: FieldInputCorrection[] = invalid.map(issue => {
+            if (issue.correction) return issue.correction;
+            const definition = schema.fields[issue.field];
+            const message = issue.message ?? `${issue.field} 是模型需提供的内部控制字段，按Schema修正参数并保留用户目标；${definition?.description ?? ""}`;
+            const inputSchema = definition?.inputSchema ?? (definition?.validation?.enum ? {enum: definition.validation.enum} : undefined);
+            return {field: issue.field, reason: issue.reason === "missing" ? "missing" : "invalid", message,
+              ...(definition?.validation?.enum ? {allowedValues: definition.validation.enum} : {}), ...(inputSchema ? {inputSchema} : {})};
+          });
+          throw new BusinessInputError("FIELD_COMBINATION_INVALID", invalid.map(issue => issue.field).join(","),
+            corrections.map(issue => issue.message).join("；"), undefined, undefined, corrections);
+        }
         const temporary = validation.issues.some(issue => issue.reason === "temporary_error");
         frame.issues.push(...visibleIssues);
         frame.status = temporary ? "draft" : validation.status === "READY" ? "ready" : "clarifying";
         if (temporary) frame.errorCode = "TEMPORARY_ERROR";
       } catch (error) {
         // 字段解析、结构与组合校验共用纠错边界，不能丢失已经选定的历史来源。
-        if (error instanceof BusinessInputError && base && delta.baseReference) {
-          throw new BusinessInputError(error.code, error.field, error.correction, {frameId: base.frameId});
+        if (error instanceof BusinessInputError) {
+          // Resolver 提前拒绝输入时，只有字段 Schema 已知；未完成解析不能推断跨字段组合。
+          const rawCorrections = error.corrections?.length ? error.corrections : (error.recovery ? undefined : error.field.split(",").flatMap(name => {
+            const definition = schema.fields[name];
+            if (!definition?.inputSchema && !definition?.validation?.enum) return [];
+            return [{field: name, reason: "invalid" as const, message: error.correction,
+              ...(definition.validation?.enum ? {allowedValues: definition.validation.enum} : {}),
+              inputSchema: definition.inputSchema ?? {enum: definition.validation!.enum!}}];
+          }));
+          const corrections = rawCorrections?.map(correction => schema.fields[correction.field]
+            ? withFieldClarification(schema.fields[correction.field]!, correction) : correction);
+          throw new BusinessInputError(error.code, error.field, error.correction,
+            base && delta.baseReference ? {frameId: base.frameId} : error.baseReference, error.recovery, corrections);
         }
         throw error;
       }
@@ -157,6 +255,107 @@ export class BusinessContextService {
     const saved = await this.store.save(frame, state.version, key, frame.status !== "draft" || !state.focusFrameId);
     this.trace(saved);
     return saved;
+  }
+  /** 选择只绑定同会话、同来源的旧候选，编码仍经原 Resolver 复核；草稿闸门覆盖其余失败字段。 */
+  private async preserveBoundConfirmation(delta: ContextDelta, identity: TurnIdentity, context: ResolverContext,
+    invalidFields: string[]): Promise<BusinessFrame | undefined> {
+    if (!context.replyEvidence || delta.baseReference === null) return undefined;
+    const state = await this.store.state();
+    let base: BusinessFrame | undefined;
+    if (delta.baseReference && delta.baseReference !== "current") {
+      const resolution = resolveFrame(delta.baseReference, state, await this.store.list(), identity.turnId);
+      if (resolution.status === "resolved") base = await this.store.get(resolution.frameId!);
+    } else if (state.focusFrameId) base = await this.store.get(state.focusFrameId);
+    if (!base || base.sessionId !== identity.sessionId || !inheritableFrame(base) || base.status === "executing"
+      || base.issues.some(issue => issue.field === "$base") || delta.capabilityHint && delta.capabilityHint !== base.capability) return undefined;
+    const selection = context.confirmationSelection;
+    if (selection && selection.frameId !== base.frameId && selection.frameId !== base.recovery?.selectionFrameId) return undefined;
+    const latest = await this.store.get(state.operations[base.operationFrameId] ?? base.frameId);
+    if (latest?.recovery) return latest;
+    if (latest && (!inheritableFrame(latest) || latest.status === "executing")) return undefined;
+    if (base.recovery) return base;
+    const schema = this.capabilities.get(base.capability);
+    const pending = clarificationOptions(base, fieldLabels(schema)).filter(group =>
+      (base!.fields[group.field]?.metadata?.candidateTurnId ?? base!.turnId) !== context.turnId);
+    if (!pending.length) return undefined;
+    const evidence = await context.replyEvidence(base.frameId);
+    const boundIds = [...(evidence.optionIds ?? [])];
+    if (boundIds.some(id => !pending.some(group => group.options.some(option => option.id === id)))) return undefined;
+    // 自然文本也只从规范清单唯一对应；不使用失败提案中模型填写的 affirmation。
+    const selected = selectOptions(pending, boundIds.length ? {reply: "", optionIds: boundIds} : evidence);
+    const ids = selected.map(option => option.id);
+    if (!ids.length || boundIds.some(id => !ids.includes(id))) return undefined;
+    const selectedFields = new Set(selected.map(option => option.field));
+    // 选择之外的参数失败可以单独保存选择；数量等本字段校验失败不能另存一个绕过失败的确认。
+    if (invalidFields.some(name => selectedFields.has(name))) return undefined;
+    const confirmation: ContextDelta = {capabilityHint: base.capability, baseReference: {frameId: base.frameId},
+      executionMode: "resolve_more", fieldChanges: [...selectedFields].map(fieldHint => ({fieldHint, operation: "set", rawValue: {confirm: true}}))};
+    const merged = await mergeFields(schema, base, confirmation, this.resolvers, context);
+    applyFieldIntentConstraints(schema, merged.fields, confirmation, base);
+    if ([...selectedFields].some(name => merged.fields[name]?.metadata?.confirmationTurnId !== context.turnId
+      || ["invalid", "temporary_error"].includes(merged.fields[name]!.resolutionStatus)
+      || merged.fields[name]?.metadata?.confirmationUnclear === true)) return undefined;
+    const pendingFields = [...new Set([
+      ...delta.fieldChanges.filter(change => change.operation !== "retain").map(change => change.fieldHint),
+      ...Object.entries(delta.fieldIntents ?? {}).filter(([, intent]) => intent.mode !== "inherit").map(([name]) => name),
+    ])].filter(name => !selectedFields.has(name) && Object.hasOwn(schema.fields, name));
+    const pendingChanges = pendingFields.map(name => {
+      const change = delta.fieldChanges.find(item => item.fieldHint === name);
+      const intent = delta.fieldIntents?.[name];
+      const raw = change?.rawValue;
+      const object = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : undefined;
+      const evidence = object?.evidence as {sourceText?: unknown} | undefined;
+      const sources = [intent?.sourceText, object?.sourceText, evidence?.sourceText,
+        // 枚举是程序控制值，缺少原文锚定不能据此判断用户没有改变业务选择。
+        ...(typeof raw === "string" && !schema.fields[name]!.validation?.enum?.includes(raw) ? [raw] : []),
+        ...(Array.isArray(raw) ? raw : [])].filter((value): value is string => typeof value === "string" && !!value.trim());
+      const sourceText = sources.find(value => hasInputEvidence(context.originalMessage, value));
+      let expectedCount: number | undefined;
+      if (sourceText && intent && typeof intent.expectedCount === "number") {
+        try {
+          const definition = schema.fields[name]!;
+          validateFieldIntents({...schema, fields: {[name]: definition}}, {...delta,
+            fieldChanges: change ? [change] : [], fieldIntents: {[name]: intent}}, context);
+          if (definition.inputSchema) validateToolArguments({name: "recovery_field", description: "恢复字段结构",
+            parameters: Type.Object({raw: Type.Unsafe(definition.inputSchema)}, {additionalProperties: false})},
+          {type: "toolCall", name: "recovery_field", id: "recovery", arguments: {raw}});
+          expectedCount = intent.expectedCount;
+        } catch { /* 非法声明或字段形状不成为新的恢复数量约束。 */ }
+      }
+      return {field: name, operation: change?.operation === "retain" ? "inherit" as const : change?.operation ?? intent!.mode,
+        ...(sourceText ? {sourceText} : {}), ...(expectedCount !== undefined ? {expectedCount} : {}),
+        mayRetain: sources.length > 0 && sourceText === undefined};
+    });
+    const id = randomUUID();
+    const frame: BusinessFrame = {frameId: id, ...identity, capability: base.capability,
+      operationFrameId: base.operationFrameId, parentFrameId: base.frameId, fields: merged.fields,
+      delta: confirmation, status: "draft", errorCode: "TURN_ARGUMENTS_PENDING",
+      recovery: {turnId: identity.turnId, pendingFields, pendingChanges, selectionFrameId: base.frameId, optionIds: [...new Set(ids)].sort()},
+      issues: validateFrame(schema, merged.fields, merged.issues).issues,
+      createdAt: new Date().toISOString()};
+    const saved = await this.store.save(frame, state.version,
+      businessKey({phase: "verified-confirmation", ...identity, source: base.frameId, ids: [...new Set(ids)].sort(), pendingFields}), true);
+    this.trace(saved);
+    return saved;
+  }
+  /** 恢复只读定位与正常来源门禁一致；无法唯一绑定时仍走原参数/来源纠错，不猜焦点或来源。 */
+  private async preflightRecovery(delta: ContextDelta, identity: TurnIdentity, context: ResolverContext): Promise<void> {
+    if (!delta.fieldChanges.some(change => change.operation === "set") || delta.baseReference === null) return;
+    const state = await this.store.state();
+    let base: BusinessFrame | undefined;
+    if (delta.baseReference && delta.baseReference !== "current") {
+      const resolution = resolveFrame(delta.baseReference, state, await this.store.list(), identity.turnId);
+      if (resolution.status === "resolved") base = await this.store.get(resolution.frameId!);
+    } else if (state.focusFrameId) {
+      const focus = await this.store.get(state.focusFrameId);
+      const latest = focus ? await this.store.get(state.operations[focus.operationFrameId] ?? focus.frameId) : undefined;
+      if (latest && (!inheritableFrame(latest) || latest.status === "executing" || latest.issues.some(issue => issue.field === "$base"))) return;
+      base = latest?.status === "failed" ? latest : focus;
+    }
+    if (!base || base.sessionId !== identity.sessionId || !inheritableFrame(base) || base.status === "executing"
+      || base.issues.some(issue => issue.field === "$base")) return;
+    const schema = this.capabilities.list().find(item => item.capability === (delta.capabilityHint ?? base.capability));
+    if (schema) preflightFieldRecovery(schema, base, delta, this.resolvers, context);
   }
   /** 焦点或所引用操作停在上一轮的 executing：回查后端真实终态并补写，不重发查询。 */
   private async settleStaleExecution(delta: ContextDelta, identity: TurnIdentity, context: ResolverContext): Promise<void> {
@@ -180,6 +379,12 @@ export class BusinessContextService {
     if (!frame || frame.sessionId !== identity.sessionId) throw new Error("FRAME_NOT_CURRENT_TURN");
     if (frame.turnId !== identity.turnId) throw new BusinessInputError("FRAME_NOT_CURRENT_TURN", "$frame",
       "不能直接执行上轮 Frame。用户确认继续已有查询时，调用 resolve_business_turn，沿用焦点或明确 baseReference，未变化字段省略（fieldChanges=[]），executionMode=execute，再执行返回的本轮 READY frameId。不要把确认话语当成新指标解析。原焦点未改变。");
+    const focusId = (await this.store.state()).focusFrameId;
+    const focus = focusId ? await this.store.get(focusId) : undefined;
+    if (frame.recovery || focus?.recovery?.turnId === identity.turnId) {
+      throw new BusinessInputError("TURN_CHANGES_PENDING", "$frame", "本轮仍有未完成的参数修正，已核验的确认已保存；请完成本轮全部变化校验后执行新 READY Frame。",
+        {frameId: (focus?.recovery ? focus : frame).frameId});
+    }
     if (frame.capability === "metric_query" && (frame.fields.selection?.resolvedValue === "ranking"
       || ["order", "top_n"].some(name => frame.fields[name]?.resolvedValue !== undefined)
       || legacyRankingOrder(frame.fields.operation?.resolvedValue))) throw new Error("LEGACY_QUERY_REQUIRES_NEW_TURN");

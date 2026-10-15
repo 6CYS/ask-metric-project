@@ -1,0 +1,39 @@
+{
+  "evidence_kind": "recap_of_completed_first_read_from_tool_output",
+  "first_run_started_at_utc": "2026-10-13T16:09:41.352764+00:00",
+  "read_only": true,
+  "not_a_reconstructed_original_raw_report": true,
+  "catalog_counts": {
+    "total": 12260,
+    "enabled": 9297
+  },
+  "workbook_codes": {
+    "unique": 440,
+    "enabled": 184,
+    "disabled": 56,
+    "missing": 200,
+    "non_null_values": 240,
+    "duplicate_enabled_codes": 0,
+    "workbook_scope_conflict_codes": 22
+  },
+  "fact_overall": {
+    "rows_total": 5168110,
+    "metrics_total": 12248,
+    "organizations_total": 61,
+    "earliest_date": "2026-01-31",
+    "latest_date": "2026-07-31"
+  },
+  "source_batch_marker_categories": [
+    {
+      "category": "other_redacted",
+      "rows_total": 3908414
+    },
+    {
+      "category": "contains_test_marker",
+      "rows_total": 1259696
+    }
+  ],
+  "real_lake_acceptance_proven": false,
+  "note": "First full report was overwritten by a later failed retry; these exact aggregates were separately printed in the completed tool output. Subsequent scoped report preserves fresh code-level evidence.",
+  "source_batch_marker_rule_in_first_run": "loose substring regex; may match latest; not proof of synthetic provenance; use final strict workbook marker check instead"
+}

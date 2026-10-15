@@ -209,7 +209,7 @@ async function copyAnswer() {
       </div>
       <div v-else class="flex items-start gap-2 border-y border-[#DCE3EF] py-2.5 text-xs text-[#66759B]" role="status">
         <Search class="mt-0.5 size-3.5 shrink-0" />
-        <span><strong class="font-medium text-[#52638F]">当前条件下暂未查询到数据。</strong> 可以确认统计日期或机构名称，也可以扩大时间范围重新查询。</span>
+        <span><strong class="font-medium text-[#52638F]">当前条件下暂未查询到数据。</strong>{{ response.time_variants?.length ? "可以切换下方备选口径重新查询。" : "可以确认统计日期或机构名称，也可以扩大时间范围重新查询。" }}</span>
       </div>
       <div v-if="isDataDetailsOpen" :id="dataDetailsId" class="w-full min-w-0 max-w-full overflow-hidden border-y border-border/70">
         <div v-if="sharedMetricName || hasChartView" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/70 px-2 py-1.5">

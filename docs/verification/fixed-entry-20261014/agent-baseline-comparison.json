@@ -1,0 +1,193 @@
+{
+  "baseline_report": "../typo-recovery-20261014/agent-tests.json",
+  "baseline": {
+    "passed": 1221,
+    "failed": 0,
+    "tests": 1221
+  },
+  "final": {
+    "passed": 1296,
+    "failed": 0,
+    "tests": 1296
+  },
+  "net_new_tests": 75,
+  "no_prior_test_file_count_decreased": true,
+  "test_file_count_changes": {
+    "business-context/fixedTurnArgs.spec.ts": {
+      "before": 0,
+      "after": 38
+    },
+    "fixedBusinessCapabilities.spec.ts": {
+      "before": 0,
+      "after": 2
+    },
+    "fixedModelProjection.spec.ts": {
+      "before": 0,
+      "after": 8
+    },
+    "fixedTurnCompatibility.spec.ts": {
+      "before": 0,
+      "after": 20
+    },
+    "harnessHost.test.ts": {
+      "before": 80,
+      "after": 84
+    },
+    "prompts/businessSystemPrompt.spec.ts": {
+      "before": 7,
+      "after": 8
+    },
+    "typoConfirmationFlow.spec.ts": {
+      "before": 4,
+      "after": 6
+    }
+  },
+  "label_changes": {
+    "harnessHost.test.ts": {
+      "previous_labels": [
+        "二期原生参数兼容 compact=false 校验前接受输入 compact=false，审计包装和发送副本不改原生调用",
+        "二期原生参数兼容 compact=false 校验前接受输入 compact=true，审计包装和发送副本不改原生调用",
+        "二期原生参数兼容 compact=true 校验前接受输入 compact=false，审计包装和发送副本不改原生调用",
+        "二期原生参数兼容 compact=true 校验前接受输入 compact=true，审计包装和发送副本不改原生调用",
+        "完整名称冲突经 pi 纠正，最终选择目标结果且原生重开不夹带目录排查"
+      ],
+      "current_labels": [
+        "固定模型入口不受旧compact配置影响 compact=false 校验前接受输入 compact=false，审计包装和发送副本不改原生调用",
+        "固定模型入口不受旧compact配置影响 compact=false 校验前接受输入 compact=true，审计包装和发送副本不改原生调用",
+        "固定模型入口不受旧compact配置影响 compact=true 校验前接受输入 compact=false，审计包装和发送副本不改原生调用",
+        "固定模型入口不受旧compact配置影响 compact=true 校验前接受输入 compact=true，审计包装和发送副本不改原生调用",
+        "新模型旧格式输出在SDK执行前拒绝，私有恢复Schema不授予新调用（旧compact=false）",
+        "新模型旧格式输出在SDK执行前拒绝，私有恢复Schema不授予新调用（旧compact=true）",
+        "旧已保存planned调用经真实SDK重开恢复一次，新请求仍只能固定协议（旧compact=false）",
+        "旧已保存planned调用经真实SDK重开恢复一次，新请求仍只能固定协议（旧compact=true）",
+        "目录短别名不能改写完整原文指标，重复解析只执行正确目标一次且重开保留结果"
+      ]
+    },
+    "business-context/compactTurnContract.spec.ts": {
+      "previous_labels": [
+        "原生工具与业务契约 compactTurnArgs=false 独立手写compact输入 '下辖集合'经过prepare/validate后执行相同正式查询",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写compact输入 '两家明确机构'经过prepare/validate后执行相同正式查询",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写compact输入 '名称中的排名不自动产生排序'",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写compact输入 '授权农商行集合'经过prepare/validate后执行相同正式查询",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写compact输入 '明确本级机构'经过prepare/validate后执行相同正式查询",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写compact输入 '真实错加排名参数不能凭合法形状执行'",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写compact输入 set/remove/clear/retain合并一轮变化，清除机构阻止查询，下一轮补齐后执行剩余指标",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写compact输入 未知字段与非法字段值仍走原业务参数错误，不写Frame或查询",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写compact输入 真实失败的范围字符串各家农商行仍合法，不自动猜测或扩大范围",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写compact输入 真实失败的范围字符串合成甲农商行下属支行仍合法，不自动猜测或扩大范围",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写compact输入 缺少或非法来源在原生校验前后均不能被补成当前焦点",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写compact输入 重复修改不能在准备阶段丢失：同方言报业务错误，跨方言仍由原生Schema拒绝",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写compact输入 错误后重交整轮有效变化，保留所选历史来源、机构与排名，不退回当前焦点",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写legacy输入 '下辖集合'经过prepare/validate后执行相同正式查询",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写legacy输入 '两家明确机构'经过prepare/validate后执行相同正式查询",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写legacy输入 '名称中的排名不自动产生排序'",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写legacy输入 '授权农商行集合'经过prepare/validate后执行相同正式查询",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写legacy输入 '明确本级机构'经过prepare/validate后执行相同正式查询",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写legacy输入 '真实错加排名参数不能凭合法形状执行'",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写legacy输入 set/remove/clear/retain合并一轮变化，清除机构阻止查询，下一轮补齐后执行剩余指标",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写legacy输入 未知字段与非法字段值仍走原业务参数错误，不写Frame或查询",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写legacy输入 真实失败的范围字符串各家农商行仍合法，不自动猜测或扩大范围",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写legacy输入 真实失败的范围字符串合成甲农商行下属支行仍合法，不自动猜测或扩大范围",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写legacy输入 缺少或非法来源在原生校验前后均不能被补成当前焦点",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写legacy输入 重复修改不能在准备阶段丢失：同方言报业务错误，跨方言仍由原生Schema拒绝",
+        "原生工具与业务契约 compactTurnArgs=false 独立手写legacy输入 错误后重交整轮有效变化，保留所选历史来源、机构与排名，不退回当前焦点",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写compact输入 '下辖集合'经过prepare/validate后执行相同正式查询",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写compact输入 '两家明确机构'经过prepare/validate后执行相同正式查询",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写compact输入 '名称中的排名不自动产生排序'",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写compact输入 '授权农商行集合'经过prepare/validate后执行相同正式查询",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写compact输入 '明确本级机构'经过prepare/validate后执行相同正式查询",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写compact输入 '真实错加排名参数不能凭合法形状执行'",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写compact输入 set/remove/clear/retain合并一轮变化，清除机构阻止查询，下一轮补齐后执行剩余指标",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写compact输入 未知字段与非法字段值仍走原业务参数错误，不写Frame或查询",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写compact输入 真实失败的范围字符串各家农商行仍合法，不自动猜测或扩大范围",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写compact输入 真实失败的范围字符串合成甲农商行下属支行仍合法，不自动猜测或扩大范围",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写compact输入 缺少或非法来源在原生校验前后均不能被补成当前焦点",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写compact输入 重复修改不能在准备阶段丢失：同方言报业务错误，跨方言仍由原生Schema拒绝",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写compact输入 错误后重交整轮有效变化，保留所选历史来源、机构与排名，不退回当前焦点",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写legacy输入 '下辖集合'经过prepare/validate后执行相同正式查询",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写legacy输入 '两家明确机构'经过prepare/validate后执行相同正式查询",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写legacy输入 '名称中的排名不自动产生排序'",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写legacy输入 '授权农商行集合'经过prepare/validate后执行相同正式查询",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写legacy输入 '明确本级机构'经过prepare/validate后执行相同正式查询",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写legacy输入 '真实错加排名参数不能凭合法形状执行'",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写legacy输入 set/remove/clear/retain合并一轮变化，清除机构阻止查询，下一轮补齐后执行剩余指标",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写legacy输入 未知字段与非法字段值仍走原业务参数错误，不写Frame或查询",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写legacy输入 真实失败的范围字符串各家农商行仍合法，不自动猜测或扩大范围",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写legacy输入 真实失败的范围字符串合成甲农商行下属支行仍合法，不自动猜测或扩大范围",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写legacy输入 缺少或非法来源在原生校验前后均不能被补成当前焦点",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写legacy输入 重复修改不能在准备阶段丢失：同方言报业务错误，跨方言仍由原生Schema拒绝",
+        "原生工具与业务契约 compactTurnArgs=true 独立手写legacy输入 错误后重交整轮有效变化，保留所选历史来源、机构与排名，不退回当前焦点",
+        "模型工具Schema给出能力登记字段，同时保留未知字段到原业务校验的接受路径"
+      ],
+      "current_labels": [
+        "唯一模型入口Schema给出固定字段并在入口拒绝未知字段与错形值",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写compact输入 '下辖集合'经过prepare/validate后执行相同正式查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写compact输入 '两家明确机构'经过prepare/validate后执行相同正式查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写compact输入 '名称中的排名不自动产生排序'",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写compact输入 '授权农商行集合'经过prepare/validate后执行相同正式查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写compact输入 '明确本级机构'经过prepare/validate后执行相同正式查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写compact输入 '真实错加排名参数不能凭合法形状执行'",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写compact输入 set/remove/clear/retain合并一轮变化，清除机构阻止查询，下一轮补齐后执行剩余指标",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写compact输入 未知字段与非法字段值仍走原业务参数错误，不写Frame或查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写compact输入 真实失败的范围字符串各家农商行仍合法，不自动猜测或扩大范围",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写compact输入 真实失败的范围字符串合成甲农商行下属支行仍合法，不自动猜测或扩大范围",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写compact输入 缺少或非法来源在原生校验前后均不能被补成当前焦点",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写compact输入 重复修改不能在准备阶段丢失：同方言报业务错误，跨方言仍由原生Schema拒绝",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写compact输入 错误后重交整轮有效变化，保留所选历史来源、机构与排名，不退回当前焦点",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写legacy输入 '下辖集合'经过prepare/validate后执行相同正式查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写legacy输入 '两家明确机构'经过prepare/validate后执行相同正式查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写legacy输入 '名称中的排名不自动产生排序'",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写legacy输入 '授权农商行集合'经过prepare/validate后执行相同正式查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写legacy输入 '明确本级机构'经过prepare/validate后执行相同正式查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写legacy输入 '真实错加排名参数不能凭合法形状执行'",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写legacy输入 set/remove/clear/retain合并一轮变化，清除机构阻止查询，下一轮补齐后执行剩余指标",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写legacy输入 未知字段与非法字段值仍走原业务参数错误，不写Frame或查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写legacy输入 真实失败的范围字符串各家农商行仍合法，不自动猜测或扩大范围",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写legacy输入 真实失败的范围字符串合成甲农商行下属支行仍合法，不自动猜测或扩大范围",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写legacy输入 缺少或非法来源在原生校验前后均不能被补成当前焦点",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写legacy输入 重复修改不能在准备阶段丢失：同方言报业务错误，跨方言仍由原生Schema拒绝",
+        "旧参数内部兼容与业务契约 compactTurnArgs=false 独立手写legacy输入 错误后重交整轮有效变化，保留所选历史来源、机构与排名，不退回当前焦点",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写compact输入 '下辖集合'经过prepare/validate后执行相同正式查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写compact输入 '两家明确机构'经过prepare/validate后执行相同正式查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写compact输入 '名称中的排名不自动产生排序'",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写compact输入 '授权农商行集合'经过prepare/validate后执行相同正式查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写compact输入 '明确本级机构'经过prepare/validate后执行相同正式查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写compact输入 '真实错加排名参数不能凭合法形状执行'",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写compact输入 set/remove/clear/retain合并一轮变化，清除机构阻止查询，下一轮补齐后执行剩余指标",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写compact输入 未知字段与非法字段值仍走原业务参数错误，不写Frame或查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写compact输入 真实失败的范围字符串各家农商行仍合法，不自动猜测或扩大范围",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写compact输入 真实失败的范围字符串合成甲农商行下属支行仍合法，不自动猜测或扩大范围",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写compact输入 缺少或非法来源在原生校验前后均不能被补成当前焦点",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写compact输入 重复修改不能在准备阶段丢失：同方言报业务错误，跨方言仍由原生Schema拒绝",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写compact输入 错误后重交整轮有效变化，保留所选历史来源、机构与排名，不退回当前焦点",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写legacy输入 '下辖集合'经过prepare/validate后执行相同正式查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写legacy输入 '两家明确机构'经过prepare/validate后执行相同正式查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写legacy输入 '名称中的排名不自动产生排序'",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写legacy输入 '授权农商行集合'经过prepare/validate后执行相同正式查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写legacy输入 '明确本级机构'经过prepare/validate后执行相同正式查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写legacy输入 '真实错加排名参数不能凭合法形状执行'",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写legacy输入 set/remove/clear/retain合并一轮变化，清除机构阻止查询，下一轮补齐后执行剩余指标",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写legacy输入 未知字段与非法字段值仍走原业务参数错误，不写Frame或查询",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写legacy输入 真实失败的范围字符串各家农商行仍合法，不自动猜测或扩大范围",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写legacy输入 真实失败的范围字符串合成甲农商行下属支行仍合法，不自动猜测或扩大范围",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写legacy输入 缺少或非法来源在原生校验前后均不能被补成当前焦点",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写legacy输入 重复修改不能在准备阶段丢失：同方言报业务错误，跨方言仍由原生Schema拒绝",
+        "旧参数内部兼容与业务契约 compactTurnArgs=true 独立手写legacy输入 错误后重交整轮有效变化，保留所选历史来源、机构与排名，不退回当前焦点"
+      ]
+    },
+    "prompts/businessSystemPrompt.spec.ts": {
+      "previous_labels": [
+        "字段形状保留在Schema与对应工具说明（compact=false）",
+        "字段形状保留在Schema与对应工具说明（compact=true）",
+        "常驻决策边界不依赖按需Skill，并保持两种参数方言语义一致"
+      ],
+      "current_labels": [
+        "实际注册工具使用同一固定Schema，没有两份意图声明或开放字段值",
+        "常驻决策边界不依赖按需Skill，旧参数开关不再改变模型协议",
+        "旧参数形状仅保留在内部兼容工具（compact=false）",
+        "旧参数形状仅保留在内部兼容工具（compact=true）"
+      ]
+    }
+  },
+  "note": "Legacy factory tests retained as internal compatibility tests; new public-entry assertions and scripted model fixtures migrated to fixed protocol. Label changes are explicit, not treated as unchanged test identities."
+}

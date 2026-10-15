@@ -24,7 +24,7 @@ const release=acquireWriterLock(config.dataDir);
 const store=new NativeSessionStore(config.dataDir);
 const skills=await loadBusinessSkills();
 const host=new PacedHost(config,authorize=>createAskMetricModels(config,authorize),store,
-  [...createAskMetricTools(),createBusinessSkillReadTool(skills)],{skills});
+  [...createAskMetricTools({compactTurnArgs: config.compactTurnArgs}),createBusinessSkillReadTool(skills)],{skills});
 const app=new Hono();
 app.use('*',cors({origin:'http://127.0.0.1:5173',allowHeaders:['Authorization','Content-Type'],allowMethods:['GET','POST','OPTIONS']}));
 app.route('/',createApp(config,host,store));

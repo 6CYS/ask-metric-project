@@ -10,6 +10,7 @@ defineProps<{ calculation: CalculationDetails }>()
       <details class="text-muted-foreground">
         <summary class="cursor-pointer text-xs leading-6 transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">查看计算口径和数据来源</summary>
         <div class="mt-2 space-y-2 break-words">
+          <p v-if="calculation.sources?.some(source => source.historical)">本次计算包含之前查询的数值快照，沿用当时的原值，未重新查库刷新。</p>
           <p v-for="result in calculation.results" :key="result.name">{{ result.label }}：{{ result.expression }}</p>
           <p v-for="(input, name) in calculation.inputs" :key="name">
             {{ name }}：{{ input.source_text || [input.org_name, input.metric_name, input.date].filter(Boolean).join(' · ') }}，{{ input.value }}{{ input.unit }}

@@ -1,0 +1,285 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:ask-metric:pi-semantic-task:feedback:v2",
+  "title": "Pi 语义任务工具反馈候选协议",
+  "description": "版本2统一反馈。阶段3支持整笔任务和依赖步骤；单步成功不能替代完整义务证据。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol_version",
+    "status",
+    "state",
+    "issues",
+    "continuation"
+  ],
+  "properties": {
+    "protocol_version": {
+      "type": "integer",
+      "const": 2
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "invalid_input",
+        "needs_interpretation",
+        "needs_user",
+        "prepared",
+        "ready",
+        "executing",
+        "succeeded",
+        "reused",
+        "unsupported",
+        "denied",
+        "conflict",
+        "failed",
+        "unknown"
+      ]
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_status",
+        "completion",
+        "raw_message_retained",
+        "proposals_retained",
+        "targets"
+      ],
+      "properties": {
+        "task_ref": {
+          "$ref": "#/definitions/reference"
+        },
+        "evidence": {
+          "type": "object",
+          "description": "正式执行或读取回执的展示数据，沿用受治理结果契约；只由宿主产生，用于同源页面表格与结果引用，模型不可提交。"
+        },
+        "task_status": {
+          "type": "string",
+          "enum": [
+            "unbound",
+            "active",
+            "waiting_input",
+            "waiting_dependency",
+            "completed",
+            "stopped"
+          ]
+        },
+        "completion": {
+          "type": "string",
+          "enum": [
+            "unverified",
+            "unmet",
+            "partial",
+            "full",
+            "partial_accepted"
+          ]
+        },
+        "raw_message_retained": {
+          "type": "boolean"
+        },
+        "proposals_retained": {
+          "type": "boolean"
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "target_ref",
+              "status",
+              "conditions",
+              "pending"
+            ],
+            "properties": {
+              "target_ref": {
+                "$ref": "#/definitions/reference"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "blocked",
+                  "ready",
+                  "executing",
+                  "succeeded",
+                  "failed",
+                  "invalidated",
+                  "unknown",
+                  "waiting_dependency"
+                ]
+              },
+              "conditions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/condition"
+                }
+              },
+              "pending": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/text"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "query",
+                  "availability",
+                  "calculation"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "aliases": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "category",
+          "message",
+          "remediation"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]+$"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "input_shape",
+              "semantic",
+              "catalog",
+              "calendar",
+              "reference",
+              "permission",
+              "coverage",
+              "capability",
+              "infrastructure"
+            ]
+          },
+          "target_ref": {
+            "$ref": "#/definitions/reference"
+          },
+          "field": {
+            "$ref": "#/definitions/field"
+          },
+          "message": {
+            "$ref": "#/definitions/text"
+          },
+          "remediation": {
+            "type": "string",
+            "enum": [
+              "pi",
+              "user",
+              "retry",
+              "stop"
+            ]
+          }
+        }
+      }
+    },
+    "continuation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor",
+        "action"
+      ],
+      "properties": {
+        "actor": {
+          "type": "string",
+          "enum": [
+            "pi",
+            "user",
+            "host",
+            "none"
+          ]
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "revise_proposal",
+            "read_context",
+            "explore_catalog",
+            "ask_user",
+            "execute_permitted_step",
+            "reconcile_execution",
+            "read_result",
+            "continue_analysis",
+            "answer",
+            "stop"
+          ]
+        }
+      }
+    }
+  },
+  "definitions": {
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "field": {
+      "type": "string",
+      "enum": [
+        "organizations",
+        "comparison_organizations",
+        "metrics",
+        "time",
+        "selection",
+        "operation",
+        "objective",
+        "calculation",
+        "availability"
+      ]
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field",
+        "display",
+        "origin"
+      ],
+      "properties": {
+        "field": {
+          "$ref": "#/definitions/field"
+        },
+        "display": {
+          "$ref": "#/definitions/text"
+        },
+        "origin": {
+          "type": "string",
+          "enum": [
+            "user_explicit",
+            "history",
+            "analysis_selected",
+            "rule_default"
+          ]
+        }
+      }
+    }
+  }
+}

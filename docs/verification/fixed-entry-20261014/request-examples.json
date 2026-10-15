@@ -1,0 +1,75 @@
+[
+  {
+    "protocol_version": 1,
+    "capability": "metric_query",
+    "base": null,
+    "mode": "execute",
+    "changes": {
+      "organizations": {
+        "action": "set",
+        "source_text": "合成甲行",
+        "expected_count": null,
+        "value": {
+          "kind": "name",
+          "name": "合成甲行"
+        }
+      },
+      "metrics": {
+        "action": "set",
+        "value": {
+          "fromQuestion": true
+        }
+      },
+      "time": {
+        "action": "set",
+        "value": "2026年7月31日"
+      }
+    }
+  },
+  {
+    "protocol_version": 1,
+    "capability": "metric_query",
+    "base": "current",
+    "mode": "execute",
+    "changes": {
+      "organizations": {
+        "action": "inherit"
+      },
+      "time": {
+        "action": "set",
+        "value": "2026年8月31日"
+      }
+    }
+  },
+  {
+    "protocol_version": 1,
+    "capability": "metric_query",
+    "base": "current",
+    "mode": "execute",
+    "changes": {
+      "organizations": {
+        "action": "inherit"
+      },
+      "operation": {
+        "action": "clarify",
+        "source_text": "排名"
+      }
+    }
+  },
+  {
+    "protocol_version": 1,
+    "capability": "metric_query",
+    "base": "current",
+    "mode": "execute",
+    "changes": {
+      "organizations": {
+        "action": "inherit"
+      },
+      "metrics": {
+        "action": "confirm",
+        "source_text": "选择第2项",
+        "decision": "select"
+      }
+    }
+  }
+]

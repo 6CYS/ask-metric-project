@@ -1,0 +1,15 @@
+{
+  "external_model": false,
+  "real_browser": true,
+  "real_HTTP": true,
+  "result": {
+    "running": false,
+    "operation_id": null,
+    "assistants": [
+      {
+        "text": "已停止生成。"
+      }
+    ],
+    "tool_messages": 0
+  }
+}

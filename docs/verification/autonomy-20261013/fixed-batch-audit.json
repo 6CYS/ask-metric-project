@@ -1,0 +1,1027 @@
+{
+  "schema_version": 1,
+  "audit_kind": "independent_read_only_fixed_batch_audit",
+  "audited_at": "2026-10-13T23:56:07.746695+00:00",
+  "read_only_audit_no_model_calls": true,
+  "environment": "real_model_api_with_isolated_synthetic_backend",
+  "real_database_verified": false,
+  "report_sources": {
+    "baseline": {
+      "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-baseline.json",
+      "sha256": "16b513353661ad915a4c8ae04c2bcfbd269fb1edcad0c30b84a6ca8498f5ccb4"
+    },
+    "candidate": {
+      "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-candidate.json",
+      "sha256": "49e4f7a7aa9f089613d984544909dbcf9c0adb131172bf50c836a65f2ff8ad72"
+    }
+  },
+  "fairness": {
+    "script_sha256": {
+      "equal": true,
+      "value": "c1408bd493e2cda0db34c4fa595d09079f6a95a1a82cefd2758746b538344a0b"
+    },
+    "dataset_sha256": {
+      "equal": true,
+      "value": "c4c5f40085eaa3da457ef910182061e9501ae3999fb8b8b883ccfb0fdd9217d2"
+    },
+    "workbook_sha256": {
+      "equal": true,
+      "value": "2c720f26d4d7a3f52df7d90e1d9a898816ad3365d862ab9bad452f2e4b606ef8"
+    },
+    "model_signature": {
+      "equal": true,
+      "value": {
+        "name": "deepseek-ai/DeepSeek-V4-Flash",
+        "max_tokens": 8192,
+        "context_window": 128000,
+        "extra_body": {
+          "enable_thinking": false,
+          "temperature": 0
+        },
+        "suffix_sha256": "c20b6b4e71fc88e1c67af02d36306644db844546d4a5cb5e9fdc4ab15bc98f60",
+        "compact_turn_args": false
+      }
+    },
+    "scenarios": {
+      "equal": true,
+      "value": [
+        "precise_dimension",
+        "precise_multi_turn",
+        "explicit_and_selected_metrics",
+        "result_driven_missing_data"
+      ]
+    },
+    "repetitions": {
+      "equal": true,
+      "value": 1
+    },
+    "provider_limit": {
+      "equal": true,
+      "value": 24
+    }
+  },
+  "frozen_source_checks": {
+    "baseline": {
+      "source_root": "/private/tmp/harness-autonomy-01a135ad/baseline",
+      "source_changed_during_run": false,
+      "manifest_file_count": 62,
+      "current_snapshot_mismatches": []
+    },
+    "candidate": {
+      "source_root": "/private/tmp/harness-autonomy-01a135ad/candidate-v1",
+      "source_changed_during_run": false,
+      "manifest_file_count": 70,
+      "current_snapshot_mismatches": []
+    }
+  },
+  "summary": {
+    "baseline": {
+      "planned_turns": 6,
+      "actual_turns": 6,
+      "passed": 4,
+      "failed": 2,
+      "precise_and_context_passed": 4,
+      "analysis_passed": 0,
+      "direct_query_count": 6,
+      "analysis_scenario_direct_query_count": 2,
+      "analysis_prepared_count": 0,
+      "analysis_execute_count": 0,
+      "provider_budget": {
+        "limit": 24,
+        "used": 17,
+        "denied": 0,
+        "exhausted": false
+      },
+      "reported_usage": {
+        "input": 204850,
+        "output": 3375,
+        "cacheRead": 60160,
+        "cacheWrite": 0,
+        "totalTokens": 268385
+      },
+      "elapsed_ms": 49540
+    },
+    "candidate": {
+      "planned_turns": 6,
+      "actual_turns": 6,
+      "passed": 4,
+      "failed": 2,
+      "precise_and_context_passed": 4,
+      "analysis_passed": 0,
+      "direct_query_count": 4,
+      "analysis_scenario_direct_query_count": 0,
+      "analysis_prepared_count": 0,
+      "analysis_execute_count": 0,
+      "provider_budget": {
+        "limit": 24,
+        "used": 15,
+        "denied": 0,
+        "exhausted": false
+      },
+      "reported_usage": {
+        "input": 112635,
+        "output": 3221,
+        "cacheRead": 83200,
+        "cacheWrite": 0,
+        "totalTokens": 199056
+      },
+      "elapsed_ms": 292170
+    }
+  },
+  "paired_outcomes": {
+    "shared_pass": 4,
+    "shared_failure": 2,
+    "candidate_only_failure": 0,
+    "baseline_only_failure": 0,
+    "infrastructure_incomparable": 0,
+    "budget_incomparable": 0,
+    "unpaired": 0
+  },
+  "precise_contract_audits": [
+    {
+      "phase": "baseline",
+      "scenario": "precise_dimension",
+      "turn": 1,
+      "report_pointer": "#/turns/0",
+      "passed": true,
+      "spec": {
+        "metric_codes": [
+          "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+        ],
+        "org_codes": [
+          "SYNTH_O1"
+        ],
+        "time": {
+          "start": "2026-07-31",
+          "end": "2026-07-31"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        }
+      },
+      "value": "5",
+      "focus_result_ref_matches_current_query": true,
+      "context_sources": {
+        "metrics": {
+          "source": "explicit",
+          "source_frame_id": null,
+          "resolved_value": {
+            "codes": [
+              "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+            ],
+            "names": [
+              "机构个人存款余额较年初增幅"
+            ]
+          }
+        },
+        "organizations": {
+          "source": "explicit",
+          "source_frame_id": null,
+          "resolved_value": {
+            "codes": [
+              "SYNTH_O1"
+            ],
+            "names": [
+              "合成机构甲"
+            ]
+          }
+        },
+        "time": {
+          "source": "explicit",
+          "source_frame_id": null,
+          "resolved_value": {
+            "start": "2026-07-31",
+            "end": "2026-07-31"
+          }
+        }
+      },
+      "original_metric_question_preserved": true
+    },
+    {
+      "phase": "baseline",
+      "scenario": "precise_multi_turn",
+      "turn": 1,
+      "report_pointer": "#/turns/1",
+      "passed": true,
+      "spec": {
+        "metric_codes": [
+          "ORG_VRS_DEPT_BAL"
+        ],
+        "org_codes": [
+          "SYNTH_O1"
+        ],
+        "time": {
+          "start": "2026-07-31",
+          "end": "2026-07-31"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        }
+      },
+      "value": "1000",
+      "focus_result_ref_matches_current_query": true,
+      "context_sources": {
+        "metrics": {
+          "source": "explicit",
+          "source_frame_id": null,
+          "resolved_value": {
+            "codes": [
+              "ORG_VRS_DEPT_BAL"
+            ],
+            "names": [
+              "机构各项存款余额"
+            ]
+          }
+        },
+        "organizations": {
+          "source": "explicit",
+          "source_frame_id": null,
+          "resolved_value": {
+            "codes": [
+              "SYNTH_O1"
+            ],
+            "names": [
+              "合成机构甲"
+            ]
+          }
+        },
+        "time": {
+          "source": "explicit",
+          "source_frame_id": null,
+          "resolved_value": {
+            "start": "2026-07-31",
+            "end": "2026-07-31"
+          }
+        }
+      },
+      "original_metric_question_preserved": true
+    },
+    {
+      "phase": "baseline",
+      "scenario": "precise_multi_turn",
+      "turn": 2,
+      "report_pointer": "#/turns/2",
+      "passed": true,
+      "spec": {
+        "metric_codes": [
+          "ORG_VRS_DEPT_BAL"
+        ],
+        "org_codes": [
+          "SYNTH_O1"
+        ],
+        "time": {
+          "start": "2026-08-31",
+          "end": "2026-08-31"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        }
+      },
+      "value": "1020",
+      "focus_result_ref_matches_current_query": true,
+      "context_sources": {
+        "metrics": {
+          "source": "inherited",
+          "source_frame_id": "c17dfbbc-d5a9-449f-86fa-636b2377c63d",
+          "resolved_value": {
+            "codes": [
+              "ORG_VRS_DEPT_BAL"
+            ],
+            "names": [
+              "机构各项存款余额"
+            ]
+          }
+        },
+        "organizations": {
+          "source": "inherited",
+          "source_frame_id": "c17dfbbc-d5a9-449f-86fa-636b2377c63d",
+          "resolved_value": {
+            "codes": [
+              "SYNTH_O1"
+            ],
+            "names": [
+              "合成机构甲"
+            ]
+          }
+        },
+        "time": {
+          "source": "explicit",
+          "source_frame_id": null,
+          "resolved_value": {
+            "start": "2026-08-31",
+            "end": "2026-08-31"
+          }
+        }
+      },
+      "original_metric_question_preserved": true
+    },
+    {
+      "phase": "baseline",
+      "scenario": "precise_multi_turn",
+      "turn": 3,
+      "report_pointer": "#/turns/3",
+      "passed": true,
+      "spec": {
+        "metric_codes": [
+          "ORG_VRS_DEPT_BAL"
+        ],
+        "org_codes": [
+          "SYNTH_O2"
+        ],
+        "time": {
+          "start": "2026-08-31",
+          "end": "2026-08-31"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        }
+      },
+      "value": "1120",
+      "focus_result_ref_matches_current_query": true,
+      "context_sources": {
+        "metrics": {
+          "source": "inherited",
+          "source_frame_id": "3ee8e92f-2859-4340-8967-cc2f33a29852",
+          "resolved_value": {
+            "codes": [
+              "ORG_VRS_DEPT_BAL"
+            ],
+            "names": [
+              "机构各项存款余额"
+            ]
+          }
+        },
+        "organizations": {
+          "source": "explicit",
+          "source_frame_id": null,
+          "resolved_value": {
+            "codes": [
+              "SYNTH_O2"
+            ],
+            "names": [
+              "合成机构乙"
+            ]
+          }
+        },
+        "time": {
+          "source": "inherited",
+          "source_frame_id": "3ee8e92f-2859-4340-8967-cc2f33a29852",
+          "resolved_value": {
+            "start": "2026-08-31",
+            "end": "2026-08-31"
+          }
+        }
+      },
+      "original_metric_question_preserved": true
+    },
+    {
+      "phase": "candidate",
+      "scenario": "precise_dimension",
+      "turn": 1,
+      "report_pointer": "#/turns/0",
+      "passed": true,
+      "spec": {
+        "metric_codes": [
+          "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+        ],
+        "org_codes": [
+          "SYNTH_O1"
+        ],
+        "time": {
+          "start": "2026-07-31",
+          "end": "2026-07-31"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        }
+      },
+      "value": "5",
+      "focus_result_ref_matches_current_query": true,
+      "context_sources": {
+        "metrics": {
+          "source": "explicit",
+          "source_frame_id": null,
+          "resolved_value": {
+            "codes": [
+              "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+            ],
+            "names": [
+              "机构个人存款余额较年初增幅"
+            ]
+          }
+        },
+        "organizations": {
+          "source": "explicit",
+          "source_frame_id": null,
+          "resolved_value": {
+            "codes": [
+              "SYNTH_O1"
+            ],
+            "names": [
+              "合成机构甲"
+            ]
+          }
+        },
+        "time": {
+          "source": "explicit",
+          "source_frame_id": null,
+          "resolved_value": {
+            "start": "2026-07-31",
+            "end": "2026-07-31"
+          }
+        }
+      },
+      "original_metric_question_preserved": true
+    },
+    {
+      "phase": "candidate",
+      "scenario": "precise_multi_turn",
+      "turn": 1,
+      "report_pointer": "#/turns/1",
+      "passed": true,
+      "spec": {
+        "metric_codes": [
+          "ORG_VRS_DEPT_BAL"
+        ],
+        "org_codes": [
+          "SYNTH_O1"
+        ],
+        "time": {
+          "start": "2026-07-31",
+          "end": "2026-07-31"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        }
+      },
+      "value": "1000",
+      "focus_result_ref_matches_current_query": true,
+      "context_sources": {
+        "metrics": {
+          "source": "explicit",
+          "source_frame_id": null,
+          "resolved_value": {
+            "codes": [
+              "ORG_VRS_DEPT_BAL"
+            ],
+            "names": [
+              "机构各项存款余额"
+            ]
+          }
+        },
+        "organizations": {
+          "source": "explicit",
+          "source_frame_id": null,
+          "resolved_value": {
+            "codes": [
+              "SYNTH_O1"
+            ],
+            "names": [
+              "合成机构甲"
+            ]
+          }
+        },
+        "time": {
+          "source": "explicit",
+          "source_frame_id": null,
+          "resolved_value": {
+            "start": "2026-07-31",
+            "end": "2026-07-31"
+          }
+        }
+      },
+      "original_metric_question_preserved": true
+    },
+    {
+      "phase": "candidate",
+      "scenario": "precise_multi_turn",
+      "turn": 2,
+      "report_pointer": "#/turns/2",
+      "passed": true,
+      "spec": {
+        "metric_codes": [
+          "ORG_VRS_DEPT_BAL"
+        ],
+        "org_codes": [
+          "SYNTH_O1"
+        ],
+        "time": {
+          "start": "2026-08-31",
+          "end": "2026-08-31"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        }
+      },
+      "value": "1020",
+      "focus_result_ref_matches_current_query": true,
+      "context_sources": {
+        "metrics": {
+          "source": "inherited",
+          "source_frame_id": "2657c6c6-059c-4271-bd3b-0ba26ddf7c59",
+          "resolved_value": {
+            "codes": [
+              "ORG_VRS_DEPT_BAL"
+            ],
+            "names": [
+              "机构各项存款余额"
+            ]
+          }
+        },
+        "organizations": {
+          "source": "inherited",
+          "source_frame_id": "2657c6c6-059c-4271-bd3b-0ba26ddf7c59",
+          "resolved_value": {
+            "codes": [
+              "SYNTH_O1"
+            ],
+            "names": [
+              "合成机构甲"
+            ]
+          }
+        },
+        "time": {
+          "source": "explicit",
+          "source_frame_id": null,
+          "resolved_value": {
+            "start": "2026-08-31",
+            "end": "2026-08-31"
+          }
+        }
+      },
+      "original_metric_question_preserved": true
+    },
+    {
+      "phase": "candidate",
+      "scenario": "precise_multi_turn",
+      "turn": 3,
+      "report_pointer": "#/turns/3",
+      "passed": true,
+      "spec": {
+        "metric_codes": [
+          "ORG_VRS_DEPT_BAL"
+        ],
+        "org_codes": [
+          "SYNTH_O2"
+        ],
+        "time": {
+          "start": "2026-08-31",
+          "end": "2026-08-31"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        }
+      },
+      "value": "1120",
+      "focus_result_ref_matches_current_query": true,
+      "context_sources": {
+        "metrics": {
+          "source": "inherited",
+          "source_frame_id": "e9e0181d-416a-465d-9895-2338b7e6b5d2",
+          "resolved_value": {
+            "codes": [
+              "ORG_VRS_DEPT_BAL"
+            ],
+            "names": [
+              "机构各项存款余额"
+            ]
+          }
+        },
+        "organizations": {
+          "source": "explicit",
+          "source_frame_id": null,
+          "resolved_value": {
+            "codes": [
+              "SYNTH_O2"
+            ],
+            "names": [
+              "合成机构乙"
+            ]
+          }
+        },
+        "time": {
+          "source": "inherited",
+          "source_frame_id": "e9e0181d-416a-465d-9895-2338b7e6b5d2",
+          "resolved_value": {
+            "start": "2026-08-31",
+            "end": "2026-08-31"
+          }
+        }
+      },
+      "original_metric_question_preserved": true
+    }
+  ],
+  "analysis_turn_audits": [
+    {
+      "phase": "baseline",
+      "scenario": "explicit_and_selected_metrics",
+      "passed": false,
+      "failure": "ANALYSIS_SELECTED_ADDITIONAL_METRICS",
+      "model_errors": [],
+      "actual_query_count": 2,
+      "actual_query_codes": [
+        [
+          "ORG_VRS_DEPT_BAL",
+          "ORG_PSON_DEPT_BAL"
+        ],
+        [
+          "ORG_VRS_DEPT_BAL",
+          "ORG_PSON_DEPT_BAL"
+        ]
+      ],
+      "prepared_count": 0,
+      "analysis_execute_count": 0,
+      "persisted_analysis_task": false,
+      "empty_final_answer": false,
+      "report_pointer": "#/turns/4"
+    },
+    {
+      "phase": "baseline",
+      "scenario": "result_driven_missing_data",
+      "passed": false,
+      "failure": "ANALYSIS_ACTUALLY_QUERIED",
+      "model_errors": [],
+      "actual_query_count": 0,
+      "actual_query_codes": [],
+      "prepared_count": 0,
+      "analysis_execute_count": 0,
+      "persisted_analysis_task": false,
+      "empty_final_answer": false,
+      "report_pointer": "#/turns/5"
+    },
+    {
+      "phase": "candidate",
+      "scenario": "explicit_and_selected_metrics",
+      "passed": false,
+      "failure": "MODEL_TURN_COMPLETED",
+      "model_errors": [
+        "MODEL_STREAM_IDLE_EXCEEDED: 模型输出长时间没有有效进展，本轮未正常完成。"
+      ],
+      "actual_query_count": 0,
+      "actual_query_codes": [],
+      "prepared_count": 0,
+      "analysis_execute_count": 0,
+      "persisted_analysis_task": false,
+      "empty_final_answer": true,
+      "report_pointer": "#/turns/4"
+    },
+    {
+      "phase": "candidate",
+      "scenario": "result_driven_missing_data",
+      "passed": false,
+      "failure": "MODEL_TURN_COMPLETED",
+      "model_errors": [
+        "MODEL_STREAM_IDLE_EXCEEDED: 模型输出长时间没有有效进展，本轮未正常完成。"
+      ],
+      "actual_query_count": 0,
+      "actual_query_codes": [],
+      "prepared_count": 0,
+      "analysis_execute_count": 0,
+      "persisted_analysis_task": false,
+      "empty_final_answer": true,
+      "report_pointer": "#/turns/5"
+    }
+  ],
+  "candidate_native_analysis_evidence": [
+    {
+      "scenario": "explicit_and_selected_metrics",
+      "analysis_tool_call_id": "01a137aa4ed3fbe1b6ffceff2429c55c",
+      "proposal_only": true,
+      "toolcall_start_count": 1,
+      "toolcall_end_count": 0,
+      "tool_receipt_count": 0,
+      "admitted_or_persisted_task": false,
+      "actual_query_count": 0,
+      "prepared_count": 0,
+      "analysis_execute_count": 0,
+      "missing_fixture_triggered": false,
+      "result_driven_replanning_observed": false,
+      "model_timings_ms": [
+        3732,
+        124764
+      ],
+      "run_elapsed_ms": 128527,
+      "error": "MODEL_STREAM_IDLE_EXCEEDED: 模型输出长时间没有有效进展，本轮未正常完成。",
+      "native_evidence": [
+        {
+          "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-candidate-native/2026-10-13T23-47-37-219Z_01a137aa-1a83-758e-90cd-11f7f2adc3ee.jsonl",
+          "line": 269,
+          "seq": 294,
+          "evidence": "toolcall_start"
+        },
+        {
+          "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-candidate-native/2026-10-13T23-47-37-219Z_01a137aa-1a83-758e-90cd-11f7f2adc3ee.jsonl",
+          "line": 608,
+          "seq": 633,
+          "evidence": "assistant_error_snapshot"
+        },
+        {
+          "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-candidate-native/2026-10-13T23-47-37-219Z_01a137aa-1a83-758e-90cd-11f7f2adc3ee.jsonl",
+          "line": 608,
+          "seq": 639,
+          "evidence": "failed_run_result"
+        },
+        {
+          "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-candidate-native/2026-10-13T23-47-37-219Z_01a137aa-1a83-758e-90cd-11f7f2adc3ee.jsonl",
+          "line": 609,
+          "seq": 641,
+          "evidence": "request_final_timings"
+        }
+      ]
+    },
+    {
+      "scenario": "result_driven_missing_data",
+      "analysis_tool_call_id": "01a137ac448e3a94c258b11846240579",
+      "proposal_only": true,
+      "toolcall_start_count": 1,
+      "toolcall_end_count": 0,
+      "tool_receipt_count": 0,
+      "admitted_or_persisted_task": false,
+      "actual_query_count": 0,
+      "prepared_count": 0,
+      "analysis_execute_count": 0,
+      "missing_fixture_triggered": false,
+      "result_driven_replanning_observed": false,
+      "model_timings_ms": [
+        4974,
+        1376,
+        2784,
+        2852,
+        126445
+      ],
+      "run_elapsed_ms": 138488,
+      "error": "MODEL_STREAM_IDLE_EXCEEDED: 模型输出长时间没有有效进展，本轮未正常完成。",
+      "native_evidence": [
+        {
+          "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-candidate-native/2026-10-13T23-49-45-750Z_01a137ac-1096-758e-90cd-120c714afd54.jsonl",
+          "line": 676,
+          "seq": 730,
+          "evidence": "toolcall_start"
+        },
+        {
+          "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-candidate-native/2026-10-13T23-49-45-750Z_01a137ac-1096-758e-90cd-120c714afd54.jsonl",
+          "line": 977,
+          "seq": 1031,
+          "evidence": "assistant_error_snapshot"
+        },
+        {
+          "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-candidate-native/2026-10-13T23-49-45-750Z_01a137ac-1096-758e-90cd-120c714afd54.jsonl",
+          "line": 977,
+          "seq": 1037,
+          "evidence": "failed_run_result"
+        },
+        {
+          "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-candidate-native/2026-10-13T23-49-45-750Z_01a137ac-1096-758e-90cd-120c714afd54.jsonl",
+          "line": 978,
+          "seq": 1039,
+          "evidence": "request_final_timings"
+        }
+      ]
+    }
+  ],
+  "unexecuted_proposal_coverage_issue": {
+    "scenario": "explicit_and_selected_metrics",
+    "status": "仅未完成模型提案，未获宿主执行或接受",
+    "step1": {
+      "claimed": "查询各项存款余额及个人存款余额",
+      "actual_catalog_codes": [
+        "ORG_VRS_DEPT_BAL"
+      ],
+      "missing_fixed_code": "ORG_PSON_DEPT_BAL"
+    },
+    "step3": {
+      "claimed": "查询个人存款占比",
+      "actual_catalog_codes": [
+        "ORG_VRS_DEPT_BAL"
+      ],
+      "issue": "purpose与catalogRef正式指标不一致"
+    }
+  },
+  "answer_calculation_scoring_blind_spots": [
+    {
+      "scenario": "precise_multi_turn",
+      "turn": 2,
+      "phase": "candidate",
+      "text": "与7月31日（1000亿元）相比，8月末余额增加了20亿元。",
+      "supporting_fact_values": [
+        "1000",
+        "1020"
+      ],
+      "arithmetic_correct": true,
+      "formal_calculate_calls": 0,
+      "conclusion": "精准查询spec正确，但回答额外增加无正式calculate回执的计算，自动评分未覆盖此项治理。"
+    },
+    {
+      "scenario": "precise_multi_turn",
+      "turn": 3,
+      "phase": "candidate",
+      "text": "对比同一天（8月31日）合成机构甲的1020亿元，合成机构乙高出100亿元。",
+      "supporting_fact_values": [
+        "1020",
+        "1120"
+      ],
+      "arithmetic_correct": true,
+      "formal_calculate_calls": 0,
+      "conclusion": "精准查询spec正确，但回答额外增加无正式calculate回执的计算，自动评分未覆盖此项治理。"
+    }
+  ],
+  "usage_audit": {
+    "record_count": 32,
+    "all_counter_identity_checks_passed": true,
+    "all_turn_and_summary_sum_checks_passed": true,
+    "all_first_prompt_formula_equivalence_checks_passed": true,
+    "formula": "first prompt = totalTokens - output = input + cacheRead + cacheWrite",
+    "provider_input_semantics": "当前本地pi-ai 0.85.1 input = raw prompt_tokens - cacheRead - cacheWrite，因此加入cacheRead并非重复计数。",
+    "adapter_evidence": {
+      "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/agent-service/node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js",
+      "lines": [
+        1178,
+        1193,
+        1202
+      ]
+    },
+    "native_message_parity": [
+      {
+        "phase": "baseline",
+        "native_assistant_messages": 17,
+        "report_usage_records": 17,
+        "mismatches": []
+      },
+      {
+        "phase": "candidate",
+        "native_assistant_messages": 15,
+        "report_usage_records": 15,
+        "mismatches": []
+      }
+    ],
+    "includes_usage_from_failed_streams": true,
+    "measurements": [
+      {
+        "category": "precise",
+        "paired_turns": 1,
+        "baseline_first_prompt_tokens": 13785,
+        "candidate_first_prompt_tokens": 11182,
+        "reduction_fraction": 0.1888284367065651,
+        "reaches_40_percent": false,
+        "baseline_all_request_total_tokens": 28942,
+        "candidate_all_request_total_tokens": 23554
+      },
+      {
+        "category": "context",
+        "paired_turns": 3,
+        "baseline_first_prompt_tokens": 44089,
+        "candidate_first_prompt_tokens": 36403,
+        "reduction_fraction": 0.17432919775907824,
+        "reaches_40_percent": false,
+        "baseline_all_request_total_tokens": 91207,
+        "candidate_all_request_total_tokens": 75541
+      },
+      {
+        "category": "analysis",
+        "paired_turns": 2,
+        "baseline_first_prompt_tokens": 27602,
+        "candidate_first_prompt_tokens": 22396,
+        "reduction_fraction": 0.18860952104919934,
+        "reaches_40_percent": false,
+        "baseline_all_request_total_tokens": 148236,
+        "candidate_all_request_total_tokens": 99961
+      },
+      {
+        "category": "all",
+        "paired_turns": 6,
+        "baseline_first_prompt_tokens": 85476,
+        "candidate_first_prompt_tokens": 69981,
+        "reduction_fraction": 0.18127895549627965,
+        "reaches_40_percent": false,
+        "baseline_all_request_total_tokens": 268385,
+        "candidate_all_request_total_tokens": 199056
+      }
+    ],
+    "all_request_cost_comparison_limit": "分析均失败，两版完成的业务行为不同，totalTokens减少不能称为等效分析成本改善。"
+  },
+  "native_archive_audit": {
+    "archive_count": 8,
+    "all_sha256_and_bytes_match": true,
+    "files": [
+      {
+        "phase": "baseline",
+        "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-baseline-native/2026-10-13T23-45-39-385Z_01a137a8-4e39-73d0-a26e-54dfa3ddf17b.jsonl",
+        "reported_sha256": "a7079bb384301b4be6537f7c4014bc2a0734945b07e9f937bdaaf8f684d0de05",
+        "actual_sha256": "a7079bb384301b4be6537f7c4014bc2a0734945b07e9f937bdaaf8f684d0de05",
+        "sha256_matches": true,
+        "reported_bytes": 59924,
+        "actual_bytes": 59924,
+        "bytes_match": true
+      },
+      {
+        "phase": "baseline",
+        "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-baseline-native/2026-10-13T23-45-42-641Z_01a137a8-5af1-73d0-a26e-54f232dd4309.jsonl",
+        "reported_sha256": "3a9b73eba9e9c2506704360b4627c85d403f99fea9e4dff8aab3328934fec69a",
+        "actual_sha256": "3a9b73eba9e9c2506704360b4627c85d403f99fea9e4dff8aab3328934fec69a",
+        "sha256_matches": true,
+        "reported_bytes": 159208,
+        "actual_bytes": 159208,
+        "bytes_match": true
+      },
+      {
+        "phase": "baseline",
+        "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-baseline-native/2026-10-13T23-45-51-840Z_01a137a8-7ee0-73d0-a26e-552afa8e005f.jsonl",
+        "reported_sha256": "cf521582f351aaf8f094a4a685bb89f99d9d46acf571123859a65e3831c6fba5",
+        "actual_sha256": "cf521582f351aaf8f094a4a685bb89f99d9d46acf571123859a65e3831c6fba5",
+        "sha256_matches": true,
+        "reported_bytes": 376063,
+        "actual_bytes": 376063,
+        "bytes_match": true
+      },
+      {
+        "phase": "baseline",
+        "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-baseline-native/2026-10-13T23-46-27-258Z_01a137a9-093a-73d0-a26e-556f3bd21209.jsonl",
+        "reported_sha256": "59eacc35a15889ae4018c3e6d0b6afd734759fc5088e6120b30aa37c4e7a9258",
+        "actual_sha256": "59eacc35a15889ae4018c3e6d0b6afd734759fc5088e6120b30aa37c4e7a9258",
+        "sha256_matches": true,
+        "reported_bytes": 36930,
+        "actual_bytes": 36930,
+        "bytes_match": true
+      },
+      {
+        "phase": "candidate",
+        "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-candidate-native/2026-10-13T23-47-12-050Z_01a137a9-b832-758e-90cd-11aac83084af.jsonl",
+        "reported_sha256": "7160a6af12271d02b62a4f606dc0752cadf39fc31c05ec0dce3f36d30a3378f7",
+        "actual_sha256": "7160a6af12271d02b62a4f606dc0752cadf39fc31c05ec0dce3f36d30a3378f7",
+        "sha256_matches": true,
+        "reported_bytes": 56462,
+        "actual_bytes": 56462,
+        "bytes_match": true
+      },
+      {
+        "phase": "candidate",
+        "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-candidate-native/2026-10-13T23-47-16-258Z_01a137a9-c8a2-758e-90cd-11be5b35f355.jsonl",
+        "reported_sha256": "03b8437fe0eace94bf727456c7927ae3efb6e83c7dbb43e31f8235d8d96d50fb",
+        "actual_sha256": "03b8437fe0eace94bf727456c7927ae3efb6e83c7dbb43e31f8235d8d96d50fb",
+        "sha256_matches": true,
+        "reported_bytes": 191185,
+        "actual_bytes": 191185,
+        "bytes_match": true
+      },
+      {
+        "phase": "candidate",
+        "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-candidate-native/2026-10-13T23-47-37-219Z_01a137aa-1a83-758e-90cd-11f7f2adc3ee.jsonl",
+        "reported_sha256": "0d39595a1cba6e2992ecfdbe9c23d260d574cc9903e433dca881c60bcde4a406",
+        "actual_sha256": "0d39595a1cba6e2992ecfdbe9c23d260d574cc9903e433dca881c60bcde4a406",
+        "sha256_matches": true,
+        "reported_bytes": 209256,
+        "actual_bytes": 209256,
+        "bytes_match": true
+      },
+      {
+        "phase": "candidate",
+        "path": "/Users/yubobo/Documents/服务项目/江苏农信/ask-metric-intent-goldendb-Harness/docs/verification/autonomy-20261013/fixed-candidate-native/2026-10-13T23-49-45-750Z_01a137ac-1096-758e-90cd-120c714afd54.jsonl",
+        "reported_sha256": "bb1563e2892d025fa6226857c577191cb2c77dee87123ec0a03d87583518cc54",
+        "actual_sha256": "bb1563e2892d025fa6226857c577191cb2c77dee87123ec0a03d87583518cc54",
+        "sha256_matches": true,
+        "reported_bytes": 325805,
+        "actual_bytes": 325805,
+        "bytes_match": true
+      }
+    ],
+    "tool_and_receipt_parity": [
+      {
+        "phase": "baseline",
+        "native_tool_blocks": 12,
+        "report_tool_blocks": 12,
+        "native_tool_receipts": 12,
+        "report_tool_receipts": 12,
+        "mismatches": []
+      },
+      {
+        "phase": "candidate",
+        "native_tool_blocks": 12,
+        "report_tool_blocks": 12,
+        "native_tool_receipts": 10,
+        "report_tool_receipts": 10,
+        "mismatches": []
+      }
+    ]
+  },
+  "limits": [
+    "本批只覆盖4个精准/多轮turn及2个分析turn，每版本一次，不能证明全部历史功能无回归。",
+    "全部业务值为隔离合成数据，不代表数据湖实际值、SQL、数据权限或生产环境验收。",
+    "缺数fixture是删除rows/facts并发missing_metric_codes与notice，不是literal value:null或数据库哨兵值；本批两版缺数场景均未实际触发该fixture。",
+    "自动分析评分的min distinct与查询先后顺序不足以单独证明增长/结构各目标覆盖或真正结果驱动修订；本批没有任何候选实际分析执行，不能以提案文字作通过证据。",
+    "响应流idle错误保留为本批业务/运行时失败，不能根据本批只读证据归因具体provider/schema/host根因。"
+  ],
+  "conclusion": {
+    "precise_small_suite": "两版4/4正式精准查询和多轮继承通过；此范围未发现精准spec及上下文引用回归。",
+    "analysis": "两版2/2分析均失败；候选实际分析任务创建、prepare、execute及结果驱动重规划均未被证明。",
+    "overall": "不能宣称整体正常、Agent自主分析已打通或本阶段已完成验收。",
+    "prompt_reduction": "首请求prompt合计减少18.13%，未达到40%。"
+  }
+}

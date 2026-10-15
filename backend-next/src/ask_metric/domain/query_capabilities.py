@@ -14,5 +14,6 @@ CAPABILITIES = {
     "metric_trend": QueryCapability(frozenset({"trend"})),
     "metric_period_compare": QueryCapability(frozenset({"period_compare"})),
     "metric_ranking": QueryCapability(frozenset({"ranking", "top_n"})),
+    "metric_rank_position": QueryCapability(frozenset({"rank_position"})),
     "metric_availability": QueryCapability(frozenset({"availability"}), requires_time=False),
 }

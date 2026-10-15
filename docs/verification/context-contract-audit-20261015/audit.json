@@ -1,0 +1,338 @@
+{
+  "scope": "通用问数对话：多机构、多指标、日期、排名计算、澄清、纠错和跨历史引用",
+  "status": "current-source audit and proposed redesign; no product implementation in this turn",
+  "boundaries": {
+    "business_code_modified": false,
+    "services_restarted": false,
+    "real_model_called": false,
+    "business_database_connected": false,
+    "production_accessed": false
+  },
+  "evidence": {
+    "focused_tests": {
+      "passed": 98,
+      "failed": 1,
+      "total": 99,
+      "failure": "相对年口径实现为默认滚动，现有测试仍要求先澄清；不能通过删除断言判通过"
+    },
+    "agent_probe": "jointCoverage=true 单机构来源仍被整句三家数量约束拒绝；这是步骤级契约探针，未宣称已完成三来源端到端提案复现",
+    "backend_probes": "实际 Python 准入路由：合法旧票下，省略日期交换的错误提案与正确交换提案都被准入；伪造票和撤权均被拒绝。无真实取数。"
+  },
+  "findings": [
+    {
+      "id": "CTX01",
+      "finding": "默认模型上下文仅投影当前计划；没有独立可引用的跨历史机构集合",
+      "sources": [
+        "agent-service/src/semantic-task/store.ts:197",
+        "agent-service/src/semantic-task/protocol.ts:9"
+      ],
+      "evidence": "code and previously observed three-institution live failure"
+    },
+    {
+      "id": "CTX02",
+      "finding": "reference 有 source_options 时强制重提，选项仅来自冻结当前计划，阻碍缺失历史来源的恢复",
+      "sources": [
+        "agent-service/src/harnessHost.ts:525",
+        "agent-service/src/harnessHost.ts:1420",
+        "agent-service/src/semantic-task/sourceGuard.ts:6"
+      ],
+      "evidence": "code and native trace from screenshot"
+    },
+    {
+      "id": "CTX03",
+      "finding": "整句机构数量约束落在每个子目标，jointCoverage 不豁免",
+      "sources": [
+        "agent-service/src/semantic-task/service.ts:72",
+        "agent-service/src/semantic-task/service.ts:217"
+      ],
+      "evidence": "agent-probe-result.json; one inherited member under jointCoverage; no SQL"
+    },
+    {
+      "id": "CTX04",
+      "finding": "跨轮片段校验用机构、指标、日期并集，不能充分证明对应关系；实际准入路由可接受遗漏交换日期的提案",
+      "sources": [
+        "backend-next/src/ask_metric/application/semantic_transition.py:213",
+        "backend-next/src/ask_metric/api/routes/business_context.py:174"
+      ],
+      "evidence": "backend-probes.json; synthetic catalogs and valid signed sources; wrong end-to-end answer not claimed"
+    },
+    {
+      "id": "CTX05",
+      "finding": "机构 suggestion 通道核验有权目录成员，不证明用户措辞与机构语义对应；跨轮准入仍要求原话扫描来源，两层依据不一致",
+      "sources": [
+        "agent-service/src/semantic-task/service.ts:484",
+        "backend-next/src/ask_metric/application/field_resolution.py:180",
+        "backend-next/src/ask_metric/application/semantic_transition.py:182",
+        "agent-service/src/semantic-task/planService.ts:354"
+      ],
+      "evidence": "code and pure resolver probe; not a proven permission bypass"
+    },
+    {
+      "id": "CTX06",
+      "finding": "相对日历默认口径与现有验收断言冲突",
+      "sources": [
+        "backend-next/src/ask_metric/application/field_resolution.py:336",
+        "agent-service/specs/semantic-task/backend-contract.spec.ts:269"
+      ],
+      "evidence": "focused-tests.json"
+    },
+    {
+      "id": "CTX07",
+      "finding": "完成判定的普通查询部分依赖已提交步骤全部成功；分析专有 checks 不能直接当作普通自然语言义务的完整独立证明",
+      "sources": [
+        "agent-service/src/semantic-task/planService.ts:205",
+        "agent-service/src/semantic-task/planService.ts:427"
+      ],
+      "evidence": "code; backend admissions remain an additional gate"
+    },
+    {
+      "id": "CTX08",
+      "finding": "反馈 origin 把 source explicit 直接显示成 user_explicit，不能准确表达 model_inferred；无进展终止未提供足够业务诊断",
+      "sources": [
+        "agent-service/src/semantic-task/feedback.ts:19",
+        "agent-service/src/toolRecovery.ts:33",
+        "agent-service/src/harnessHost.ts:650"
+      ],
+      "evidence": "code and screenshot; internal receipts retain earlier failures"
+    },
+    {
+      "id": "CTX09",
+      "finding": "提问入口先对整段历史投影鉴权，任一失权旧快照可能阻断无关新请求；需要区分历史展示脱敏与本轮引用授权。当前为代码审计发现，未作真实撤权场景复现。",
+      "sources": [
+        "agent-service/src/routes.ts:247",
+        "agent-service/src/routes.ts:249",
+        "agent-service/src/routes.ts:452"
+      ],
+      "evidence": "code only; no actual permissions changed"
+    }
+  ],
+  "authority_layers": [
+    {
+      "kind": "user_utterance",
+      "proves": "用户实际表达及跨度位置",
+      "does_not_prove": "目录身份、指代解释或权限"
+    },
+    {
+      "kind": "catalog_calendar",
+      "proves": "身份存在、规定口径和合法日期",
+      "does_not_prove": "用户想要该身份或该默认口径"
+    },
+    {
+      "kind": "confirmed_history",
+      "proves": "同会话来源与原规范范围",
+      "does_not_prove": "本轮确实指向这个来源或当前仍有权"
+    },
+    {
+      "kind": "model_proposal",
+      "proves": "待核验解释",
+      "does_not_prove": "用户确认或数据事实"
+    },
+    {
+      "kind": "backend_admission_receipt",
+      "proves": "签发范围、身份和目录版本完整性",
+      "does_not_prove": "自然语言解释必然正确；当前权限永久有效"
+    },
+    {
+      "kind": "official_result",
+      "proves": "指定执行范围的正式事实",
+      "does_not_prove": "指定范围就是全部用户需求"
+    }
+  ],
+  "proposed_contract": {
+    "context_objects": [
+      "原始用户回合",
+      "有版本的业务主题与目标组",
+      "逐字段来源与对应关系",
+      "当前讨论对象与展示结果组",
+      "独立待澄清目标",
+      "不可变结果证据"
+    ],
+    "source_selection": [
+      "单目标引用",
+      "完整目标组引用",
+      "多个历史来源集合",
+      "字段投影与有来源的组合",
+      "结果筛选集合及其排名总体"
+    ],
+    "focus": "业务目标、对话讨论对象和结果展示分离；只读访问不得无条件覆盖业务焦点；待澄清项独立保存",
+    "validation": "由宿主保存稳定需求义务；机构指标日期取数方式操作比较总体按完整绑定组合逐项核验；数量在正确作用域核验；权限由后端重新校验",
+    "recovery": "错误回执明确缺少什么证据以及允许的补证工具；签发来源不完整时允许历史检索；模型参数错误不转嫁成用户缺项；重复失败有证据进展仍可继续，已消费执行按原键回查",
+    "completion": "每项用户义务必须对应正式数值、明确无数据、权限拒绝、未支持或未决状态；部分完成不标整笔成功；展示和刷新保留完整来源集合",
+    "model_boundary": "同一 Pi 负责自然语言解释和工具选择；宿主负责身份来源、组合义务和执行控制；后端负责当前权限与正式数据；不以模型建议、置信度或回执签名冒充意图证明"
+  },
+  "acceptance": {
+    "independent_oracle": "先由业务标注用户意图、来源、完整目标组合、作用域和应追问原因，再让系统运行；不从候选提案反推正确答案",
+    "matrix": [
+      "单目标继承",
+      "单目标集合追加替换排除",
+      "同轮独立目标绑定",
+      "跨多轮历史合并与字段投影",
+      "结果中的前三家及排名总体",
+      "日期滚动完整年度离散点和年份继承",
+      "指标口径及正式名称含排名",
+      "多字段澄清确认否定纠错",
+      "暂缓旧目标与独立新话题",
+      "历史重显与显式刷新",
+      "权限撤回及混合授权",
+      "空值零值无数据截断分页",
+      "跨结果计算单位分母缺数",
+      "取消并发重启刷新恢复",
+      "超过历史页及上下文压缩",
+      "100至200问长会话、多次压缩、早期历史定向检索及恢复"
+    ],
+    "metamorphic_properties": [
+      "分组拆分的普通取值目标组合等价",
+      "消息改写不改变已明确目标",
+      "无关历史不改变当前绑定",
+      "纠错不改写旧证据",
+      "机构指标日期互换不能被并集掩盖",
+      "未授权项不输出事实且不能悄悄缩小请求"
+    ],
+    "measurements": [
+      "真实请求成功率",
+      "错误取数率",
+      "误拒率",
+      "必要与不必要澄清率",
+      "来源绑定准确率",
+      "整笔结果完整率",
+      "恢复一致性",
+      "权限拒绝与泄漏",
+      "模型调用数与token分位数"
+    ],
+    "release_gates": "所有确定性权限、引用不可伪造、绑定完整性与恢复不变量用例必须通过；真实模型另用未参与实现的独立问法集重复验收并分场景报告；token优化在语义和安全门禁之后。有限测试不宣称任意自然语言完美正确"
+  },
+  "source_hashes": {
+    "agent-service/src/semantic-task/store.ts": "a709381cba53c625db46d1cd9549a4352cfe10e39546bdf837374a3f29aae8ac",
+    "agent-service/src/semantic-task/protocol.ts": "924c3adc2f02ab64633cf5c9da70dafd9cf89f1b7abc67895a9b4d89367e60e5",
+    "agent-service/src/semantic-task/planService.ts": "cf23a5ed4b39689d08b41509de4ee01f31306a6cea103a43b88d8e816b35bd69",
+    "agent-service/src/semantic-task/service.ts": "c1b49dd30030e26f36660986f611a16dc5498880ee0c40019b68abaaef75e723",
+    "agent-service/src/semantic-task/sourceGuard.ts": "07921b0425b80b90021325a5b879cd089d90bffef3fa7e3a2d43c034c3261a13",
+    "agent-service/src/semantic-task/transition.ts": "660cda39def10c49aa4d6d6aebca04048abfe127a5dcef36a098f4446846f266",
+    "agent-service/src/semantic-task/tools.ts": "747cd9d80301f60eb5b292c48a82a3aaaad5ed69c4508d804beae214934d0676",
+    "agent-service/src/semantic-task/feedback.ts": "589733677011d7e7a0c2d09e29f4e06329c26e6818a2dddca87e9408a808f1b5",
+    "agent-service/src/harnessHost.ts": "511201902fe7fcf1f023c78f091ca1287cff04ae0d5d2459ae03a2dfc93beb3c",
+    "agent-service/src/routes.ts": "d47c9fe171693a0341badfd5c754c3d3560f015b0491621e55ca2cf970b9dbcd",
+    "backend-next/src/ask_metric/api/routes/business_context.py": "7c7eba85433639dbe29cf9cfc506c19e64a4fc9134abfb41ccb3bba624559e33",
+    "backend-next/src/ask_metric/application/semantic_transition.py": "07e1bf5b1cbbab08defbd0a4af18e40801e95b577c66924f8540ac61100e87ff",
+    "backend-next/src/ask_metric/application/goal_facts.py": "7a836ffcd8fc92650e425973d8cd5477fe5644ee764532f1cfbfd66ec599d258",
+    "backend-next/src/ask_metric/application/field_resolution.py": "e2a27afc923161dcb55f5bb89364f3ef697bc4566e72f74574baffc18f8578e2",
+    "backend-next/src/ask_metric/application/task_service.py": "b7b28921f66d370bf2f16995be49f5db10a1c364bf5c6fcc518d73220b483e19",
+    "agent-service/src/config.ts": "21af6f0f9d857cd5324bd6b8097130acd784645d54dfe479ec84c4d64e934b4c",
+    "agent-service/src/semantic-task/modelView.ts": "d92844435ffb549719491f64da082ae423434bf4e9ff3816e9d82d2b6f2af1aa"
+  },
+  "reproduction_commands": [
+    "backend-next/.venv/bin/python docs/verification/context-contract-audit-20261015/probe-backend.py",
+    "cd agent-service && node node_modules/vitest/vitest.mjs run --config ../docs/verification/context-contract-audit-20261015/probe-vitest.config.mjs"
+  ],
+  "checks": {
+    "git_diff_check": "passed",
+    "backend_probe_reproduced": true,
+    "agent_probe_reproduced": "1/1 passed",
+    "focused_existing_suite": "98/99 passed; relative-year expectation conflict unresolved"
+  },
+  "long_session_design": {
+    "scope": "同一 session 超过100问，纳入通用问数上下文契约；设计补充，尚未实现或验收",
+    "current_code": {
+      "native_compaction": {
+        "configuration": "agent-service/src/config.ts:124",
+        "default_enabled": true,
+        "configured_context_window": 128000,
+        "default_reserve_tokens": 16384,
+        "default_keep_recent_tokens": 20000,
+        "derived_default_threshold": 111616,
+        "threshold_formula": "contextTokens > contextWindow - reserveTokens",
+        "limits": "代码默认与本地配置文件；未读取每个已存在 session 的保存设置，不声明所有旧会话运行值相同"
+      },
+      "historical_context_tool": "agent-service/src/semantic-task/tools.ts:28; cursor/limit pagination only",
+      "default_context_projection": "agent-service/src/semantic-task/store.ts:197; focus plan plus history_available",
+      "receipt_deduplication": "agent-service/src/semantic-task/modelView.ts:33; send-copy deduplication, not bounded history selection",
+      "test_limit": "检查到的若干宿主测试禁用 compaction；现有验收不证明百轮压缩后正确性"
+    },
+    "layers": [
+      {
+        "layer": "原始历史与正式证据",
+        "retention": "完整持久化，按权限和保留政策；不因上下文压缩删除或覆盖",
+        "model_input": "按需读取必要片段，原始行数数据另行读取"
+      },
+      {
+        "layer": "结构化业务记忆",
+        "retention": "宿主按每次已接纳状态变更增量维护，有稳定来源、版本、绑定、作用域和待决状态",
+        "model_input": "当前有关目标组及未决事项的小型投影"
+      },
+      {
+        "layer": "有预算的模型工作上下文",
+        "retention": "每次请求重新装配，不与session完整历史等同",
+        "model_input": "稳定系统和工具定义、当前问题、活动状态、少量最近完整回合、短主题摘要、按需检索证据"
+      }
+    ],
+    "retrieval": {
+      "exact_first": [
+        "用户回合序号与明确结果引用",
+        "机构指标日期等结构化条件",
+        "主题目标组及对应关系",
+        "状态与版本"
+      ],
+      "semantic_fallback": "自然语言历史描述可补充关键词或语义检索候选；检索分数不作为执行来源证明，也不自动选取前三条",
+      "host_validation": "实际取回原始记录/已确认状态，由宿主核对同会话归属、版本、引用配对和当前权限，签发可用引用",
+      "pagination": "结果按token与条目上限分页；索引本身不全量注入模型；不足时允许继续检索或必要澄清"
+    },
+    "summary_policy": {
+      "purpose": "帮助定位话题和理解对话，不作为事实、用户确认或授权依据",
+      "authoritative_fields": "目录身份、绑定、排除、用户选择、需求义务、许可、结果引用由结构化账本维护；不交给自由文本摘要决定",
+      "incremental": "已结束片段按主题增量整理；避免每轮全量摘要和反复摘要旧摘要；准确状态从原账本重新投影",
+      "security": "输入与摘要作为数据处理；用户数据中的指令不升级为系统指令；失权事实不得继续留在发给模型的摘要中"
+    },
+    "budget": {
+      "basis": "按实际token预算而非固定问题数；估算用于请求前控制，真实provider usage用于验收；字节不当token",
+      "initial_total_input_target_tokens": [
+        16000,
+        24000
+      ],
+      "target_limit": "只是调参起点，尚无性能或准确性实测保证；包括稳定提示词与工具/schema，实际值按其测量开销调整",
+      "priority": [
+        "系统及工具契约",
+        "当前原始问题和本轮工具链",
+        "必要活动目标与未决事项",
+        "选定来源的身份及绑定",
+        "相关近期完整回合",
+        "检索细节与主题摘要"
+      ],
+      "overflow": "先去重复和非必要历史，按引用分页；不能静默删目标、截断尚未确认集合、切断toolCall/toolResult配对或缩小当前执行范围",
+      "native_pi_role": "保留Pi原生生命周期及压缩作为容量恢复机制；业务状态独立于摘要；上下文装配和原生compaction配套，不能仅靠把触发阈值调低"
+    },
+    "focus_and_restore": "业务、讨论、展示焦点以及待澄清目标独立持久化；压缩或重启不重新猜测焦点、今天的历史含义或来源版本",
+    "acceptance": {
+      "session_lengths": [
+        10,
+        50,
+        100,
+        200
+      ],
+      "cases": [
+        "第100问准确引用第2问",
+        "多次压缩后合并早期三家机构",
+        "插入大量无关话题不改变指定来源",
+        "早期未决候选的部分确认和恢复",
+        "早期字段排除纠错不回退",
+        "结果中的前三家与原排名总体分离",
+        "旧历史撤权后模型上下文和摘要不可泄漏",
+        "模型提案错误可补读多个历史来源",
+        "跨午夜相对日期与已确认绝对日期区分",
+        "压缩前后、刷新及重启后目标来源结果等价",
+        "活动目标过大时分页保留完整需求而不默删"
+      ],
+      "oracle": "预先独立标注完整目标组合、来源、所需澄清和证据；对照压缩前后及恢复前后，不只判断模型正文",
+      "metrics": [
+        "每轮真实输入输出及缓存token",
+        "助手、摘要及其他真实模型调用次数",
+        "检索次数和返回token",
+        "延迟p50/p95",
+        "来源绑定准确率",
+        "误拒和错查",
+        "完整性及权限不变量"
+      ],
+      "cost_accounting": "整段session总成本包含摘要和重试；缓存输入单列但不能从输入token总量中漏算；不将费用降低冒充token减少",
+      "growth_target": "普通独立问数输入在已定预算内保持稳定；历史引用允许有限检索增量；不承诺所有复杂请求恒定token"
+    }
+  }
+}

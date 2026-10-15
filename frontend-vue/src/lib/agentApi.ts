@@ -1,6 +1,6 @@
 import { clearAccessToken, getAccessToken, setAuthFailureReason } from "@/lib/authSession"
 import type { AssistantBlock } from "@/lib/assistantText"
-import type { BackendNextClarification } from "@/types/api"
+import type { BackendNextClarification, TimeVariant } from "@/types/api"
 
 /**
  * 智能助手（agent-service）接口封装。
@@ -91,6 +91,8 @@ export interface MetricAskDetails {
   clarification?: BackendNextClarification | null
   /** 服务端给出的回答正文结构块；缺失/null/空数组表示回退前端 markdown 解析。 */
   public_answer_blocks?: AssistantBlock[] | null
+  /** 备选时间口径，与 clarification 同层下发；前端渲染切换 chips，点选后以 time_override 重查。 */
+  time_variants?: TimeVariant[]
 }
 
 /** 提问输入（协议 V3）：request_id 由浏览器每次确认发送生成，网络重试不变 */
@@ -101,6 +103,8 @@ export interface AgentPromptInput {
   selected_answers?: Record<string, unknown>
   /** 点选系统待确认清单的选项；仅对该待确认 Frame 生效 */
   clarification_selection?: { frame_id: string; option_ids: string[] }
+  /** 点选备选时间口径后的显式重查区间；原样透传，不做前端日期换算 */
+  time_override?: { start: string; end: string }
 }
 
 /** 系统待确认清单中的一项；编号与服务端保存的清单一致 */
@@ -122,6 +126,7 @@ export interface ClarificationChoiceSet {
 export type AgentSnapshot = Pick<AgentSessionDetail, "messages" | "running" | "operation_id">
 
 export interface CalculationDetails {
+  sources?: Array<{ task_id: string; result_id: string; source_scope_id: string | null; historical: boolean }>
   retryable?: boolean
   kind: "metric_calculate"
   status: string
@@ -223,6 +228,13 @@ export function cancelAgentOperation(sessionId: string, operationId: string) {
   return request<void>(`/sessions/${encodeURIComponent(sessionId)}/cancel`, {
     method: "POST",
     body: JSON.stringify({ operation_id: operationId }),
+  })
+}
+
+/** accepted之前按浏览器已生成的请求身份停止；服务端持久化取消，迟到的同一请求不能开始执行。 */
+export function cancelAgentRequest(sessionId: string, requestId: string) {
+  return request<void>(`/sessions/${encodeURIComponent(sessionId)}/cancel`, {
+    method: "POST", body: JSON.stringify({request_id: requestId}),
   })
 }
 

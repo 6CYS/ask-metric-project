@@ -1,0 +1,27 @@
+{
+  "services": [
+    {
+      "service": "backend",
+      "port": 8010,
+      "old_pid": 78392,
+      "new_pid": 32348,
+      "health": {
+        "status": "ready"
+      }
+    },
+    {
+      "service": "agent",
+      "port": 8020,
+      "old_pid": 43633,
+      "new_pid": 33430,
+      "health": {
+        "status": "ok"
+      }
+    }
+  ],
+  "graceful_stop": true,
+  "writer_lock_matches": true,
+  "session_data_preserved": true,
+  "database_migration": false,
+  "health_probe_correction": "backend /health/ready; initial /api/v1/health/ready returned404"
+}

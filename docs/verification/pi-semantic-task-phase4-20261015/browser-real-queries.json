@@ -1,0 +1,101 @@
+{
+  "environment": "real_browser_real_model_current_project_database",
+  "external_data_authorized": true,
+  "credentials_exported": false,
+  "business_values_exported": false,
+  "cases": [
+    {
+      "case_id": "original_clarification",
+      "session_id": "01a13cf9-333e-724e-bcf5-c8a7f43fb0be",
+      "passed": true,
+      "running": false,
+      "receipts": [
+        {
+          "status": "needs_user",
+          "issues": [
+            {
+              "code": "ENTITY_NOT_DETERMINED",
+              "field": "metrics",
+              "message": "请确定指标口径：存款。",
+              "remediation": "user",
+              "category": "catalog"
+            },
+            {
+              "code": "TIME_NOT_DETERMINED",
+              "field": "time",
+              "message": "请确定日期范围的口径。",
+              "remediation": "user",
+              "category": "calendar"
+            }
+          ],
+          "conditions": [
+            [
+              {
+                "field": "organizations",
+                "display": "张家港农商行",
+                "origin": "user_explicit"
+              },
+              {
+                "field": "operation",
+                "display": "查询操作",
+                "origin": "rule_default"
+              }
+            ]
+          ]
+        },
+        {
+          "status": "succeeded",
+          "task_id": "214167d4-8175-4ac2-912c-dfccfedf9bcc",
+          "result_id": "result:214167d4-8175-4ac2-912c-dfccfedf9bcc",
+          "row_count": 0,
+          "truncated": false,
+          "query_shape": "metric_trend",
+          "scope": {
+            "orgs": [
+              "980000"
+            ],
+            "metrics": [
+              "ORG_CORP_AGRMT_DEPT_BAL"
+            ],
+            "time": {
+              "end": "2025-12-31",
+              "start": "2021-01-01",
+              "preset": null
+            }
+          },
+          "rows_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      ]
+    },
+    {
+      "case_id": "exact_real_query",
+      "session_id": "01a13d10-7763-7322-a857-70fe6af761e2",
+      "passed": true,
+      "running": false,
+      "receipts": [
+        {
+          "status": "succeeded",
+          "task_id": "46809f53-b21c-44b7-8280-9a6167528aa6",
+          "result_id": "result:46809f53-b21c-44b7-8280-9a6167528aa6",
+          "row_count": 1,
+          "truncated": false,
+          "query_shape": "metric_value",
+          "scope": {
+            "orgs": [
+              "01"
+            ],
+            "metrics": [
+              "ORG_CORP_AGRMT_DEPT_BAL"
+            ],
+            "time": {
+              "end": "2026-05-31",
+              "start": "2026-05-31",
+              "preset": null
+            }
+          },
+          "rows_sha256": "266fd7dbba053c6e69da5ebdbb95e2e9da3df2def6063c3531e2c5ba91173fcd"
+        }
+      ]
+    }
+  ]
+}
