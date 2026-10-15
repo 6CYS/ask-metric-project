@@ -69,9 +69,14 @@ async function getRequestErrorMessage(response: Response): Promise<string> {
   return text.trim() || fallback
 }
 
+// 认证、业务查询、导入和下载共用同源接口前缀，避免只有部分请求保留网关路径。
+function apiUrl(path: string) {
+  return `${import.meta.env.VITE_API_BASE_PATH ?? ""}${path}`
+}
+
 async function request<T>(path: string, init?: RequestInit, authenticated = true): Promise<T> {
   const token = getAccessToken()
-  const response = await fetch(path, {
+  const response = await fetch(apiUrl(path), {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -98,7 +103,7 @@ async function request<T>(path: string, init?: RequestInit, authenticated = true
 
 async function downloadAuthenticated(path: string, fallbackName: string) {
   const token = getAccessToken()
-  const response = await fetch(path, {
+  const response = await fetch(apiUrl(path), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
   if (!response.ok) throw new Error(await getRequestErrorMessage(response))
@@ -116,7 +121,7 @@ async function downloadAuthenticated(path: string, fallbackName: string) {
 let cachedSm2PublicKey: string | null = null
 
 export function getBackendNextQueryReadiness(signal?: AbortSignal) {
-  return request<QueryReadiness>(apiUrl(backendNextBase, "/api/v1/query-readiness"), { signal, cache: "no-store" }, false)
+  return request<QueryReadiness>("/api/v1/query-readiness", { signal, cache: "no-store" }, false)
 }
 
 /** 登录前获取后端 SM2 公钥（模块级缓存；重启后端更换临时密钥时会随页面刷新失效）。 */
@@ -176,36 +181,36 @@ export function restoreBrowserSession() {
 }
 
 export function listAccuracySuites() {
-  return request<AccuracySuite[]>(apiUrl(backendNextBase, "/api/v1/test-center/suites"))
+  return request<AccuracySuite[]>("/api/v1/test-center/suites")
 }
 
 export function createAccuracySuite(value: Pick<AccuracySuite, "name" | "description" | "cases">) {
-  return request<AccuracySuite>(apiUrl(backendNextBase, "/api/v1/test-center/suites"), { method: "POST", body: JSON.stringify(value) })
+  return request<AccuracySuite>("/api/v1/test-center/suites", { method: "POST", body: JSON.stringify(value) })
 }
 
 export function updateAccuracySuite(id: string, value: Pick<AccuracySuite, "name" | "description" | "cases">) {
-  return request<AccuracySuite>(apiUrl(backendNextBase, `/api/v1/test-center/suites/${encodeURIComponent(id)}`), { method: "PUT", body: JSON.stringify(value) })
+  return request<AccuracySuite>(`/api/v1/test-center/suites/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(value) })
 }
 
 export function deleteAccuracySuite(id: string) {
-  return request<void>(apiUrl(backendNextBase, `/api/v1/test-center/suites/${encodeURIComponent(id)}`), { method: "DELETE" })
+  return request<void>(`/api/v1/test-center/suites/${encodeURIComponent(id)}`, { method: "DELETE" })
 }
 
 export function listAccuracyRuns() {
-  return request<AccuracyRun[]>(apiUrl(backendNextBase, "/api/v1/test-center/runs"))
+  return request<AccuracyRun[]>("/api/v1/test-center/runs")
 }
 
 export function getAccuracyRun(id: string) {
-  return request<AccuracyRun>(apiUrl(backendNextBase, `/api/v1/test-center/runs/${encodeURIComponent(id)}`))
+  return request<AccuracyRun>(`/api/v1/test-center/runs/${encodeURIComponent(id)}`)
 }
 
 export function startAccuracyRun(suiteId: string) {
-  return request<AccuracyRun>(apiUrl(backendNextBase, `/api/v1/test-center/runs?suite_id=${encodeURIComponent(suiteId)}`), { method: "POST" })
+  return request<AccuracyRun>(`/api/v1/test-center/runs?suite_id=${encodeURIComponent(suiteId)}`, { method: "POST" })
 }
 
 export function downloadAccuracyImportTemplate() {
   return downloadAuthenticated(
-    apiUrl(backendNextBase, "/api/v1/test-center/import-template"),
+    "/api/v1/test-center/import-template",
     "准确率测试案例导入模板.xlsx",
   )
 }
@@ -216,10 +221,7 @@ export function previewAccuracyImport(
   mode: "append" | "replace",
 ) {
   return request<AccuracyImportPreview>(
-    apiUrl(
-      backendNextBase,
-      `/api/v1/test-center/suites/${encodeURIComponent(suiteId)}/imports/preview?mode=${mode}`,
-    ),
+    `/api/v1/test-center/suites/${encodeURIComponent(suiteId)}/imports/preview?mode=${mode}`,
     {
       method: "POST",
       headers: {
@@ -236,10 +238,7 @@ export function confirmAccuracyImport(
   value: { mode: "append" | "replace"; cases: AccuracySuite["cases"] },
 ) {
   return request<AccuracyImportResult>(
-    apiUrl(
-      backendNextBase,
-      `/api/v1/test-center/suites/${encodeURIComponent(suiteId)}/imports/confirm`,
-    ),
+    `/api/v1/test-center/suites/${encodeURIComponent(suiteId)}/imports/confirm`,
     { method: "POST", body: JSON.stringify(value) },
   )
 }
@@ -252,31 +251,22 @@ export function logoutUser() {
   })
 }
 
-// 开发环境通过 Vite 的同源 /api 代理访问后端；代理目标不能成为浏览器跨域地址。
-const backendNextBase = import.meta.env.DEV
-  ? ""
-  : (import.meta.env.VITE_BACKEND_NEXT_BASE_URL ?? "").replace(/\/$/, "")
-
-function apiUrl(base: string, path: string) {
-  return `${base}${path}`
-}
-
 export function listQueryRuns(page = 1, pageSize = 10) {
-  return request<{ items: QueryRunItem[]; total: number; page: number; page_size: number }>(apiUrl(backendNextBase, `/api/v1/catalog/query-runs?page=${page}&page_size=${pageSize}`))
+  return request<{ items: QueryRunItem[]; total: number; page: number; page_size: number }>(`/api/v1/catalog/query-runs?page=${page}&page_size=${pageSize}`)
 }
 
 export function getQueryRunOrganizations(taskId: string) {
   return request<{ raw_org_text?: string | null; matched_org_name?: string | null; notice?: string | null }>(
-    apiUrl(backendNextBase, `/api/v1/catalog/query-runs/${encodeURIComponent(taskId)}/organizations`),
+    `/api/v1/catalog/query-runs/${encodeURIComponent(taskId)}/organizations`,
   )
 }
 
 export function getQueryRunDetail(taskId: string) {
-  return request<QueryRunItem>(apiUrl(backendNextBase, `/api/v1/catalog/query-runs/${encodeURIComponent(taskId)}`))
+  return request<QueryRunItem>(`/api/v1/catalog/query-runs/${encodeURIComponent(taskId)}`)
 }
 
 export function getSmartConfig() {
-  return request<SmartConfigResponse>(apiUrl(backendNextBase, "/api/v1/model-config"))
+  return request<SmartConfigResponse>("/api/v1/model-config")
 }
 
 function configAdminHeaders(adminToken: string) {
@@ -284,7 +274,7 @@ function configAdminHeaders(adminToken: string) {
 }
 
 export function updateSmartModel(config: ModelRuntimeConfig, adminToken: string, apiKeys: Partial<Record<"chat" | "embedding" | "reranker", string>> = {}) {
-  return request<SmartConfigResponse>(apiUrl(backendNextBase, "/api/v1/model-config/model"), {
+  return request<SmartConfigResponse>("/api/v1/model-config/model", {
     method: "PUT",
     headers: configAdminHeaders(adminToken),
     body: JSON.stringify({ config, api_keys: apiKeys }),
@@ -297,7 +287,7 @@ export function testSmartModel(
   config: ModelRuntimeConfig,
   apiKeys: Partial<Record<"chat" | "embedding" | "reranker", string>> = {},
 ) {
-  return request<{ role: string; ok: boolean; duration_ms: number; summary: string }>(apiUrl(backendNextBase, `/api/v1/model-config/model/test/${role}`), {
+  return request<{ role: string; ok: boolean; duration_ms: number; summary: string }>(`/api/v1/model-config/model/test/${role}`, {
     method: "POST",
     headers: configAdminHeaders(adminToken),
     body: JSON.stringify({ config, api_keys: apiKeys }),
@@ -305,49 +295,49 @@ export function testSmartModel(
 }
 
 export function updatePromptConfig(name: string, prompt: PromptTemplateConfig, adminToken: string) {
-  return request<PromptTemplateConfig>(apiUrl(backendNextBase, `/api/v1/model-config/prompts/${encodeURIComponent(name)}`), {
+  return request<PromptTemplateConfig>(`/api/v1/model-config/prompts/${encodeURIComponent(name)}`, {
     method: "PUT", headers: configAdminHeaders(adminToken), body: JSON.stringify(prompt),
   })
 }
 
 export function listPromptVersions(name: string) {
-  return request<ConfigVersion[]>(apiUrl(backendNextBase, `/api/v1/model-config/prompts/${encodeURIComponent(name)}/versions`))
+  return request<ConfigVersion[]>(`/api/v1/model-config/prompts/${encodeURIComponent(name)}/versions`)
 }
 
 export function rollbackPromptConfig(name: string, versionId: string, adminToken: string) {
-  return request<PromptTemplateConfig>(apiUrl(backendNextBase, `/api/v1/model-config/prompts/${encodeURIComponent(name)}/versions/${encodeURIComponent(versionId)}/rollback`), {
+  return request<PromptTemplateConfig>(`/api/v1/model-config/prompts/${encodeURIComponent(name)}/versions/${encodeURIComponent(versionId)}/rollback`, {
     method: "POST", headers: configAdminHeaders(adminToken),
   })
 }
 
 export function listSqlTemplates() {
-  return request<SqlTemplateConfig[]>(apiUrl(backendNextBase, "/api/v1/model-config/sql-templates"))
+  return request<SqlTemplateConfig[]>("/api/v1/model-config/sql-templates")
 }
 
 export function validateSqlTemplate(sql: string) {
-  return request<{ valid: boolean; parameters: string[] }>(apiUrl(backendNextBase, "/api/v1/model-config/sql-templates/validate"), {
+  return request<{ valid: boolean; parameters: string[] }>("/api/v1/model-config/sql-templates/validate", {
     method: "POST", body: JSON.stringify({ sql }),
   })
 }
 
 export function trialRunSqlTemplate(sql: string, parameters: Record<string, unknown>, adminToken: string) {
-  return request<{ columns: string[]; rows: Record<string, unknown>[]; row_count: number }>(apiUrl(backendNextBase, "/api/v1/model-config/sql-templates/trial-run"), {
+  return request<{ columns: string[]; rows: Record<string, unknown>[]; row_count: number }>("/api/v1/model-config/sql-templates/trial-run", {
     method: "POST", headers: configAdminHeaders(adminToken), body: JSON.stringify({ sql, parameters }),
   })
 }
 
 export function updateSqlTemplate(item: SqlTemplateConfig, adminToken: string) {
-  return request<SqlTemplateConfig>(apiUrl(backendNextBase, `/api/v1/model-config/sql-templates/${encodeURIComponent(item.dialect)}/${encodeURIComponent(item.template)}`), {
+  return request<SqlTemplateConfig>(`/api/v1/model-config/sql-templates/${encodeURIComponent(item.dialect)}/${encodeURIComponent(item.template)}`, {
     method: "PUT", headers: configAdminHeaders(adminToken), body: JSON.stringify({ sql: item.sql, enabled: item.enabled }),
   })
 }
 
 export function listSqlTemplateVersions(item: SqlTemplateConfig) {
-  return request<ConfigVersion[]>(apiUrl(backendNextBase, `/api/v1/model-config/sql-templates/${encodeURIComponent(item.dialect)}/${encodeURIComponent(item.template)}/versions`))
+  return request<ConfigVersion[]>(`/api/v1/model-config/sql-templates/${encodeURIComponent(item.dialect)}/${encodeURIComponent(item.template)}/versions`)
 }
 
 export function rollbackSqlTemplate(item: SqlTemplateConfig, versionId: string, adminToken: string) {
-  return request<SqlTemplateConfig>(apiUrl(backendNextBase, `/api/v1/model-config/sql-templates/${encodeURIComponent(item.dialect)}/${encodeURIComponent(item.template)}/versions/${encodeURIComponent(versionId)}/rollback`), {
+  return request<SqlTemplateConfig>(`/api/v1/model-config/sql-templates/${encodeURIComponent(item.dialect)}/${encodeURIComponent(item.template)}/versions/${encodeURIComponent(versionId)}/rollback`, {
     method: "POST", headers: configAdminHeaders(adminToken),
   })
 }
@@ -357,63 +347,63 @@ export function listMetrics() {
 }
 
 export function listBackendNextMetrics() {
-  return request<{ items: MetricItem[] }>(apiUrl(backendNextBase, "/api/v1/catalog/metrics"))
+  return request<{ items: MetricItem[] }>("/api/v1/catalog/metrics")
 }
 
 export async function createMetric(payload: MetricPayload) {
-  const result = await request<MetricItem>(apiUrl(backendNextBase, "/api/v1/catalog/metrics"), { method: "POST", body: JSON.stringify(payload) })
+  const result = await request<MetricItem>("/api/v1/catalog/metrics", { method: "POST", body: JSON.stringify(payload) })
   metricCatalogCache.clear()
   return result
 }
 
 export async function updateMetric(metricCode: string, payload: MetricPayload) {
-  const result = await request<MetricItem>(apiUrl(backendNextBase, `/api/v1/catalog/metrics/${encodeURIComponent(metricCode)}`), { method: "PUT", body: JSON.stringify(payload) })
+  const result = await request<MetricItem>(`/api/v1/catalog/metrics/${encodeURIComponent(metricCode)}`, { method: "PUT", body: JSON.stringify(payload) })
   metricCatalogCache.clear()
   return result
 }
 
 export async function deleteMetric(metricCode: string) {
-  const result = await request<void>(apiUrl(backendNextBase, `/api/v1/catalog/metrics/${encodeURIComponent(metricCode)}`), { method: "DELETE" })
+  const result = await request<void>(`/api/v1/catalog/metrics/${encodeURIComponent(metricCode)}`, { method: "DELETE" })
   metricCatalogCache.clear()
   return result
 }
 
 export function listOrgs() {
-  return request<{ items: OrgItem[] }>(apiUrl(backendNextBase, "/api/v1/catalog/organizations"))
+  return request<{ items: OrgItem[] }>("/api/v1/catalog/organizations")
 }
 
 export async function createOrg(payload: OrgPayload) {
-  const result = await request<OrgItem>(apiUrl(backendNextBase, "/api/v1/catalog/organizations"), { method: "POST", body: JSON.stringify(payload) })
+  const result = await request<OrgItem>("/api/v1/catalog/organizations", { method: "POST", body: JSON.stringify(payload) })
   organizationCatalogCache.clear()
   return result
 }
 
 export async function updateOrg(orgCode: string, payload: OrgPayload) {
-  const result = await request<OrgItem>(apiUrl(backendNextBase, `/api/v1/catalog/organizations/${encodeURIComponent(orgCode)}`), { method: "PUT", body: JSON.stringify(payload) })
+  const result = await request<OrgItem>(`/api/v1/catalog/organizations/${encodeURIComponent(orgCode)}`, { method: "PUT", body: JSON.stringify(payload) })
   organizationCatalogCache.clear()
   return result
 }
 
 export async function deleteOrg(orgCode: string) {
-  const result = await request<void>(apiUrl(backendNextBase, `/api/v1/catalog/organizations/${encodeURIComponent(orgCode)}`), { method: "DELETE" })
+  const result = await request<void>(`/api/v1/catalog/organizations/${encodeURIComponent(orgCode)}`, { method: "DELETE" })
   organizationCatalogCache.clear()
   return result
 }
 
 export function listDatasets() {
-  return request<{ items: DatasetItem[] }>(apiUrl(backendNextBase, "/api/v1/catalog/datasets"))
+  return request<{ items: DatasetItem[] }>("/api/v1/catalog/datasets")
 }
 
 export function createDataset(payload: DatasetPayload) {
-  return request<DatasetItem>(apiUrl(backendNextBase, "/api/v1/catalog/datasets"), { method: "POST", body: JSON.stringify(payload) })
+  return request<DatasetItem>("/api/v1/catalog/datasets", { method: "POST", body: JSON.stringify(payload) })
 }
 
 export function updateDataset(datasetId: number, payload: DatasetPayload) {
-  return request<DatasetItem>(apiUrl(backendNextBase, `/api/v1/catalog/datasets/${datasetId}`), { method: "PUT", body: JSON.stringify(payload) })
+  return request<DatasetItem>(`/api/v1/catalog/datasets/${datasetId}`, { method: "PUT", body: JSON.stringify(payload) })
 }
 
 export function deleteDataset(datasetId: number) {
-  return request<void>(apiUrl(backendNextBase, `/api/v1/catalog/datasets/${datasetId}`), { method: "DELETE" })
+  return request<void>(`/api/v1/catalog/datasets/${datasetId}`, { method: "DELETE" })
 }
 
 export function createBackendNextQuestion(payload: {
@@ -421,7 +411,7 @@ export function createBackendNextQuestion(payload: {
   message: string
   idempotency_key: string
 }) {
-  return request<BackendNextTaskResult>(apiUrl(backendNextBase, "/api/v1/questions"), {
+  return request<BackendNextTaskResult>("/api/v1/questions", {
     method: "POST",
     headers: { "Idempotency-Key": payload.idempotency_key },
     body: JSON.stringify(payload),
@@ -429,7 +419,7 @@ export function createBackendNextQuestion(payload: {
 }
 
 export function analyzeBackendNextTask(taskId: string, expectedVersion: number) {
-  return request<BackendNextTaskResult>(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}/analyze`), {
+  return request<BackendNextTaskResult>(`/api/v1/query-tasks/${encodeURIComponent(taskId)}/analyze`, {
     method: "POST",
     body: JSON.stringify({ expected_version: expectedVersion }),
   })
@@ -439,7 +429,7 @@ export function submitBackendNextClarification(
   taskId: string,
   payload: { expected_version: number; clarification_id: string; answers: unknown },
 ) {
-  return request<BackendNextTaskResult>(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}/clarifications`), {
+  return request<BackendNextTaskResult>(`/api/v1/query-tasks/${encodeURIComponent(taskId)}/clarifications`, {
     method: "POST",
     body: JSON.stringify(payload),
   })
@@ -449,14 +439,14 @@ export function cancelBackendNextClarification(
   taskId: string,
   payload: { expected_version: number; clarification_id: string },
 ) {
-  return request<BackendNextTaskResult>(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}/clarifications/cancel`), {
+  return request<BackendNextTaskResult>(`/api/v1/query-tasks/${encodeURIComponent(taskId)}/clarifications/cancel`, {
     method: "POST",
     body: JSON.stringify(payload),
   })
 }
 
 export function executeBackendNextTask(taskId: string, expectedVersion: number, requestId: string) {
-  return request<BackendNextExecutionResult>(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}/execute`), {
+  return request<BackendNextExecutionResult>(`/api/v1/query-tasks/${encodeURIComponent(taskId)}/execute`, {
     method: "POST",
     headers: { "Idempotency-Key": requestId },
     body: JSON.stringify({ expected_version: expectedVersion }),
@@ -464,44 +454,44 @@ export function executeBackendNextTask(taskId: string, expectedVersion: number, 
 }
 
 export function getBackendNextTask(taskId: string) {
-  return request<BackendNextTaskResult>(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}`))
+  return request<BackendNextTaskResult>(`/api/v1/query-tasks/${encodeURIComponent(taskId)}`)
 }
 
 export function getBackendNextConversation(conversationId: string) {
-  return request<BackendNextConversationSnapshot>(apiUrl(backendNextBase, `/api/v1/conversations/${encodeURIComponent(conversationId)}`))
+  return request<BackendNextConversationSnapshot>(`/api/v1/conversations/${encodeURIComponent(conversationId)}`)
 }
 
 export function listBackendNextConversations(limit = 12, offset = 0) {
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
-  return request<{ items: BackendNextConversationListItem[]; has_more: boolean }>(apiUrl(backendNextBase, `/api/v1/conversations?${params}`))
+  return request<{ items: BackendNextConversationListItem[]; has_more: boolean }>(`/api/v1/conversations?${params}`)
 }
 
 export function renameBackendNextConversation(conversationId: string, title: string) {
-  return request<BackendNextConversationListItem>(apiUrl(backendNextBase, `/api/v1/conversations/${encodeURIComponent(conversationId)}`), {
+  return request<BackendNextConversationListItem>(`/api/v1/conversations/${encodeURIComponent(conversationId)}`, {
     method: "PATCH",
     body: JSON.stringify({ title }),
   })
 }
 
 export function deleteBackendNextConversation(conversationId: string) {
-  return request<void>(apiUrl(backendNextBase, `/api/v1/conversations/${encodeURIComponent(conversationId)}`), {
+  return request<void>(`/api/v1/conversations/${encodeURIComponent(conversationId)}`, {
     method: "DELETE",
   })
 }
 
 export function cleanupBackendNextConversations(keepLatest: number) {
   const params = new URLSearchParams({ keep_latest: String(keepLatest) })
-  return request<BackendNextConversationCleanupResult>(apiUrl(backendNextBase, `/api/v1/conversations?${params}`), {
+  return request<BackendNextConversationCleanupResult>(`/api/v1/conversations?${params}`, {
     method: "DELETE",
   })
 }
 
 export function exportBackendNextConversation(conversationId: string) {
-  return downloadAuthenticated(apiUrl(backendNextBase, `/api/v1/conversations/${encodeURIComponent(conversationId)}/export`), "会话记录.xlsx")
+  return downloadAuthenticated(`/api/v1/conversations/${encodeURIComponent(conversationId)}/export`, "会话记录.xlsx")
 }
 
 export function exportBackendNextTaskResult(taskId: string) {
-  return downloadAuthenticated(apiUrl(backendNextBase, `/api/v1/query-tasks/${encodeURIComponent(taskId)}/result-export`), "查询结果.xlsx")
+  return downloadAuthenticated(`/api/v1/query-tasks/${encodeURIComponent(taskId)}/result-export`, "查询结果.xlsx")
 }
 
 export function getCachedMetricCatalog() {

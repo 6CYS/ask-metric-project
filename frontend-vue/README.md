@@ -22,6 +22,8 @@ VITE_BACKEND_NEXT_BASE_URL=http://127.0.0.1:8010
 问数链路严格按 `questions → analyze → execute` 调用。澄清提交携带原 `task_id`、`task_version` 和 `clarification_id`，不会拼接原始问题；会话 ID 保存在浏览器本地，刷新时通过 `backend-next` 会话快照恢复任务和结果。
 
 生产构建默认通过 Nginx 使用同源 `/api` 访问后端，发布产物不得包含本机回环地址。
+数字农商部署使用 `npm run build:bank`，页面位于 `/bgwblj/znws/static/`，接口位于
+`/bgwblj/znws/api/`；配置文件、改动位置和现场部署步骤见 [数字农商 Nginx 部署](../deploy/nginx/README.md)。
 
 ## 聊天交互
 
@@ -52,21 +54,27 @@ Cookie 恢复原会话，不延长到期时间；过期、退出或服务端撤�
 
 ## 生产构建
 
-先强制清空构建子进程的后端地址，再构建。PowerShell（借助项目已有 Python，避免旧 PowerShell 将空环境变量直接删除而回退到 `.env.local`）：
+接口统一使用同源路径；`VITE_BACKEND_NEXT_BASE_URL` 只影响开发代理，不会被写成浏览器请求域名。
+原有根路径部署执行（PowerShell 中若脚本策略限制 npm，使用 `npm.cmd`）：
 
 ```powershell
 npm ci
-python -c "import os,shutil,subprocess; subprocess.run([shutil.which('npm.cmd') or shutil.which('npm'),'run','build'],env=dict(os.environ,VITE_BACKEND_NEXT_BASE_URL=''),check=True)"
+npm run build
 ```
 
 Linux：
 
 ```bash
 npm ci
-VITE_BACKEND_NEXT_BASE_URL= npm run build
+npm run build
 ```
 
 产物为 `dist/`，由 Nginx 托管并代理 `/api`。`npm run preview` 只用于预览静态产物，未配置开发代理，不能替代生产反向代理；不要以直接打开 `dist/index.html` 验证完整应用。
+
+数字农商使用 `npm run build:bank`，读取 `.env.bank` 的 `VITE_APP_BASE_PATH` 和
+`VITE_API_BASE_PATH`，同时配置资源路径、路由 base 和全部接口请求前缀。
+本地验证同样路径可运行 `npm run dev -- --mode bank`。两个变量只接受以 `/` 开头的本站路径；
+不要填写 F5 域名。`.env.bank.local` 和进程环境中的同名变量优先级更高，发布前应核对。
 
 目录中的指标和机构支持点击切换选择：首次点击将名称插入输入框，再次点击取消并移除对应名称及编码，保留其他正文；已手动编辑的名称不按旧编码删除。
 

@@ -42,7 +42,8 @@ router.beforeEach(async (to) => {
   if (ssoToken) {
     const cleanQuery = { ...to.query }
     delete cleanQuery.token
-    const cleanLocation = router.resolve({ path: to.path, query: cleanQuery }).fullPath
+    // href 含部署 base；fullPath 仅为路由内部路径，直接写地址栏会丢失数字农商前缀。
+    const cleanLocation = router.resolve({ path: to.path, query: cleanQuery, hash: to.hash }).href
     // 立即从地址栏移除外部凭证；新平台跳转必须重新验证，不能沿用旧账号。
     window.history.replaceState(window.history.state, "", cleanLocation)
     try {

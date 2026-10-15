@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RouterLink } from "vue-router"
+import { RouterLink, useRouter } from "vue-router"
 import { onMounted, ref } from "vue"
 import { getAuthConfig } from "@/lib/api"
 import { consumeAuthFailureReason } from "@/lib/authSession"
@@ -7,6 +7,7 @@ import { consumeAuthFailureReason } from "@/lib/authSession"
 const message = ref(consumeAuthFailureReason())
 const portalUrl = ref("")
 const passwordLoginEnabled = ref(false)
+const router = useRouter()
 onMounted(async () => {
   try {
     const config = await getAuthConfig()
@@ -15,7 +16,7 @@ onMounted(async () => {
     if (["https:", "http:"].includes(url.protocol)) portalUrl.value = url.href
   } catch { /* 未配置平台地址或服务暂不可用时，仍提供明确的重新进入说明。 */ }
 })
-function retry() { window.location.replace("/chat") }
+function retry() { window.location.replace(router.resolve({ name: "chat" }).href) }
 </script>
 
 <template>

@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!/frontend-vue/.env.bank
 
 # Python
 __pycache__/

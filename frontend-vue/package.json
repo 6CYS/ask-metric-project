@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
+    "build:bank": "vue-tsc -b && vite build --mode bank",
     "preview": "vite preview",
     "typecheck": "vue-tsc -b",
     "test": "vitest run"
