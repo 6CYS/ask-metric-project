@@ -60,6 +60,68 @@ export type AgentSessionMessage =
   | { role: "tool"; tool: string; details: unknown; is_error: boolean; tool_call_id?: string; elapsed_ms?: number; timestamp: number | null }
   | { role: string; text?: string; timestamp: number | null }
 
+export type QuestionField = "organizations" | "comparison_organizations" | "metrics"
+export type QuestionStatus = "open" | "answered" | "rejected" | "superseded" | "abandoned"
+
+export interface QuestionOption {
+  option_id: string
+  no: number
+  label: string
+  description?: string
+}
+
+export interface QuestionScope {
+  task_ref: string
+  target_ref: string
+  field: QuestionField
+  item_ref: string
+}
+
+interface PendingQuestionBase {
+  question_id: string
+  version: number
+  scope: QuestionScope
+  prompt: string
+  selection_mode: "single" | "multiple"
+  options: QuestionOption[]
+  status: QuestionStatus
+  issued_operation_id: string
+}
+
+export type PendingQuestion = PendingQuestionBase & (
+  | { kind: "choice"; confirmation_option_id?: never }
+  | { kind: "confirm"; confirmation_option_id: string }
+)
+
+export type AnswerChoice =
+  | { type: "select"; option_ids: string[] }
+  | { type: "accept" }
+  | { type: "reject" }
+  | { type: "none_of_these" }
+
+/** 浏览器可信点击输入；不包含模型证据、正式编码或服务端内部绑定。 */
+export interface Answer {
+  question_id: string
+  version: number
+  choice: AnswerChoice
+}
+
+export interface AnswerReceipt {
+  question_id: string
+  version: number
+  outcome: "applied" | "declined" | "not_applied" | "already_applied"
+  selected_options?: QuestionOption[]
+  notice: string
+  code?: string
+}
+
+/** 会话级当前状态；历史题目快照本身不被重写。 */
+export interface QuestionState {
+  question_id: string
+  version: number
+  status: QuestionStatus
+}
+
 export interface AgentSessionDetail {
   session_id: string
   title?: string
@@ -70,6 +132,7 @@ export interface AgentSessionDetail {
   operation_id?: string | null
   legacy?: boolean
   messages: AgentSessionMessage[]
+  question_states?: QuestionState[]
 }
 
 /** metric_ask / 结构化查询工具结束时附带的结构化结果引用；完整明细经后端 result 接口分页读取。 */
@@ -98,7 +161,9 @@ export interface MetricAskDetails {
 /** 提问输入（协议 V3）：request_id 由浏览器每次确认发送生成，网络重试不变 */
 export interface AgentPromptInput {
   request_id: string
+  /** 纯点击提交为空串；不得以选项 label 或合成目标冒充用户键入内容。 */
   message: string
+  answers?: Answer[]
   clarification_target?: { task_id: string; version: number; clarification_id: string }
   selected_answers?: Record<string, unknown>
   /** 点选系统待确认清单的选项；仅对该待确认 Frame 生效 */
@@ -123,7 +188,7 @@ export interface ClarificationChoiceSet {
   confirmation_unclear?: boolean
 }
 
-export type AgentSnapshot = Pick<AgentSessionDetail, "messages" | "running" | "operation_id">
+export type AgentSnapshot = Pick<AgentSessionDetail, "messages" | "running" | "operation_id" | "question_states">
 
 export interface CalculationDetails {
   sources?: Array<{ task_id: string; result_id: string; source_scope_id: string | null; historical: boolean }>

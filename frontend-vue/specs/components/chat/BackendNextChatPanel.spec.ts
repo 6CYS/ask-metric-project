@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createSSRApp } from "vue"
 import { renderToString } from "@vue/server-renderer"
 import BackendNextChatPanel from "../../../src/components/chat/BackendNextChatPanel.vue"
-import type { AgentSessionDetail, AgentStreamEvent } from "@/lib/agentApi"
+import type { AgentSessionDetail, AgentStreamEvent, AnswerReceipt, PendingQuestion, QuestionState } from "@/lib/agentApi"
 import * as agentApi from "@/lib/agentApi"
 
 vi.mock("@/components/chat/CatalogQuestionComposer.vue", () => ({ default: { render: () => null } }))
@@ -27,7 +27,10 @@ const detail: AgentSessionDetail = {
 }
 type TimeVariant = { label: string; start: string; end: string }
 type Message = { id: string; role: string; content: string; status?: string; failureNotice?: string; nativeAnswer?: boolean; kind?: string
-  response?: { time_variants?: TimeVariant[]; debug?: Record<string, unknown> | null } }
+  response?: { time_variants?: TimeVariant[]; debug?: Record<string, unknown> | null }
+  pendingQuestions?: PendingQuestion[]; answerReceipts?: AnswerReceipt[]; queryResults?: Array<Record<string, unknown>> }
+type Conversation = { id: string; serverId: string | null; messages: Message[]; running: boolean
+  loaded?: boolean; persisted?: boolean; legacy?: boolean; title?: string; preview?: string; questionStates?: QuestionState[] }
 type PanelState = {
   activeConversationId: string
   activeConversationStorageKey: string
@@ -36,11 +39,13 @@ type PanelState = {
   activateAuthenticatedUser(): Promise<void>
   handleNewConversation(): void
   loadHistory(expectedUserId: string): Promise<void>
-  conversations: Array<{ id: string; serverId: string | null; messages: Message[]; running: boolean }>
+  selectConversation(conversationId: string): Promise<void>
+  conversations: Conversation[]
   conversationFromDetail(detail: AgentSessionDetail): { messages: Message[] }
   handleStreamEvent(conversationId: string, assistantId: string, event: AgentStreamEvent): void
   failMessage(conversationId: string, assistantId: string, error: unknown): void
   chooseTimeVariant(message: Message, variant: TimeVariant): void
+  handleSubmit(text: string): void
 }
 let state: PanelState
 let stored: Map<string, string>
@@ -324,5 +329,134 @@ describe("备选时间口径", () => {
     const restored = state.conversations[0]!.messages[1]
     expect(restored?.response?.debug?.task_id).toBe("t-variant")
     expect(restored?.response?.time_variants).toBeUndefined()
+  })
+})
+
+describe("PendingQuestion/Answer 消费链", () => {
+  const flush = () => new Promise(resolve => setTimeout(resolve, 0))
+  function question(id = "q-org", version = 1): PendingQuestion {
+    return {
+      question_id: id, version,
+      scope: { task_ref: "task-1", target_ref: "target-1", field: "organizations", item_ref: "item-1" },
+      prompt: "请选择机构", selection_mode: "multiple", status: "open", issued_operation_id: "op-issue", kind: "choice",
+      options: [
+        { option_id: "o1", no: 1, label: "机构一", description: "上级机构一" },
+        { option_id: "o2", no: 2, label: "机构二", description: "上级机构二" },
+      ],
+    }
+  }
+  function receipt(id = "q-org", version = 1, outcome: AnswerReceipt["outcome"] = "applied", notice = "已按第 1 项「机构一」确认。", code?: string): AnswerReceipt {
+    return { question_id: id, version, outcome, notice, ...(code ? { code } : {}) }
+  }
+  function feedback(questions: PendingQuestion[], receipts: AnswerReceipt[]) {
+    return { protocol_version: 2, status: "needs_user", pending_questions: questions, answer_receipts: receipts }
+  }
+  function detailWithFeedback(details: unknown): AgentSessionDetail {
+    return { ...detail, messages: [
+      { role: "user", text: "查询机构指标", timestamp: 1 },
+      { role: "assistant", business_protocol: "frame_v1", text: "请选择", timestamp: 2 },
+      { role: "tool", tool: "resolve_business_turn", tool_call_id: "question-tool", details, is_error: false, timestamp: 3 },
+    ] }
+  }
+  function usePublishedQuestion(published: PendingQuestion, states: QuestionState[] = [{ question_id: published.question_id, version: published.version, status: "open" }]) {
+    state.activeConversationId = "c"
+    state.conversations = [{ id: "c", serverId: "offline-test", running: false, loaded: true, persisted: true,
+      title: "问数", preview: "请选择", questionStates: states,
+      messages: [{ id: "published", role: "assistant", content: "请选择", status: "done", pendingQuestions: [published] }] }]
+  }
+
+  it.each(["direct", "semantic_task"] as const)("实时和历史都读取 %s 中的题目与正式回执", shape => {
+    const published = question()
+    const accepted = receipt()
+    const semantic = feedback([published], [accepted])
+    const details = shape === "direct" ? semantic
+      : { kind: "metric_query_structured", status: "needs_user", task_id: "task-q", semantic_task: semantic }
+    state.handleStreamEvent("c", "a", { type: "tool_end", tool: "resolve_business_turn", tool_call_id: "q", details, isError: false })
+    expect(state.conversations[0]!.messages[0]).toMatchObject({ pendingQuestions: [published], answerReceipts: [accepted] })
+
+    const restored = state.conversationFromDetail(detailWithFeedback(details)).messages[1]
+    expect(restored).toMatchObject({ pendingQuestions: [published], answerReceipts: [accepted] })
+  })
+
+  it("semantic_results 展开保留批次字段和完整原始反馈", () => {
+    const published = question()
+    const semantic = { ...feedback([published], []), nested_marker: "完整反馈不得丢失" }
+    const bundle = { kind: "semantic_results", status: "succeeded", batch_marker: "批次字段不得丢失", semantic_task: semantic,
+      results: [{ kind: "metric_query_structured", status: "succeeded", task_id: "task-full", result_id: "result-full",
+        row_count: 0, columns: [], rows: [] }] }
+    state.handleStreamEvent("c", "a", { type: "tool_end", tool: "resolve_business_turn", tool_call_id: "full", details: bundle, isError: false })
+    const live = state.conversations[0]!.messages[0]!
+    expect(live.pendingQuestions).toEqual([published])
+    expect(live.queryResults?.[0]).toMatchObject({ batch_marker: "批次字段不得丢失", semantic_task: { nested_marker: "完整反馈不得丢失" } })
+
+    const restored = state.conversationFromDetail(detailWithFeedback(bundle)).messages[1]
+    expect(restored?.pendingQuestions).toEqual([published])
+    expect(restored?.queryResults?.[0]).toMatchObject({ batch_marker: "批次字段不得丢失", semantic_task: { nested_marker: "完整反馈不得丢失" } })
+  })
+
+  it("GET 详情恢复历史题目快照和会话级当前状态", async () => {
+    const published = question()
+    const current = { question_id: published.question_id, version: published.version, status: "answered" as const }
+    vi.spyOn(agentApi, "getAgentSession").mockResolvedValue({ ...detailWithFeedback(feedback([published], [])),
+      session_id: "offline-test", question_states: [current] })
+    state.activeConversationId = "c"
+    state.conversations = [{ id: "c", serverId: "offline-test", running: false, loaded: false, persisted: true,
+      title: "问数", preview: "", messages: [], questionStates: [] }]
+    await state.selectConversation("c")
+    expect(state.conversations[0]?.questionStates).toEqual([current])
+    expect(state.conversations[0]?.messages[1]?.pendingQuestions).toEqual([published])
+    expect(state.conversations[0]?.messages[1]?.pendingQuestions?.[0]?.status).toBe("open")
+  })
+
+  it("accepted 和 snapshot 都刷新当前 question_states", () => {
+    const published = question()
+    const messages = detailWithFeedback(feedback([published], [])).messages
+    state.conversations[0]!.loaded = true
+    state.handleStreamEvent("c", "a", { type: "accepted", operation_id: "op-current", snapshot: {
+      messages, running: false, operation_id: null,
+      question_states: [{ question_id: published.question_id, version: published.version, status: "open" }],
+    } })
+    expect(state.conversations[0]?.questionStates).toEqual([{ question_id: published.question_id, version: published.version, status: "open" }])
+    state.handleStreamEvent("c", "a", { type: "snapshot", messages, running: false, operation_id: null,
+      question_states: [{ question_id: published.question_id, version: published.version, status: "answered" }] })
+    expect(state.conversations[0]?.questionStates).toEqual([{ question_id: published.question_id, version: published.version, status: "answered" }])
+  })
+
+  it("澄清待答时输入框文字按普通 question 发送，不携带任何卡片提交字段", async () => {
+    const published = question()
+    usePublishedQuestion(published)
+    let captured: Parameters<typeof agentApi.promptAgentSession>[1] | undefined
+    vi.spyOn(agentApi, "promptAgentSession").mockImplementation(async (_sessionId, input, options) => {
+      captured = input
+      options.onEvent({ type: "run_terminal", run_status: "completed", answer_status: "ok" })
+    })
+    state.message = "第 2 项"
+    state.handleSubmit("第 2 项")
+    await flush()
+    expect(captured).toMatchObject({ message: "第 2 项" })
+    expect(captured).not.toHaveProperty("answers")
+    expect(captured).not.toHaveProperty("clarification_selection")
+    expect(captured).not.toHaveProperty("selected_answers")
+    expect(captured).not.toHaveProperty("clarification_target")
+    expect(captured).not.toHaveProperty("time_override")
+    expect(state.conversations[0]?.messages.find(item => item.role === "user")).toMatchObject({ content: "第 2 项", kind: "question" })
+    expect(state.message).toBe("")
+  })
+
+  it("QUESTION_SUPERSEDED 保留最新题，already_applied 显示原受理 notice", () => {
+    const latest = question("q-org", 2)
+    const other = question("q-other", 1)
+    const superseded = receipt("q-org", 1, "not_applied", "问题已更新，请回答最新问题。", "QUESTION_SUPERSEDED")
+    const repeated = receipt("q-other", 1, "already_applied", "该选择此前已应用，本次未重复执行。")
+    state.handleStreamEvent("c", "a", { type: "tool_end", tool: "resolve_business_turn", tool_call_id: "receipts", isError: false,
+      details: { semantic_task: feedback([latest, other], [superseded, repeated]) } })
+    const current = state.conversations[0]!.messages[0]!
+    expect(current.pendingQuestions).toEqual([latest, other])
+    expect(current.answerReceipts?.map(item => item.notice)).toEqual([superseded.notice, repeated.notice])
+    expect(state.conversations[0]?.questionStates).toEqual(expect.arrayContaining([
+      { question_id: "q-org", version: 1, status: "superseded" },
+      { question_id: "q-org", version: 2, status: "open" },
+      { question_id: "q-other", version: 1, status: "answered" },
+    ]))
   })
 })

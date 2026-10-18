@@ -1,20 +1,23 @@
 /**
- * Agent 业务工具入口：汇总各工具供原生 harness 注册。
+ * Agent 业务工具入口：直接组装 semantic_v2 协议工具供原生 harness 注册。
  * 模型只选择工具与动作；指标/机构校验、权限裁剪、SQL builder 生成和执行全部在后端完成。
  * 工具不再绑定具体用户客户端：后端访问经 toolContext 的当次请求绑定。
  */
 import type { AgentHarnessTool } from "@earendil-works/pi-agent-core";
 import type { AskMetricRequestContext } from "../requestContext.js";
-import { createMetricCatalogOverviewTool } from "./metricCatalogOverview.js";
-import { createMetricCatalogSearchTool } from "./metricCatalogSearch.js";
-import { createOrgCatalogSearchTool } from "./orgCatalogSearch.js";
-import { createMetricReadTool, createSessionHistoryReadTool } from "./readTools.js";
 import { createBusinessCapabilityTool } from "./businessCapability.js";
 import { withFocusedArgumentErrors } from "./shared.js";
 import { createCatalogTool } from "./catalog.js";
 import { createReadTool } from "./readTools.js";
-import { createFixedResolveBusinessTurnTool, createExecuteBusinessFrameTool, createReadBusinessResultTool, createFixedBusinessContextReadTool } from "./businessContext.js";
 import { createConversationReplyTool, createActionRequiredTool } from "./turnContract.js";
+import {
+  createSemanticResolveTool,
+  createSemanticContextTool,
+  createSemanticExecuteTool,
+  createSemanticReadTool,
+  createSemanticClarifyTool,
+  semanticCapabilityTool,
+} from "../semantic-task/tools.js";
 
 export { createMetricCatalogSearchTool } from "./metricCatalogSearch.js";
 export { createOrgCatalogSearchTool } from "./orgCatalogSearch.js";
@@ -23,18 +26,18 @@ export { createStructuredQueryTool } from "./structuredQuery.js";
 export type { CatalogSearchDetails, StructuredQueryDetails } from "./shared.js";
 
 /** pi 选择业务工具；结构化查询仍接受后端目录、权限与能力校验。 */
-export function createAskMetricTools(options: {compactTurnArgs?: boolean | undefined} = {}): AgentHarnessTool<AskMetricRequestContext>[] {
+export function createAskMetricTools(): AgentHarnessTool<AskMetricRequestContext>[] {
   const tools = [
-    deliverable(createBusinessCapabilityTool()),
-    createFixedResolveBusinessTurnTool(),
-    createFixedBusinessContextReadTool(),
-    deliverable(createExecuteBusinessFrameTool()),
-    deliverable(createReadBusinessResultTool()),
-
+    semanticCapabilityTool(deliverable(createBusinessCapabilityTool())),
+    createSemanticResolveTool(),
+    createSemanticContextTool(),
+    createSemanticExecuteTool(),
+    createSemanticReadTool(),
     createReadTool(),
     deliverable(createCatalogTool()),
     createConversationReplyTool(),
     createActionRequiredTool(),
+    createSemanticClarifyTool(),
   ] as AgentHarnessTool<AskMetricRequestContext>[];
   return tools.map(withFocusedArgumentErrors);
 }
@@ -47,12 +50,4 @@ function deliverable<T extends AgentHarnessTool<AskMetricRequestContext>>(tool: 
     return {...result, details: details && typeof details.public_answer === "string"
       ? {...details, delivery: "business_evidence_v1"} : details};
   }} as T;
-}
-
-/** 仅保留历史目录和结果的只读别名；旧业务执行器不再注册。 */
-export function legacyToolsFor(tools: AgentHarnessTool<AskMetricRequestContext>[]): AgentHarnessTool<AskMetricRequestContext>[] {
-  return [
-    ...(tools.some(tool => tool.name === "catalog") ? [createMetricCatalogSearchTool(), createOrgCatalogSearchTool(), deliverable(createMetricCatalogOverviewTool())] : []),
-    ...(tools.some(tool => tool.name === "read") ? [createMetricReadTool(), createSessionHistoryReadTool()] : []),
-  ].filter(legacy => !tools.some(tool => tool.name === legacy.name)).map(withFocusedArgumentErrors);
 }

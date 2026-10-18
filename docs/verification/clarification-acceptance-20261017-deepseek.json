@@ -1,0 +1,2120 @@
+{
+  "environment": "real_model_synthetic_catalog_in_memory_SQL",
+  "real_database": false,
+  "business_date": "2026-10-17",
+  "model": "deepseek-flash",
+  "source_hashes": {
+    "scripts/check-clarification-acceptance.ts": "b0ef8e65bd2ed1f26f2975f33ffb8d79182a2c98a30ba11d70e8114ff6eb0b20",
+    "scripts/clarification-acceptance-fixture.py": "de95863b610094ceaed757d6d6d2141303b6503061809f280d897e3b2ea0b1d1"
+  },
+  "native_session_directory": "/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/clarification-acceptance-iSFH5v",
+  "gateway_blocked": false,
+  "scenarios": [
+    {
+      "id": "A1",
+      "passed": true,
+      "attempts": 1,
+      "failures": []
+    },
+    {
+      "id": "A2",
+      "passed": true,
+      "attempts": 1,
+      "failures": []
+    },
+    {
+      "id": "A3",
+      "passed": true,
+      "attempts": 1,
+      "failures": []
+    },
+    {
+      "id": "A4",
+      "passed": true,
+      "attempts": 1,
+      "failures": []
+    },
+    {
+      "id": "A5a",
+      "passed": true,
+      "attempts": 1,
+      "failures": []
+    },
+    {
+      "id": "A5b",
+      "passed": true,
+      "attempts": 1,
+      "failures": []
+    },
+    {
+      "id": "A5c",
+      "passed": true,
+      "attempts": 1,
+      "failures": []
+    },
+    {
+      "id": "A5d",
+      "passed": true,
+      "attempts": 1,
+      "failures": []
+    },
+    {
+      "id": "A6",
+      "passed": true,
+      "attempts": 1,
+      "failures": []
+    },
+    {
+      "id": "A7",
+      "passed": true,
+      "attempts": 1,
+      "failures": []
+    },
+    {
+      "id": "A8",
+      "passed": true,
+      "attempts": 1,
+      "failures": []
+    },
+    {
+      "id": "R1-candidate-cap",
+      "passed": true,
+      "attempts": 1,
+      "failures": []
+    },
+    {
+      "id": "R2-fullname-independent",
+      "passed": true,
+      "attempts": 1,
+      "failures": []
+    }
+  ],
+  "turns": [
+    {
+      "scenario": "A1",
+      "attempt": 1,
+      "turn": 1,
+      "message": "查询无锡2026年5月31日的对公协定存款余额。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 9121,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiMTJhNzRmZjlkZGJmOTQyMzNiMWZhY2Y0YjU1MzA4OWE0ZGQzODdjMDljMjQ1YzcyNzkwOGI4YmNjYmMzY2E1NiIsImNvZGVzIjpbIlNZTlRIX0RFUDpEIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiNWFkMmE5ZjMwNTQzZjIxYzQ4OGQ0MzdkNmJhNjRiNTA3YmJkMTY4ZTA2NDcyMmU5N2ExMGFkMzI1NjAwMjMwZiIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX0RFUDpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX1dYIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNS0zMSIsInN0YXJ0IjoiMjAyNi0wNS0zMSJ9fSwic2Vzc2lvbiI6IjAxYTE0YTZkLWI3ZmQtNzYzMC04YzFlLTk1NWY0YTVlOWI2OSIsInYiOjF9.Nww9CcwgdUxp0FnO99nBEBAPHLlHY-xEdsZ5-DtMbDU",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a6d-b802-7630-8c1e-9561cb3e696f:8718c5a6-e042-48ff-91ff-c29b354fb04a",
+              "user_question": "查询无锡2026年5月31日的对公协定存款余额"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_WX"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-05-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "2026年5月31日，无锡农商行的对公协定存款余额当日数为 **1006.02 元**。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "无锡农商行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "rule_default"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A1",
+      "attempt": 1,
+      "turn": 2,
+      "message": "改成较上月，其他条件不变。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 7602,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiNDc0NjQxY2YzMzM4NjJjZTliMjdiODJhZjQ5NzFjODI2YWI1YTBiODgwNjMwZGViNDkwNzcxOWQ4NDEyZTBhOSIsImNvZGVzIjpbIlNZTlRIX0RFUDpNIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiODNhNTYyYmYwMDAxZDU0YTkwNmIyZDkwYTMxMDJjZmZjNTc5YWEzMDAzMTQyNTc1ZWNkYjFkMmU3YzUxNTk1YyIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX0RFUDpNIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX1dYIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNS0zMSIsInN0YXJ0IjoiMjAyNi0wNS0zMSJ9fSwic2Vzc2lvbiI6IjAxYTE0YTZkLWI3ZmQtNzYzMC04YzFlLTk1NWY0YTVlOWI2OSIsInYiOjF9.k8JYQJmj-L1pdSSEIDlnIC9E1EYQOLFhrM_CCkPd4_I",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a6d-dba3-7630-8c1e-957345ede26d:74f96c61-fd7e-4548-9e09-e5cea1e732ee",
+              "user_question": "改成较上月，其他条件不变。"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:M"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_WX"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-05-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "2026年5月31日，无锡农商行的对公协定存款余额较上月为 **2000 元**。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "无锡农商行",
+          "origin": "history"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额较上月",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "history"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A1",
+      "attempt": 1,
+      "turn": 3,
+      "message": "6月末呢？",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 5512,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiNDc0NjQxY2YzMzM4NjJjZTliMjdiODJhZjQ5NzFjODI2YWI1YTBiODgwNjMwZGViNDkwNzcxOWQ4NDEyZTBhOSIsImNvZGVzIjpbIlNZTlRIX0RFUDpNIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiOGUzMDYyZjQ2YTc0NDdiMzFlMzMyNzlmZmYxNTAyM2YzNDM2ZmFjZTcxN2I2NDRkZmQ0NTIxYzEzM2MyZjBhNyIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX0RFUDpNIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX1dYIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNi0zMCIsInN0YXJ0IjoiMjAyNi0wNi0zMCJ9fSwic2Vzc2lvbiI6IjAxYTE0YTZkLWI3ZmQtNzYzMC04YzFlLTk1NWY0YTVlOWI2OSIsInYiOjF9._Crwc2arGVvfcJyvkWhY_omVWQ2M4mmUslFR9jgHiok",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a6d-f955-7630-8c1e-9585de41d025:2dbae6b0-de50-4087-b2c0-70fe6372167e",
+              "user_question": "6月末呢？"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:M"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_WX"
+            ],
+            "time": {
+              "start": "2026-06-30",
+              "end": "2026-06-30"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "2026-06-30，无锡农商行的对公协定存款余额较上月为2003.01元。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "无锡农商行",
+          "origin": "history"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额较上月",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年6月30日",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A1",
+      "attempt": 1,
+      "turn": 4,
+      "message": "把刚才的查询结果再展示一次，不要重新查。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "reused",
+      "elapsed_ms": 3870,
+      "queries": [],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "以下是刚才那次查询的结果，未重新取数：\n\n- 机构：无锡农商行\n- 指标：对公协定存款余额较上月\n- 日期：2026-06-30\n- 数值：**2003.01 元**\n\n（数据来源：任务 f1df02ff… 的目标 79f9b369…，结果 result-query-3，共 1 行，无截断。）",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "无锡农商行",
+          "origin": "history"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额较上月",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年6月30日",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A2",
+      "attempt": 1,
+      "turn": 1,
+      "message": "查询海、泰2026年5月31日的对公协定存款余额当日数。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "needs_user",
+      "elapsed_ms": 5273,
+      "queries": [],
+      "pending_questions": [
+        {
+          "question_id": "q_43b0cbe7-7318-430e-b000-d441dfda319a",
+          "version": 1,
+          "scope": {
+            "task_ref": "f3d2168a-71e8-4625-9706-4e62ab0071ac",
+            "target_ref": "b50c9abc-5f41-46ee-85ae-a8d695f5c71d",
+            "field": "organizations",
+            "item_ref": "92b93644-68f7-495a-877a-e6daa24a8f16"
+          },
+          "prompt": "请确定机构名称：海",
+          "selection_mode": "multiple",
+          "options": [
+            {
+              "option_id": "opt_4e8fb3f7-60a1-413e-ae44-94cb51b7f500",
+              "no": 1,
+              "label": "海安农商行"
+            },
+            {
+              "option_id": "opt_fa8b57f2-5e2f-4eb2-b075-81f897fd8fbf",
+              "no": 2,
+              "label": "海门农商行"
+            }
+          ],
+          "status": "open",
+          "issued_operation_id": "01a14a6e-1dff-7630-8c1e-95a55b16e874",
+          "kind": "choice"
+        },
+        {
+          "question_id": "q_10373e1a-6bb9-4c39-8137-0c3bc8f6129d",
+          "version": 1,
+          "scope": {
+            "task_ref": "f3d2168a-71e8-4625-9706-4e62ab0071ac",
+            "target_ref": "b50c9abc-5f41-46ee-85ae-a8d695f5c71d",
+            "field": "organizations",
+            "item_ref": "00f06d6b-c0b7-4f1d-b2ad-d03d099b9b2b"
+          },
+          "prompt": "请确定机构名称：泰",
+          "selection_mode": "multiple",
+          "options": [
+            {
+              "option_id": "opt_b82b4ea6-0c27-4074-be68-1a2d5f4581bc",
+              "no": 1,
+              "label": "泰兴农商行"
+            },
+            {
+              "option_id": "opt_2b96b7a2-51a5-4370-8c92-e88274de43db",
+              "no": 2,
+              "label": "泰州农商行"
+            }
+          ],
+          "status": "open",
+          "issued_operation_id": "01a14a6e-1dff-7630-8c1e-95a55b16e874",
+          "kind": "choice"
+        }
+      ],
+      "issues": [
+        {
+          "code": "ENTITY_NOT_DETERMINED",
+          "field": "organizations",
+          "message": "请确定机构名称：海、泰。",
+          "remediation": "user",
+          "category": "catalog"
+        }
+      ],
+      "answer": "请确定机构名称：海、泰。\n请确定机构名称：海\n1. 海安农商行\n2. 海门农商行\n请确定机构名称：泰\n1. 泰兴农商行\n2. 泰州农商行",
+      "conditions": [
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "rule_default"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A2",
+      "attempt": 1,
+      "turn": 2,
+      "message": "“海”这一组选海安和海门，“泰”先不选。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "needs_user",
+      "elapsed_ms": 7271,
+      "queries": [],
+      "pending_questions": [
+        {
+          "question_id": "q_10373e1a-6bb9-4c39-8137-0c3bc8f6129d",
+          "version": 2,
+          "scope": {
+            "task_ref": "5e5df9d5-1c35-4222-961a-407673d370f3",
+            "target_ref": "17264a0d-d9de-4c50-9ccf-3012961ccfb1",
+            "field": "organizations",
+            "item_ref": "00f06d6b-c0b7-4f1d-b2ad-d03d099b9b2b"
+          },
+          "prompt": "请确定机构名称：泰",
+          "selection_mode": "multiple",
+          "options": [
+            {
+              "option_id": "opt_6a8ca416-4f56-46e9-a703-539ecc30117e",
+              "no": 1,
+              "label": "泰兴农商行"
+            },
+            {
+              "option_id": "opt_7142ac93-419c-475b-bbf8-4f28ad9eae7d",
+              "no": 2,
+              "label": "泰州农商行"
+            }
+          ],
+          "status": "open",
+          "issued_operation_id": "01a14a6e-3298-7630-8c1e-95b136f07e35",
+          "kind": "choice"
+        }
+      ],
+      "issues": [
+        {
+          "code": "ENTITY_NOT_DETERMINED",
+          "field": "organizations",
+          "message": "请确定机构名称：海、泰。",
+          "remediation": "user",
+          "category": "catalog"
+        }
+      ],
+      "answer": "已按第 1 项「海安农商行」、第 2 项「海门农商行」确认。\n请确定机构名称：海、泰。\n请确定机构名称：泰\n1. 泰兴农商行\n2. 泰州农商行",
+      "conditions": [
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "history"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A2",
+      "attempt": 1,
+      "turn": 3,
+      "message": "“泰”选泰兴。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 8640,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiMTJhNzRmZjlkZGJmOTQyMzNiMWZhY2Y0YjU1MzA4OWE0ZGQzODdjMDljMjQ1YzcyNzkwOGI4YmNjYmMzY2E1NiIsImNvZGVzIjpbIlNZTlRIX0RFUDpEIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiYzQxYmFmMDJhYzM1YTM1MTMyNDEyZDE1NjA3YmY5NzQ1Yjc2MmUxMDBmZjAwNmFhNDI0Mjc3ODkxZDE3MzI5YiIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX0RFUDpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX0hBIiwiU1lOVEhfSE0iLCJTWU5USF9UWCJdLCJzY2hlbWFfdmVyc2lvbiI6Miwic2VsZWN0aW9uIjoiZXhhY3QiLCJ0aW1lIjp7ImVuZCI6IjIwMjYtMDUtMzEiLCJzdGFydCI6IjIwMjYtMDUtMzEifX0sInNlc3Npb24iOiIwMWExNGE2ZS0xZGZjLTc2MzAtOGMxZS05NWEzMWFiODFjOGIiLCJ2IjoxfQ.3nkti9Q4uFECOLDiIH9zny8zdsw-zk4hqVJgtTe5uGU",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a6e-4f06-7630-8c1e-95bcb44c19d7:c60a6ab6-47b1-43b0-bbd2-46eaca9a7b48",
+              "user_question": "“泰”选泰兴。"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_HA",
+              "SYNTH_HM",
+              "SYNTH_TX"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-05-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 3
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "已按您的选择查询完成：2026年5月31日，海安农商行、海门农商行、泰兴农商行三家机构的对公协定存款余额当日数均已取得，明细见结果表。\n\n- 泰兴农商行：1041.67 元\n- 海门农商行：1034.54 元\n- 海安农商行：1027.41 元\n\n三家机构中，泰兴农商行最高，海安农商行最低。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "海安农商行、海门农商行、泰兴农商行",
+          "origin": "user_confirmed"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "history"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A3",
+      "attempt": 1,
+      "turn": 1,
+      "message": "查询海2026年5月31日的对公协定存款余额当日数。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "needs_user",
+      "elapsed_ms": 5968,
+      "queries": [],
+      "pending_questions": [
+        {
+          "question_id": "q_348869b0-5461-4f51-9c9a-b55f29459fff",
+          "version": 1,
+          "scope": {
+            "task_ref": "f5763dfa-c6c5-4797-b30a-acb04a0a0eb6",
+            "target_ref": "a5115e7d-8444-42e9-a731-256449237fea",
+            "field": "organizations",
+            "item_ref": "546e1e8f-b855-47b9-bc06-e950136c390b"
+          },
+          "prompt": "请确定机构名称：海",
+          "selection_mode": "multiple",
+          "options": [
+            {
+              "option_id": "opt_88f8b138-6624-41f3-9c6e-0bf7ae0409b6",
+              "no": 1,
+              "label": "海安农商行"
+            },
+            {
+              "option_id": "opt_f510507a-9bfc-4e3b-92cb-0cd6e5cb092e",
+              "no": 2,
+              "label": "海门农商行"
+            }
+          ],
+          "status": "open",
+          "issued_operation_id": "01a14a6e-70c8-7630-8c1e-95d010364340",
+          "kind": "choice"
+        }
+      ],
+      "issues": [
+        {
+          "code": "ENTITY_NOT_DETERMINED",
+          "field": "organizations",
+          "message": "请确定机构名称：海。",
+          "remediation": "user",
+          "category": "catalog"
+        }
+      ],
+      "answer": "请确定机构名称：海。\n请确定机构名称：海\n1. 海安农商行\n2. 海门农商行",
+      "conditions": [
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "rule_default"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A3",
+      "attempt": 1,
+      "turn": 2,
+      "message": "日期改成2026年4月30日，机构还没选。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "needs_user",
+      "elapsed_ms": 5526,
+      "queries": [],
+      "pending_questions": [
+        {
+          "question_id": "q_348869b0-5461-4f51-9c9a-b55f29459fff",
+          "version": 1,
+          "scope": {
+            "task_ref": "b32f0a48-56ab-41c8-9b20-86cded5da15e",
+            "target_ref": "d6309cd6-e6e3-478c-9aae-a7e2dd8ccfdc",
+            "field": "organizations",
+            "item_ref": "546e1e8f-b855-47b9-bc06-e950136c390b"
+          },
+          "prompt": "请确定机构名称：海",
+          "selection_mode": "multiple",
+          "options": [
+            {
+              "option_id": "opt_88f8b138-6624-41f3-9c6e-0bf7ae0409b6",
+              "no": 1,
+              "label": "海安农商行"
+            },
+            {
+              "option_id": "opt_f510507a-9bfc-4e3b-92cb-0cd6e5cb092e",
+              "no": 2,
+              "label": "海门农商行"
+            }
+          ],
+          "status": "open",
+          "issued_operation_id": "01a14a6e-70c8-7630-8c1e-95d010364340",
+          "kind": "choice"
+        }
+      ],
+      "issues": [
+        {
+          "code": "FIELD_REQUIRED",
+          "field": "organizations",
+          "message": "请补充或确定机构。",
+          "remediation": "user",
+          "category": "semantic"
+        }
+      ],
+      "answer": "请补充或确定机构。\n请确定机构名称：海\n1. 海安农商行\n2. 海门农商行",
+      "conditions": [
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年4月30日",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A3",
+      "attempt": 1,
+      "turn": 3,
+      "message": "不是第一个，是第二个。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 9059,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiMTJhNzRmZjlkZGJmOTQyMzNiMWZhY2Y0YjU1MzA4OWE0ZGQzODdjMDljMjQ1YzcyNzkwOGI4YmNjYmMzY2E1NiIsImNvZGVzIjpbIlNZTlRIX0RFUDpEIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiOGI4NGNhZWEyMjAwYWVmZDE4N2VlOWQyNDQ2NzkyMWY0MTBlOGZhNmE1MDQyN2FlNzI0NWQ2YWUyODMxOGY2YyIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX0RFUDpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX0hNIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNC0zMCIsInN0YXJ0IjoiMjAyNi0wNC0zMCJ9fSwic2Vzc2lvbiI6IjAxYTE0YTZlLTcwYzYtNzYzMC04YzFlLTk1Y2UwYTU1ODRmYSIsInYiOjF9.JJcNgvVcsl_UCq8SKvIQC-GTD24HzjxND1RK1k1wuSM",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a6e-9dad-7630-8c1e-95e80d815220:4ff10749-ef07-43da-ad71-e9020ec12cdf",
+              "user_question": "不是第一个，是第二个。"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_HM"
+            ],
+            "time": {
+              "start": "2026-04-30",
+              "end": "2026-04-30"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "已按您的选择确认机构为海门农商行，日期为2026年4月30日。\n\n查询结果：2026-04-30，海门农商行的对公协定存款余额当日数为 **1031.53 元**。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "海门农商行",
+          "origin": "user_confirmed"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年4月30日",
+          "origin": "history"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A4",
+      "attempt": 1,
+      "turn": 1,
+      "message": "张家港行今年3月末大聪明有多少？",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "needs_user",
+      "elapsed_ms": 4717,
+      "queries": [],
+      "pending_questions": [],
+      "issues": [
+        {
+          "code": "ENTITY_NOT_DETERMINED",
+          "field": "metrics",
+          "message": "请确定指标口径：大聪明。",
+          "remediation": "user",
+          "category": "catalog"
+        }
+      ],
+      "answer": "请确定指标口径：大聪明。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "张家港行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "今年3月末",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "rule_default"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A4",
+      "attempt": 1,
+      "turn": 2,
+      "message": "指标是净利润金额当日数",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 7960,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiOWUwOTg2MjZhM2MzYTUxMzcxN2U2ZTQyNjA1ZTI2ZTNlYTEwZTJiNWM3ZTA3N2Y1NDgzODc5MTg0MmQwMTQ4OSIsImNvZGVzIjpbIlNZTlRIX1BST0ZJVDpEIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiMmViYjllZWM5ZDcxZGRlYzUzYjA5ODRlYjgwYTA3YjgzOTgyNzhiN2EyNTYyNWVlZDkxZTU4MTRlMjAyZjI1OCIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX1BST0ZJVDpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX1pKRyJdLCJzY2hlbWFfdmVyc2lvbiI6Miwic2VsZWN0aW9uIjoiZXhhY3QiLCJ0aW1lIjp7ImVuZCI6IjIwMjYtMDMtMzEiLCJzdGFydCI6IjIwMjYtMDMtMzEifX0sInNlc3Npb24iOiIwMWExNGE2ZS1jMTEyLTc2MzAtOGMxZS05NWZhNDlkZTAzYTgiLCJ2IjoxfQ.XA0PWTa6G8aqu4WckmvIlIMW5ah7cmP9jV8zb9xbjS8",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a6e-d382-7630-8c1e-9609aebe7119:d1d73ec9-f910-484c-8af9-39bcae0d8bd1",
+              "user_question": "指标是净利润金额当日数"
+            },
+            "metric_codes": [
+              "SYNTH_PROFIT:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_ZJG"
+            ],
+            "time": {
+              "start": "2026-03-31",
+              "end": "2026-03-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "2026-03-31，张家港行的净利润金额当日数为3049.91元。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "张家港行",
+          "origin": "history"
+        },
+        {
+          "field": "metrics",
+          "display": "净利润金额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "今年3月末",
+          "origin": "history"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A5a",
+      "attempt": 1,
+      "turn": 1,
+      "message": "查询张家港行个人活期存款余额当日数，2021年末到2026年9月末的全部已有记录。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 8172,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiZGUwOGFlN2ZkN2QwNDQwYTU3MzJkMjcwMTlkMmY1MWQ1NzIxMjc5YTQwODI0ZTNiMzAzYWNhYWRmY2UyYWE3YyIsImNvZGVzIjpbIlNZTlRIX0REQTpEIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiZDQwNmJmYWZhMjAwNjc2NGE0NmZiMGNlOGIyYjRjNTVlYTE4ODVkODBkMjExMjEwYzYyYWMwOWEwNzdkOTE0NSIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX0REQTpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX1pKRyJdLCJzY2hlbWFfdmVyc2lvbiI6Miwic2VsZWN0aW9uIjoiYWxsX2luX3JhbmdlIiwidGltZSI6eyJlbmQiOiIyMDI2LTA5LTMwIiwic3RhcnQiOiIyMDIxLTEyLTMxIn19LCJzZXNzaW9uIjoiMDFhMTRhNmUtZjI5Yi03NjMwLThjMWUtOTYxNDMxMTY5MjBmIiwidiI6MX0.qtqy3FqbZfM7oPoIk5Slxf-4b5b6F3lHLWi15lohJiA",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a6e-f29c-7630-8c1e-96163b06e5dd:88e61115-ab5a-42eb-bc3f-ebd2d710f327",
+              "user_question": "查询张家港行个人活期存款余额当日数，2021年末到2026年9月末的全部已有记录"
+            },
+            "metric_codes": [
+              "SYNTH_DDA:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_ZJG"
+            ],
+            "time": {
+              "start": "2021-12-31",
+              "end": "2026-09-30"
+            },
+            "selection": "all_in_range",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 21
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "查询完成：张家港行「个人活期存款余额当日数」，2021年末至2026年9月末共返回 21 条已有记录（单位：元），未截断。\n\n- 区间起点：2021-12-31 为 5,000 元\n- 区间终点：2026-09-30 为 5,060.2 元\n- 记录按季末为主，另含 2026-05-31 一条（5,054.18 元）；2026 年 9 月末为最新一条\n\n完整明细已在结果表中展示，可查看各期数值。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "张家港行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "metrics",
+          "display": "个人活期存款余额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "2021年末到2026年9月末",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "selection",
+          "display": "2021年末到2026年9月末的全部已有记录",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A5b",
+      "attempt": 1,
+      "turn": 1,
+      "message": "查询张家港行个人活期存款余额当日数，从去年最后一天到今年九月底的全部已有记录。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 8634,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiZGUwOGFlN2ZkN2QwNDQwYTU3MzJkMjcwMTlkMmY1MWQ1NzIxMjc5YTQwODI0ZTNiMzAzYWNhYWRmY2UyYWE3YyIsImNvZGVzIjpbIlNZTlRIX0REQTpEIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiZTVjNWFlOGNlOWM5MjBiNzZlYTAyMWZhYmNjZGQzOTlkOTdjOTQwNzVlOWQzNjI4OTgxODBkYTgzMzFmYWJkZCIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX0REQTpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX1pKRyJdLCJzY2hlbWFfdmVyc2lvbiI6Miwic2VsZWN0aW9uIjoiYWxsX2luX3JhbmdlIiwidGltZSI6eyJlbmQiOiIyMDI2LTA5LTMwIiwic3RhcnQiOiIyMDI1LTEyLTMxIn19LCJzZXNzaW9uIjoiMDFhMTRhNmYtMTI4YS03NjMwLThjMWUtOTYyOTllYzA4YmVhIiwidiI6MX0.9nWgEq22e7X6II2aeO4LiVaNRdnrmSWSpPXXCxuo5O8",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a6f-128d-7630-8c1e-962a9ea5db75:3daf9003-86ca-4b4d-912a-44a746b9fe7f",
+              "user_question": "查询张家港行个人活期存款余额当日数，从去年最后一天到今年九月底的全部已有记录"
+            },
+            "metric_codes": [
+              "SYNTH_DDA:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_ZJG"
+            ],
+            "time": {
+              "start": "2025-12-31",
+              "end": "2026-09-30"
+            },
+            "selection": "all_in_range",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 5
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "已查询完成：张家港行「个人活期存款余额当日数」，时间范围为 2025-12-31 至 2026-09-30，共返回 5 条已有记录，单位均为元，未发生截断。\n\n记录日期为：2025-12-31、2026-03-31、2026-05-31、2026-06-30、2026-09-30。该区间内并非每个日期都有数据，仅上述 5 个日期有记录；明细已在结果表中展示。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "张家港行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "metrics",
+          "display": "个人活期存款余额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "从去年最后一天到今年九月底",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "selection",
+          "display": "全部已有记录",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A5c",
+      "attempt": 1,
+      "turn": 1,
+      "message": "查询张家港行个人活期存款余额当日数，2026年五月和九月的最后一天。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 7503,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiZGUwOGFlN2ZkN2QwNDQwYTU3MzJkMjcwMTlkMmY1MWQ1NzIxMjc5YTQwODI0ZTNiMzAzYWNhYWRmY2UyYWE3YyIsImNvZGVzIjpbIlNZTlRIX0REQTpEIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiMzhmM2I5MzNkMGU0ZWI3ZjIzNTdhNDFjMmM1YjNjNzU4OWY5MWEyNjUzYmM1ZDU1ZjRmOTQwOGFmNTg2ZWI3ZCIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX0REQTpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX1pKRyJdLCJzY2hlbWFfdmVyc2lvbiI6Miwic2VsZWN0aW9uIjoiZXhhY3QiLCJ0aW1lIjp7ImRhdGVzIjpbIjIwMjYtMDUtMzEiLCIyMDI2LTA5LTMwIl0sImVuZCI6IjIwMjYtMDktMzAiLCJzdGFydCI6IjIwMjYtMDUtMzEifX0sInNlc3Npb24iOiIwMWExNGE2Zi0zNDQ3LTc2MzAtOGMxZS05NjNjZGRlZjhjMjUiLCJ2IjoxfQ.RQS-0RlVM-Erw1p1U-pF2UK2-I5GbsKTsjELBOoZr1U",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a6f-3449-7630-8c1e-963ed62b5dac:a3705a98-69e8-420f-8631-ec09428ee0a2",
+              "user_question": "查询张家港行个人活期存款余额当日数，2026年五月和九月的最后一天"
+            },
+            "metric_codes": [
+              "SYNTH_DDA:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_ZJG"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-09-30",
+              "dates": [
+                "2026-05-31",
+                "2026-09-30"
+              ]
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 2
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "已查询到张家港行个人活期存款余额当日数：\n\n- 2026-05-31：5054.18 元\n- 2026-09-30：5060.2 元\n\n两个时点均为完整数据，无截断。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "张家港行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "metrics",
+          "display": "个人活期存款余额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "2026年五月和九月的最后一天",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "rule_default"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A5d",
+      "attempt": 1,
+      "turn": 1,
+      "message": "查询张家港行个人活期存款余额当日数，到2026年9月末的全部已有记录。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "needs_user",
+      "elapsed_ms": 5642,
+      "queries": [],
+      "pending_questions": [],
+      "issues": [
+        {
+          "code": "TIME_RANGE_INCOMPLETE",
+          "field": "time",
+          "message": "日期范围只明确了一端，请补充完整的起止日期。",
+          "remediation": "user",
+          "category": "calendar"
+        }
+      ],
+      "answer": "日期范围只明确了一端，请补充完整的起止日期。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "张家港行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "metrics",
+          "display": "个人活期存款余额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A6",
+      "attempt": 1,
+      "turn": 1,
+      "message": "查询张家港行近5年存款记录。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "needs_user",
+      "elapsed_ms": 5591,
+      "queries": [],
+      "pending_questions": [],
+      "issues": [
+        {
+          "code": "ENTITY_NOT_DETERMINED",
+          "field": "metrics",
+          "message": "请确定指标口径：存款。",
+          "remediation": "user",
+          "category": "catalog"
+        },
+        {
+          "code": "TIME_SELECTION_REQUIRED",
+          "field": "selection",
+          "message": "需要确定取数方式：区间内全部已有记录，还是最新一期？",
+          "remediation": "user",
+          "category": "semantic"
+        }
+      ],
+      "answer": "请确定指标口径：存款。\n需要确定取数方式：区间内全部已有记录，还是最新一期？",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "张家港行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "近5年",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A6",
+      "attempt": 1,
+      "turn": 2,
+      "message": "指标用个人活期存款余额当日数，查询全部已有记录，范围改为2021年末到2026年9月末。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 8949,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiZGUwOGFlN2ZkN2QwNDQwYTU3MzJkMjcwMTlkMmY1MWQ1NzIxMjc5YTQwODI0ZTNiMzAzYWNhYWRmY2UyYWE3YyIsImNvZGVzIjpbIlNZTlRIX0REQTpEIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiYjYxNjk3ZmNlMDRjYzk3MGM1NjYyMDNhOTk5NjY0MjFhMDFlMmE3OWQ3ODE0OGE1YjBkYmEwNzBkNTM0ZjFiMyIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX0REQTpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX1pKRyJdLCJzY2hlbWFfdmVyc2lvbiI6Miwic2VsZWN0aW9uIjoiYWxsX2luX3JhbmdlIiwidGltZSI6eyJlbmQiOiIyMDI2LTA5LTMwIiwic3RhcnQiOiIyMDIxLTEyLTMxIn19LCJzZXNzaW9uIjoiMDFhMTRhNmYtNjdhNy03NjMwLThjMWUtOTY1ZTg2ZmRiOTM3IiwidiI6MX0.Fy_g_3xjwxhPSY6IiShQU4Ag6tUgtSr-ejBJjO2vDks",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a6f-7d7f-7630-8c1e-966d799b5dfa:4c5f765b-59ac-4fbf-b095-2d1bbf12b3e1",
+              "user_question": "指标用个人活期存款余额当日数，查询全部已有记录，范围改为2021年末到2026年9月末。"
+            },
+            "metric_codes": [
+              "SYNTH_DDA:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_ZJG"
+            ],
+            "time": {
+              "start": "2021-12-31",
+              "end": "2026-09-30"
+            },
+            "selection": "all_in_range",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 21
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "已按您指定的口径查询完成：张家港行「个人活期存款余额当日数」，时间范围 2021-12-31 至 2026-09-30，取区间内全部已有记录，共 21 条（单位：元），明细已在结果表中展示。\n\n要点：\n- 起点 2021-12-31：5,000 元；终点 2026-09-30：5,060.2 元。\n- 记录基本按季末分布，但 2026 年 4—5 月间多出一条 2026-05-31（5,054.18 元），且 2026 年 6 月末之后直接到 9 月末，未见 2026-07/08 月末记录。\n- 序列整体呈小幅单调上升，未见空值或截断（21 条全部返回）。\n\n如需按年末/季末筛选、计算区间增幅或与其它存款口径对比，可以继续告诉我。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "张家港行",
+          "origin": "history"
+        },
+        {
+          "field": "metrics",
+          "display": "个人活期存款余额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "2021年末到2026年9月末",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "区间内全部已有记录",
+          "origin": "user_explicit"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A7",
+      "attempt": 1,
+      "turn": 1,
+      "message": "查询无锡、江阴、启东2026年5月31日的对公协定存款余额当日数。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 9162,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiMTJhNzRmZjlkZGJmOTQyMzNiMWZhY2Y0YjU1MzA4OWE0ZGQzODdjMDljMjQ1YzcyNzkwOGI4YmNjYmMzY2E1NiIsImNvZGVzIjpbIlNZTlRIX0RFUDpEIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiNTU0MWRkNTkwZjVmNTFlMDk1YjM1MDE5NmU5YTg3OWFiMjhlNTBiNTY5ZjU3OTBjNWRlMTEyYjFmNDc2YzhmMyIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX0RFUDpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX1dYIiwiU1lOVEhfSlkiLCJTWU5USF9RRCJdLCJzY2hlbWFfdmVyc2lvbiI6Miwic2VsZWN0aW9uIjoiZXhhY3QiLCJ0aW1lIjp7ImVuZCI6IjIwMjYtMDUtMzEiLCJzdGFydCI6IjIwMjYtMDUtMzEifX0sInNlc3Npb24iOiIwMWExNGE2Zi1hMDc2LTc2MzAtOGMxZS05NjdlMGFmZGExNzkiLCJ2IjoxfQ.XyPz-cI3S8XV2Inv1DyeV6RARkoLpkFEUAKm962lSa0",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a6f-a078-7630-8c1e-9680e427b07d:93586a05-8a7f-43a6-bcbf-22e85d6734b4",
+              "user_question": "查询无锡、江阴、启东2026年5月31日的对公协定存款余额当日数"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_WX",
+              "SYNTH_JY",
+              "SYNTH_QD"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-05-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 3
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "已查询到三家机构 2026年5月31日的对公协定存款余额当日数，明细见结果表：\n\n- 启东农商行：1020.28 元\n- 江阴农商行：1013.15 元\n- 无锡农商行：1006.02 元\n\n三家机构均有数据，无缺数或截断。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "无锡农商行、江阴农商行、启东农商行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "rule_default"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A7",
+      "attempt": 1,
+      "turn": 2,
+      "message": "只看江阴",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 7154,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiMTJhNzRmZjlkZGJmOTQyMzNiMWZhY2Y0YjU1MzA4OWE0ZGQzODdjMDljMjQ1YzcyNzkwOGI4YmNjYmMzY2E1NiIsImNvZGVzIjpbIlNZTlRIX0RFUDpEIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiOGYyNzU0NTIwNjEzOGY2Mjc4NWY2NGM4OWVlYzY0NGViZjgwMzRkY2U0ZmY3MzNhMzc3YmIxYTIwNDg4YTg2MCIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX0RFUDpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX0pZIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNS0zMSIsInN0YXJ0IjoiMjAyNi0wNS0zMSJ9fSwic2Vzc2lvbiI6IjAxYTE0YTZmLWEwNzYtNzYzMC04YzFlLTk2N2UwYWZkYTE3OSIsInYiOjF9.wzEKwBcVa_2VWJFm-5VkudaUHl6yzWb43PoPV0fPF7g",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a6f-c442-7630-8c1e-969323832166:4958773b-0c8b-48eb-93f9-1b795b6d6e25",
+              "user_question": "只看江阴"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_JY"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-05-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "江阴农商行 2026年5月31日的对公协定存款余额当日数为 **1013.15 元**。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "江阴农商行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "history"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A7",
+      "attempt": 1,
+      "turn": 3,
+      "message": "只看启动",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 7160,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiMTJhNzRmZjlkZGJmOTQyMzNiMWZhY2Y0YjU1MzA4OWE0ZGQzODdjMDljMjQ1YzcyNzkwOGI4YmNjYmMzY2E1NiIsImNvZGVzIjpbIlNZTlRIX0RFUDpEIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiMWUzYmJmZjBlYWU1MTJkN2I4Mjk2MDUxMzkxMmJkOWIwNjBhMmViOTg3YmU0NDBkNjJjZjJkMDcwNzIxNjU3OSIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX0RFUDpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX1FEIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNS0zMSIsInN0YXJ0IjoiMjAyNi0wNS0zMSJ9fSwic2Vzc2lvbiI6IjAxYTE0YTZmLWEwNzYtNzYzMC04YzFlLTk2N2UwYWZkYTE3OSIsInYiOjF9.EzXoWPpvjNHxgq2jVjEGU_vZBUgHz5yYB3CzodZfRzU",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a6f-e034-7630-8c1e-96a41d03f2a6:146976a7-b09d-4c90-aa9a-2ee901a219a2",
+              "user_question": "只看启动"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_QD"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-05-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "已按「启东农商行」查询（您说的是「启动」）：2026-05-31，启东农商行的对公协定存款余额当日数为 **1020.28 元**。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "启东农商行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "history"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A7",
+      "attempt": 1,
+      "turn": 4,
+      "message": "6月末呢？",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 3250,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiMTJhNzRmZjlkZGJmOTQyMzNiMWZhY2Y0YjU1MzA4OWE0ZGQzODdjMDljMjQ1YzcyNzkwOGI4YmNjYmMzY2E1NiIsImNvZGVzIjpbIlNZTlRIX0RFUDpEIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiOGUzMDYyZjQ2YTc0NDdiMzFlMzMyNzlmZmYxNTAyM2YzNDM2ZmFjZTcxN2I2NDRkZmQ0NTIxYzEzM2MyZjBhNyIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX0RFUDpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX1FEIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNi0zMCIsInN0YXJ0IjoiMjAyNi0wNi0zMCJ9fSwic2Vzc2lvbiI6IjAxYTE0YTZmLWEwNzYtNzYzMC04YzFlLTk2N2UwYWZkYTE3OSIsInYiOjF9.2YxORUvtNF0j4b2RI9MGKa_CobNUYU1yduqIZp9vzoY",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a6f-fc2c-7630-8c1e-96b677d79b9d:c2c57793-08bc-4f11-8cfc-a564c5b5818b",
+              "user_question": "6月末呢？"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_QD"
+            ],
+            "time": {
+              "start": "2026-06-30",
+              "end": "2026-06-30"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "已按「启东农商行」查询（您说的是「启动」）\n2026-06-30，启东农商行的对公协定存款余额当日数为1023.29元。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "启东农商行",
+          "origin": "history"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年6月末",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A8",
+      "attempt": 1,
+      "turn": 1,
+      "message": "查询海2026年5月31日的对公协定存款余额当日数。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "needs_user",
+      "elapsed_ms": 942,
+      "queries": [],
+      "pending_questions": [
+        {
+          "question_id": "q_024e92b2-5f97-4ca7-bbb9-442cde19f639",
+          "version": 1,
+          "scope": {
+            "task_ref": "d418ed48-016b-4009-92b5-f1030ee11b92",
+            "target_ref": "5f390fb7-ca83-4bfc-a1ce-a5a1e620027a",
+            "field": "organizations",
+            "item_ref": "8fb09a67-b9d5-466c-89f9-3a77822ed56b"
+          },
+          "prompt": "请确定机构名称：海",
+          "selection_mode": "multiple",
+          "options": [
+            {
+              "option_id": "opt_148a3bd4-efda-4c14-b232-079f164630d1",
+              "no": 1,
+              "label": "海安农商行"
+            },
+            {
+              "option_id": "opt_77c3d78c-9b42-4316-91df-adcc35285937",
+              "no": 2,
+              "label": "海门农商行"
+            }
+          ],
+          "status": "open",
+          "issued_operation_id": "01a14a70-08e0-7630-8c1e-96c5bde9d8d8",
+          "kind": "choice"
+        }
+      ],
+      "issues": [
+        {
+          "code": "ENTITY_NOT_DETERMINED",
+          "field": "organizations",
+          "message": "请确定机构名称：海。",
+          "remediation": "user",
+          "category": "catalog"
+        }
+      ],
+      "answer": "请确定机构名称：海。\n请确定机构名称：海\n1. 海安农商行\n2. 海门农商行",
+      "conditions": [
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "rule_default"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "A8",
+      "attempt": 1,
+      "turn": 2,
+      "message": "都不是，改成江阴农商行，其他条件不变。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 8283,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiMTJhNzRmZjlkZGJmOTQyMzNiMWZhY2Y0YjU1MzA4OWE0ZGQzODdjMDljMjQ1YzcyNzkwOGI4YmNjYmMzY2E1NiIsImNvZGVzIjpbIlNZTlRIX0RFUDpEIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiYzljNzVlNzk4ZjViOTVhMTlhM2JkNDJjNmQ3ODg3MzRmNjI4NjUxMmMwODkyMDhkMjM1Y2QxMjhkNmRmYzA0OSIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX0RFUDpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX0pZIl0sInNjaGVtYV92ZXJzaW9uIjoyLCJzZWxlY3Rpb24iOiJleGFjdCIsInRpbWUiOnsiZW5kIjoiMjAyNi0wNS0zMSIsInN0YXJ0IjoiMjAyNi0wNS0zMSJ9fSwic2Vzc2lvbiI6IjAxYTE0YTcwLTA4ZGYtNzYzMC04YzFlLTk2YzNlZjc1YjQ3NyIsInYiOjF9.5G1gH8seR4QxQvzLNevQlAOMZuOJAfIGSR6jI1oBcNU",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a70-0c8e-7630-8c1e-96d05a7fd746:903b3c0b-4cd8-4095-b5af-f3455a0a1d93",
+              "user_question": "都不是，改成江阴农商行，其他条件不变。"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_JY"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-05-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "已按您的更正查询：2026年5月31日，江阴农商行的对公协定存款余额当日数为 **1013.15 元**。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "江阴农商行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "history"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "R1-candidate-cap",
+      "attempt": 1,
+      "turn": 1,
+      "message": "查询华2026年5月31日的对公协定存款余额当日数。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "needs_user",
+      "elapsed_ms": 7060,
+      "queries": [],
+      "pending_questions": [
+        {
+          "question_id": "q_4b718986-91ad-44b3-997d-a3325ba5a2a5",
+          "version": 1,
+          "scope": {
+            "task_ref": "9fe02bd5-4e89-4beb-ae4a-f5a4100adfc4",
+            "target_ref": "486bf6d9-5dd4-442a-8b1f-9a14c4969f77",
+            "field": "organizations",
+            "item_ref": "5c281d85-7aa1-471f-85ed-f1fd4397d8ab"
+          },
+          "prompt": "请确定机构名称：华",
+          "selection_mode": "multiple",
+          "options": [
+            {
+              "option_id": "opt_4f888aac-dbe0-42c7-b620-e0cae4091a62",
+              "no": 1,
+              "label": "华宁农商行"
+            },
+            {
+              "option_id": "opt_e19475d0-79df-4015-9293-f676a83e09e7",
+              "no": 2,
+              "label": "华兴农商行"
+            },
+            {
+              "option_id": "opt_5100db6d-5720-4ecc-a0d3-376874852024",
+              "no": 3,
+              "label": "华安农商行"
+            },
+            {
+              "option_id": "opt_9fb11166-aca2-40dd-930f-f81d89ac7c96",
+              "no": 4,
+              "label": "华丰农商行"
+            }
+          ],
+          "status": "open",
+          "issued_operation_id": "01a14a70-2cec-7630-8c1e-96e4546946af",
+          "kind": "choice"
+        }
+      ],
+      "issues": [
+        {
+          "code": "ENTITY_NOT_DETERMINED",
+          "field": "organizations",
+          "message": "请确定机构名称：华。",
+          "remediation": "user",
+          "category": "catalog"
+        }
+      ],
+      "answer": "请确定机构名称：华。\n请确定机构名称：华\n1. 华宁农商行\n2. 华兴农商行\n3. 华安农商行\n4. 华丰农商行",
+      "conditions": [
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "rule_default"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "R1-candidate-cap",
+      "attempt": 1,
+      "turn": 2,
+      "message": "选第五个",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "needs_user",
+      "elapsed_ms": 4951,
+      "queries": [],
+      "pending_questions": [
+        {
+          "question_id": "q_4b718986-91ad-44b3-997d-a3325ba5a2a5",
+          "version": 1,
+          "scope": {
+            "task_ref": "ad2a0b45-6c94-4735-813c-159cd17a15eb",
+            "target_ref": "466d2a6f-d42c-4e6d-ab95-8ca9653371bd",
+            "field": "organizations",
+            "item_ref": "5c281d85-7aa1-471f-85ed-f1fd4397d8ab"
+          },
+          "prompt": "请确定机构名称：华",
+          "selection_mode": "multiple",
+          "options": [
+            {
+              "option_id": "opt_4f888aac-dbe0-42c7-b620-e0cae4091a62",
+              "no": 1,
+              "label": "华宁农商行"
+            },
+            {
+              "option_id": "opt_e19475d0-79df-4015-9293-f676a83e09e7",
+              "no": 2,
+              "label": "华兴农商行"
+            },
+            {
+              "option_id": "opt_5100db6d-5720-4ecc-a0d3-376874852024",
+              "no": 3,
+              "label": "华安农商行"
+            },
+            {
+              "option_id": "opt_9fb11166-aca2-40dd-930f-f81d89ac7c96",
+              "no": 4,
+              "label": "华丰农商行"
+            }
+          ],
+          "status": "open",
+          "issued_operation_id": "01a14a70-2cec-7630-8c1e-96e4546946af",
+          "kind": "choice"
+        }
+      ],
+      "issues": [
+        {
+          "code": "FIELD_REQUIRED",
+          "field": "organizations",
+          "message": "请补充或确定机构。",
+          "remediation": "user",
+          "category": "semantic"
+        }
+      ],
+      "answer": "请补充或确定机构。\n请确定机构名称：华\n1. 华宁农商行\n2. 华兴农商行\n3. 华安农商行\n4. 华丰农商行",
+      "conditions": [
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "history"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "R1-candidate-cap",
+      "attempt": 1,
+      "turn": 3,
+      "message": "那改成华通农商行。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 7129,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiMTJhNzRmZjlkZGJmOTQyMzNiMWZhY2Y0YjU1MzA4OWE0ZGQzODdjMDljMjQ1YzcyNzkwOGI4YmNjYmMzY2E1NiIsImNvZGVzIjpbIlNZTlRIX0RFUDpEIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiNjdmMWJlZjRjNzViZGZlYjAwNjIwNjdjNGEzYzg3MmRlYWMwZjUzZWEzMWUzOWI4ZDU5MTRjZjg1OWRmODc3YiIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX0RFUDpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX0hVNSJdLCJzY2hlbWFfdmVyc2lvbiI6Miwic2VsZWN0aW9uIjoiZXhhY3QiLCJ0aW1lIjp7ImVuZCI6IjIwMjYtMDUtMzEiLCJzdGFydCI6IjIwMjYtMDUtMzEifX0sInNlc3Npb24iOiIwMWExNGE3MC0yY2VhLTc2MzAtOGMxZS05NmUyOWUxM2E2OTIiLCJ2IjoxfQ.y7z678Gl-THOtKc51x7zbUjv2HDafxh3QeXK-ws4F7M",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a70-5bd7-7630-8c1e-96fd4ca154a4:5fdf6aec-3038-4bf5-937a-1f98de3f9b7f",
+              "user_question": "那改成华通农商行。"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_HU5"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-05-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "2026-05-31，华通农商行的对公协定存款余额当日数为1105.84元。",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "华通农商行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "history"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "R2-fullname-independent",
+      "attempt": 1,
+      "turn": 1,
+      "message": "查询华2026年5月31日的对公协定存款余额当日数。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "needs_user",
+      "elapsed_ms": 1342,
+      "queries": [],
+      "pending_questions": [
+        {
+          "question_id": "q_9aea6fea-f643-44cc-9cd0-45c432341ada",
+          "version": 1,
+          "scope": {
+            "task_ref": "1405ec60-a819-437f-8dd7-27eea5de64cb",
+            "target_ref": "a79e7751-fd70-41b4-a95f-48ec6ff46b49",
+            "field": "organizations",
+            "item_ref": "67af56ef-b841-43e5-ada9-a80a56705dd4"
+          },
+          "prompt": "请确定机构名称：华",
+          "selection_mode": "multiple",
+          "options": [
+            {
+              "option_id": "opt_5f71c40e-0e80-4a00-9409-7fae99d83b0f",
+              "no": 1,
+              "label": "华宁农商行"
+            },
+            {
+              "option_id": "opt_bafbf29c-08ea-4923-b85e-804dfa06048f",
+              "no": 2,
+              "label": "华兴农商行"
+            },
+            {
+              "option_id": "opt_aa31174e-c0d8-48a8-b6d8-46f952aba9d1",
+              "no": 3,
+              "label": "华安农商行"
+            },
+            {
+              "option_id": "opt_084c5a82-c45f-48ac-b546-b682a012b5ac",
+              "no": 4,
+              "label": "华丰农商行"
+            }
+          ],
+          "status": "open",
+          "issued_operation_id": "01a14a70-77b1-7630-8c1e-970b4267b7ee",
+          "kind": "choice"
+        }
+      ],
+      "issues": [
+        {
+          "code": "ENTITY_NOT_DETERMINED",
+          "field": "organizations",
+          "message": "请确定机构名称：华。",
+          "remediation": "user",
+          "category": "catalog"
+        }
+      ],
+      "answer": "请确定机构名称：华。\n请确定机构名称：华\n1. 华宁农商行\n2. 华兴农商行\n3. 华安农商行\n4. 华丰农商行",
+      "conditions": [
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "rule_default"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    },
+    {
+      "scenario": "R2-fullname-independent",
+      "attempt": 1,
+      "turn": 2,
+      "message": "都不是，机构改成华通农商行。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 7187,
+      "queries": [
+        {
+          "spec": {
+            "source_semantic_receipt": "eyJjYXRhbG9nIjoiMTJhNzRmZjlkZGJmOTQyMzNiMWZhY2Y0YjU1MzA4OWE0ZGQzODdjMDljMjQ1YzcyNzkwOGI4YmNjYmMzY2E1NiIsImNvZGVzIjpbIlNZTlRIX0RFUDpEIl0sImNvbnZlcnNhdGlvbiI6InN5bnRoZXRpYy1jbGFyaWZpY2F0aW9uIiwiZ29hbF9oYXNoIjoiYTcyZTFjODUzYmVmYzFkYzZlOWEyOWRlZjVkMzY0MDljNDM2MjJmN2EwMDI3MGQ1ZDk4ZmZmOGQ1MzhiZWM5MCIsIm93bmVyIjoic3ludGhldGljLXNlbWFudGljIiwic2NvcGUiOnsibWV0cmljX2NvZGVzIjpbIlNZTlRIX0RFUDpEIl0sIm9wZXJhdGlvbiI6eyJraW5kIjoidmFsdWUifSwib3JnX2NvZGVzIjpbIlNZTlRIX0hVNSJdLCJzY2hlbWFfdmVyc2lvbiI6Miwic2VsZWN0aW9uIjoiZXhhY3QiLCJ0aW1lIjp7ImVuZCI6IjIwMjYtMDUtMzEiLCJzdGFydCI6IjIwMjYtMDUtMzEifX0sInNlc3Npb24iOiIwMWExNGE3MC03N2IwLTc2MzAtOGMxZS05NzA5MjI3MzUyYzkiLCJ2IjoxfQ.sgKuucLA7XPqgG1AJRGOflXfkwYGUxbZFyvHaY-JlGY",
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14a70-7cef-7630-8c1e-9717865fefed:c0f04333-dd04-47a7-9f71-57b67188b549",
+              "user_question": "都不是，机构改成华通农商行。"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_HU5"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-05-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "issues": [],
+      "answer": "已按您指定的机构查询完成：\n\n- 机构：华通农商行\n- 指标：对公协定存款余额当日数\n- 日期：2026-05-31\n- 数值：**1105.84 元**",
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "华通农商行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "history"
+        },
+        {
+          "field": "operation",
+          "display": "查询操作",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {}
+    }
+  ],
+  "passed": true
+}

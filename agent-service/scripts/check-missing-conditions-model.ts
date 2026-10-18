@@ -40,7 +40,6 @@ function backend() {
   const client = {
     resolveBusinessField: async (entity: string, raw: string[], _options?: unknown, year?: number, source?: unknown) => python({action: 'resolve', entity, raw, year, source}),
     inspectBusinessGoal: async (question: string, businessDate: string, _options?: unknown, reference_year?: number) => python({action: 'inspect', question, business_date: businessDate, reference_year}),
-    admitSemanticPlan: async (payload: unknown) => python({action: 'admit', payload}),
     matchMetricQuestion: async (question: string) => python({action: 'mentions', question}),
     metricCatalogOverview: async () => ({total: metrics.length, groups: [{unit: '元', count: metrics.length, examples: metrics.map(m => ({code: m.metric_code, name: m.metric_name}))}]}),
     searchMetrics: async (keyword: string) => ({total: metrics.filter(m => m.metric_name.includes(keyword)).length, items: metrics.filter(m => m.metric_name.includes(keyword)), semantic_suggestions: []}),
@@ -94,10 +93,10 @@ const host = new HarnessHost(local, (association: any) => createAskMetricModels(
 const actor: BackendUser = {id: 'synthetic-semantic', username: 'synthetic', display_name: '缺项循环合成验收', org_code: 'SYNTH_ROOT', org_name: '合成集团', role_code: 'USER'};
 const turns: any[] = [];
 let gatewayBlocked = false;
-const sourceHashes = Object.fromEntries(await Promise.all(['src/harnessHost.ts', 'src/semantic-task/store.ts', 'src/semantic-task/service.ts', 'src/semantic-task/planService.ts', 'src/semantic-task/tools.ts', 'src/semantic-task/protocol.ts', 'src/semantic-task/feedback.ts', 'src/semantic-task/prompt.ts', 'src/semantic-task/transition.ts', 'src/semantic-task/display.ts'].map(async p => [p, createHash('sha256').update(await readFile(join(sourceRoot, p))).digest('hex')])));
+const sourceHashes = Object.fromEntries(await Promise.all(['src/harnessHost.ts', 'src/semantic-task/store.ts', 'src/semantic-task/service.ts', 'src/semantic-task/planService.ts', 'src/semantic-task/tools.ts', 'src/semantic-task/protocol.ts', 'src/semantic-task/feedback.ts', 'src/semantic-task/prompt.ts', 'src/semantic-task/display.ts'].map(async p => [p, createHash('sha256').update(await readFile(join(sourceRoot, p))).digest('hex')])));
 try {sourceHashes['src/semantic-task/turnContext.ts'] = createHash('sha256').update(await readFile(join(sourceRoot, 'src/semantic-task/turnContext.ts'))).digest('hex');} catch (e) {if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;}
 // Python桥始终调用当前后端源码，因此报告必须同时记录它，不能把不同版本混为一次验收。
-for (const path of ['scripts/check-missing-conditions-model.ts', 'scripts/model-evidence-assertions.ts', 'scripts/missing-conditions-fixture.py', 'scripts/semantic-task-fixture.py', '../backend-next/src/ask_metric/application/goal_facts.py', '../backend-next/src/ask_metric/application/semantic_transition.py', '../backend-next/src/ask_metric/application/analysis_selection.py', '../backend-next/src/ask_metric/api/routes/business_context.py']) {
+for (const path of ['scripts/check-missing-conditions-model.ts', 'scripts/model-evidence-assertions.ts', 'scripts/missing-conditions-fixture.py', 'scripts/semantic-task-fixture.py', '../backend-next/src/ask_metric/application/goal_facts.py', '../backend-next/src/ask_metric/api/routes/business_context.py']) {
   sourceHashes[path] = createHash('sha256').update(await readFile(resolve(path))).digest('hex');
 }
 async function save() {await mkdir(dirname(report), {recursive: true}); await writeFile(report, JSON.stringify({

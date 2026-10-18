@@ -11,9 +11,11 @@ import type { AgentServiceConfig } from "./config.js";
 import { HarnessHost, type HostedSession, type PromptInput } from "./harnessHost.js";
 import { getLegacySession, listLegacySessions, projectLegacyMessages } from "./legacySessions.js";
 import type { NativeSessionStore } from "./nativeSessions.js";
-import { projectEntries, projectSnapshot, projectWatchEvent, projectBusinessTasks, type ProjectedMessage } from "./sessionProjection.js";
+import { NativeSemanticTaskStore } from "./semantic-task/store.js";
+import { normalizeAnswerInput, type ClickAnswerInput } from "./semantic-task/questions.js";
+import { projectEntries, projectSnapshot, projectWatchEvent, projectBusinessTasks, projectQuestionStates, type ProjectedMessage } from "./sessionProjection.js";
 import {AnswerStreamProjector} from "./answerStream.js";
-import {historySources} from "./historySources.js";
+import {historySources, resolveHistoryOrganizationScopes, type HistoryQuestionReader} from "./historySources.js";
 import {isCalendarDate} from "./tools/shared.js";
 
 type Variables = { user: BackendUser; token: string; startedAt: number; authMs: number };
@@ -110,10 +112,12 @@ export function createApp(
         running: false,
         legacy: true,
         messages,
+        question_states: [],
       });
     }
     const entries = await hosted.lane.findEntries({ order: "oldestFirst" }, BACKGROUND_CONTEXT);
-    const messages = await redactInaccessibleHistory(projectEntries(entries), createHistoryAuthorizer(new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs)));
+    const messages = await redactInaccessibleHistory(projectEntries(entries), createHistoryAuthorizer(
+      new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs), new NativeSemanticTaskStore(hosted.session)));
     const info = await hosted.lane.inspectExecution(BACKGROUND_CONTEXT);
     // 重启后存在未完成 operation 时，借本次已认证请求重新授权恢复
     if (!hosted.readOnlyReason && hosted.open.length > 0) {
@@ -131,6 +135,7 @@ export function createApp(
       operation_id: hosted.readOnlyReason ? null : info.current?.id ?? null,
       ...(hosted.readOnlyReason ? {legacy: true, read_only_reason: hosted.readOnlyReason} : {}),
       messages,
+      question_states: await projectQuestionStates(messages, new NativeSemanticTaskStore(hosted.session)),
     });
   });
 
@@ -169,12 +174,12 @@ export function createApp(
     if (!hosted) return c.json({ detail: "会话不存在" }, 404);
     const sessionId = hosted.sessionId;
     const backend = new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs);
-    const authorize = createHistoryAuthorizer(backend);
+    const authorize = createHistoryAuthorizer(backend, new NativeSemanticTaskStore(hosted.session));
     return streamSSE(c, async (stream) => {
       const send = authorizedSender(authorize, async (type, data) => stream.writeSSE({
         event: type,
         data: JSON.stringify({protocol_version: 3, session_id: sessionId, ...data}),
-      }));
+      }), messages => projectQuestionStates(messages, new NativeSemanticTaskStore(hosted.session)));
       if (hosted.readOnlyReason) {
         const messages = projectEntries(await hosted.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT));
         await send("snapshot", {messages, running: false, operation_id: null, legacy: true, read_only_reason: hosted.readOnlyReason});
@@ -235,13 +240,16 @@ export function createApp(
     if (body.protocol_version !== 3) {
       return c.json({ detail: "客户端协议版本过旧，请刷新页面", code: "CLIENT_UPGRADE_REQUIRED" }, 400);
     }
+    if (hosted.businessProtocol === "semantic_v2" && body.clarification_selection !== undefined) {
+      return c.json({detail: "semantic_v2 不支持旧 clarification_selection，请改用 answers 提交结构化回答。", code: "CLARIFICATION_SELECTION_UNSUPPORTED"}, 400);
+    }
     const input = parsePromptInput(body);
     if (!input) {
       return c.json({ detail: "请求参数不完整或 message 为空/过长" }, 400);
     }
     const token = c.get("token");
     const backend = new BackendClient(config.backendBaseUrl, token, config.backendTimeoutMs);
-    const authorize = createHistoryAuthorizer(backend);
+    const authorize = createHistoryAuthorizer(backend, new NativeSemanticTaskStore(hosted.session));
     // 失权历史按回合屏蔽；当前输入和真正引用的来源仍分别经过后端权限门禁。
     const admitted = await host.admitPrompt(hosted, input, { actor: user, backend });
     if (!admitted.ok) {
@@ -254,7 +262,7 @@ export function createApp(
     const answerStreaming = config.answerStreaming && c.req.header("X-Agent-Answer-Streaming") === "v1";
     // 标题派生自首个问题：原生 setName，列表/详情同源读取
     const currentName = await hosted.session.getName(BACKGROUND_CONTEXT);
-    if (!currentName || currentName === "问数会话") {
+    if (input.message && (!currentName || currentName === "问数会话")) {
       await hosted.harness.setName(input.message.slice(0, 24), BACKGROUND_CONTEXT);
     }
 
@@ -286,7 +294,7 @@ export function createApp(
             session_id: sessionId, operation_id: operationId, request_id: input.request_id,
             call_seq: data.call_seq, ...(type === "answer_reset" ? {reason: data.reason} : {mode: data.mode})}));
         }
-      });
+      }, messages => projectQuestionStates(messages, new NativeSemanticTaskStore(hosted.session)));
       const projector = new AnswerStreamProjector((type, data) => {
         void send(type, data).catch(() => {});
       });
@@ -361,12 +369,25 @@ function hasCurrentAnswer(messages: ProjectedMessage[]): boolean {
 export function parsePromptInput(body: Record<string, unknown>): PromptInput | null {
   const message = typeof body.message === "string" ? body.message.trim() : "";
   const requestId = typeof body.request_id === "string" ? body.request_id.trim() : "";
-  if (!message || message.length > MESSAGE_MAX_LENGTH || !requestId || requestId.length > 128) {
-    return null;
-  }
+  if (typeof body.message !== "string" || message.length > MESSAGE_MAX_LENGTH || !requestId || requestId.length > 128) return null;
   const input: PromptInput = { protocol_version: 3, request_id: requestId, message };
-  const allowed = new Set(["protocol_version", "request_id", "message", "clarification_target", "selected_answers", "clarification_selection", "time_override"]);
+  const allowed = new Set(["protocol_version", "request_id", "message", "answers", "clarification_target", "selected_answers", "clarification_selection", "time_override"]);
   if (Object.keys(body).some(key => !allowed.has(key))) return null;
+  const hasAnswers = body.answers !== undefined;
+  if (hasAnswers && (body.clarification_target !== undefined || body.selected_answers !== undefined || body.clarification_selection !== undefined)) return null;
+  if (hasAnswers) {
+    if (!Array.isArray(body.answers) || body.answers.length > 20) return null;
+    try {
+      const answers: ClickAnswerInput[] = body.answers.map(raw => {
+        const normalized = normalizeAnswerInput(raw, {channel: "click", operation_id: "http"});
+        return {question_id: normalized.question_id, version: normalized.version, choice: normalized.choice};
+      });
+      if (answers.length) input.answers = answers;
+    } catch {
+      return null;
+    }
+  }
+  if (!message && !input.answers?.length) return null;
   const target = body.clarification_target;
   if (target !== undefined) {
     if (!target || typeof target !== "object" || Array.isArray(target)) return null;
@@ -446,10 +467,12 @@ export interface HistoryAuthorizationCache {
 
 /** 缓存的正文不是授权票据；只复核持久化结果引用/范围，绝不重新执行指标 SQL。 */
 export async function authorizeHistory(messages: ProjectedMessage[], backend: BackendClient,
-  cache?: HistoryAuthorizationCache): Promise<void> {
+  cache?: HistoryAuthorizationCache, questionReader?: HistoryQuestionReader): Promise<void> {
   const unknown = (): never => {throw new HistoryAuthorizationError("HISTORY_SCOPE_UNAVAILABLE", 409);};
-  const {tasks, organizationScopes} = historySources(messages.flatMap(message => message.role === "tool" ? [message.details] : []), unknown);
+  const sources = historySources(messages.flatMap(message => message.role === "tool" ? [message.details] : []), unknown);
+  const {tasks} = sources;
   try {
+    const organizationScopes = await resolveHistoryOrganizationScopes(sources, questionReader, unknown);
     // 同轮去重仍核对新出现的 result_id，不能借已经授权的 task_id 掩盖另一份结果引用。
     for (const [taskId, resultId] of tasks) if (cache?.tasks.has(taskId) && resultId
       && cache.tasks.get(taskId) !== resultId) unknown();
@@ -490,28 +513,34 @@ export async function authorizeHistory(messages: ProjectedMessage[], backend: Ba
  * 创建一轮提问复用的复核函数：同一轮内（入口复核 + SSE 各事件）已验证的任务/机构范围
  * 不重复请求 backend；下一轮提问使用新实例重新全量复核，撤权在轮间即时生效。
  */
-export function createHistoryAuthorizer(backend: BackendClient): (messages: ProjectedMessage[]) => Promise<void> {
+export function createHistoryAuthorizer(backend: BackendClient, questionReader?: HistoryQuestionReader): (messages: ProjectedMessage[]) => Promise<void> {
   const cache: HistoryAuthorizationCache = { tasks: new Map(), scopes: new Set() };
-  return messages => authorizeHistory(messages, backend, cache);
+  return messages => authorizeHistory(messages, backend, cache, questionReader);
 }
 
 /** 一条旧证据失权时屏蔽整轮正文及明细，保留问题和稳定消息身份；不修改原生账本。 */
-export async function redactInaccessibleHistory(messages: ProjectedMessage[], authorize: (messages: ProjectedMessage[]) => Promise<void>) {
+export async function redactInaccessibleHistory(messages: ProjectedMessage[], authorize: (messages: ProjectedMessage[]) => Promise<void>): Promise<ProjectedMessage[]> {
   const turns: ProjectedMessage[][] = [];
   for (const message of messages) {if (message.role === "user" || !turns.length) turns.push([]); turns.at(-1)!.push(message);}
   return (await Promise.all(turns.map(async turn => {
     try {await authorize(turn); return turn;}
     catch (error) {
       if (!(error instanceof HistoryAuthorizationError) || ![403,409].includes(error.status)) throw error;
-      return turn.map(message => message.role === "assistant" ? {...message, text: "此轮历史结果当前不可访问。", tools: [], tool_calls: [], error: undefined}
-        : message.role === "tool" ? {...message, details: {status: "denied", error_code: error.code, history_redacted: true}, is_error: true} : message);
+      return turn.map(message => {
+        if (message.role === "assistant") {
+          const {error: _error, ...rest} = message;
+          return {...rest, text: "此轮历史结果当前不可访问。", tools: [], tool_calls: []};
+        }
+        return message.role === "tool" ? {...message, details: {status: "denied", error_code: error.code, history_redacted: true}, is_error: true} : message;
+      });
     }
   }))).flat();
 }
 
-/** 授权与事件发送串行，某条证据失权后不再发送后续正文或快照。 */
+/** 授权与事件发送串行；问题状态在同样的脱敏结果上定向读取，失权题不随快照泄露。 */
 function authorizedSender(authorize: (messages: ProjectedMessage[]) => Promise<void>,
-  write: (type: string, data: Record<string, unknown>) => Promise<unknown>) {
+  write: (type: string, data: Record<string, unknown>) => Promise<unknown>,
+  readQuestionStates?: (messages: ProjectedMessage[]) => ReturnType<typeof projectQuestionStates>) {
   let pending: Promise<unknown> = Promise.resolve();
   return (type: string, data: Record<string, unknown>): Promise<unknown> => {
     pending = pending.then(async () => {
@@ -520,7 +549,8 @@ function authorizedSender(authorize: (messages: ProjectedMessage[]) => Promise<v
       try {
         if (Array.isArray(messages)) {
           const safe = await redactInaccessibleHistory(messages as ProjectedMessage[], authorize);
-          data = data.messages ? {...data, messages: safe} : {...data, snapshot: {...snapshot, messages: safe}};
+          const states = readQuestionStates ? {question_states: await readQuestionStates(safe)} : {};
+          data = data.messages ? {...data, messages: safe, ...states} : {...data, snapshot: {...snapshot, messages: safe, ...states}};
         }
         if (type === "tool_end") await authorize([{
           role: "tool", tool: String(data.tool ?? ""), tool_call_id: String(data.tool_call_id ?? ""),

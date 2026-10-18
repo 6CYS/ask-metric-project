@@ -22,7 +22,7 @@ const dir=await mkdtemp(join(tmpdir(),"skill-model-"));
 const config={...loadConfig(),dataDir:dir};
 const skills=await loadBusinessSkills();
 const store=new NativeSessionStore(dir);
-const host=new HarnessHost(config,authorize=>createAskMetricModels(config,authorize),store,[...createAskMetricTools({compactTurnArgs: config.compactTurnArgs}),createBusinessSkillReadTool(skills)],{skills});
+const host=new HarnessHost(config,authorize=>createAskMetricModels(config,authorize),store,[...createAskMetricTools(),createBusinessSkillReadTool(skills)],{skills});
 const actor:BackendUser={id:"synthetic",username:"synthetic",display_name:"隔离测试",org_code:"O",org_name:"演示行",role_code:"USER"};
 const calls: string[]=[];
 let calculationSpec: CalculationSpec | undefined;

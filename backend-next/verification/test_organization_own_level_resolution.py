@@ -35,7 +35,7 @@ def test_own_level_duplicate_name_preserves_ambiguity_and_raw_value():
     assert result["status"] == "ambiguous"
     assert {candidate["code"] for candidate in result["candidates"]} == {"A", "B"}
     assert result["metadata"]["issues"] == [
-        {"rawValue": "同名农商行本级", "reason": "ambiguous"},
+        {"rawValue": "同名农商行本级", "rawValueIndex": 0, "reason": "ambiguous"},
     ]
 
 

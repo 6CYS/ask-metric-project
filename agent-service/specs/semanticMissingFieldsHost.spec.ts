@@ -12,7 +12,7 @@ import {projectEntries} from "../src/sessionProjection.js";
 import {createAskMetricTools} from "../src/tools/index.js";
 import {TEST_ACTOR} from "../src/tools/testUtils.js";
 import {CONVERSATION_REPLY} from "../src/tools/turnContract.js";
-import {addPlanBackend, complete, proposal, syntheticBackend} from "./semantic-task/fixtures.js";
+import {complete, proposal, syntheticBackend} from "./semantic-task/fixtures.js";
 
 type Reply = string | Array<{name: string; args: unknown}>;
 const cleanup: Array<() => Promise<void>> = [];
@@ -46,10 +46,10 @@ async function setup(script: Reply[]) {
   models.setProvider(createProvider({id: model.provider, name: model.provider, models: [model],
     auth: {apiKey: {name: "synthetic", resolve: async () => ({auth: {}})}}, api: {stream: respond, streamSimple: respond}}));
   const config: AgentServiceConfig = {host: "127.0.0.1", port: 0, backendBaseUrl: "http://faux.invalid", backendTimeoutMs: 1000, dataDir: dir,
-    businessProtocol: "semantic_v2", compaction: {enabled: false, reserveTokens: 1000, keepRecentTokens: 1000},
+    compaction: {enabled: false, reserveTokens: 1000, keepRecentTokens: 1000},
     modelRetry: {enabled: false, maxRetries: 0, baseDelayMs: 1}, model: {baseUrl: "http://faux.invalid", name: model.id, apiKey: "", authHeader: "Authorization", authPrefix: "Bearer",
       userMessageSuffix: "", extraBody: {}, contextWindow: 128000, maxTokens: 8192}};
-  const backend = syntheticBackend(); addPlanBackend(backend);
+  const backend = syntheticBackend();
   const tools = createAskMetricTools();
   const read = tools.find(tool => tool.name === "read")!;
   const readExecute = vi.fn(read.execute);
@@ -128,27 +128,27 @@ it("旧在途澄清没有终止标记时，发送禁用工具且忽略网关额�
   expect(answers.every(answer => answer.includes("日期范围"))).toBe(true);
 });
 
-it("通用内部语义错误按接续责任重提，不因成功读历史维持required循环", async () => {
-  const wrong = proposal(complete().map(operation => operation.field === "time" ? {...operation, value: "2024年末"} : operation));
+it("协议字段动作不合法时按Schema纠正一次，业务条件不重复对账", async () => {
+  const wrong = proposal([...complete(), {action: "exclude", field: "time", subject: "2025年末"}]);
   const f = await setup([[{name: "resolve_business_turn", args: wrong}], [{name: "resolve_business_turn", args: proposal(complete())}], "查询已完成。"]);
   await f.run("semantic-repair", "查询合成机构甲2025年末的合成指标甲");
   expect(f.payloads[1]).toMatchObject({tool_choice: {type: "function", function: {name: "resolve_business_turn"}}});
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1); expect(f.readExecute).not.toHaveBeenCalled();
   const receipts = (await f.entries()).flatMap(entry => entry.type === "message" && entry.message.role === "toolResult" ? [entry.message.details] : []);
-  expect(receipts[0]).toMatchObject({status: "needs_interpretation", issues: [expect.objectContaining({code: "TIME_SCOPE_CONFLICT"})]});
+  expect(receipts[0]).toMatchObject({status: "invalid_input", issues: [expect.objectContaining({code: "INPUT_SHAPE_INVALID"})]});
 });
 
-it.each(["read", "business_capability_explain"])("网关忽略重提要求而返回%s时纠正协议，不执行无关旁支", async tool => {
-  const wrong = proposal(complete().map(operation => operation.field === "time" ? {...operation, value: "2024年末"} : operation));
+it.each(["read", "business_capability_explain"])("网关忽略协议修正要求而返回%s时仍允许完成参数修正", async tool => {
+  const wrong = proposal([...complete(), {action: "exclude", field: "time", subject: "2025年末"}]);
   const f = await setup([[{name: "resolve_business_turn", args: wrong}],
     [{name: tool, args: tool === "read" ? {kind: "list"} : {capability: "comprehensive_analysis"}}],
     [{name: "resolve_business_turn", args: proposal(complete())}], "查询已完成。"]);
   await f.run("ignored-proposal-choice", "查询合成机构甲2025年末的合成指标甲");
+  // 修复引导只剩 payload 层 tool_choice 强制；网关忽略时不再拦截旁支或合成 semantic-proposal-repair 回执。
   expect(f.payloads[1]).toMatchObject({tool_choice: {type: "function", function: {name: "resolve_business_turn"}}});
-  expect(f.readExecute).not.toHaveBeenCalled(); expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
+  expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
   const receipts = (await f.entries()).flatMap(entry => entry.type === "message" && entry.message.role === "toolResult" ? [entry.message] : []);
-  expect(receipts.map(receipt => receipt.toolName)).not.toContain(tool);
-  expect(receipts[1]?.toolCallId).toBe("semantic-proposal-repair-1");
+  expect(receipts.some(receipt => receipt.toolCallId.startsWith("semantic-proposal-repair-"))).toBe(false);
 });
 
 it("真正引用冲突仍允许历史探索，不用通用修复接续挤掉read", async () => {

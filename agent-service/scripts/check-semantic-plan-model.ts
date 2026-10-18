@@ -37,7 +37,6 @@ function backend() {
   return {queries, client: {
     resolveBusinessField: async (entity: string, raw: string[], _options?: unknown, year?: number, source?: unknown) => python({action: 'resolve', entity, raw, year, source}),
     inspectBusinessGoal: async (question: string, businessDate: string, _options?: unknown, reference_year?: number) => python({action: 'inspect', question, business_date: businessDate, reference_year}),
-    admitSemanticPlan: async (payload: unknown) => python({action: 'admit', payload}),
     calculate: async (spec: any) => {
       const known = [...results.values()].flatMap(result => result.facts ?? []);
       const inputs = Object.fromEntries(Object.entries(spec.bindings).map(([name, binding]: [string, any]) => {
@@ -77,7 +76,7 @@ const config = {...loadConfig(), dataDir: directory, businessProtocol: 'semantic
 const host = new HarnessHost(config, association => createAskMetricModels(config, association), sessions,
   [...createAskMetricTools(), createBusinessSkillReadTool(skills)], {skills});
 const turns: any[] = [];
-const sourceHashes = Object.fromEntries(await Promise.all(['src/harnessHost.ts', 'src/semantic-task/service.ts', 'src/semantic-task/prompt.ts', 'scripts/semantic-task-fixture.py', 'scripts/check-semantic-plan-model.ts', 'src/semantic-task/planService.ts', 'src/semantic-task/calculation.ts', '../backend-next/src/ask_metric/api/routes/business_context.py', '../backend-next/src/ask_metric/application/analysis_selection.py'].map(async path =>
+const sourceHashes = Object.fromEntries(await Promise.all(['src/harnessHost.ts', 'src/semantic-task/service.ts', 'src/semantic-task/prompt.ts', 'scripts/semantic-task-fixture.py', 'scripts/check-semantic-plan-model.ts', 'src/semantic-task/planService.ts', 'src/semantic-task/calculation.ts', '../backend-next/src/ask_metric/api/routes/business_context.py', '../backend-next/src/ask_metric/application/goal_facts.py'].map(async path =>
   [path, createHash('sha256').update(await readFile(path)).digest('hex')])));
 const save = async () => {await mkdir(dirname(report), {recursive: true}); await writeFile(report, JSON.stringify({
   environment: 'real_model_current_backend_contract_synthetic_in_memory_SQL', real_database: false, calculation_validation: 'current_domain_engine_with_host_bound_synthetic_facts; full_application_governance_tested_separately',

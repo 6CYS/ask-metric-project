@@ -11,24 +11,11 @@ it("直接交付与上下文精简配置有明确默认、观察和回退值，�
     expect(() => loadConfig({...model, [name]: "invalid"})).toThrow(name);
   }
 });
-it("新会话默认语义协议，显式旧协议可回退，非法协议拒绝启动",()=>{
-  expect(loadConfig(model).businessProtocol).toBe("semantic_v2");
-  expect(loadConfig({...model,AGENT_BUSINESS_PROTOCOL:"fixed_v1"}).businessProtocol).toBe("fixed_v1");
-  expect(loadConfig({...model,AGENT_BUSINESS_PROTOCOL:"semantic_v2"}).businessProtocol).toBe("semantic_v2");
-  expect(()=>loadConfig({...model,AGENT_BUSINESS_PROTOCOL:"invalid"})).toThrow("AGENT_BUSINESS_PROTOCOL");
-});
 it("回答流式开关默认关闭，显式开启与关闭可回退，非法值拒绝启动", () => {
   expect(loadConfig(model).answerStreaming).toBe(false);
   expect(loadConfig({...model, AGENT_ANSWER_STREAMING: "true"}).answerStreaming).toBe(true);
   expect(loadConfig({...model, AGENT_ANSWER_STREAMING: "false"}).answerStreaming).toBe(false);
   expect(() => loadConfig({...model, AGENT_ANSWER_STREAMING: "invalid"})).toThrow("AGENT_ANSWER_STREAMING");
-});
-
-it("精简参数默认关闭，显式开启与回滚生效，非法值拒绝启动", () => {
-  expect(loadConfig(model).compactTurnArgs).toBe(false);
-  expect(loadConfig({...model, AGENT_COMPACT_TURN_ARGS: "true"}).compactTurnArgs).toBe(true);
-  expect(loadConfig({...model, AGENT_COMPACT_TURN_ARGS: "false"}).compactTurnArgs).toBe(false);
-  expect(() => loadConfig({...model, AGENT_COMPACT_TURN_ARGS: "invalid"})).toThrow("AGENT_COMPACT_TURN_ARGS");
 });
 
 it("模型首次响应与输出空闲时限分别默认 30 秒", () => {

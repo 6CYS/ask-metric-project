@@ -14,10 +14,15 @@ from ask_metric.domain.semantics import MetricCatalogItem, OrganizationCatalogIt
 
 @pytest.mark.parametrize("raw", ["合成指标甲", "Ｍ１", "测试别名", " 合成 指标甲 "])
 def test_exact_alias_and_normalized(raw):
-    items = [MetricCatalogItem(code="M1", name="合成指标甲", aliases=["测试别名"])]
-    assert resolve_catalog_field("metric", [raw], items) == {
-        "status": "resolved", "value": {"codes": ["M1"], "names": ["合成指标甲"]},
-    }
+    items = [MetricCatalogItem(code="M1", name="合成指标甲", aliases=["测试别名"],
+                               base_name="合成指标", value_basis="当日数")]
+    result = resolve_catalog_field("metric", [raw], items)
+    assert result["status"] == "resolved"
+    assert result["value"] == {"codes": ["M1"], "names": ["合成指标甲"]}
+    # 基础名与价值口径随解析返回，宿主据此核验“仅换口径”的明确表达。
+    assert result["metadata"]["metrics"] == [
+        {"code": "M1", "name": "合成指标甲", "base_name": "合成指标", "value_basis": "当日数"},
+    ]
 
 
 def test_duplicate_alias_is_ambiguous_even_with_many_candidates():
@@ -90,13 +95,13 @@ def test_resolver_endpoint_enforces_identity_permission_and_contract():
     )
     assert client.post("/api/v1/business-context/resolve-field", json={
         "entity": "organization", "raw_values": ["另一家村镇银行"],
-    }).json()["status"] == "needs_confirmation"
-    # 建议候选只来自权限过滤后的目录，不泄露越权机构。
+    }).json()["status"] == "not_found"
+    # 失权精确身份不能纠错为有权近名，也不泄露失权目录内容。
     body = client.post("/api/v1/business-context/resolve-field", json={
         "entity": "organization", "raw_values": ["另一家村镇银行"],
     }).json()
-    assert {candidate["code"] for candidate in body["candidates"]} == {"O1"}
-    assert body["candidates"][0]["metadata"]["match_kind"] == "fuzzy_suggestion"
+    assert body["candidates"] == []
+    assert "value" not in body
     assert client.post("/api/v1/business-context/resolve-field", json={
         "entity": "organization", "raw_values": ["合成机构甲"],
     }).json()["value"]["codes"] == ["O1"]

@@ -8,7 +8,7 @@ import {prepareDirectQueryDelivery, readDirectAnswerSnapshot, type DirectAnswerS
 import type {SemanticFeedback} from "../../src/semantic-task/feedback.js";
 import {projectSemanticFeedback} from "../../src/semantic-task/modelView.js";
 import {createSemanticExecuteTool, createSemanticReadTool, createSemanticResolveTool} from "../../src/semantic-task/tools.js";
-import {addPlanBackend, complete, fixture, proposal} from "./fixtures.js";
+import {complete, fixture, proposal} from "./fixtures.js";
 
 const cleanup: Array<() => Promise<void>> = [];
 beforeEach(() => {vi.spyOn(console, "info").mockImplementation(() => {});});
@@ -29,7 +29,7 @@ const textOf = (blocks: AnswerBlock[]) => blocks.flatMap(block => block.type ===
 
 async function successful(source: "corrected" | "model_inferred") {
   const f = await fixture(); cleanup.push(f.close);
-  const planBackend = addPlanBackend(f.backend);
+  const inspectGoal = f.backend.inspectBusinessGoal;
   const resolve = f.backend.resolveBusinessField.getMockImplementation()!;
   // 模拟后端已完成的别名/纠错身份核验，权限来源仍由原有完整语义许可和正式结果检查决定。
   f.backend.resolveBusinessField.mockImplementation(async (entity, raw, options, year, original) => {
@@ -41,7 +41,7 @@ async function successful(source: "corrected" | "model_inferred") {
   });
   Object.assign(f.backend, {
     inspectBusinessGoal: vi.fn(async (question: string) => {
-      const goal = await planBackend.inspectBusinessGoal(question.replaceAll(alias, official));
+      const goal = await inspectGoal(question.replaceAll(alias, official));
       return {...goal, question, fragments: goal.fragments.map(fragment => ({...fragment,
         question: fragment.question.replaceAll(official, alias)}))};
     }),

@@ -1,3 +1,4 @@
+import {inspectTurn} from "./semantic-task/actionBinding.js";
 /**
  * 薄原生宿主：只负责原生对象生命周期、同会话打开去重、请求关联落盘与调用原生接口。
  * Pi 决定目标与执行意图；已校验 Frame 的下一动作接入原生工具循环，不另建会话状态机。
@@ -7,20 +8,15 @@
  * 观察（SSE）使用独立的 lane.watch，与驱动 Context 分离，浏览器断线不中止执行。
  */
 import { NativeFrameStore, NativeBusinessResultStore } from "./business-context/store.js";
-import { displayConditions, modelFixedCapabilitySchemas, modelFixedFrame, modelFixedHistoryIndex } from "./business-context/modelView.js";
-import {renderFrameClarification} from "./business-context/clarificationPresentation.js";
-import { metricMentions, type MetricMentions } from "./business-context/metricMentions.js";
+import { metricMentions } from "./business-context/metricMentions.js";
 import { orgCatalogTurnState } from "./business-context/orgCatalog.js";
-import { pendingBusinessAction, deterministicBusinessAction } from "./business-context/continuation.js";
-import {repeatedToolFailure, repeatedContextRead} from "./toolRecovery.js";
-import {ACTION_REQUIRED, CONVERSATION_REPLY, MAX_ACTION_REPAIRS, currentTurnMessages, hasTurnAction, conversationAnswer} from "./tools/turnContract.js";
+import { repeatedToolFailure, repeatedContextRead } from "./toolRecovery.js";
+import { ACTION_REQUIRED, CONVERSATION_REPLY, MAX_ACTION_REPAIRS, currentTurnMessages, hasTurnAction, conversationAnswer } from "./tools/turnContract.js";
 import { createHash } from "node:crypto";
-import { legacyToolsFor } from "./tools/index.js";
 import { auditToolCall, withToolExecutionAudit } from "./toolAudit.js";
 import { modelUsage } from "./modelUsage.js";
-import { projectHistoricalResults, projectFixedTurnArguments } from "./modelContext.js";
-import {FixedTurnCompatibility, fixedPublicToolDefinitions} from "./fixedTurnCompatibility.js";
-import {getResolutionFailureDisposition, isTerminalResolutionFailure} from "./business-context/resolutionFailure.js";
+import { projectHistoricalResults } from "./modelContext.js";
+import { getResolutionFailureDisposition, isTerminalResolutionFailure } from "./business-context/resolutionFailure.js";
 import {
   AgentHarness,
   type Skill,
@@ -42,7 +38,7 @@ import {
 } from "@earendil-works/pi-agent-core";
 import type { AgentServiceConfig } from "./config.js";
 import type { ModelBundle } from "./models.js";
-import { validateToolArguments, type ImageContent, type JsonValue, type RetryPolicy, type TextContent } from "@earendil-works/pi-ai";
+import { validateToolArguments, type JsonValue, type RetryPolicy } from "@earendil-works/pi-ai";
 import type { BackendClient, BackendUser } from "./backendClient.js";
 import { NativeSessionStore } from "./nativeSessions.js";
 import {
@@ -57,43 +53,27 @@ import {
 import { currentTurnEvidence } from "./answerEvidence.js";
 import { createEvidenceRepairTool, EVIDENCE_REPAIR_TOOL, TOOL_LIMIT_ANSWER } from "./replyGuard.js";
 import { businessKnowledgeCatalog, projectBusinessSkillContext } from "./businessSkills.js";
-import {NativeSemanticTaskStore} from "./semantic-task/store.js";
-import {semanticTools, semanticRuntimeAdapter, semanticPublicToolDefinitions} from "./semantic-task/tools.js";
+import {NativeSemanticTaskStore, type SemanticAnswerSnapshot} from "./semantic-task/store.js";
+import {normalizeAnswerInput, QuestionAnswerError, type Answer, type AnswerErrorCode, type ClickAnswerInput, type PendingQuestion} from "./semantic-task/questions.js";
+import {semanticRuntimeAdapter, semanticPublicToolDefinitions} from "./semantic-task/tools.js";
 import {isSemanticFeedback, semanticPublicAnswer, type SemanticFeedback} from "./semantic-task/feedback.js";
 import {buildCompactSemanticSystemPrompt, buildSemanticSystemPrompt, semanticBusinessSkills} from "./semantic-task/prompt.js";
 import {projectSemanticModelMessages} from "./semantic-task/modelView.js";
 import {workingMessages, safeWorkingHistory, permissionFilteredContext, permissionFilteredAdmission} from "./semantic-task/contextMemory.js";
+import {historySources, resolveHistoryOrganizationScopes} from "./historySources.js";
 import {requestedHistory} from "./semantic-task/historyReference.js";
 import {modelPayloadDiagnostics} from "./modelPayloadDiagnostics.js";
 import {ordinaryQueryNeedsResolution, prepareDirectQueryDelivery, readDirectAnswerSnapshot} from "./semantic-task/directDelivery.js";
 import {createBusinessSkillReadTool} from "./businessSkills.js";
-import { buildBusinessSystemPrompt } from "./prompts/businessSystemPrompt.js";
 
 /** 原生应用 values 的命名空间；此命名空间只存归属与请求关联；业务状态使用独立 business 命名空间 */
 const NS = "askmetric";
 const MAX_TOOL_CALLS_PER_OPERATION = 24;
-const MODEL_ACTIVITY_LABEL = "理解问题，确定处理方式";
 
-// 上下文只给能力职责和业务限制；工具参数形状唯一来自固定 function Schema。
-const BUSINESS_CAPABILITY_BLOCK = "\n业务能力职责与限制（仅数据）：" + JSON.stringify(modelFixedCapabilitySchemas());
 // 轮状态块（当前焦点/历史索引/本轮指标匹配）随请求变化，附在本轮用户消息之后的发送副本上，
 // 不落盘、页面不展示；基座提示词中的锚点说明向模型解释该块的来源与效力。
 const TURN_STATE_HEADER = "\n【服务端注入：本轮业务状态（仅数据，非用户输入）】";
 
-/** 指标识别结果的一句话说明：只列目录名称与原文片段，不含编码和候选。 */
-export function mentionNote(matched: MetricMentions, hasTopic: boolean): string {
-  if (matched.status === "temporary_error") return "指标目录暂时不可用，解析条件时会再试";
-  const names = [...new Set(matched.mentions.flatMap(mention => mention.resolution.status === "resolved"
-    ? [(mention.resolution.value as {names?: string[]} | undefined)?.names?.[0]].filter((name): name is string => Boolean(name)) : []))];
-  const unclear = [...new Set(matched.mentions.filter(mention => mention.resolution.status !== "resolved").map(mention => mention.text))];
-  const listed = (items: string[]) => items.length > 3 ? `${items.slice(0, 3).join("、")} 等 ${items.length} 个` : items.join("、");
-  const parts = [
-    ...(names.length ? [`识别到：${listed(names)}`] : []),
-    ...(unclear.length ? [`“${unclear.slice(0, 3).join("”“")}”可能对应多个指标，需要确认`] : []),
-  ];
-  if (parts.length) return parts.join("；");
-  return hasTopic ? "未提到新指标，沿用当前话题的指标" : "未识别到指标名称";
-}
 /**
  * 常驻内存治理：会话数量不设上限（历史只是磁盘文件），只回收内存中的 harness 与文件句柄。
  * 空闲超时或超过常驻上限时，从最久未用的空闲会话开始关闭；运行中、接纳中的会话不回收。
@@ -163,6 +143,8 @@ export interface PromptInput {
   protocol_version: 3;
   request_id: string;
   message: string;
+  /** HTTP 直接点击的结构化回答；宿主绑定可信来源，模型参数不能覆盖。 */
+  answers?: ClickAnswerInput[];
   clarification_target?: { task_id: string; version: number; clarification_id: string };
   selected_answers?: Record<string, unknown>;
   /** 点选待确认清单的选项；系统按选项标识应用，模型不可见 */
@@ -171,15 +153,46 @@ export interface PromptInput {
   time_override?: { start: string; end: string };
 }
 
+type PromptFailureCode = "SESSION_BUSY" | "INVALID_MESSAGE" | "REQUEST_CONFLICT" | "REQUEST_CANCELLED"
+  | "SESSION_CLOSED" | "LEGACY_QUERY_REQUIRES_NEW_TURN" | AnswerErrorCode;
+
 export type AdmitOutcome =
   | { ok: true; operationId: string; context: Context; request: AskMetricRequestContext;
       /** 同一 request_id 的操作已结束：重试只回放原终态，不再接纳或驱动 */
       completed?: OperationResultRecord }
-  | { ok: false; code: "SESSION_BUSY" | "INVALID_MESSAGE" | "REQUEST_CONFLICT" | "REQUEST_CANCELLED" | "SESSION_CLOSED" | "LEGACY_QUERY_REQUIRES_NEW_TURN"; message: string };
+  | { ok: false; code: PromptFailureCode; message: string };
 
 export type DriveOutcomeResult =
   | { ok: true; operationId: string; outcome: DriveOutcome }
-  | { ok: false; code: "SESSION_BUSY" | "INVALID_MESSAGE" | "REQUEST_CONFLICT" | "REQUEST_CANCELLED" | "SESSION_CLOSED" | "LEGACY_QUERY_REQUIRES_NEW_TURN"; message: string };
+  | { ok: false; code: PromptFailureCode; message: string };
+
+/** 指纹前只规范形状与顺序；问题是否存在、是否仍可答由核心在幂等查询后判断。 */
+async function normalizePromptAnswers(input: PromptInput, store: NativeSemanticTaskStore): Promise<PromptInput> {
+  const {answers: rawAnswers, ...rest} = input;
+  if (rawAnswers === undefined) return rest;
+  if (!Array.isArray(rawAnswers) || rawAnswers.length > 20) {
+    throw new QuestionAnswerError("ANSWER_INPUT_SHAPE_INVALID", "一轮最多提交 20 条回答。");
+  }
+  const answers = rawAnswers.map(raw => {
+    const answer = normalizeAnswerInput(raw, {channel: "click", operation_id: "http"});
+    return {question_id: answer.question_id, version: answer.version, choice: answer.choice} as ClickAnswerInput;
+  });
+  const questions = new Map<string, PendingQuestion | undefined>();
+  for (const answer of answers) {
+    if (answer.choice.type !== "select") continue;
+    const key = `${answer.question_id}/${answer.version}`;
+    if (!questions.has(key)) questions.set(key, (await store.question(answer.question_id, answer.version))?.question);
+    const question = questions.get(key);
+    if (!question) continue;
+    const order = new Map(question.options.map((option, index) => [option.option_id, index]));
+    answer.choice = {type: "select", option_ids: [...answer.choice.option_ids].sort((left, right) =>
+      (order.get(left) ?? Number.MAX_SAFE_INTEGER) - (order.get(right) ?? Number.MAX_SAFE_INTEGER)
+      || (left < right ? -1 : left > right ? 1 : 0)) as [string, ...string[]]};
+  }
+  answers.sort((left, right) => (left.question_id < right.question_id ? -1 : left.question_id > right.question_id ? 1 : 0)
+    || left.version - right.version || (canonicalJson(left.choice) < canonicalJson(right.choice) ? -1 : canonicalJson(left.choice) > canonicalJson(right.choice) ? 1 : 0));
+  return {...rest, ...(answers.length ? {answers} : {})};
+}
 
 export class HarnessHost {
   /** 同会话打开 Promise 去重：并发请求共享同一次打开，不重复打开同一 Session */
@@ -214,7 +227,7 @@ export class HarnessHost {
 
   async createSession(actor: BackendUser): Promise<HostedSession> {
     const session = await this.store.create(actor.id);
-    await session.setValue(businessProtocolValue, this.config.businessProtocol ?? "fixed_v1", BACKGROUND_CONTEXT);
+    await session.setValue(businessProtocolValue, "semantic_v2", BACKGROUND_CONTEXT);
     const hosted = await this.attach(actor, session);
     this.touch(hosted.sessionId);
     // 归属在创建时落定；缺 owner 的半创建会话不可见、不可运行
@@ -325,15 +338,15 @@ export class HarnessHost {
       const authorization = { authorized: true };
       this.authorization.set(sessionId, authorization);
       const bundle = this.createModels(() => authorization.authorized);
+      // 协议只读判定：无标记或 fixed_v1 的历史会话一律只读，不再按其协议恢复执行。
       const businessProtocol = (await session.getValue(businessProtocolValue, BACKGROUND_CONTEXT))?.value ?? "fixed_v1";
       if (!["fixed_v1", "semantic_v2"].includes(businessProtocol)) throw new Error("SESSION_PROTOCOL_UNSUPPORTED");
-      const skills = businessProtocol === "semantic_v2" ? semanticBusinessSkills(this.options.skills ?? []) : this.options.skills ?? [];
-      const sessionTools = businessProtocol === "semantic_v2" ? semanticTools(this.tools).map(tool =>
-        tool.name === "business_skill_read" ? createBusinessSkillReadTool(skills) : tool) : this.tools;
-      const compatibility = new FixedTurnCompatibility();
+      const skills = semanticBusinessSkills(this.options.skills ?? []);
+      const sessionTools = this.tools.map(tool =>
+        tool.name === "business_skill_read" ? createBusinessSkillReadTool(skills) : tool);
       const semanticPrompt = this.config.semanticPromptVariant === "compact_v1" ? buildCompactSemanticSystemPrompt : buildSemanticSystemPrompt;
-      const runtimeTools = [...sessionTools, ...legacyToolsFor(sessionTools), createEvidenceRepairTool()]
-        .map(tool => businessProtocol === "fixed_v1" ? compatibility.wrap(tool) : semanticRuntimeAdapter(tool)).map(withToolExecutionAudit);
+      const runtimeTools = [...sessionTools, createEvidenceRepairTool()]
+        .map(tool => semanticRuntimeAdapter(tool)).map(withToolExecutionAudit);
       const { harness, open } = await AgentHarness.create(
         {
           session,
@@ -344,7 +357,7 @@ export class HarnessHost {
           // 工具上下文即当次请求绑定；缺请求上下文说明链路被绕过，直接失败
           toolContext: (context) => requireRequestContext(context),
           resources: { skills },
-          systemPrompt: () => (businessProtocol === "semantic_v2" ? semanticPrompt : buildBusinessSystemPrompt)(new Intl.DateTimeFormat("en-CA", {timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit"}).format(new Date())) + businessKnowledgeCatalog(skills),
+          systemPrompt: () => semanticPrompt(new Intl.DateTimeFormat("en-CA", {timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit"}).format(new Date())) + businessKnowledgeCatalog(skills),
           compaction: {
             enabled: this.config.compaction.enabled,
             reserveTokens: this.config.compaction.reserveTokens,
@@ -355,16 +368,15 @@ export class HarnessHost {
         },
         BACKGROUND_CONTEXT,
       );
-      await compatibility.capture(session, open);
       const lane = await harness.lane("main", { createAt: null }, BACKGROUND_CONTEXT);
       // 原生会话持久化工具白名单；升级后同步注册集，旧会话也能选择新增覆盖工具。
       // 仅在空闲时更新，不改变正在恢复的操作的工具配置。
       const execution = await lane.inspectExecution(BACKGROUND_CONTEXT);
       const activeTools = await lane.getActiveTools(BACKGROUND_CONTEXT);
-      const retired = this.tools.some(tool => tool.name === "resolve_business_turn")
-        && activeTools.some(name => ["metric_ask", "metric_query_structured", "data_availability", "metric_calculate", "answer_present"].includes(name));
+      const retired = businessProtocol !== "semantic_v2"
+        || activeTools.some(name => ["metric_ask", "metric_query_structured", "data_availability", "metric_calculate", "answer_present"].includes(name));
       if (!execution.current && !retired) await lane.setActiveTools(sessionTools.map(tool => tool.name), BACKGROUND_CONTEXT);
-      this.registerHooks(harness, lane, runtimeTools, compatibility, sessionTools, skills, businessProtocol);
+      this.registerHooks(harness, lane, runtimeTools, sessionTools, skills);
       return {
         businessProtocol,
         sessionId,
@@ -382,47 +394,15 @@ export class HarnessHost {
     return opening;
   }
 
-  /**
-   * 把已校验的执行意图接在解析回执上落地：工具与参数都由 Frame 决定，模型和网关都不能改写。
-   * 返回的 patch 由原生 finalizeToolCall 写成持久化回执，因此证据、投影与审计看到的仍是业务回执原文。
-   * 任何意外都向上抛给调用方降级：保留原 READY 回执，按原协议由下一次模型响应接续执行。
-   */
-  private async landValidatedAction(
-    event: {toolName: string; toolCallId: string; details?: unknown; isError: boolean},
-    request: AskMetricRequestContext,
-    context: Context,
-    sessionTools = this.tools,
-  ): Promise<{content: Array<TextContent | ImageContent>; details: JsonValue} | undefined> {
-    if (event.toolName !== "resolve_business_turn" || event.isError) return;
-    const details = event.details as {kind?: string; status?: string; frame_id?: string; display_conditions?: unknown} | undefined;
-    if (details?.kind !== "business_context" || !details.frame_id || !request.frames) return;
-    const state = await request.frames.state();
-    if (state.focusFrameId !== details.frame_id) return;
-    const frame = await request.frames.get(details.frame_id);
-    const action = deterministicBusinessAction(frame, details.status, request);
-    if (!action) return;
-    const tool = sessionTools.find(item => item.name === action.name);
-    if (!tool) return;
-    auditToolCall(request, event.toolCallId, action.name, "admitted", action.arguments);
-    const result = await tool.execute(event.toolCallId, action.arguments as never, () => {}, request, invocationOf(event.toolCallId, request), context);
-    auditToolCall(request, event.toolCallId, action.name, "executed", action.arguments);
-    // 落地后回执换成执行结果，解析出的条件随之保留，页面执行过程仍能展示“按什么条件查的”。
-    const landedDetails = result.details && typeof result.details === "object" && !Array.isArray(result.details)
-      && Array.isArray(details.display_conditions)
-      ? {...result.details, display_conditions: details.display_conditions} : result.details;
-    return {content: landedReceipt(result.content, action.name, details.frame_id, result.details),
-      details: landedDetails as JsonValue};
-  }
-
   /** /no_think 等提供方兼容只作用于发送副本，不改用户原文与原生历史 */
   private registerHooks(harness: AgentHarness<AskMetricRequestContext>, lane: AgentLane,
-    runtimeTools: AgentHarnessTool<AskMetricRequestContext>[], compatibility: FixedTurnCompatibility,
-    sessionTools: AgentHarnessTool<AskMetricRequestContext>[], skills: Skill[], businessProtocol: "fixed_v1" | "semantic_v2"): void {
-    const registeredNames = new Set([...sessionTools, ...legacyToolsFor(sessionTools)].map(tool => tool.name));
+    runtimeTools: AgentHarnessTool<AskMetricRequestContext>[],
+    sessionTools: AgentHarnessTool<AskMetricRequestContext>[], skills: Skill[]): void {
+    const registeredNames = new Set(sessionTools.map(tool => tool.name));
     const turnContract = registeredNames.has(CONVERSATION_REPLY) && registeredNames.has(ACTION_REQUIRED);
     // 语义上下文只帮助选择业务动作，不完成本轮动作义务；普通回答仍须显式交付。
     const turnHasAction = (messages: import("@earendil-works/pi-agent-core").AgentMessage[]) => hasTurnAction(
-      businessProtocol === "semantic_v2" ? messages.filter(message => message.role !== "toolResult" || message.toolName !== "business_context_read") : messages);
+      messages.filter(message => message.role !== "toolResult" || message.toolName !== "business_context_read"));
     // 原生 usage 事件同时覆盖业务调用、自动压缩和分支摘要；after_response 不覆盖原生摘要。
     harness.events.on("usage", (event, context) => {
       if (event.row.adjustment) return;
@@ -439,7 +419,6 @@ export class HarnessHost {
       }));
     });
     harness.hooks.on("before_request", (event, context) => {
-      compatibility.close();
       const request = requireRequestContext(context);
       if (event.attempt > 1 && request.answerStream) request.reportAnswerRetry?.(request.answerStream.callSeq);
       request.modelCall = { step: event.step, model: event.model.id, attempt: event.attempt, startedAt: performance.now() };
@@ -463,7 +442,7 @@ export class HarnessHost {
         const callSeq = (request.modelCall?.attempt ?? 1) > 1 && request.answerStream
           ? request.answerStream.callSeq : (request.answerStream?.callSeq ?? 0) + 1;
         request.answerStream = {callSeq, mode: "none"};
-        let payload = businessProtocol === "semantic_v2" ? semanticPublicToolDefinitions(event.payload as Record<string, unknown>) : fixedPublicToolDefinitions(event.payload as Record<string, unknown>);
+        let payload = semanticPublicToolDefinitions(event.payload as Record<string, unknown>);
         if (request.modelCall) request.modelCall.payloadBytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
         if (request.modelCall?.step === "compaction" || request.modelCall?.step === "branch_summary") return {payload};
         // 业务工具由 Pi 自主选择；旧交付工具仅为读取旧操作注册，不再对模型暴露。
@@ -475,7 +454,8 @@ export class HarnessHost {
           payload = {...payload, tools: payload.tools.filter(raw => {
             const definition = raw as {name?: string; function?: {name?: string}};
             const name = definition.function?.name ?? definition.name;
-            if (name === ACTION_REQUIRED || name === EVIDENCE_REPAIR_TOOL || name === "answer_present" && sessionTools.some(tool => tool.name === "resolve_business_turn")) return false;
+            if (name === ACTION_REQUIRED || name === EVIDENCE_REPAIR_TOOL || name === "answer_present") return false;
+            if (name === CONVERSATION_REPLY && request.trustedAnswers?.length) return false;
             // 已持久化的旧操作沿用原活跃集恢复；新请求在接纳前切换为合并入口。
             if (["metric_read", "session_history_read"].includes(name ?? "")) return !activeNames.includes("read");
             if (["metric_catalog_search", "org_catalog_search", "metric_catalog_overview"].includes(name ?? "")) return !activeNames.includes("catalog");
@@ -489,7 +469,7 @@ export class HarnessHost {
           request.answerStream = {callSeq, mode: frameTurn ? mode : "none"};
         };
         const contractActive = turnContract && (await lane.getActiveTools(context)).includes(CONVERSATION_REPLY);
-        const semanticAnswer = businessProtocol === "semantic_v2" ? terminalSemanticAnswer(current) : undefined;
+        const semanticAnswer = terminalSemanticAnswer(current);
         if (semanticAnswer !== undefined) {
           // 已保存的待用户/失败回执决定本轮终态；恢复或同批旁支不能重新打开工具循环。
           const {tools: _tools, ...answerPayload} = payload;
@@ -503,8 +483,8 @@ export class HarnessHost {
           setStreamMode("text");
           return {payload: {...answerPayload, tool_choice: "none"}};
         }
-        // 普通回答回执带 terminate 时本轮不再请求模型；此分支只兜底升级前已在途的操作恢复。
-        if (contractActive && conversationAnswer(current) !== undefined) {
+        // 普通回答回执带 terminate 时本轮不再请求模型；可信点击必须先进入语义受理，不能被聊天回执截断。
+        if (contractActive && !request.trustedAnswers?.length && conversationAnswer(current) !== undefined) {
           const {tools: _tools, ...answerPayload} = payload;
           return {payload: {...answerPayload, tool_choice: "none"}};
         }
@@ -514,9 +494,14 @@ export class HarnessHost {
             (raw as {function?: {name?: string}}).function?.name !== CONVERSATION_REPLY)};
         }
         const lastResolution = [...current].reverse().find(message => message.role === "toolResult" && message.toolName === "resolve_business_turn");
-        if (businessProtocol === "semantic_v2" && !lastResolution && Array.isArray(payload.tools)
+        if (!lastResolution && request.trustedAnswers?.length && Array.isArray(payload.tools)
+          && payload.tools.some(raw => {const definition = raw as {name?: string; function?: {name?: string}}; return (definition.function?.name ?? definition.name) === "resolve_business_turn";})) {
+          setStreamMode("none");
+          return {payload: {...payload, tool_choice: {type: "function", function: {name: "resolve_business_turn"}}}};
+        }
+        if (!lastResolution && request.originalMessage && Array.isArray(payload.tools)
           && current.filter(message => message.role === "toolResult").every(message => ["business_context_read", "business_skill_read", ACTION_REQUIRED].includes(message.toolName))) {
-          const facts = await request.backend.inspectBusinessGoal(request.originalMessage, (await request.semanticTasks!.turn(request.operationId))!.businessDate, {signal: context.abortSignal});
+          const facts = await inspectTurn(request, request.originalMessage, (await request.semanticTasks!.turn(request.operationId))!.businessDate, undefined, context.abortSignal);
           const complete = facts.fragments.length > 0 && facts.fragments.every(fragment => fragment.organizations.length > 0
             && fragment.mentions.length > 0 && fragment.mentions.every(mention => mention.resolution.status === "resolved")
             && fragment.calendar.ranges.length > 0 && !fragment.calendar.unresolved.length);
@@ -525,14 +510,14 @@ export class HarnessHost {
             return {payload: {...payload, tool_choice: {type: "function", function: {name: "resolve_business_turn"}}}};
           }
         }
-        if (businessProtocol === "semantic_v2" && !lastResolution && current.some(message => message.role === "toolResult"
+        if (!lastResolution && current.some(message => message.role === "toolResult"
           && message.toolName === ACTION_REQUIRED && message.toolCallId.startsWith("semantic-action-required-")) && Array.isArray(payload.tools)
           && payload.tools.some(raw => {const definition = raw as {name?: string; function?: {name?: string}}; return (definition.function?.name ?? definition.name) === "resolve_business_turn";})) {
           // 普通取值义务已经由宿主正向确认；继续同一Pi选择提案参数，不能用目录旁支当作完成。
           setStreamMode("none");
           return {payload: {...payload, tool_choice: {type: "function", function: {name: "resolve_business_turn"}}}};
         }
-        if (businessProtocol === "semantic_v2" && lastResolution?.role === "toolResult" && isSemanticFeedback(lastResolution.details)
+        if (lastResolution?.role === "toolResult" && isSemanticFeedback(lastResolution.details)
           && ["needs_interpretation", "invalid_input", "conflict"].includes(lastResolution.details.status)
           && lastResolution.details.continuation.actor === "pi" && Array.isArray(payload.tools) && payload.tools.length) {
           // 内部提案修复仍在同一Pi循环内，不能以计划文字或重复询问用户结束。
@@ -543,20 +528,6 @@ export class HarnessHost {
           }
           // 真正缺目录证据或历史引用时保留探索自由，不用 required 强迫反复成功读取。
           return {payload};
-        }
-        if (lastResolution?.role === "toolResult"
-          && (lastResolution.details as {status?: string} | undefined)?.status === "NEEDS_CLARIFICATION") {
-          // 待用户补充时只生成澄清问题；重复检索不能代替用户确认。
-          // 已等待用户时不再发送可调用定义，避免兼容网关仍生成工具协议文本。
-          const {tools: _tools, ...clarificationPayload} = payload;
-          // 最终正文由保存状态生成；禁止先流出模型自拟的候选或确认问题。
-          setStreamMode("none");
-          return {payload: {...clarificationPayload, tool_choice: "none"}};
-        }
-        const action = await pendingBusinessAction(messages, request);
-        if (action && Array.isArray(payload.tools)
-          && payload.tools.some(raw => (raw as {function?: {name?: string}}).function?.name === action.name)) {
-          return {payload: {...payload, tool_choice: {type: "function", function: {name: action.name}}}};
         }
         if (contractActive && !turnHasAction(current) && Array.isArray(payload.tools) && payload.tools.length) {
           // 与是否重复提及指标无关：Pi 选择实际业务动作或显式普通回答，纯文字不能冒充动作。
@@ -570,7 +541,7 @@ export class HarnessHost {
         const turn = messages.slice(turnStart + 1);
         const hasBusinessReceipt = turn.some(message => message.role === "toolResult"
           && message.toolName !== "business_skill_read");
-        if (!hasBusinessReceipt && Array.isArray(payload.tools) && payload.tools.length
+        if (!hasBusinessReceipt && request.originalMessage && Array.isArray(payload.tools) && payload.tools.length
           && typeof request.backend.matchMetricQuestion === "function") {
           const matched = await metricMentions(request);
           if (!matched.status && matched.mentions.length) return {payload: {...payload, tool_choice: "required"}};
@@ -593,12 +564,15 @@ export class HarnessHost {
       const decide = async () => {
         // 从原生记录统计本轮预算，恢复后不重置；业务状态仍由后端管理。
         const budgetMessages = await currentLaneMessages(lane, context);
-        const semanticAnswer = businessProtocol === "semantic_v2" ? terminalSemanticAnswer(currentTurnMessages(budgetMessages)) : undefined;
+        const semanticAnswer = terminalSemanticAnswer(currentTurnMessages(budgetMessages));
         if (semanticAnswer !== undefined) return {block: {reason: "当前业务状态已结束本轮处理，不能继续调用工具代替用户补充或改写已保存的交付。", terminate: true}};
         const terminalFailure = terminalResolutionFailure(currentTurnMessages(budgetMessages));
         // 同批尚未执行的调用也须拦住；保留一次正文交付，不以隐藏的工具错误结束页面回答。
         if (terminalFailure) return {block: {reason: terminalFailure.message}};
-        if (turnContract && conversationAnswer(currentTurnMessages(budgetMessages)) !== undefined) {
+        if (turnContract && event.toolName === CONVERSATION_REPLY && request.trustedAnswers?.length) {
+          return {block: {reason: "本轮包含可信结构化回答，必须先通过 resolve_business_turn 受理，不能用普通聊天结束。", terminate: false}};
+        }
+        if (turnContract && !request.trustedAnswers?.length && conversationAnswer(currentTurnMessages(budgetMessages)) !== undefined) {
           return {block: {reason: "本轮已选择无需业务操作的普通回答，不能追加业务动作。", terminate: true}};
         }
         if (turnContract && event.toolName === CONVERSATION_REPLY && turnHasAction(currentTurnMessages(budgetMessages))) {
@@ -607,17 +581,12 @@ export class HarnessHost {
         let turnStart = budgetMessages.length - 1;
         while (turnStart >= 0 && budgetMessages[turnStart]?.role !== "user") turnStart -= 1;
         const toolCount = budgetMessages.slice(turnStart + 1).filter(message => message.role === "toolResult").length;
-        if (businessProtocol === "semantic_v2" && event.toolName === "business_context_read") {
+        if (event.toolName === "business_context_read") {
           const reads = repeatedContextRead(budgetMessages.slice(turnStart + 1), event.args);
           if (reads >= 2) return {block: {reason: "同一参数的历史读取已经返回，未新增来源。请使用已签发引用继续提案，或改变query_number/task_ref/topic_ref/cursor读取真正缺少的来源；不要再次读取相同页。", terminate: reads >= 3}};
         }
         if (toolCount >= MAX_TOOL_CALLS_PER_OPERATION) return {block: {reason: TOOL_LIMIT_ANSWER, terminate: true}};
-        const lastResolution = [...budgetMessages.slice(turnStart + 1)].reverse().find(message => message.role === "toolResult" && message.toolName === "resolve_business_turn");
-        if (lastResolution?.role === "toolResult" && (lastResolution.details as {status?: string})?.status === "NEEDS_CLARIFICATION") {
-          return {block: {reason: "当前业务状态等待用户补充，已按保存条件交付澄清；不能继续调用工具代替用户确认。", terminate: true}};
-        }
-        if (sessionTools.some(tool => tool.name === "resolve_business_turn")
-          && ["metric_ask", "metric_query_structured", "data_availability", "metric_calculate", "answer_present", EVIDENCE_REPAIR_TOOL].includes(event.toolName)) {
+        if (["metric_ask", "metric_query_structured", "data_availability", "metric_calculate", "answer_present", EVIDENCE_REPAIR_TOOL].includes(event.toolName)) {
           return {block: {reason: "查询入口已升级：请使用 resolve_business_turn 解析并校验字段，再执行 READY Frame。", terminate: false}};
         }
         return undefined;
@@ -634,7 +603,7 @@ export class HarnessHost {
         timings.tool_ms.push(Math.round(performance.now() - started));
         delete timings.toolStartedAt?.[event.toolCallId];
       }
-      if (businessProtocol === "semantic_v2" && isSemanticFeedback(event.details)) {
+      if (isSemanticFeedback(event.details)) {
         let feedback: SemanticFeedback = event.details;
         let content = event.content;
         if (event.toolName === "resolve_business_turn" && ["ready", "reused"].includes(feedback.status)) {
@@ -664,7 +633,8 @@ export class HarnessHost {
         const withCurrent = [...messages, {role: "toolResult" as const, toolName: event.toolName, toolCallId: event.toolCallId,
           content, details: feedback, isError: event.isError, timestamp: Date.now()}];
         if (repeatedToolFailure(withCurrent)) feedback = {...feedback, status: "failed",
-          issues: [{code: "SEMANTIC_NO_PROGRESS", category: "semantic", message: "相同提案未取得进展，已停止重复尝试；已确认条件和待修修改均保留。", remediation: "stop"}],
+          issues: [...feedback.issues.map(issue => ({...issue, remediation: "stop" as const})),
+            {code: "SEMANTIC_NO_PROGRESS", category: "semantic", message: "相同提案未取得进展，已停止重复尝试；以上为实际拒绝原因，原始要求及待修修改均保留。", remediation: "stop"}],
           continuation: {actor: "none", action: "stop"}};
         const deliveryMode = (await request.semanticTasks?.turn(request.operationId))?.directQueryDelivery ?? "off";
         if (!event.isError && deliveryMode !== "off") {
@@ -685,26 +655,7 @@ export class HarnessHost {
         return {details: feedback as unknown as JsonValue, content: snapshot ? content : answer ? [{type: "text" as const, text: answer}] : content,
           ...(answer ? {terminate: true} : {})};
       }
-      const details = event.details as ({kind?: string; status?: string; frame_id?: string; message?: string} & Record<string, JsonValue>) | undefined;
-      if (!event.isError && event.toolName === "resolve_business_turn" && details?.status === "NEEDS_CLARIFICATION") {
-        const frame = details.frame_id ? await request.frames?.get(details.frame_id) : undefined;
-        const answer = frame?.sessionId === request.sessionId ? renderFrameClarification(frame, details.focus_preserved === true ? details.message : undefined)
-          : details.message ?? "请补充需要查询的具体条件。";
-        // 等待用户的正文已由保存状态确定：与普通回答一样在原生工具回执处结束，不再请求模型生成。
-        return {details: {...details, retryable: false, delivery: "frame_clarification_v1", public_answer: answer}, terminate: true};
-      }
-      // 解析回执为 READY/REUSE_RESULT 时，下一步调用与参数都已由 Frame 确定，
-      // 直接在原生回执上落地，不再为一次必然被宿主改写掉的模型往返付出整份 prompt 的耗时。
-      const landingStarted = performance.now();
-      const landed = await this.landValidatedAction(event, request, context, sessionTools).catch(error => {
-        // 落地失败不影响本轮：回执保持 READY，before_payload/after_response 的原协议仍会接续执行。
-        console.error(JSON.stringify({event: "business_action_landing_failed", request_id: request.requestId,
-          operation_id: request.operationId, reason: error instanceof Error ? error.message : String(error)}));
-        return undefined;
-      });
-      // 就地执行的耗时单独记一笔，诊断里仍能看到这次后端查询的真实成本。
-      if (landed && timings) timings.tool_ms.push(Math.round(performance.now() - landingStarted));
-      if (!landed && !event.isError && event.toolName !== "resolve_business_turn") {
+      if (!event.isError && event.toolName !== "resolve_business_turn") {
         const messages = await currentLaneMessages(lane, context);
         const batch = [...messages].reverse().find(message => message.role === "assistant");
         if (batch?.role === "assistant" && batch.content.some(block => block.type === "toolCall" && block.name === "resolve_business_turn")) {
@@ -712,7 +663,7 @@ export class HarnessHost {
           return {terminate: true};
         }
       }
-      return landed;
+      return undefined;
     });
     harness.hooks.on("after_response", async (event, context) => {
       const request = requireRequestContext(context);
@@ -726,44 +677,29 @@ export class HarnessHost {
       if (timings?.modelStartedAt !== undefined) timings.model_ms.push(Math.round(performance.now() - timings.modelStartedAt));
       // 传输失败交回 pi 原生重试/失败处理，不能伪造成工具调用或正常结束。
       if (["error", "aborted"].includes(event.message.stopReason)) return undefined;
-      if (request.activityState?.modelRunning) {
-        request.activityState.modelRunning = false;
-        const retried = (request.modelCall?.attempt ?? 1) > 1;
-        request.reportActivity?.({activity_id: "model", label: MODEL_ACTIVITY_LABEL, status: "done",
-          ...(retried ? {note: "模型响应较慢，已自动重试"} : {})});
-      }
       // 只读取原生当前分支，不维护第二份会话记忆；重启后仍遵守相同交付规则。
       const messages = await currentLaneMessages(lane, context);
       let start = messages.length - 1;
       while (start >= 0 && messages[start]?.role !== "user") start -= 1;
       const current = messages.slice(start + 1);
       const receipts = current.filter(message => message.role === "toolResult");
-      const semanticAnswer = businessProtocol === "semantic_v2" ? terminalSemanticAnswer(current) : undefined;
+      const semanticAnswer = terminalSemanticAnswer(current);
       if (semanticAnswer !== undefined) {
         // 网关忽略 none 或旧批次尚有非终止回执时，也只交付原正式回执的正文。
         return {message: {...event.message, content: [{type: "text" as const, text: semanticAnswer}], stopReason: "stop" as const}};
       }
       const pendingSemantic = [...receipts].reverse().find(message => message.toolName === "resolve_business_turn");
-      const proposalRequired = businessProtocol === "semantic_v2" && pendingSemantic && isSemanticFeedback(pendingSemantic.details)
+      const proposalRequired = pendingSemantic && isSemanticFeedback(pendingSemantic.details)
         && requiresSemanticProposal(pendingSemantic.details);
-      if (businessProtocol === "semantic_v2" && (!event.message.content.some(block => block.type === "toolCall")
-        || proposalRequired && !event.message.content.some(block => block.type === "toolCall" && block.name === "resolve_business_turn"))) {
-        const pending = [...receipts].reverse().find(message => message.toolName === "resolve_business_turn");
-        if (pending && isSemanticFeedback(pending.details) && pending.details.continuation.actor === "pi"
-          && ["needs_interpretation", "invalid_input", "conflict"].includes(pending.details.status)) {
-          const attempts = receipts.filter(message => message.toolCallId.startsWith("semantic-proposal-repair-")).length;
-          // 网关忽略具体重提要求时，无关读取与纯计划一样纠正协议，不能把读取成功当作业务进展。
-          if (attempts < MAX_ACTION_REPAIRS && receipts.length < MAX_TOOL_CALLS_PER_OPERATION) return {message: {...event.message,
-            content: [{type: "toolCall" as const, id: `semantic-proposal-repair-${attempts + 1}`, name: ACTION_REQUIRED, arguments: {}}], stopReason: "toolUse" as const}};
-          return {message: {...event.message, content: [{type: "text" as const, text: "内部提案尚未修正完成，已保存原始条件和待修原因；本轮未完成的查询或计算不作为成功结果。"}], stopReason: "stop" as const}};
-        }
+      if (!event.message.content.some(block => block.type === "toolCall")
+        || proposalRequired && !event.message.content.some(block => block.type === "toolCall" && block.name === "resolve_business_turn")) {
         const taskIndex = await request.semanticTasks?.planIndex();
         const task = taskIndex?.focus ? await request.semanticTasks?.plan(taskIndex.focus) : undefined;
         const contextOnly = receipts.length > 0 && receipts.every(message => ["business_context_read", "business_skill_read", ACTION_REQUIRED].includes(message.toolName));
         const supportingOnly = receipts.length > 0 && receipts.every(message => ["business_context_read", "business_skill_read", "catalog",
           "metric_catalog_search", "org_catalog_search", "metric_catalog_overview", ACTION_REQUIRED].includes(message.toolName));
-        if (supportingOnly && task?.operationId !== request.operationId) {
-          const facts = await request.backend.inspectBusinessGoal(request.originalMessage, (await request.semanticTasks!.turn(request.operationId))!.businessDate, {signal: context.abortSignal});
+        if (supportingOnly && request.originalMessage && task?.operationId !== request.operationId) {
+          const facts = await inspectTurn(request, request.originalMessage, (await request.semanticTasks!.turn(request.operationId))!.businessDate, undefined, context.abortSignal);
           // 机构和日期缺失正是正式任务应澄清的情况，不能以缺项为由允许只读计划完成。
           const needsAction = contextOnly ? facts.requires_calculation || facts.fragments.some(fragment => fragment.mentions.length)
             : await ordinaryQueryNeedsResolution(request, facts, context.abortSignal).catch(() => false);
@@ -784,7 +720,7 @@ export class HarnessHost {
         }
       }
       const plainAnswer = turnContract ? conversationAnswer(current) : undefined;
-      if (plainAnswer !== undefined) {
+      if (!request.trustedAnswers?.length && plainAnswer !== undefined) {
         // 普通回答选择没有业务副作用；网关忽略 none 也不能在其后插入取数或改焦点。
         // 新操作在普通回答回执处即结束（terminate），此处兜底升级前已在途操作的续跑。
         return {message: {...event.message, content: [{type: "text" as const, text: plainAnswer}], stopReason: "stop" as const}};
@@ -798,15 +734,6 @@ export class HarnessHost {
         // 同批被拦截的调用不是新的参数失败，不能让预算提示覆盖真实的业务限制说明。
         return undefined;
       }
-      const clarification = [...receipts].reverse().find(message => message.toolName === "resolve_business_turn");
-      const clarificationDetails = clarification?.details as {status?: string; frame_id?: string; message?: string; focus_preserved?: boolean} | undefined;
-      if (clarificationDetails?.status === "NEEDS_CLARIFICATION") {
-        const frame = clarificationDetails.frame_id ? await request.frames?.get(clarificationDetails.frame_id) : undefined;
-        const text = frame?.sessionId === request.sessionId ? renderFrameClarification(frame, clarificationDetails.focus_preserved ? clarificationDetails.message : undefined)
-          : clarificationDetails.message ?? "请补充需要查询的具体条件。";
-        // 网关即使继续提出调用，也在这里结束；询问对象只能来自已保存的 Frame。
-        return {message: {...event.message, content: [{type: "text" as const, text}], stopReason: "stop" as const}};
-      }
       if (repeatedToolFailure(current)) {
         return {message: {...event.message, content: [{type: "text" as const,
           text: "本轮工具调用未通过校验或执行；相同参数重复提交后仍得到相同失败，已停止重复尝试。原查询条件仍保留，未完成的查询或计算不作为成功结果。"}], stopReason: "stop" as const}};
@@ -814,7 +741,7 @@ export class HarnessHost {
       // 后续工具调用保留，不能用中间回执替换 Pi 尚未完成的业务步骤。
       const hasCalls = event.message.content.some(block => block.type === "toolCall");
       const calls = event.message.content.filter(block => block.type === "toolCall");
-      if (businessProtocol === "semantic_v2" && calls.filter(call => call.name === "resolve_business_turn").length > 1) {
+      if (calls.filter(call => call.name === "resolve_business_turn").length > 1) {
         return {message: {...event.message, content: [{type: "text" as const, text: "本轮提案需要统一提交完整目标，未执行新的查询，原始目标已保留。"}],
           stopReason: "error" as const, errorMessage: "BUSINESS_BATCH_ARGUMENTS_INVALID"}};
       }
@@ -864,17 +791,6 @@ export class HarnessHost {
       if (hasCalls && receipts.length >= MAX_TOOL_CALLS_PER_OPERATION) {
         return {message: {...event.message, content: [{type: "text" as const, text: TOOL_LIMIT_ANSWER}], stopReason: "stop" as const}};
       }
-      const action = receipts.length < MAX_TOOL_CALLS_PER_OPERATION
-        ? await pendingBusinessAction(messages, request) : undefined;
-      if (action && registeredNames.has(action.name)) {
-        // 网关即使忽略 tool_choice、模型提前确认或传错引用，也落实已校验的同一执行意图。
-        // 调用仍经过 Pi 原生 before_tool、权限、幂等和回执落盘；不直接调用后端。
-        const call = {type: "toolCall" as const,
-          id: `frame-${createHash("sha256").update(`${action.name}:${action.arguments.frameId}`).digest("hex").slice(0, 24)}`,
-          ...action};
-        auditToolCall(request, call.id, call.name, "proposed", call.arguments);
-        return {message: {...event.message, content: [call], stopReason: "toolUse" as const}};
-      }
       if (hasCalls) return { message: { ...event.message, content: event.message.content.filter(block => block.type !== "text"
         && (block.type !== "toolCall" || !invalidSiblings.has(block.id))) } };
       // Pi 根据工具事实组织回答；宿主不注入补救工具、不选择证据、不拼接业务正文。
@@ -884,97 +800,32 @@ export class HarnessHost {
     harness.hooks.on("transform_context", async (event, context) => {
       const methods = projectBusinessSkillContext(event.messages, skills);
       const request = requireRequestContext(context);
-      if (businessProtocol === "semantic_v2") {
-        const selected = workingMessages(methods.messages);
-        const history = projectHistoricalResults(await safeWorkingHistory(request, selected));
-        const messages = this.config.modelContextView === "compact_v1" ? projectSemanticModelMessages(history) : history;
-        const runtime = await permissionFilteredContext(request, await request.semanticTasks!.runtimeContext());
-        const referenced = await requestedHistory(request);
-        const taskContext = {...runtime,
-          requested_history: referenced.slice(0, 12), requested_history_has_more: referenced.length > 12,
-          admitted_context: await permissionFilteredAdmission(request)};
-        // 与 fixed 分支同一来源：机构清单随轮状态注入本轮用户消息副本，系统提示词保持逐字稳定。
-        const orgCatalogBlock = await orgCatalogTurnState(request);
-        for (let i = messages.length - 1; i >= 0; i -= 1) {
-          const message = messages[i];
-          if (message?.role !== "user") continue;
-          const injected = TURN_STATE_HEADER + JSON.stringify(taskContext ?? {}) + orgCatalogBlock + suffix;
-          messages[i] = {...message, content: typeof message.content === "string" ? message.content + injected
-            : [...message.content, {type: "text", text: injected}]};
-          break;
-        }
-        return {messages, systemPrompt: event.systemPrompt + methods.instructions};
-      }
-      const messages = projectFixedTurnArguments(projectHistoricalResults(methods.messages));
-      // 本轮尚无工具回执即“理解问题”阶段：向页面播报读取的上下文与指标识别；之后的进度由工具步骤体现。
-      const report = request.reportActivity;
-      const understanding = report && request.modelCall?.step === "assistant"
-        && !currentTurnMessages(event.messages as import("@earendil-works/pi-agent-core").AgentMessage[]).some(message => message.role === "toolResult");
-      const activity = request.activityState ??= {};
-      const announce = understanding && !activity.contextReported;
-      if (announce) report({activity_id: "context", label: "读取对话上下文", status: "running"});
-      const state = await request.frames?.state();
-      const focus = state?.focusFrameId ? await request.frames?.get(state.focusFrameId) : undefined;
-      const historyIndex = state && request.frames ? await modelFixedHistoryIndex(request.frames, state, request.operationId) : undefined;
-      const topic = focus ? displayConditions(focus) : [];
-      const detectsMetrics = typeof request.backend.matchMetricQuestion === "function";
-      if (announce) {
-        report({activity_id: "context", label: "读取对话上下文", status: "done",
-          ...(topic.length ? {note: "沿用当前话题", conditions: topic} : {note: "新的话题，没有可沿用的条件"})});
-        if (detectsMetrics) report({activity_id: "mentions", label: "识别问题中的指标", status: "running"});
-      }
-      const matched = detectsMetrics ? await metricMentions(request) : undefined;
-      // 有权机构清单每轮注入：模型据此自主判断用户所指机构（orgSuggestion 通道）；
-      // 目录接口失败/超时/返回异常时降级为“暂不可用”，绝不影响本轮原有解析路径（降级日志在 orgCatalog 内记录）。
+      const selected = workingMessages(methods.messages);
+      const history = projectHistoricalResults(await safeWorkingHistory(request, selected));
+      const replySources = historySources(history.flatMap(message => message.role === "toolResult" ? [message.details] : []),
+        () => {throw new Error("HISTORY_SCOPE_UNAVAILABLE");});
+      request.replyHistorySources = {tasks: [...replySources.tasks].map(([task_id, result_id]) => ({task_id, ...(result_id ? {result_id} : {})})),
+        organizationScopes: await resolveHistoryOrganizationScopes(replySources, request.semanticTasks, () => {throw new Error("HISTORY_SCOPE_UNAVAILABLE");})};
+      const messages = this.config.modelContextView === "compact_v1" ? projectSemanticModelMessages(history) : history;
+      const runtime = await permissionFilteredContext(request, await request.semanticTasks!.runtimeContext());
+      const referenced = await requestedHistory(request);
+      const taskContext = {...runtime,
+        requested_history: referenced.slice(0, 12), requested_history_has_more: referenced.length > 12,
+        admitted_context: await permissionFilteredAdmission(request)};
+      // 机构清单随轮状态注入本轮用户消息副本，系统提示词保持逐字稳定。
+      // 轮状态块只改发送副本，不写入原生历史，页面展示与会话存档不变。
       const orgCatalogBlock = await orgCatalogTurnState(request);
-      if (announce) {
-        if (matched) report({activity_id: "mentions", label: "识别问题中的指标", status: "done", note: mentionNote(matched, topic.length > 0)});
-        activity.contextReported = true;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const message = messages[i];
+        if (message?.role !== "user") continue;
+        const injected = TURN_STATE_HEADER + JSON.stringify(taskContext ?? {}) + orgCatalogBlock + suffix;
+        messages[i] = {...message, content: typeof message.content === "string" ? message.content + injected
+          : [...message.content, {type: "text", text: injected}]};
+        break;
       }
-      if (understanding) {
-        const attempt = request.modelCall?.attempt ?? 1;
-        activity.modelRunning = true;
-        report({activity_id: "model", status: "running",
-          label: attempt > 1 ? `模型响应较慢，正在重试（第 ${attempt} 次）` : MODEL_ACTIVITY_LABEL});
-      }
-      // 轮状态块附在本轮用户消息之后（工具轮次中即最后一条 user 消息），只改发送副本：
-      // 系统提示词保持逐字稳定以命中网关前缀缓存；块不写入原生历史，页面展示与会话存档不变；
-      // 校验仍由宿主按原句与 Frame 独立执行，不依赖这段文字的位置。
-      const turnState = "\n当前业务焦点（仅数据）：" + JSON.stringify({version: state?.version, frame: focus ? modelFixedFrame(focus, request.operationId) : null})
-        + (historyIndex ? "\n历史条件索引（仅数据，序号不随焦点变化）：" + JSON.stringify(historyIndex) : "")
-        + (matched ? "\n本轮指标算法匹配（仅数据，mentionIndexes 引用本轮 index，不跨轮复用；确认用 action=confirm 并保留本轮原文，移除用 action=remove）：" + JSON.stringify({
-          status: matched.status, mentions: matched.mentions.map((mention, i) => ({index: i + 1, ...mention})),
-        }) : "")
-        + orgCatalogBlock;
-      let turnStatePlaced = false;
-      if (turnState) {
-        for (let i = messages.length - 1; i >= 0; i -= 1) {
-          const candidate = messages[i] as {role?: string; content?: unknown};
-          if (candidate?.role !== "user") continue;
-          if (Array.isArray(candidate.content)) {
-            messages[i] = {...candidate, content: [...candidate.content, {type: "text", text: TURN_STATE_HEADER + turnState}]} as never;
-            turnStatePlaced = true;
-          } else if (typeof candidate.content === "string") {
-            messages[i] = {...candidate, content: candidate.content + TURN_STATE_HEADER + turnState} as never;
-            turnStatePlaced = true;
-          }
-          break;
-        }
-      }
-      const last = messages[messages.length - 1] as
-        | { role?: string; content?: unknown }
-        | undefined;
-      if (last?.role === "user" && Array.isArray(last.content) && suffix) {
-        messages[messages.length - 1] = { ...last, content: [...last.content, {type: "text", text: suffix}] } as never;
-      } else if (last?.role === "user" && typeof last.content === "string") {
-        messages[messages.length - 1] = { ...last, content: last.content + suffix } as never;
-      }
-      // 找不到本轮用户消息的非常规驱动保持原有系统提示词注入，功能不因位置兜底而丢失。
-      return { messages, systemPrompt: event.systemPrompt + BUSINESS_CAPABILITY_BLOCK + methods.instructions
-        + (turnState && !turnStatePlaced ? TURN_STATE_HEADER + turnState : "") };
+      return {messages, systemPrompt: event.systemPrompt + methods.instructions};
     });
     harness.hooks.on("before_compaction", async (event) => {
-      if (businessProtocol !== "semantic_v2") return undefined;
       // 业务记忆保存在 Session 领域账本；压缩只收束消息，不用模型自由摘要重写确认及来源。
       return {compaction: {summary: "较早对话已归档。精确条件、目标绑定、待明确项及结果来源保存在本会话业务账本。沿用历史须依据当前状态或business_context_read定向读取并复核权限；本段说明不提供事实、确认或执行许可。",
         tokensBefore: event.preparation.tokensBefore, retainedTail: event.preparation.retainedTail,
@@ -1025,6 +876,16 @@ export class HarnessHost {
     }
     if (hosted.readOnlyReason) return {ok: false, code: hosted.readOnlyReason,
       message: "此会话使用已停用的旧查询协议，历史记录保留只读。请新建会话重新提问；在途旧任务需先核对原结果，不能自动续跑。"};
+    const semanticTasks = new NativeSemanticTaskStore(hosted.session);
+    try {
+      input = await normalizePromptAnswers(input, semanticTasks);
+    } catch (error) {
+      if (error instanceof QuestionAnswerError) return {ok: false, code: error.code, message: error.message};
+      throw error;
+    }
+    if (!input.message && !input.answers?.length) {
+      return {ok: false, code: "INVALID_MESSAGE", message: "空文本必须伴随结构化回答。"};
+    }
     const fingerprint = promptFingerprint({ ...input });
     const existing = await hosted.session.getValue(requestValue(input.request_id), BACKGROUND_CONTEXT);
     if (existing && existing.value.fingerprint !== fingerprint) {
@@ -1035,6 +896,8 @@ export class HarnessHost {
     }
     const operationId = existing?.value.operationId ?? hosted.session.idGenerator.next();
     const bridge = this.createCommandBridge(hosted, input.request_id);
+    const trustedAnswers = input.answers ?? [];
+    const answers: Answer[] = trustedAnswers.map(answer => ({...structuredClone(answer), source: {channel: "click", operation_id: operationId}}));
     const requestContext: AskMetricRequestContext = {
       actor: deps.actor,
       backend: deps.backend.withTraceId?.(input.request_id) ?? deps.backend,
@@ -1045,18 +908,27 @@ export class HarnessHost {
       operationId,
       commands: bridge,
       frames: new NativeFrameStore(hosted.session),
-      businessProtocol: hosted.businessProtocol,
-      ...(hosted.businessProtocol === "semantic_v2" ? {semanticTasks: new NativeSemanticTaskStore(hosted.session)} : {}),
+      semanticTasks,
       businessResults: new NativeBusinessResultStore(hosted.session),
-      history: createHistoryBridge(hosted),
+      history: createHistoryBridge(hosted, () => requestContext),
       answerEvidence: async () => currentTurnEvidence(await currentLaneMessages(hosted.lane, BACKGROUND_CONTEXT)),
+      questionPublicationProof: createQuestionPublicationProof(hosted, operationId),
       timings: { startedAt: performance.now(), modelFirstTokenMs: [], model_ms: [], tool_ms: [] },
+      ...(trustedAnswers.length ? {trustedAnswers: structuredClone(trustedAnswers)} : {}),
       ...(input.clarification_target ? { clarificationTarget: input.clarification_target } : {}),
       ...(input.selected_answers ? { selectedAnswers: input.selected_answers } : {}),
       ...(input.clarification_selection ? { clarificationSelection: input.clarification_selection } : {}),
       ...(input.time_override ? { timeOverride: input.time_override } : {}),
     };
-    if (requestContext.semanticTasks) await requestContext.semanticTasks.admit(operationId, input.message, undefined, this.config.directQueryDelivery ?? "off");
+    let admittedTurn: Awaited<ReturnType<NativeSemanticTaskStore["admit"]>>;
+    try {
+      admittedTurn = await semanticTasks.admit(operationId, input.message, undefined, this.config.directQueryDelivery ?? "off",
+        {actorId: deps.actor.id, answers, publicationProof: createQuestionPublicationProof(hosted, operationId)});
+    } catch (error) {
+      if (error instanceof QuestionAnswerError) return {ok: false, code: error.code, message: error.message};
+      throw error;
+    }
+    const displayText = input.message ? "" : clickAnswerDisplayText(admittedTurn.answerSnapshots ?? []);
     const context = withRequestContext(requestContext, BACKGROUND_CONTEXT);
     if (existing) {
       // 原生接纳只拒绝“当前有活动操作”，不识别已结束的同一 operation；
@@ -1088,9 +960,11 @@ export class HarnessHost {
       const execution = await hosted.lane.inspectExecution(context);
       if (!execution.current) await hosted.lane.setActiveTools(desiredTools, context);
     }
-    // 协议标记随原生用户消息持久化，回放与纯目录回合也保留 Pi 正文。
+    // 原文、可信点击与页面展示分别持久化；纯点击不向模型或后端伪造用户原文。
     const prompt = {role: "user" as const, content: input.message, timestamp: Date.now(),
-      businessProtocol: hosted.businessProtocol === "semantic_v2" ? "semantic_v2" : "frame_v1"};
+      businessProtocol: "semantic_v2",
+      ...(trustedAnswers.length ? {clickAnswers: structuredClone(trustedAnswers)} : {}),
+      ...(!input.message && displayText ? {displayText} : {})};
     const admitted = await hosted.lane.accept(
       { kind: "prompt", operationId, prompt },
       context,
@@ -1232,6 +1106,8 @@ export class HarnessHost {
         actor: deps.actor,
         backend: deps.backend.withTraceId?.(requestRef.value) ?? deps.backend,
         originalMessage: association.value.originalMessage,
+        questionPublicationProof: createQuestionPublicationProof(hosted, operation.operationId),
+        ...(association.value.input?.answers?.length ? {trustedAnswers: structuredClone(association.value.input.answers)} : {}),
         ...(association.value.input?.clarification_target ? { clarificationTarget: association.value.input.clarification_target } : {}),
         ...(association.value.input?.selected_answers ? { selectedAnswers: association.value.input.selected_answers } : {}),
         ...(association.value.input?.clarification_selection ? { clarificationSelection: association.value.input.clarification_selection } : {}),
@@ -1242,10 +1118,9 @@ export class HarnessHost {
         operationId: operation.operationId,
         commands: this.createCommandBridge(hosted, requestRef.value),
         frames: new NativeFrameStore(hosted.session),
-        businessProtocol: hosted.businessProtocol,
-        ...(hosted.businessProtocol === "semantic_v2" ? {semanticTasks: new NativeSemanticTaskStore(hosted.session)} : {}),
+        semanticTasks: new NativeSemanticTaskStore(hosted.session),
         businessResults: new NativeBusinessResultStore(hosted.session),
-        history: createHistoryBridge(hosted),
+        history: createHistoryBridge(hosted, () => requestContext),
         answerEvidence: async () => currentTurnEvidence(await currentLaneMessages(hosted.lane, BACKGROUND_CONTEXT)),
         timings: { startedAt: performance.now(), modelFirstTokenMs: [], model_ms: [], tool_ms: [] },
       };
@@ -1316,33 +1191,43 @@ export class HarnessHost {
   }
 }
 
-/**
- * 就地落地后的回执：业务回执保持单个 JSON 块（历史投影、证据和续跑都按 content[0] 解析），
- * 下一步说明与原 READY frameId 写入同一 JSON，不再追加第二个文本块。
- * 说明随执行结果变化：失败时不能告诉模型“查询已执行、不要重复取数”。
- */
-export function landedReceipt(content: Array<TextContent | ImageContent>, actionName: string, readyFrameId: string,
-  rawDetails: unknown): Array<TextContent | ImageContent> {
-  const details = (rawDetails ?? {}) as {status?: unknown; error_code?: unknown; retryable?: unknown};
-  const executed = actionName === "execute_business_frame";
-  const succeeded = String(details.status ?? "").toLowerCase() === "succeeded";
-  const errorCode = typeof details.error_code === "string" ? details.error_code : undefined;
-  const nextStep = succeeded
-    ? `${executed ? "条件已全部确定，查询已执行" : "历史结果已回读"}。请直接依据本回执组织回答，不要再向用户确认，也不要重复取数。`
-    : details.retryable === true
-      ? `${executed ? "查询" : "历史结果回读"}未完成${errorCode ? `（${errorCode}）` : ""}。可再次调用 ${actionName}（frameId: ${readyFrameId}）重试，同一条件不会重复取数；不要改用其他工具绕过。`
-      : `${executed ? "查询" : "历史结果回读"}未成功${errorCode ? `（${errorCode}）` : ""}。请依据回执如实告知用户，不要声称已取得数据；如需重试，应重新解析条件后发起新查询。`;
-  const [first, ...rest] = content;
-  let receipt: Record<string, unknown>;
-  try {
-    const parsed: unknown = first?.type === "text" ? JSON.parse(first.text) : undefined;
-    receipt = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown>
-      : {message: first?.type === "text" ? first.text : undefined};
-  } catch {
-    receipt = {message: first?.type === "text" ? first.text : undefined};
-  }
-  return [{type: "text", text: JSON.stringify({...receipt, ready_frame_id: readyFrameId, next_step: nextStep})},
-    ...rest.filter(block => block.type !== "text")];
+function clickAnswerDisplayText(snapshots: readonly SemanticAnswerSnapshot[]): string {
+  const rows = snapshots.filter(snapshot => snapshot.answer.source.channel === "click").map(snapshot => {
+    const {question, answer} = snapshot;
+    if (answer.choice.type === "none_of_these") return "以上选项都不符合";
+    const ids = answer.choice.type === "select" ? answer.choice.option_ids
+      : question.kind === "confirm" ? [question.confirmation_option_id] : [];
+    const selected = question.options.filter(option => ids.includes(option.option_id))
+      .map(option => `第 ${option.no} 项「${option.label}」`).join("、") || "所选选项";
+    return answer.choice.type === "select" ? `选择${selected}` : answer.choice.type === "accept" ? `确认${selected}` : `拒绝${selected}`;
+  });
+  return rows.join("\n") || "提交结构化回答";
+}
+
+/** 只接受当前分支、本轮之前、签发 operation 内的最终 resolve 回执。 */
+function createQuestionPublicationProof(hosted: HostedSession, operationId: string) {
+  return async (question: PendingQuestion): Promise<boolean> => {
+    if (!question.issued_operation_id || question.issued_operation_id === operationId) return false;
+    const result = await hosted.lane.getResult(question.issued_operation_id, BACKGROUND_CONTEXT);
+    if (!result || result.kind !== "run" || !result.tipId) return false;
+    const currentBranch = await hosted.lane.findEntries({order: "oldestFirst", stopAtId: result.tipId}, BACKGROUND_CONTEXT);
+    if (currentBranch.at(-1)?.id !== result.tipId) return false;
+    const from = result.fromTipId ? await hosted.session.getEntry(result.fromTipId, BACKGROUND_CONTEXT) : undefined;
+    if (result.fromTipId && !from) return false;
+    // findEntries 沿父链从 start 向旧回溯；oldestFirst 会把 stopAtId 之前的整段历史也扫进来，
+    // 叠加 seq 下界过滤后恒为空——跨轮签发（fromTipId 非空）的回执因此全部漏检。
+    // 正确区间是签发 operation 实际写入的条目：从完成点向旧扫到起始点，再用 seq 排除起始点本身。
+    const entries = await hosted.lane.findEntries({start: result.tipId, order: "newestFirst", type: "message",
+      ...(result.fromTipId ? {stopAtId: result.fromTipId} : {})}, BACKGROUND_CONTEXT);
+    return entries.some(entry => {
+      if (entry.type !== "message" || from && entry.seq <= from.seq) return false;
+      const message = entry.message;
+      if (message.role !== "toolResult" || message.toolName !== "resolve_business_turn" || message.isError
+        || !isSemanticFeedback(message.details)) return false;
+      return (message.details.pending_questions ?? []).some(candidate =>
+        candidate.question_id === question.question_id && candidate.version === question.version);
+    });
+  };
 }
 
 /** 同一逻辑工具调用的稳定身份：就地落地复用外层 toolCallId，不产生第二次调用记录 */
@@ -1366,9 +1251,6 @@ function entryVisibleText(entry: Entry): string {
     }
     return `[${message.role ?? "message"}] ${text}`;
   }
-  if (entry.type === "compaction" || entry.type === "branch_summary") {
-    return `[${entry.type}] ${entry.summary}`;
-  }
   return "";
 }
 
@@ -1381,20 +1263,56 @@ function sliceByCodePoints(text: string, offset: number, length: number): { text
 }
 
 /** 原生历史受控回读：只读当前 lane 分支祖先；read 通过分页扫描命中，伪造/跨分支 ID 返回 null */
-function createHistoryBridge(hosted: HostedSession): HistoryBridge {
+export function createHistoryBridge(hosted: HostedSession, request: () => AskMetricRequestContext): HistoryBridge {
   const { lane } = hosted;
+  type Sources = import("./requestContext.js").HistoryReadSources;
+  let original: Promise<{entries: Entry[]; turns: Map<string, Entry[]>}> | undefined;
+  const checked = new Map<Entry[], Promise<{entries: Entry[]; sources: Sources}>>();
+  const view = () => original ??= (async () => {
+    const entries = await lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
+    const turns = new Map<string, Entry[]>(); let turn: Entry[] = [];
+    for (const entry of entries) if (entry.type === "message") {
+      if (entry.message.role === "user") turn = [];
+      turn.push(entry); turns.set(entry.id, turn);
+    }
+    return {entries, turns};
+  })();
+  const check = (turn: Entry[]) => {
+    if (!checked.has(turn)) checked.set(turn, (async () => {
+      const messages = turn.filter(entry => entry.type === "message");
+      const sentinel = {role: "user" as const, content: "", timestamp: 0};
+      const safe = (await safeWorkingHistory(request(), [sentinel, ...messages.map(entry => entry.message), sentinel])).slice(1, -1);
+      const refs = historySources(safe.flatMap(message => message.role === "toolResult" ? [message.details] : []),
+        () => {throw new Error("HISTORY_SCOPE_UNAVAILABLE");});
+      const sources: Sources = {tasks: [...refs.tasks].map(([task_id, result_id]) => ({task_id, ...(result_id ? {result_id} : {})})),
+        organizationScopes: await resolveHistoryOrganizationScopes(refs, request().semanticTasks, () => {throw new Error("HISTORY_SCOPE_UNAVAILABLE");})};
+      return {entries: messages.map((entry, index) => ({...entry, message: safe[index]}) as Entry), sources};
+    })());
+    return checked.get(turn)!;
+  };
+  // 先本地定位涉及的完整回合，再查权限；百轮会话读取一条旧记录只复核其来源。
+  const authorized = async (entries: Entry[], turns: Map<string, Entry[]>) => {
+    const groups = [...new Set(entries.flatMap(entry => turns.get(entry.id) ? [turns.get(entry.id)!] : []))];
+    const decisions = await Promise.all(groups.map(check));
+    const safe = new Map<string, Entry>(), sources = new Map<string, Sources>();
+    for (const decision of decisions) for (const entry of decision.entries) {safe.set(entry.id, entry); sources.set(entry.id, decision.sources);}
+    return {entries: entries.map(entry => safe.get(entry.id) ?? entry), sources};
+  };
+  const joined = (ids: string[], sources: Map<string, Sources>): Sources => {
+    const tasks = new Map<string, {task_id: string; result_id?: string}>(), scopes = new Map<string, string[]>();
+    for (const id of ids) {
+      for (const ref of sources.get(id)?.tasks ?? []) tasks.set(ref.task_id, ref);
+      for (const scope of sources.get(id)?.organizationScopes ?? []) scopes.set(JSON.stringify([...scope].sort()), scope);
+    }
+    return {tasks: [...tasks.values()], organizationScopes: [...scopes.values()]};
+  };
   return {
     async list(beforeSeq, limit = 10) {
       const capped = Math.min(Math.max(limit ?? 10, 1), 20);
-      const found = await lane.findEntries(
-        {
-          order: "newestFirst",
-          limit: capped + 1,
-          ...(beforeSeq !== undefined ? { cursor: { seq: beforeSeq } } : {}),
-        },
-        BACKGROUND_CONTEXT,
-      );
-      const page = found.slice(0, capped);
+      const snapshot = await view();
+      const found = [...snapshot.entries].reverse().filter(entry => beforeSeq === undefined || entry.seq < beforeSeq);
+      const permitted = await authorized(found.slice(0, capped), snapshot.turns);
+      const page = permitted.entries;
       const entries: HistoryEntrySummary[] = page.map((entry) => ({
         entry_id: entry.id,
         seq: entry.seq,
@@ -1405,28 +1323,21 @@ function createHistoryBridge(hosted: HostedSession): HistoryBridge {
         entries,
         next_before_seq: page.length ? page[page.length - 1]!.seq : null,
         has_more: found.length > capped,
+        sources: joined(page.map(entry => entry.id), permitted.sources),
       };
     },
     async read(entryId, offset = 0, length = 4000) {
       const cappedLength = Math.min(Math.max(length, 1), 8000);
-      let cursor: number | undefined;
-      for (;;) {
-        const batch = await lane.findEntries(
-          {
-            order: "newestFirst",
-            limit: 200,
-            ...(cursor !== undefined ? { cursor: { seq: cursor } } : {}),
-          },
-          BACKGROUND_CONTEXT,
-        );
-        const hit = batch.find((entry) => entry.id === entryId);
-        if (hit) {
+      const snapshot = await view();
+      const originalHit = snapshot.entries.find(entry => entry.id === entryId);
+      if (originalHit?.type === "message") {
+          const permitted = await authorized([originalHit], snapshot.turns);
+          const hit = permitted.entries[0]!;
           const sliced = sliceByCodePoints(entryVisibleText(hit), offset, cappedLength);
-          return { entry_id: hit.id, seq: hit.seq, type: hit.type, text: sliced.text, next_offset: sliced.next };
-        }
-        if (batch.length < 200) return null;
-        cursor = batch[batch.length - 1]!.seq;
+          return { entry_id: hit.id, seq: hit.seq, type: hit.type, text: sliced.text, next_offset: sliced.next,
+            sources: joined([hit.id], permitted.sources)};
       }
+      return null;
     },
   };
 }
@@ -1452,7 +1363,7 @@ function terminalSemanticAnswer(messages: import("@earendil-works/pi-agent-core"
 function requiresSemanticProposal(feedback: SemanticFeedback): boolean {
   return feedback.continuation.actor === "pi" && feedback.continuation.action === "revise_proposal"
     && !feedback.issues.some(issue => issue.remediation === "pi" && (issue.category === "reference" || issue.category === "catalog"
-      || ["ANALYSIS_CATALOG_EVIDENCE_REQUIRED", "ANALYSIS_SELECTION_REQUIRED", "ANALYSIS_EVIDENCE_PENDING"].includes(issue.code)));
+      || ["ANALYSIS_CATALOG_EVIDENCE_REQUIRED", "ANALYSIS_EVIDENCE_PENDING"].includes(issue.code)));
 }
 
 /** 从原生 lane 反向扫描到本轮用户消息即停；不为每次工具/模型往返加载全部历史。 */

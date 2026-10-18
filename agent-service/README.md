@@ -4,9 +4,10 @@
 pi 是唯一的 Agent 运行与对话控制核心：会话、模型上下文、压缩、执行状态与恢复全部使用原生能力
 （`JsonlSessionRepo` + `main` lane）；本服务承载鉴权、可信输入绑定、原生接线、Schema 驱动的业务 Frame 及页面投影。
 
-`AGENT_BUSINESS_PROTOCOL=semantic_v2` 为新会话默认入口，既有会话保持原协议。
-已贯通精确查询、条件准备、确认、历史重显、复合目标、比较排名、覆盖发现、正式结果计算及结果驱动规划。
-阶段4按用户要求先切换本地并交付手测；自动稳定性验收尚未完成，未证明95%覆盖率。
+新会话统一使用 `semantic_v2` 业务协议，已贯通精确查询、条件准备、确认、历史重显、复合目标、比较排名、覆盖发现、正式结果计算及结果驱动规划。
+`fixed_v1` 协议及 `AGENT_BUSINESS_PROTOCOL`、`AGENT_COMPACT_TURN_ARGS` 配置已退役，不再是配置回退选项；
+旧 fixed 会话保留历史消息、工具回执与结果展示，仅只读查看，继续提问返回明确的只读状态，在途旧操作不再自动恢复。
+问数与多轮上下文的当前实现见[实现说明](../docs/pi-semantic-task/implementation-multiturn-context.md)，对话验收契约见[研发说明](../docs/问数与多轮上下文重构研发说明.md)。
 实现、检查及回退见[阶段4说明](../docs/pi-semantic-task/implementation-phase4.md)，可复制问法见[手工验收案例](../docs/pi-semantic-task/manual-acceptance-phase4.md)。
 Agent 的业务取数只调用 FastAPI 后端受治理接口并透传用户 Bearer，目录校验、权限裁剪、
 SQL builder 生成和执行与受控计算全部保留在后端；本服务不生成或执行 SQL；Frame 仅保留字段、结果引用和摘要，结果快照按需读取。
@@ -23,9 +24,13 @@ npm run dev            # 默认 127.0.0.1:8020
 
 ## 配置
 
-见 `.env.example`。`AGENT_MODEL_API_KEY` 支持 `ENC[SM4:v1:...]` 密文，格式与后端
+见 `.env.example`。默认示例指向 DeepSeek 官方 OpenAI 兼容接口
+（`AGENT_MODEL_BASE_URL=https://api.deepseek.com`、`AGENT_MODEL_NAME=deepseek-flash`）；
+`AGENT_MODEL_API_KEY` 需填入 DeepSeek API Key，支持 `ENC[SM4:v1:...]` 密文，格式与后端
 `backend-next/src/ask_metric/core/config_crypto.py` 一致，主密钥经
 `ASK_METRIC_CONFIG_SM4_KEY_FILE`（推荐）或 `ASK_METRIC_CONFIG_SM4_KEY` 提供。
+如改回行内网关，同步调整 `AGENT_MODEL_BASE_URL`、`AGENT_MODEL_NAME` 与
+`AGENT_MODEL_EXTRA_BODY`（官方接口的 thinking 开关与部分网关的 `enable_thinking` 不同）。
 
 压缩配置只映射原生 `CompactionSettings`（`AGENT_COMPACTION_*`），启动时校验
 `reserveTokens + keepRecentTokens < contextWindow` 且 `maxTokens < contextWindow`，不成立即拒绝启动。
@@ -56,9 +61,11 @@ npm run dev            # 默认 127.0.0.1:8020
 
 - `GET /health`：健康检查（无需鉴权）。
 - `POST /sessions`、`GET /sessions`、`GET /sessions/{id}`、`DELETE /sessions/{id}`：会话管理；历史消息由原生记录投影（含工具回执引用），删除活动会话返回 409。
-- `POST /sessions/{id}/prompt`：提问，SSE 事件流。请求体为 `{protocol_version: 3, request_id, message, clarification_target?, selected_answers?}`；`request_id` 由浏览器每次确认发送生成，重试不变。旧协议请求返回 `CLIENT_UPGRADE_REQUIRED`。
+- `POST /sessions/{id}/prompt`：提问，SSE 事件流。请求体为 `{protocol_version: 3, request_id, message, answers?, clarification_target?, selected_answers?, time_override?}`；`request_id` 由浏览器每次确认发送生成，重试不变。旧协议请求返回 `CLIENT_UPGRADE_REQUIRED`。
 - `GET /sessions/{id}/stream`：只读观察流（断线重连：快照 + 实时事件），不接纳新输入。
 - `POST /sessions/{id}/cancel`：传operation_id停止指定操作，或传request_id取消尚未收到accepted的请求；两者恰好一个。
+
+`answers` 是前端点选已发布字段问题的结构化输入，元素仅含 `question_id`、`version` 和 `choice`，不得携带模型证据、channel 或正式编码。纯点选允许 `message=""`，但必须有非空 `answers`；空文本且无回答仍拒收。实时工具回执携带 `pending_questions` / `answer_receipts`，会话详情及 accepted/snapshot 快照携带当前 `question_states`。
 
 SSE 事件：`accepted`（含快照）、`snapshot`、`tool_start`、`tool_end`、`run_terminal`
 （分开表达 `run_status`/`answer_status`/`business_tasks`）、`error`；公共字段含
@@ -78,15 +85,11 @@ SSE 事件：`accepted`（含快照）、`snapshot`、`tool_start`、`tool_end`�
 80ms 合并发送，模型结束补齐。工具调用、重试或失败可撤回临时正文，最终快照整体替换。
 临时文本不参与存档、复制或导出；GET 重连流保持快照投影。关闭开关并重启 agent-service 即回退。
 
-模型统一以 `protocol_version/capability/base/mode/changes` 调用 `resolve_business_turn`。
-实际工具 Schema 固定允许字段、动作与值类型；每项变化只表达一次，入口拒绝隐式类型转换。
-内部仍用既有 `ContextDelta`，原生会话和业务 Frame 不改写；可信旧在途操作按原身份恢复。
-历史发送副本只投影可无损转换的参数，不能转换的调用成对呈现为历史数据。
-旧 `AGENT_COMPACT_TURN_ARGS` 配置继续可读，但不再选择新模型协议，关闭它不能回退新入口。
-完整格式与示例见[固定业务请求接口](../docs/fixed-business-turn-interface.md)。
+模型统一以 semantic_v2 版本2协议调用 `resolve_business_turn`：新查询按 `target.query` 一次提交结构化机构、指标、时间、取数方式及操作；历史继承和局部修改使用 `operations`，排序修改提交结构化 `queryOperation`。程序绑定正式身份与权限并生成既有执行参数，结构化路径不再二次解析排序描述。原生会话和业务 Frame 不改写。
+协议格式见[语义任务协议](../docs/pi-semantic-task/protocol.md)。
 
-`changes` 的具名字段及类型来自能力契约，值仍由业务服务核验目录、来源和权限；机构集合和下辖范围使用固定范围结构。
-参数纠错须保留同一来源及本轮全部有效变化，`inherit` 不能替代本轮新值。已核验的候选确认独立保存；恢复回执的 `pending_changes` 区分有依据的待修变化与允许明确继承旧值的错误提案，不能靠省略字段绕过恢复。正式指标错字的自动纠正、原文审计与排名证据校验见[确认与恢复契约](../docs/business-context-reference-recovery.md)。
+提议的字段及类型来自能力契约，值仍由业务服务核验目录、来源和权限；机构集合和下辖范围使用固定范围结构。
+参数纠错须保留同一来源及本轮全部有效变化。已核验的候选确认独立保存；未完成的修改如实保留，不能靠省略字段绕过恢复。正式指标错字的自动纠正、原文审计与排名证据校验见[确认与恢复契约](../docs/business-context-reference-recovery.md)。
 空授权范围、不支持的查询组合和不支持的覆盖查询范围返回 `retryable=false`；宿主结束本轮业务动作并交付原因，下一用户轮可继续新请求。
 确定失败修复和完整日期表达解析规则继续生效。
 
@@ -140,5 +143,13 @@ Frame 使用 Pi 原生事务 values 持久化，支持历史分支、独立焦�
 旧查询工具不再向新回合提供；旧结果继续兼容只读，不重写历史。
 
 完整契约、可复现检查、升级与回退见 [Pi 通用多轮业务上下文](../docs/pi-business-context.md)。
-模型的固定请求格式见[固定业务请求接口](../docs/fixed-business-turn-interface.md)；内部目标声明、历史字段引用、确认及恢复契约见 [历史字段引用、确认与恢复](../docs/business-context-reference-recovery.md)。
+内部目标声明、历史字段引用、确认及恢复契约见 [历史字段引用、确认与恢复](../docs/business-context-reference-recovery.md)。
 配套升级后端、Agent、前端，先排空活动回合；不增加依赖或数据库迁移。
+
+结构化查询验收（当前真实模型、真实 Python 绑定与内存合成 SQL）：
+
+```bash
+node --env-file=.env --import tsx scripts/check-structured-query-model.ts --live
+```
+
+去掉 `--live` 仅检查合成目录、机构范围及 SQL fixture。报告记录实际模型参数、规范查询条件和 SQL；不连接实际业务数据库。

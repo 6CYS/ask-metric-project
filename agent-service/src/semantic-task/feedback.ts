@@ -1,5 +1,7 @@
+import {candidateOptions, displayedCandidates, preferredOption} from "./candidateOptions.js";
 import {semanticDisplay} from "./display.js";
 import type {SemanticIssue, SemanticTask} from "./store.js";
+import type {AnswerReceipt, PendingQuestion} from "./questions.js";
 
 export interface SemanticFeedback {
   protocol_version: 2; status: string;
@@ -9,6 +11,8 @@ export interface SemanticFeedback {
     evidence?: Record<string, unknown>;
     targets: Array<{kind?: "query" | "availability" | "calculation"; label?: string; aliases?: string[]; target_ref: string; status: string; conditions: Array<{field: string; display: string; origin: string}>; pending: string[]}>};
   issues: SemanticIssue[]; continuation: {actor: string; action: string};
+  pending_questions: PendingQuestion[];
+  answer_receipts: AnswerReceipt[];
 }
 export function isSemanticFeedback(value: unknown): value is SemanticFeedback {
   return !!value && typeof value === "object" && (value as SemanticFeedback).protocol_version === 2 && !!(value as SemanticFeedback).state;
@@ -21,15 +25,15 @@ export function semanticFeedback(task: SemanticTask | undefined, status: string,
         origin: value.source === "inherited" ? "history" : value.metadata?.confirmed === true ? "user_confirmed"
           : value.metadata?.resolution_source === "model_inferred" ? "model_proposed" : value.source === "resolved" ? "rule_default" : "user_explicit"})),
       pending: Object.entries(task.target.pending).map(([field, expression]) => {
-        const candidates = task.target.fields[field]?.candidates ?? [];
-        // 首推候选（后端或模型建议通道标记）用确认式话术并置顶；完整编号清单仍保留。
-        const preferred = candidates.filter(candidate => candidate.preferred === true);
-        if (preferred.length === 1) {
-          const ordered = [preferred[0]!, ...candidates.filter(candidate => candidate !== preferred[0])];
-          return `您是指「${String(preferred[0]!.value)}」吗？回复“是”直接确认；或选择：\n`
-            + ordered.map((candidate, index) => `${index + 1}. ${String(candidate.value)}`).join("\n");
-        }
-        return expression + (candidates.length ? "\n" + candidates.map((candidate, index) => `${index + 1}. ${String(candidate.value)}`).join("\n") : "");
+        const published = (task.questionSnapshots ?? []).filter(question => question.status === "open" && question.scope.field === field);
+        if (published.length) return published.map(question => `${question.prompt}\n${question.options.map(option =>
+          `${option.no}. ${option.label}${option.description ? `（${option.description}）` : ""}`).join("\n")}`).join("\n");
+        // 没有新问题记录的旧候选沿用同一发布格式（提示语 + 收敛后的编号清单），编号只覆盖本轮展示项。
+        const options = candidateOptions(displayedCandidates(task.target.fields[field]?.candidates), field);
+        const preferred = preferredOption(options);
+        const list = options.map(option => `${option.no}. ${option.label}`).join("\n");
+        if (preferred) return `您是指「${preferred.label}」吗？回复“是”直接确认；或选择：\n` + list;
+        return expression + (options.length ? "\n" + list : "");
       })}] : [], ...(task ? {task_ref: task.ref} : {})};
   const continuation = status === "ready" ? {actor: "host", action: "execute_permitted_step"}
     : status === "unknown" || status === "executing" ? {actor: "host", action: "reconcile_execution"}
@@ -37,11 +41,18 @@ export function semanticFeedback(task: SemanticTask | undefined, status: string,
     : status === "conflict" ? {actor: "pi", action: "read_context"}
     : status === "needs_interpretation" || status === "invalid_input" ? {actor: "pi", action: "revise_proposal"}
     : status === "succeeded" || status === "reused" ? {actor: "pi", action: "answer"} : {actor: "none", action: "stop"};
-  return {protocol_version: 2, status, state, issues, continuation};
+  return {protocol_version: 2, status, state, issues, continuation,
+    pending_questions: structuredClone(task?.questionSnapshots ?? []).filter(question => question.status === "open"),
+    answer_receipts: structuredClone(task?.answerReceipts ?? [])};
 }
 export function semanticPublicAnswer(details: unknown): string | undefined {
   if (!isSemanticFeedback(details) || !["needs_user", "prepared", "unsupported", "denied", "failed", "unknown"].includes(details.status)) return;
-  const problems = [...new Set(details.issues.map(issue => issue.message))];
+  const notices = (details.answer_receipts ?? []).map(receipt => receipt.notice).filter(Boolean);
+  const visibleIssues = details.issues.filter(issue => issue.remediation === "user" || issue.category === "permission" || issue.category === "capability");
+  const problems = [...new Set([...notices, ...visibleIssues.map(issue => issue.message)])];
+  if (details.status === "failed" && details.issues.some(issue => issue.category !== "capability" && issue.category !== "permission")) {
+    return "没能完成这次查询。";
+  }
   if (!problems.length && details.status === "failed") {
     const evidence = details.state.evidence;
     const receipts = evidence?.kind === "semantic_results" && Array.isArray(evidence.results) ? evidence.results : evidence ? [evidence] : [];
@@ -49,12 +60,12 @@ export function semanticPublicAnswer(details: unknown): string | undefined {
       const receipt = value as {status?: string; public_answer?: unknown};
       if (receipt.status !== "succeeded" && typeof receipt.public_answer === "string") problems.push(receipt.public_answer);
     }
-    if (!problems.length) problems.push("本轮步骤执行未完成，已保留原始目标和已取得的结果。");
+    if (!problems.length) problems.push("没能完成这次查询。");
   }
-  if (details.status === "prepared") return "查询条件已整理并保存，尚未执行查询。";
+  if (details.status === "prepared") return [...notices, "查询条件已整理并保存，尚未执行查询。"].join("\n");
   if (details.status === "unknown") return "查询结果尚未确认，已保留条件和原执行关联，请稍后核对结果。";
   const candidates = details.state.targets.flatMap(target => target.pending).filter(text => text.includes("\n1. "));
-  const text = [...problems, ...candidates].join("\n");
-  const kept = details.state.targets.flatMap(target => target.conditions).map(condition => `${condition.field === "organizations" ? "机构" : condition.field === "metrics" ? "指标" : condition.field === "time" ? "日期" : "取数条件"}：${condition.display}`);
-  return text + (kept.length ? "\n\n已保存条件：" + kept.join("；") : "");
+  // 已保存条件不出现在回答正文：结构化条件已随回执投影到页面/任务状态，
+  // 追问时再拼接“已保存条件”只会重复冗长信息。
+  return [...problems, ...candidates].join("\n");
 }

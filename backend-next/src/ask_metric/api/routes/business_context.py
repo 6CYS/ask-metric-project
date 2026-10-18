@@ -10,29 +10,32 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
-    ValidationError,
     model_validator,
 )
 
 from ask_metric.api.dependencies import require_actor
 from ask_metric.api.routes.catalogs import get_overview_permissions, get_overview_settings, get_uow
-from ask_metric.application.field_resolution import resolve_catalog_field, resolve_date_field, source_calendar_constraints, source_organization_codes
-from ask_metric.application.metric_candidates import metric_candidate_index
+from ask_metric.application.field_resolution import (
+    resolve_catalog_field,
+    resolve_date_field,
+    source_calendar_constraints,
+    source_organization_codes,
+    typo_organization_matches,
+)
 from ask_metric.application.goal_facts import inspect_goal
-from ask_metric.application.analysis_selection import issue_selection, verify_selection
-from ask_metric.application.semantic_transition import SemanticTransition, validate_transition, verify_transition_fragment
+from ask_metric.application.metric_candidates import metric_candidate_index
 from ask_metric.application.organization_query_scope import resolve_query_scope
 from ask_metric.application.ports import PermissionDeniedError, ScopedOrganizationPermissionService
 from ask_metric.application.requests import ActorContext
 from ask_metric.core.config import Settings
 from ask_metric.core.errors import ApplicationError
+from ask_metric.domain.basic_query import BasicQuerySpec
+from ask_metric.domain.metric_matching import normalize_semantic_text
 from ask_metric.domain.organization_scope import (
     AuthorizedCohortScope,
     ChildrenOfScope,
     OrganizationScopeError,
-    is_authorized_cohort_source,
 )
-from ask_metric.domain.basic_query import BasicQuerySpec
 from ask_metric.infrastructure.db.org_hierarchy import SqlAlchemyOrgHierarchyProvider
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
 
@@ -92,7 +95,6 @@ class MetricMentionsRequest(BaseModel):
 class HistoricalGoalSource(BaseModel):
     model_config = ConfigDict(extra="forbid")
     spec: BasicQuerySpec
-    receipt: str = Field(min_length=1, max_length=16000, repr=False)
 
 
 class HistoricalGoalContext(BaseModel):
@@ -108,240 +110,12 @@ class InspectGoalRequest(MetricMentionsRequest):
     history: HistoricalGoalContext | None = None
 
 
-class PlanAdmissionStep(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    target_ref: str = Field(min_length=1, max_length=128)
-    fragment: int = Field(ge=0, le=99)
-    origin: Literal["user_explicit", "history", "analysis_selected"]
-    spec: BasicQuerySpec
-    source_question: str | None = Field(default=None, min_length=1, max_length=8000)
-    source_semantic_receipt: str | None = Field(default=None, min_length=1, max_length=16000, repr=False)
-    bindings: list[dict] = Field(default_factory=list, max_length=100)
-    exclusions: list[dict] = Field(default_factory=list, max_length=100)
-    transition: SemanticTransition | None = None
-
-
-class PlanAdmissionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    conversation_id: str = Field(min_length=1, max_length=128)
-    session_id: str = Field(min_length=1, max_length=128)
-    goal: str = Field(min_length=1, max_length=8000)
-    business_date: date
-    analysis: bool = False
-    reference_year: int | None = Field(default=None, ge=1, le=9999)
-    steps: list[PlanAdmissionStep] = Field(min_length=1, max_length=100)
-    fragment_bindings: dict[str, list[dict]] = Field(default_factory=dict)
-    # 仅宿主从本轮入场冻结任务提供；解释保留目标，不生成任何执行许可。
-    context_sources: list[SemanticTransition] = Field(default_factory=list, max_length=100)
-
-
-@router.post("/admit-plan")
-def admit_semantic_plan(
-    payload: PlanAdmissionRequest,
-    actor: Annotated[ActorContext, Depends(require_actor)],
-    uow: Annotated[SqlAlchemyUnitOfWork, Depends(get_uow)],
-    permissions: Annotated[ScopedOrganizationPermissionService, Depends(get_overview_permissions)],
-    settings: Annotated[Settings, Depends(get_overview_settings)],
-) -> dict:
-    from ask_metric.api.routes.tasks import _verify_metric_coverage, SourceMetricBinding, SourceMetricSpan
-    with uow:
-        if uow.conversations.get_owned(payload.conversation_id, actor.user_id) is None:
-            raise HTTPException(status_code=404, detail="任务会话不可读取")
-        catalog = uow.metric_catalog.list_enabled()
-        organizations = uow.organization_catalog.list_enabled()
-        allowed = permissions.authorized_org_codes(actor=actor, available_org_codes={item.code for item in organizations})
-    # 内部义务对账保留原句中的真实目录身份；失权不能让另一机构变成“唯一共享机构”。
-    # 对外目录和inspect接口仍仅投影可见目录，实际执行范围在下方独立鉴权。
-    facts = inspect_goal(payload.goal, payload.business_date, catalog, organizations, reference_year=payload.reference_year)
-    def verify_transition_source(transition: SemanticTransition) -> None:
-        try:
-            for source in transition.field_sources:
-                basis = SemanticTransition(**source.model_dump(exclude={"field"}), changes=[])
-                verify_transition_source(basis)
-                validate_transition(basis, basis.before, question=payload.goal, today=payload.business_date,
-                                    metrics=catalog, organizations=organizations, allowed=allowed,
-                                    reference_year=payload.reference_year)
-            if transition.source_semantic_receipt:
-                # 回执约束旧完整范围，不能拿新范围验证旧票后跳过差异检查。
-                verify_selection(transition.source_semantic_receipt, owner=actor.user_id,
-                    conversation=payload.conversation_id, session=payload.session_id,
-                    codes=transition.before.metric_codes,
-                    scope=transition.before.model_dump(mode="json", exclude_none=True),
-                    catalog=catalog, secret=settings.jwt_secret)
-            elif transition.source_question:
-                # 旧单目标 Frame 未签准入票，保留其既有指标来源校验；新目标统一签完整范围票。
-                _verify_metric_coverage(transition.source_question, transition.before.metric_codes, catalog,
-                    [SourceMetricBinding.model_validate(item) for item in transition.bindings],
-                    [SourceMetricSpan.model_validate(item) for item in transition.exclusions])
-            else:
-                raise ApplicationError("TRANSITION_SOURCE_MISSING", "跨轮变更缺少冻结来源回执或原始绑定依据。", status_code=409)
-        except (ApplicationError, ValidationError) as error:
-            if isinstance(error, ApplicationError) and error.code.startswith("TRANSITION_"):
-                raise
-            raise ApplicationError("TRANSITION_SOURCE_INVALID", "跨轮变更的冻结来源身份或范围校验失败。", status_code=409) from None
-    verified_contexts: list[SemanticTransition] = []
-    rejected_contexts: list[tuple[int, SemanticTransition, ApplicationError]] = []
-    for number, context in enumerate(payload.context_sources):
-        if context.changes:
-            raise ApplicationError("TRANSITION_CONTEXT_INVALID", "保留上下文只能引用已确认完整条件，不能携带变更或执行动作。", status_code=409)
-        try:
-            verify_transition_source(context)
-            validate_transition(context, context.before, question=payload.goal, today=payload.business_date,
-                metrics=catalog, organizations=organizations, allowed=allowed,
-                analysis=payload.analysis, reference_year=payload.reference_year)
-            verified_contexts.append(context)
-        except ApplicationError as error:
-            # 非执行上下文可能已失权；先保留诊断，只有通过校验的来源能解释本轮义务。
-            rejected_contexts.append((number, context, error))
-    def verify_fragment_context(fragment: dict) -> None:
-        execution = [step.transition for step in payload.steps if step.transition is not None]
-        specs = [step.spec for step in payload.steps if step.transition is not None]
-        def verify(contexts: list[SemanticTransition]) -> None:
-            verify_transition_fragment(fragment, execution + contexts, after_specs=specs,
-                metrics=catalog, today=payload.business_date, reference_year=facts.get("reference_year"))
-        try:
-            verify(verified_contexts)
-        except ApplicationError as uncovered:
-            if uncovered.code != "PLAN_TARGETS_INCOMPLETE" or not rejected_contexts:
-                raise
-            # 被拒来源仅用于区分失败原因，绝不作为已解释依据或生成执行票。
-            diagnostics = [{"index": number, "code": error.code} for number, _, error in rejected_contexts]
-            for _, context, error in rejected_contexts:
-                try:
-                    verify(verified_contexts + [context])
-                except ApplicationError:
-                    continue
-                raise ApplicationError(error.code, error.message, status_code=error.status_code,
-                    details={"context_sources": diagnostics}) from None
-            try:
-                verify(verified_contexts + [context for _, context, _ in rejected_contexts])
-            except ApplicationError:
-                raise ApplicationError(uncovered.code, uncovered.message, status_code=uncovered.status_code,
-                    details={"context_sources": diagnostics}) from None
-            error = rejected_contexts[0][2]
-            raise ApplicationError(error.code, error.message, status_code=error.status_code,
-                details={"context_sources": diagnostics}) from None
-    # 重规划保留的旧草案不能与新来源重复取同一份事实；操作或比较总体不同的查询独立核验。
-    for number, step in enumerate(payload.steps):
-        for previous in payload.steps[:number]:
-            same_operation = step.spec.operation == previous.spec.operation and step.spec.selection == previous.spec.selection and step.spec.comparison_scope == previous.spec.comparison_scope
-            if same_operation and step.spec.time == previous.spec.time and set(step.spec.org_codes) & set(previous.spec.org_codes) and set(step.spec.metric_codes) & set(previous.spec.metric_codes):
-                raise ApplicationError("PLAN_SOURCE_OVERLAP", "提案含重叠的查询来源。未执行草案请用完整new提案重组为不重叠的来源；已有正式结果请引用复用。", status_code=409)
-    for step in payload.steps:
-        if step.spec.organization_scope or not set(step.spec.org_codes) <= allowed or (step.spec.comparison_scope and (step.spec.comparison_scope.organization_scope or not set(step.spec.comparison_scope.org_codes) <= allowed)):
-            raise HTTPException(status_code=403, detail="任务范围不可签发")
-        if step.origin == "analysis_selected" and not payload.analysis:
-            raise ApplicationError("ANALYSIS_NOT_AUTHORIZED", "普通查询不能使用分析选指标来源。", status_code=409)
-        if step.transition is not None:
-            transition = step.transition
-            if step.origin == "user_explicit":
-                raise ApplicationError("TRANSITION_SOURCE_INVALID", "跨轮变更必须声明历史或获授权的分析来源。", status_code=409)
-            verify_transition_source(transition)
-            validate_transition(transition, step.spec, question=payload.goal, today=payload.business_date,
-                metrics=catalog, organizations=organizations, allowed=allowed,
-                analysis=payload.analysis, reference_year=payload.reference_year)
-            continue
-        if step.origin == "history":
-            if step.source_semantic_receipt:
-                # 历史来源复用已签发身份与范围，但当前权限、目录和会话归属仍重新核验。
-                verify_selection(step.source_semantic_receipt, owner=actor.user_id, conversation=payload.conversation_id, session=payload.session_id,
-                    codes=step.spec.metric_codes, scope=step.spec.model_dump(mode="json", exclude_none=True), catalog=catalog, secret=settings.jwt_secret)
-            elif not step.source_question:
-                raise ApplicationError("HISTORY_SOURCE_MISSING", "历史条件需要保留原始绑定依据。", status_code=409)
-            else:
-                _verify_metric_coverage(step.source_question, step.spec.metric_codes, catalog,
-                    [SourceMetricBinding.model_validate(item) for item in step.bindings],
-                    [SourceMetricSpan.model_validate(item) for item in step.exclusions])
-    # 新目标仍逐片段对账；已验证的变更按轨迹对账，不再把旧 subject、排除项当新增查询义务。
-    ordinary = [step for step in payload.steps if step.transition is None]
-    has_transition = len(ordinary) != len(payload.steps)
-    for number, fragment in enumerate(facts["fragments"]):
-        new_steps = [step for step in ordinary if step.fragment == number]
-        steps = [step for step in payload.steps if step.fragment == number]
-        fragment_transitions = [step.transition for step in steps if step.transition is not None]
-        if not new_steps:
-            if has_transition:
-                verify_fragment_context(fragment)
-                continue
-            if payload.analysis:
-                continue
-            raise ApplicationError("PLAN_TARGETS_INCOMPLETE", "原始问题还有目标没有进入任务。", status_code=409)
-        for step in new_steps:
-            if fragment["organizations"] and not set(step.spec.org_codes) <= set(fragment["organizations"]):
-                raise ApplicationError("PLAN_TARGET_BINDING_CONFLICT", "机构与指标日期的原始绑定不符。", status_code=409)
-            # 榜单是整个比较总体上的操作；各机构分别取前N再求并集不能替代原榜单。
-            if step.spec.operation.kind == "ranking" and fragment["organizations"] and set(step.spec.org_codes) != set(fragment["organizations"]):
-                raise ApplicationError("PLAN_RANKING_SCOPE_INCOMPLETE", "同一榜单的完整比较机构须进入同一查询目标，请合并机构后重提。", status_code=409)
-            ranges = fragment["calendar"]["ranges"]
-            if ranges and not any(step.spec.time.start.isoformat() >= value["start"] and step.spec.time.end.isoformat() <= value["end"] for value in ranges):
-                raise ApplicationError("PLAN_TARGET_BINDING_CONFLICT", "目标日期不属于对应原始片段。", status_code=409)
-        requested = list(dict.fromkeys(code for step in steps for code in step.spec.metric_codes))
-        newly_requested = {code for step in new_steps for code in step.spec.metric_codes}
-        bindings = [SourceMetricBinding.model_validate(item) for item in payload.fragment_bindings.get(str(number), [])]
-        explicit = [item for item in fragment["mentions"] if item["resolution"]["status"] == "resolved"]
-        required = {code for item in explicit for code in item["resolution"]["value"]["codes"]}
-        if (payload.analysis or all(step.origin == "history" for step in steps)) and not fragment["mentions"]:
-            required = set(requested)
-        else:
-            # 分析可以增加目录指标，但明确提及和已确认的指标仍须逐片段完整绑定。
-            from ask_metric.api.routes.tasks import _verify_metric_bindings
-            required = _verify_metric_bindings(fragment["question"], fragment["mentions"], bindings, [], metric_candidate_index(catalog))
-            # 混合片段中的旧 subject 已由变更轨迹解释；继承条件不要求本轮重复声明。
-            if fragment_transitions:
-                old_metrics = {code for transition in fragment_transitions for code in transition.before.metric_codes}
-                old_metrics.update(code for transition in fragment_transitions for change in transition.changes
-                    if change.field == "metrics" for code in change.before)
-                required -= old_metrics - set(requested)
-                complete = required <= set(requested) and newly_requested <= required
-            else:
-                complete = required <= set(requested) and (all(step.origin == "history" for step in steps) or required == set(requested))
-            if not payload.analysis and not complete:
-                raise ApplicationError("PLAN_TARGETS_INCOMPLETE", "普通查询须整批覆盖原始指标；若是分析中的支持步骤，应使用analyze保留完整目标并分阶段取证。", status_code=409)
-        orgs = fragment["organizations"]
-        calendars = fragment["calendar"]["ranges"]
-        # 独立核验每个显式机构、指标、日期组合；仅核对集合并集会漏掉半份目标。
-        coverage_codes = required & set(requested) if payload.analysis else required
-        # transition 已逐字段独立核验；原始机构/日期组合义务只约束普通新目标。
-        if fragment_transitions:
-            coverage_codes &= newly_requested
-        for code in coverage_codes:
-            # 继承目标未在本轮重复机构名称时，沿用各指标自己的机构绑定，不能生成跨目标笛卡尔积。
-            bound_orgs = orgs or list(dict.fromkeys(org for step in steps if code in step.spec.metric_codes for org in step.spec.org_codes))
-            for org in bound_orgs:
-                covering = [step for step in steps if code in step.spec.metric_codes and
-                    (org in step.spec.org_codes or step.spec.comparison_scope and org in step.spec.comparison_scope.org_codes)]
-                if not covering:
-                    raise ApplicationError("PLAN_TARGETS_INCOMPLETE", "原始机构与指标组合没有完整进入任务。", status_code=409)
-                for calendar in calendars:
-                    expected_dates = calendar.get("dates")
-                    if expected_dates:
-                        actual = {value for step in covering for value in
-                            (step.spec.time.dates or ([step.spec.time.start] if step.spec.time.start == step.spec.time.end else []))}
-                        complete = set(expected_dates) <= {value.isoformat() for value in actual}
-                    else:
-                        complete = any(step.spec.time.start.isoformat() == calendar["start"] and
-                            step.spec.time.end.isoformat() == calendar["end"] and not step.spec.time.dates for step in covering)
-                    if not complete:
-                        raise ApplicationError("PLAN_TARGETS_INCOMPLETE", "原始机构、指标和日期的组合未完整覆盖。", status_code=409)
-    if any(step.fragment >= len(facts["fragments"]) for step in ordinary):
-        raise ApplicationError("PLAN_FRAGMENT_INVALID", "新目标声明的原始片段不存在。", status_code=409)
-    receipts = []
-    for step in payload.steps:
-        scope = step.spec.model_dump(mode="json", exclude_none=True)
-        receipts.append({"target_ref": step.target_ref, "receipt": issue_selection(owner=actor.user_id, conversation=payload.conversation_id,
-            session=payload.session_id, goal=payload.goal, codes=step.spec.metric_codes, scope=scope, catalog=catalog, secret=settings.jwt_secret)})
-    return {"status": "admitted", "receipts": receipts,
-        **({"context_diagnostics": [{"index": number, "code": error.code, "ignored": True}
-            for number, _, error in rejected_contexts]} if rejected_contexts else {})}
-
-
 @router.post("/inspect-goal")
 def inspect_business_goal(
     payload: InspectGoalRequest,
     actor: Annotated[ActorContext, Depends(require_actor)],
     uow: Annotated[SqlAlchemyUnitOfWork, Depends(get_uow)],
     permissions: Annotated[ScopedOrganizationPermissionService, Depends(get_overview_permissions)],
-    settings: Annotated[Settings, Depends(get_overview_settings)],
 ) -> dict:
     with uow:
         metrics = uow.metric_catalog.list_enabled()
@@ -350,11 +124,9 @@ def inspect_business_goal(
         if payload.history:
             if uow.conversations.get_owned(payload.history.conversation_id, actor.user_id) is None:
                 raise HTTPException(status_code=404, detail="历史任务会话不可读取")
-            # 旧票仅证明用户曾持有该机构身份，供来源消歧；当前数据访问仍单独鉴权。
+            # 历史 spec 的机构只作定位消歧，不构成任何执行许可，也不触发重跑；
+            # 数据访问由执行路径单独鉴权。
             for source in payload.history.sources:
-                verify_selection(source.receipt, owner=actor.user_id, conversation=payload.history.conversation_id,
-                    session=payload.history.session_id, codes=source.spec.metric_codes,
-                    scope=source.spec.model_dump(mode="json", exclude_none=True), catalog=metrics, secret=settings.jwt_secret)
                 allowed.update(source.spec.org_codes)
     return inspect_goal(payload.question, payload.business_date, metrics, [item for item in organizations if item.code in allowed], reference_year=payload.reference_year)
 
@@ -395,15 +167,7 @@ def resolve_scope(
     permissions: Annotated[ScopedOrganizationPermissionService, Depends(get_overview_permissions)],
     hierarchy: Annotated[SqlAlchemyOrgHierarchyProvider, Depends(get_scope_hierarchy)],
 ) -> dict:
-    """机构集合意图由 Agent 绑定原文，服务端独立解析正式目录和当前账号权限。"""
-    if payload.kind == "authorized_cohort" and not is_authorized_cohort_source(
-        payload.cohort, payload.source_text,
-    ):
-        raise ApplicationError(
-            "SCOPE_SOURCE_INVALID",
-            "原文未明确表达机构集合，不能将具体机构或未知名称扩大为全部可见农商行",
-            status_code=422,
-        )
+    """模型声明范围类型；Agent 绑定原文，后端按正式层级和当前权限解析成员。"""
     with uow:
         organizations = uow.organization_catalog.list_enabled()
     try:
@@ -479,6 +243,163 @@ def org_catalog(
     ]}
 
 
+def _resolve_organization_field(
+    raw_values: list[str],
+    *,
+    suggested: list[dict] | None,
+    source_question: str | None,
+    all_items: list,
+    items: list,
+) -> dict:
+    """resolve-field 的机构解析、来源摘录和权限投影。"""
+    submitted_raw_values = list(raw_values)
+    raw_values = list(raw_values)
+    hint_source_bound = False
+    if suggested and source_question:
+        for hint in suggested:
+            excerpt = hint.get("excerpt")
+            if not isinstance(excerpt, str) or not excerpt or excerpt not in source_question:
+                continue
+            identity = resolve_catalog_field("organization", [], all_items, suggested=[hint])
+            if identity["status"] != "resolved":
+                continue
+            hinted = set(identity["value"]["codes"])
+            # excerpt 是模型绑定的机构槽位连续原文（已核对 ∈ source_question），
+            # 槽位片段允许错字依据；整句不做此扫描。
+            excerpt_identities = set(source_organization_codes(excerpt, all_items, allow_typo=True))
+            if hinted <= excerpt_identities:
+                continue
+            for index, raw in enumerate(raw_values):
+                if raw in source_question:
+                    continue
+                literal = resolve_catalog_field("organization", [raw], all_items)
+                if raw == excerpt and literal["status"] != "resolved":
+                    hint_source_bound = True
+                if literal["status"] == "resolved" and set(literal["value"]["codes"]) == hinted and not hinted <= excerpt_identities:
+                    # 仅回到该建议绑定的用户原片段；全句其他目标不能替这个槽位选机构。
+                    raw_values[index] = excerpt
+                    hint_source_bound = True
+    # 先在完整目录识别身份，再裁定权限；失权精确实体不能在可见子目录中纠错成另一家。
+    result = resolve_catalog_field("organization", raw_values, all_items, suggested=suggested)
+    if hint_source_bound:
+        result.setdefault("metadata", {}).update({"hint_source_bound": True, "extractedRawValues": raw_values})
+    allowed = {item.code for item in items}
+    value = result.get("value") or result.get("metadata", {}).get("partialMembers") or {}
+    pairs = list(zip(value.get("codes", []), value.get("names", []), strict=True))
+    visible = [(code, name) for code, name in pairs if code in allowed]
+    metadata = result.setdefault("metadata", {})
+    if "corrections" in metadata:
+        metadata["corrections"] = [entry for entry in metadata["corrections"] if entry["corrected_code"] in allowed]
+    pending = metadata.get("pendingRawValues")
+    if isinstance(pending, list):
+        hidden = {item.code for item in all_items} - allowed
+        for index, entry in enumerate(pending):
+            codes = entry if isinstance(entry, list) else [entry]
+            if not any(code in hidden for code in codes):
+                continue
+            # 目录识别出的失权编码不能外投影；保留用户该槽原文，等待明确处理权限/条件。
+            raw = submitted_raw_values[index] if index < len(submitted_raw_values) else ""
+            pending[index] = raw
+            issues = metadata.setdefault("issues", [])
+            if not any(issue.get("rawValueIndex") == index for issue in issues):
+                issues.append({"rawValue": raw, "rawValueIndex": index, "reason": "not_found"})
+            result["status"] = "not_found"
+    if "candidates" in result:
+        result["candidates"] = [entry for entry in result["candidates"] if entry.get("code") in allowed]
+        metadata["candidate_count"] = max(
+            len(result["candidates"]), int(metadata.get("candidate_count", 0))
+        )
+    if len(visible) != len(pairs):
+        if visible:
+            metadata["partialMembers"] = {"codes": [code for code, _ in visible], "names": [name for _, name in visible]}
+        else:
+            metadata.pop("partialMembers", None)
+        if result["status"] == "resolved":
+            result.pop("value", None)
+            result["status"] = "not_found"
+            result["candidates"] = []
+            metadata["pendingRawValues"] = submitted_raw_values
+            metadata["issues"] = [{"rawValue": raw, "rawValueIndex": index, "reason": "not_found"}
+                                  for index, raw in enumerate(submitted_raw_values)
+                                  if not set(source_organization_codes(raw, all_items)) <= allowed]
+    if source_question:
+        # 完整原问只做精确机构覆盖，不对整句错字滑窗；错字纠错限定在机构槽位
+        # 提交的连续原文（raw_values 阶梯与下方 suggestion.excerpt 对账）内。
+        # 槽位原值确为本轮连续原文时补记错字依据（“启动→启东”不因关闭整句
+        # 模糊扫描而失去来源）。
+        source_codes = [code for code in source_organization_codes(source_question, all_items)
+                        if code in allowed]
+        slot_codes = [code for raw in submitted_raw_values
+                      if isinstance(raw, str) and raw and raw in source_question
+                      for code in source_organization_codes(raw, all_items, allow_typo=True)
+                      if code in allowed]
+        source_codes = list(dict.fromkeys([*source_codes, *slot_codes]))
+        # 模型把原文错字预纠成规范写法（提交“启东”而原文是“启动”）时，槽位原值不在
+        # 本轮原文内；此时只用整句错字扫描核对“已提交的这个槽位”：扫描出的目录身份必须
+        # 与槽位解析集合完全一致才回记原文片段，供宿主按原文重新解析并明示纠正。
+        # 该扫描不产生额外机构义务，片段义务仍只做精确覆盖。
+        if (result.get("status") == "resolved" and isinstance(result.get("value"), dict)
+                and set(result["value"].get("codes", [])) - set(source_codes)
+                and not any(isinstance(raw, str) and raw and raw in source_question
+                            for raw in submitted_raw_values)):
+            resolved_codes = set(result["value"].get("codes", []))
+            matches = [(span, code)
+                       for span, code in typo_organization_matches(source_question, all_items)
+                       if code in resolved_codes]
+            if matches and {code for _, code in matches} == resolved_codes:
+                text = normalize_semantic_text(source_question)
+                spans = [text[start:end] for (start, end), _ in matches]
+                source_codes = list(dict.fromkeys([*source_codes, *sorted(resolved_codes)]))
+                by_code = {item.code: item for item in all_items}
+                metadata = result.setdefault("metadata", {})
+                metadata["extractedRawValues"] = list(dict.fromkeys(spans))
+                metadata["rawExcerpt"] = spans[0]
+                metadata["hint_source_bound"] = True
+                metadata["resolution_source"] = "corrected"
+                corrections = metadata.setdefault("corrections", [])
+                for span, (_, code) in zip(spans, matches, strict=True):
+                    if any(entry.get("corrected_code") == code for entry in corrections):
+                        continue
+                    corrections.append({"raw": span, "corrected_name": by_code[code].name,
+                                        "corrected_code": code})
+        result["metadata"] = {**result.get("metadata", {}), "source_codes": source_codes}
+        # 有权目录成员资格不能证明用户指代；未由原话目录事实绑定的模型建议保持待确认。
+        if suggested and not submitted_raw_values and result["status"] == "resolved":
+            by_code = {item.code: item for item in items}
+            excerpts = [entry["excerpt"] for entry in suggested
+                        if isinstance(entry.get("excerpt"), str) and entry.get("excerpt")
+                        and entry["excerpt"] in source_question]
+            grounded = list(dict.fromkeys(code for excerpt in excerpts
+                                          for code in source_organization_codes(excerpt, all_items, allow_typo=True)
+                                          if code in allowed))
+            if set(result["value"]["codes"]) <= set(grounded):
+                return result
+            excerpt = excerpts[0] if len(excerpts) == 1 else None
+            if len(suggested) == 1 and len(grounded) == 1:
+                # 原文目录事实唯一且与模型建议冲突时以原文为准（模型可能换错机构）：
+                # 直接按错字纠正落地并明示，不走候选确认，也不采用模型的换名。
+                item = by_code[grounded[0]]
+                result = {"status": "resolved",
+                          "value": {"codes": [item.code], "names": [item.name]},
+                          "metadata": {"resolution_source": "corrected",
+                                       "corrections": [{"raw": excerpt or source_question,
+                                                        "corrected_name": item.name,
+                                                        "corrected_code": item.code}],
+                                       "source_codes": source_codes}}
+            else:
+                # 原文依据为多机构或无依据：候选确认，原文依据的机构优先于模型建议。
+                seen: set[str] = set()
+                candidates = []
+                for code in [*grounded, *result["value"]["codes"]]:
+                    if code in by_code and code not in seen:
+                        seen.add(code)
+                        candidates.append({"code": code, "value": by_code[code].name,
+                                           "preferred": code in set(grounded)})
+                result = {"status": "needs_confirmation", "candidates": candidates,
+                          "metadata": {**result["metadata"], "reason": "model_suggestion_requires_confirmation"}}
+    return result
+
+
 @router.post("/resolve-field")
 def resolve_field(
     payload: ResolveFieldRequest,
@@ -498,33 +419,27 @@ def resolve_field(
             ),
         )
         if payload.source_question:
+            # 模型换算被采纳的表达不再用旧词法重扫裁定：source_calendar 直接复用
+            # 已采纳结果；确定性命中的表达维持原文词法对账。
+            adopted = result.get("value") if result.get("metadata", {}).get(
+                "resolution_source") == "model" else None
             result["metadata"] = {**result.get("metadata", {}),
-                                  "source_calendar": source_calendar_constraints(payload.source_question, today, reference_year=payload.reference_year)}
+                                  "source_calendar": source_calendar_constraints(
+                                      payload.source_question, today,
+                                      reference_year=payload.reference_year, adopted=adopted)}
         return result
-    with uow:
-        if payload.entity == "metric":
+    if payload.entity == "metric":
+        with uow:
             items = uow.metric_catalog.list_enabled()
-        else:
-            items = _authorized_organization_items(
-                uow.organization_catalog.list_enabled(), actor=actor, permissions=permissions,
-            )
-        # suggested 仅机构字段消费：metric/date 没有模型推断通道，按现有逻辑忽略。
-        suggested = (
-            [entry.model_dump(exclude_none=True) for entry in payload.suggested]
-            if payload.entity == "organization" and payload.suggested else None
-        )
-        result = resolve_catalog_field(payload.entity, payload.raw_values, items,
-                                       suggested=suggested)
-        if payload.entity == "organization" and payload.source_question:
-            # 错字感知与准入对账同尺：追问错字（如“沐阳”）登记为目录事实后，
-            # 与之相符的模型建议不再降级为待确认；不相符的照旧确认。
-            source_codes = source_organization_codes(payload.source_question, items, allow_typo=True)
-            result["metadata"] = {**result.get("metadata", {}), "source_codes": source_codes}
-            # 有权目录成员资格不能证明用户指代；未由原话目录事实绑定的模型建议保持待确认。
-            if suggested and result["status"] == "resolved" and not set(result["value"]["codes"]) <= set(source_codes):
-                by_code = {item.code: item for item in items}
-                candidates = [{"code": code, "value": by_code[code].name, "preferred": True}
-                              for code in result["value"]["codes"]]
-                result = {"status": "needs_confirmation", "candidates": candidates,
-                          "metadata": {**result["metadata"], "reason": "model_suggestion_requires_confirmation"}}
-        return result
+        return resolve_catalog_field("metric", list(payload.raw_values), items)
+    with uow:
+        all_items = uow.organization_catalog.list_enabled()
+        items = _authorized_organization_items(all_items, actor=actor, permissions=permissions)
+    suggested = (
+        [entry.model_dump(exclude_none=True) for entry in payload.suggested]
+        if payload.suggested else None
+    )
+    return _resolve_organization_field(
+        list(payload.raw_values), suggested=suggested, source_question=payload.source_question,
+        all_items=all_items, items=items,
+    )

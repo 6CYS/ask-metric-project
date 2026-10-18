@@ -185,7 +185,7 @@ async function main() {
 
   const config = {...loadConfig(), dataDir: dir};
   const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), sessions,
-    createAskMetricTools({compactTurnArgs: config.compactTurnArgs}));
+    createAskMetricTools());
   const reports: Array<Record<string, unknown>> = [];
   const layoutProof: Array<Record<string, unknown>> = [];
   try {
@@ -396,7 +396,7 @@ async function main() {
       reports: baseline.reports.map(item => ({name: item.name, passed: item.passed,
         failures: item.turns.flatMap(turn => turn.failure ? [turn.failure] : []), query_counts: item.turns.map(turn => turn.query_count)}))} : undefined;
     const report = {environment: "configured_model_synthetic_backend", created_at: new Date().toISOString(), model: config.model.name,
-      compact_turn_args: !!config.compactTurnArgs, model_called: true, real_database_verified: false, production_accessed: false,
+      model_called: true, real_database_verified: false, production_accessed: false,
       model_max_tokens: config.model.maxTokens, validation_turn_timeout_ms: turnTimeoutMs,
       fixture_mode: seedChat ? "seeded_chat" : "index_only",
       fixture_comparison: seedChat ? "independent diagnostic; not paired with index-only acceptance" : "unchanged index-only stress fixture",
@@ -415,7 +415,7 @@ async function main() {
     const baselineText = firstRun ? `首轮 ${firstRun.cases} 个 case 中 ${firstRun.passed_cases} 个通过。失败包括机构被误继承、错误新建来源导致参数修复循环、空候选确认循环。${firstRun.note}\n\n` : "";
     const fixtureText = seedChat ? "seeded-chat 独立诊断：在同样 Frame 之外补入两笔对应的用户与助手历史聊天；不与 index-only 压力样本作配对改善比较。"
       : "index-only 压力样本：两笔业务历史只有可信 Frame 索引；旧空候选和单候选场景另包含待确认的用户与助手消息。";
-    await writeFile(`${reportBase}.md`, `# 历史引用、确认和恢复的真实模型验收\n\n时间：${report.created_at}\n\n模型：${report.model}；compact 参数：${report.compact_turn_args}。\n\n仅调用配置模型；所有目录、权限、查询、结果读取均为隔离合成桩，未访问生产业务服务或真实数据库。\n\n${fixtureText}\n\n${baselineText}| 场景 | 首轮 | 本轮 | 本轮实际业务调用 |\n| --- | --- | --- | --- |\n${lines.join("\n")}\n\n通过条件同时检查模型工具参数、正式查询 spec、持久化 Frame、业务查询次数和重开后的状态。零查询场景不能进入执行或成功；模型结构错误允许受控修正，收到需用户澄清回执后不得继续自动解析。详细参数和失败原因见 [JSON 报告](${basename(reportBase)}.json)。\n\n本次只证明这些合成样本下的配置模型和本地宿主行为，不代表生产部署、真实目录或数据库验收。\n`);
+    await writeFile(`${reportBase}.md`, `# 历史引用、确认和恢复的真实模型验收\n\n时间：${report.created_at}\n\n模型：${report.model}。\n\n仅调用配置模型；所有目录、权限、查询、结果读取均为隔离合成桩，未访问生产业务服务或真实数据库。\n\n${fixtureText}\n\n${baselineText}| 场景 | 首轮 | 本轮 | 本轮实际业务调用 |\n| --- | --- | --- | --- |\n${lines.join("\n")}\n\n通过条件同时检查模型工具参数、正式查询 spec、持久化 Frame、业务查询次数和重开后的状态。零查询场景不能进入执行或成功；模型结构错误允许受控修正，收到需用户澄清回执后不得继续自动解析。详细参数和失败原因见 [JSON 报告](${basename(reportBase)}.json)。\n\n本次只证明这些合成样本下的配置模型和本地宿主行为，不代表生产部署、真实目录或数据库验收。\n`);
     console.log(JSON.stringify({passed, cases: reports.length, report: `${reportBase}.json`, model: config.model.name}));
     if (!passed) process.exitCode = 1;
   } finally {await host.close(); await sessions.close();}

@@ -25,7 +25,7 @@ const config = {...loadConfig(), dataDir: dir};
 const store = new NativeSessionStore(dir);
 const skills = await loadBusinessSkills();
 const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store,
-  [...createAskMetricTools({compactTurnArgs: config.compactTurnArgs}), createBusinessSkillReadTool(skills)], {skills});
+  [...createAskMetricTools(), createBusinessSkillReadTool(skills)], {skills});
 const actor: BackendUser = {id: "streaming-synthetic", username: "synthetic", display_name: "隔离流式测试",
   org_code: "O1", org_name: "合成甲农商行", role_code: "USER"};
 const greetings = ["你好", "谢谢你", "早上好", "你能做什么？", "给我介绍一下你能帮忙的事情。",

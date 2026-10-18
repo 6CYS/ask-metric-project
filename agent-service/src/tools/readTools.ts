@@ -180,6 +180,7 @@ const historyReadParameters = Type.Union([
 export interface HistoryReadDetails {
   kind: "session_history_read";
   status: string;
+  history_sources?: import("../requestContext.js").HistoryReadSources;
 }
 
 export function createSessionHistoryReadTool(): AgentHarnessTool<AskMetricRequestContext, typeof historyReadParameters, HistoryReadDetails> {
@@ -200,7 +201,7 @@ export function createSessionHistoryReadTool(): AgentHarnessTool<AskMetricReques
             next_before_seq: page.next_before_seq,
             has_more: page.has_more,
           },
-          { kind: "session_history_read", status: "ok" },
+          { kind: "session_history_read", status: "ok", history_sources: page.sources ?? {tasks: [], organizationScopes: []} },
         );
       }
       const entry = await request.history.read(params.entry_id, params.offset ?? 0, params.length ?? 4000);
@@ -222,7 +223,7 @@ export function createSessionHistoryReadTool(): AgentHarnessTool<AskMetricReques
           text: entry.text,
           next_offset: entry.next_offset,
         },
-        { kind: "session_history_read", status: "ok" },
+        { kind: "session_history_read", status: "ok", history_sources: entry.sources ?? {tasks: [], organizationScopes: []} },
       );
     },
   };
@@ -233,7 +234,9 @@ function json<TDetails>(payload: Record<string, unknown>, details: TDetails): Ag
 }
 
 // 合并既有分支并收紧额外字段；显式保留原联合类型，避免数组映射丢失静态推导。
-const readParameters = Type.Unsafe<Static<typeof metricReadParameters> | Static<typeof historyReadParameters>>({anyOf: [
+// 顶层必须声明 type=object：DeepSeek 等 OpenAI 兼容接口会拒绝 type 为空的
+// function.parameters（anyOf 只用于分支判别）。
+const readParameters = Type.Unsafe<Static<typeof metricReadParameters> | Static<typeof historyReadParameters>>({type: "object", anyOf: [
   ...metricReadParameters.anyOf,
   ...historyReadParameters.anyOf,
 ].map(branch => ({...branch, additionalProperties: false}))});

@@ -198,10 +198,10 @@ def test_resolve_scope_http_contract_permissions_and_parent_candidates():
     response = client.post(url, json={**COHORT, "source_text": "各家农商行"})
     assert response.status_code == 200
     assert response.json()["value"]["codes"] == ["A", "B"]
-    response = client.post(url, json={**COHORT, "source_text": "合成不存在农商行"})
-    assert response.status_code == 422
-    assert response.json()["code"] == "SCOPE_SOURCE_INVALID"
-    assert "value" not in response.json()
+    # 范围类型已经结构化，短语或完整句子不再交正则二次解释；成员仍受正式层级与权限约束。
+    response = client.post(url, json={**COHORT, "source_text": "请列出今年各家农商行的数据"})
+    assert response.status_code == 200
+    assert response.json()["value"]["codes"] == ["A", "B"]
     response = client.post(url, json={
         "kind": "children_of", "parent_name": "A", "source_text": "甲行下属支行",
     })

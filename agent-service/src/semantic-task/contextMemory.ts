@@ -1,7 +1,7 @@
 import type {AgentMessage} from "@earendil-works/pi-agent-core";
 import type {AskMetricRequestContext} from "../requestContext.js";
 import {BackendApiError} from "../backendClient.js";
-import {historySources} from "../historySources.js";
+import {historySources, resolveHistoryOrganizationScopes} from "../historySources.js";
 import type {HistoryTarget} from "./store.js";
 
 /** 请求前保守估算只用于预算；验收仍使用 provider usage，不能把字符数当实测 token。 */
@@ -69,7 +69,8 @@ export async function safeWorkingHistory(request: AskMetricRequestContext, messa
         if (task.task_id !== taskId || !["SUCCEEDED","succeeded"].includes(task.status)
           || resultId && task.result?.result_id !== resultId) throw new Error("HISTORY_SCOPE_UNAVAILABLE");
       }
-      for (const codes of sources.organizationScopes) if (!await scopeAvailable(request, codes)) throw new Error("HISTORY_SCOPE_UNAVAILABLE");
+      const scopes = await resolveHistoryOrganizationScopes(sources, request.semanticTasks, () => {throw new Error("HISTORY_SCOPE_UNAVAILABLE");});
+      for (const codes of scopes) if (!await scopeAvailable(request, codes)) throw new Error("HISTORY_SCOPE_UNAVAILABLE");
       return turn;
     } catch (error) {
       if (error instanceof BackendApiError && ![403,404,409,422].includes(error.status)) throw error;
@@ -112,6 +113,21 @@ export async function permissionFilteredAdmission(request: AskMetricRequestConte
     const reference = (await store.historyCatalog()).find(row => row.task_ref === alternative.task_ref && row.target_ref === alternative.target_ref);
     if (reference && await scopeAvailable(request, reference.scope ?? reference.organizations)) alternatives.push(alternative);
   }
+  const pendingQuestions = [];
+  for (const question of projected.pending_questions ?? []) {
+    if (!allowed.has(question.scope.target_ref) || !request.questionPublicationProof
+      || !await request.questionPublicationProof(question)) continue;
+    const stored = await store.question(question.question_id, question.version);
+    const organizationQuestion = question.scope.field === "organizations" || question.scope.field === "comparison_organizations";
+    const condition = stored?.binding.sourceConfirmation?.organizationCondition as {codes?: unknown} | undefined;
+    const candidateCodes = organizationQuestion ? [...new Set([...(stored?.binding.options.map(option => option.candidate.code) ?? []),
+      ...(Array.isArray(condition?.codes) ? condition.codes : [])])].filter((code): code is string => typeof code === "string" && !!code) : [];
+    if (candidateCodes.length && !await scopeAvailable(request, candidateCodes)) continue;
+    pendingQuestions.push(question);
+  }
+  const visibleQuestions = new Set(pendingQuestions.map(question => question.question_id));
   return {...projected, targets: projected.targets.filter(target => allowed.has(target.target_ref)),
+    pending_questions: pendingQuestions,
+    trusted_answers: (projected.trusted_answers ?? []).filter(answer => visibleQuestions.has(answer.question_id)),
     ...(projected.pending_clarification ? {pending_clarification: {...projected.pending_clarification, alternatives}} : {})};
 }

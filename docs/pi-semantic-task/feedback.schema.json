@@ -9,6 +9,8 @@
     "protocol_version",
     "status",
     "state",
+    "pending_questions",
+    "answer_receipts",
     "issues",
     "continuation"
   ],
@@ -145,6 +147,14 @@
         }
       }
     },
+    "pending_questions": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/pendingQuestion"}
+    },
+    "answer_receipts": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/answerReceipt"}
+    },
     "issues": {
       "type": "array",
       "items": {
@@ -232,6 +242,57 @@
     }
   },
   "definitions": {
+    "questionOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["option_id", "no", "label"],
+      "properties": {
+        "option_id": {"type": "string", "minLength": 1, "maxLength": 512},
+        "no": {"type": "integer", "minimum": 1},
+        "label": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1}
+      }
+    },
+    "pendingQuestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["question_id", "version", "scope", "prompt", "selection_mode", "options", "status", "issued_operation_id", "kind"],
+      "properties": {
+        "question_id": {"type": "string", "minLength": 1, "maxLength": 512},
+        "version": {"type": "integer", "minimum": 1},
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["task_ref", "target_ref", "field", "item_ref"],
+          "properties": {
+            "task_ref": {"$ref": "#/definitions/reference"},
+            "target_ref": {"$ref": "#/definitions/reference"},
+            "field": {"type": "string", "enum": ["organizations", "comparison_organizations", "metrics"]},
+            "item_ref": {"type": "string", "minLength": 1, "maxLength": 512}
+          }
+        },
+        "prompt": {"type": "string", "minLength": 1},
+        "selection_mode": {"type": "string", "enum": ["single", "multiple"]},
+        "options": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/questionOption"}},
+        "status": {"type": "string", "enum": ["open", "answered", "rejected", "superseded", "abandoned"]},
+        "issued_operation_id": {"type": "string", "minLength": 1, "maxLength": 512},
+        "kind": {"type": "string", "enum": ["choice", "confirm"]},
+        "confirmation_option_id": {"type": "string", "minLength": 1, "maxLength": 512}
+      }
+    },
+    "answerReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["question_id", "version", "outcome", "notice"],
+      "properties": {
+        "question_id": {"type": "string", "minLength": 1, "maxLength": 512},
+        "version": {"type": "integer", "minimum": 1},
+        "outcome": {"type": "string", "enum": ["applied", "declined", "not_applied", "already_applied"]},
+        "selected_options": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/questionOption"}},
+        "notice": {"type": "string", "minLength": 1},
+        "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]+$"}
+      }
+    },
     "text": {
       "type": "string",
       "minLength": 1

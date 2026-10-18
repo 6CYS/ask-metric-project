@@ -11,9 +11,9 @@ import {createFieldResolvers} from "../../src/business-context/resolvers.js";
 import {BusinessInputError} from "../../src/business-context/inputError.js";
 import type {ContextDelta, ResolverContext} from "../../src/business-context/types.js";
 import type {BackendClient} from "../../src/backendClient.js";
-import {createExecuteBusinessFrameTool, createResolveBusinessTurnTool} from "../../src/tools/businessContext.js";
+import {createExecuteBusinessFrameTool} from "../../src/tools/businessContext.js";
+import {createResolveTurnShim as createResolveBusinessTurnTool} from "./resolveTurnShim.js";
 import {MemoryCommandBridge, receiptJson, runTool, testRequestContext} from "../../src/tools/testUtils.js";
-import {toCompactTurnArgs} from "../../src/business-context/turnArgs.js";
 import {fieldClarificationInputSchema} from "../../src/business-context/fieldClarification.js";
 
 const question = "查询合成甲行2026年7月净利润当日数排名前3名";
@@ -151,7 +151,7 @@ describe("参数组合结构化纠错", () => {
   });
 });
 
-describe.each([false, true])("工具纠错回执（compact=%s）", compactTurnArgs => {
+describe("工具纠错回执", () => {
   it.each([
     {field: "operation", rawValue: {kind: "ranking", position: "top", top_n: null}, error: "FIELD_INPUT_SCHEMA_INVALID"},
     {field: "selection", rawValue: "ranking", error: "FIELD_ENUM_INVALID"},
@@ -160,7 +160,7 @@ describe.each([false, true])("工具纠错回执（compact=%s）", compactTurnAr
     const f = await fixture();
     const delta = f.delta("latest_in_range");
     delta.fieldChanges = delta.fieldChanges.map(change => change.fieldHint === field ? {...change, rawValue} : change);
-    const receipt = receiptJson(await runTool(createResolveBusinessTurnTool({compactTurnArgs}), compactTurnArgs ? toCompactTurnArgs(delta) : delta, f.request));
+    const receipt = receiptJson(await runTool(createResolveBusinessTurnTool(), delta, f.request));
     expect(receipt).toMatchObject({status: "ARGUMENT_ERROR", error_code: error, next_action: "correct_arguments", query_executed: false});
     const correction = (receipt.corrections as Array<{field: string; inputSchema: Record<string, unknown>; userClarification: {question: string; instruction: string}}>)[0]!;
     expect(correction.field).toBe(field);
@@ -175,16 +175,16 @@ describe.each([false, true])("工具纠错回执（compact=%s）", compactTurnAr
 
   it("排名缺少业务条数时纠错可显式保存澄清，已有明确条数时正常纠正即可执行", async () => {
     const f = await fixture();
-    const tool = createResolveBusinessTurnTool({compactTurnArgs});
+    const tool = createResolveBusinessTurnTool();
     const unknown = f.delta("latest_in_range");
     unknown.fieldChanges = unknown.fieldChanges.map(change => change.fieldHint === "operation"
       ? {...change, rawValue: {kind: "ranking", position: "top", top_n: null}} : change);
     const initialRequest = {...f.request, originalMessage: question.replace("前3名", "")};
-    const invalid = receiptJson(await runTool(tool, compactTurnArgs ? toCompactTurnArgs(unknown) : unknown, initialRequest));
+    const invalid = receiptJson(await runTool(tool, unknown, initialRequest));
     expect(invalid.status).toBe("ARGUMENT_ERROR");
     const clarified = {...unknown, fieldChanges: unknown.fieldChanges.map(change => change.fieldHint === "operation"
       ? {...change, rawValue: {clarify: true, sourceText: "排名"}} : change)};
-    const pending = receiptJson(await runTool(tool, compactTurnArgs ? toCompactTurnArgs(clarified) : clarified, initialRequest));
+    const pending = receiptJson(await runTool(tool, clarified, initialRequest));
     expect(pending.status).toBe("NEEDS_CLARIFICATION");
     expect(f.backend.basicQueries).not.toHaveBeenCalled();
     const resolved: ContextDelta = {capabilityHint: "metric_query", baseReference: "current", executionMode: "execute",
@@ -192,16 +192,16 @@ describe.each([false, true])("工具纠错回执（compact=%s）", compactTurnAr
         {fieldHint: "operation", operation: "set", rawValue: {kind: "ranking", position: "top", top_n: 3}},
       ]};
     const followupRequest = {...f.request, operationId: "explicit-count", requestId: "explicit-count", originalMessage: "前3名"};
-    const ready = receiptJson(await runTool(tool, compactTurnArgs ? toCompactTurnArgs(resolved) : resolved, followupRequest));
+    const ready = receiptJson(await runTool(tool, resolved, followupRequest));
     expect(ready.status).toBe("READY");
     await runTool(createExecuteBusinessFrameTool(), {frameId: ready.frameId}, followupRequest);
     expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
 
     const explicit = await fixture();
-    const invalidExplicit = receiptJson(await runTool(tool, compactTurnArgs ? toCompactTurnArgs(unknown) : unknown, explicit.request));
+    const invalidExplicit = receiptJson(await runTool(tool, unknown, explicit.request));
     expect(invalidExplicit.status).toBe("ARGUMENT_ERROR");
     const normal = explicit.delta("latest_in_range");
-    const known = receiptJson(await runTool(tool, compactTurnArgs ? toCompactTurnArgs(normal) : normal, explicit.request));
+    const known = receiptJson(await runTool(tool, normal, explicit.request));
     expect(known.status).toBe("READY");
     await runTool(createExecuteBusinessFrameTool(), {frameId: known.frameId}, explicit.request);
     expect(explicit.backend.basicQueries).toHaveBeenCalledTimes(1);
@@ -211,7 +211,7 @@ describe.each([false, true])("工具纠错回执（compact=%s）", compactTurnAr
   it.each(invalidCases)("只报告允许组合，无业务查询或自动修正：$name", async ({selection, ranking, reason, allowed}) => {
     const f = await fixture();
     const delta = f.delta(selection, ranking);
-    const result = await runTool(createResolveBusinessTurnTool({compactTurnArgs}), compactTurnArgs ? toCompactTurnArgs(delta) : delta,
+    const result = await runTool(createResolveBusinessTurnTool(), delta,
       {...f.request, originalMessage: ranking ? question : question.replace("排名前3名", "")});
     const receipt = receiptJson(result);
     expect(receipt).toMatchObject({status: "ARGUMENT_ERROR", error_code: "FIELD_COMBINATION_INVALID", field: "selection",
@@ -226,13 +226,13 @@ describe.each([false, true])("工具纠错回执（compact=%s）", compactTurnAr
 
   it("按回执显式修正后仅执行一次，完整月范围和排名不变", async () => {
     const f = await fixture();
-    const tool = createResolveBusinessTurnTool({compactTurnArgs});
+    const tool = createResolveBusinessTurnTool();
     const invalid = f.delta("exact");
-    const failed = receiptJson(await runTool(tool, compactTurnArgs ? toCompactTurnArgs(invalid) : invalid, f.request));
+    const failed = receiptJson(await runTool(tool, invalid, f.request));
     expect(failed.status).toBe("ARGUMENT_ERROR");
     expect(f.backend.basicQueries).not.toHaveBeenCalled();
     const corrected = f.delta("latest_in_range");
-    const ready = receiptJson(await runTool(tool, compactTurnArgs ? toCompactTurnArgs(corrected) : corrected, f.request));
+    const ready = receiptJson(await runTool(tool, corrected, f.request));
     expect(ready.status).toBe("READY");
     await runTool(createExecuteBusinessFrameTool(), {frameId: ready.frameId}, f.request);
     expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
@@ -243,7 +243,7 @@ describe.each([false, true])("工具纠错回执（compact=%s）", compactTurnAr
   it("非法枚举保留错误码并给原输入Schema，不伪造已解析组合", async () => {
     const f = await fixture();
     const delta = f.delta("ranking");
-    const receipt = receiptJson(await runTool(createResolveBusinessTurnTool({compactTurnArgs}), compactTurnArgs ? toCompactTurnArgs(delta) : delta, f.request));
+    const receipt = receiptJson(await runTool(createResolveBusinessTurnTool(), delta, f.request));
     expect(receipt).toMatchObject({status: "ARGUMENT_ERROR", error_code: "FIELD_ENUM_INVALID", corrections: [{
       field: "selection", reason: "invalid", allowedValues: ["exact", "latest_in_range", "all_in_range"],
     }]});
@@ -255,7 +255,7 @@ describe.each([false, true])("工具纠错回执（compact=%s）", compactTurnAr
   it("离散日期排名仍返回不可重试业务终态，不提供取消排名修复", async () => {
     const f = await fixture({start: "2026-06-30", end: "2026-07-31", dates: ["2026-06-30", "2026-07-31"]});
     const delta = f.delta("exact");
-    const receipt = receiptJson(await runTool(createResolveBusinessTurnTool({compactTurnArgs}), compactTurnArgs ? toCompactTurnArgs(delta) : delta, f.request));
+    const receipt = receiptJson(await runTool(createResolveBusinessTurnTool(), delta, f.request));
     expect(receipt).toMatchObject({status: "error", error_code: "UNSUPPORTED_QUERY_COMBINATION", retryable: false});
     expect(receipt).not.toHaveProperty("corrections");
     expect(await f.store.list()).toEqual([]);
@@ -265,7 +265,7 @@ describe.each([false, true])("工具纠错回执（compact=%s）", compactTurnAr
   it("完整范围逐日排名仍返回不可重试终态，不提供改目标的纠错建议", async () => {
     const f = await fixture();
     const delta = f.delta("all_in_range");
-    const receipt = receiptJson(await runTool(createResolveBusinessTurnTool({compactTurnArgs}), compactTurnArgs ? toCompactTurnArgs(delta) : delta, f.request));
+    const receipt = receiptJson(await runTool(createResolveBusinessTurnTool(), delta, f.request));
     expect(receipt).toMatchObject({status: "error", error_code: "UNSUPPORTED_QUERY_COMBINATION", retryable: false});
     expect(receipt).not.toHaveProperty("corrections");
     expect(await f.store.list()).toEqual([]);

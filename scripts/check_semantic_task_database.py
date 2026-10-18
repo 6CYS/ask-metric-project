@@ -1,4 +1,4 @@
-"""显式 --live 只读诊断当前配置数据库；覆盖目录、日历、来源、planner、SQL层。
+"""显式 --live 只读诊断当前配置数据库；覆盖目录、日历、片段事实、planner、SQL层。
 
 不启动服务、不伪造登录身份、不更改账号/目录/业务数据；HTTP鉴权及浏览器不在本脚本验收范围。
 报告只保留目录名称、状态、行数与日期，不保留业务数值或连接凭据。
@@ -17,8 +17,6 @@ from ask_metric.infrastructure.db.session import get_query_engine
 from ask_metric.application.field_resolution import resolve_catalog_field, resolve_date_field, source_organization_codes
 from ask_metric.application.metric_candidates import MetricCandidateIndex
 from ask_metric.application.goal_facts import inspect_goal
-from ask_metric.application.analysis_selection import issue_selection, verify_selection
-from ask_metric.api.routes.tasks import _verify_metric_coverage, SourceMetricBinding
 from ask_metric.domain.basic_query import BasicQuerySpec
 from ask_metric.domain.query_execution import QueryPlanner
 from ask_metric.infrastructure.query.sql_builder import sql_builder_from_settings
@@ -56,9 +54,10 @@ def main():
         org_code, org_name = org['value']['codes'][0], org['value']['names'][0]
         source = f'查询{org_name}最近5个完整年度的{metric.name}全部数据'
         assert source_organization_codes(source, organizations) == [org_code]
+        # 原句指标身份检查改为内联：全部片段须唯一解析且集合与目标一致。
         mentions = index.mentions(source)
-        bindings = [SourceMetricBinding(start=item['start'], end=item['end'], text=item['text'], codes=item['resolution']['value']['codes']) for item in mentions]
-        _verify_metric_coverage(source, [metric.code], metrics, bindings, [])
+        assert mentions and all(item['resolution']['status'] == 'resolved' for item in mentions)
+        assert {code for item in mentions for code in item['resolution']['value']['codes']} == {metric.code}
         calendar = dates[0]['candidates'][1]['metadata']['calendar']
         spec = BasicQuerySpec(metric_codes=[metric.code], org_codes=[org_code], time=calendar, selection='all_in_range')
         plan = QueryPlanner(dialect=settings.query_database_dialect, max_limit=1000).build(spec.to_logical_dsl(), spec.query_shape,
@@ -83,17 +82,13 @@ def main():
                 assert fragment['calendar']['ranges'] == [{'start': day, 'end': day}]
                 assert {code for mention in fragment['mentions'] for code in mention['resolution']['value']['codes']} == {metric.code}
                 query = BasicQuerySpec(metric_codes=[metric.code], org_codes=[organization.code], time={'start': day, 'end': day}, selection='exact')
-                scope = query.model_dump(mode='json', exclude_none=True)
-                token = issue_selection(owner='readonly-contract', conversation='readonly-contract', session='readonly-contract', goal=bound_goal,
-                    codes=query.metric_codes, scope=scope, catalog=metrics, secret=settings.jwt_secret)
-                verify_selection(token, owner='readonly-contract', conversation='readonly-contract', codes=query.metric_codes, scope=scope, catalog=metrics, secret=settings.jwt_secret)
                 planned = QueryPlanner(dialect=settings.query_database_dialect, max_limit=100).build(query.to_logical_dsl(), query.query_shape,
                     org_names=[organization.code], display_org_names=[organization.name], display_metric_names=[metric.name])
                 statement = sql_builder_from_settings(settings).build(planned)
                 rows = adapter.execute_readonly(sql=statement, parameters=planned.parameters)
                 cases.append({'organization': organization.name, 'date': day, 'row_count': len(rows.rows), 'latency_ms': rows.latency_ms})
-            result['cases'].append({'name': 'phase3_bound_goal_receipt_and_readonly_SQL', 'passed': True, 'targets': cases,
-                'note': '只验证当前目录、日历、来源回执与SQL。真实HTTP身份和会话归属未在此脚本验证。'})
+            result['cases'].append({'name': 'phase3_bound_goal_readonly_SQL', 'passed': True, 'targets': cases,
+                'note': '只验证当前目录、日历、片段事实与SQL。真实HTTP身份和会话归属未在此脚本验证。'})
     except Exception as error:
         result['failure_type'] = type(error).__name__
         result['failure_code'] = getattr(error, 'code', None)

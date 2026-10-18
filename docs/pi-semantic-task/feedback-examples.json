@@ -14,6 +14,8 @@
           "proposals_retained": false,
           "targets": []
         },
+        "pending_questions": [],
+        "answer_receipts": [],
         "issues": [
           {
             "code": "INPUT_SHAPE_INVALID",
@@ -54,6 +56,8 @@
           ],
           "task_ref": "synthetic-task-ref"
         },
+        "pending_questions": [],
+        "answer_receipts": [],
         "issues": [],
         "continuation": {
           "actor": "host",
@@ -83,6 +87,8 @@
           ],
           "task_ref": "synthetic-task-ref"
         },
+        "pending_questions": [],
+        "answer_receipts": [],
         "issues": [
           {
             "code": "METRIC_CHOICE_REQUIRED",
@@ -132,6 +138,8 @@
           ],
           "task_ref": "synthetic-task-ref"
         },
+        "pending_questions": [],
+        "answer_receipts": [],
         "issues": [
           {
             "code": "GOAL_OBLIGATION_UNCOVERED",
@@ -181,6 +189,8 @@
           ],
           "task_ref": "synthetic-task-ref"
         },
+        "pending_questions": [],
+        "answer_receipts": [],
         "issues": [],
         "continuation": {
           "actor": "pi",
@@ -214,6 +224,8 @@
           ],
           "task_ref": "synthetic-task-ref"
         },
+        "pending_questions": [],
+        "answer_receipts": [],
         "issues": [],
         "continuation": {
           "actor": "pi",
@@ -247,6 +259,8 @@
           ],
           "task_ref": "synthetic-task-ref"
         },
+        "pending_questions": [],
+        "answer_receipts": [],
         "issues": [
           {
             "code": "EXECUTION_RESULT_UNKNOWN",
@@ -287,6 +301,8 @@
           ],
           "task_ref": "synthetic-task-ref"
         },
+        "pending_questions": [],
+        "answer_receipts": [],
         "issues": [
           {
             "code": "REFERENCE_REVISION_CONFLICT",
@@ -327,6 +343,8 @@
           ],
           "task_ref": "synthetic-task-ref"
         },
+        "pending_questions": [],
+        "answer_receipts": [],
         "issues": [],
         "continuation": {
           "actor": "none",
@@ -360,6 +378,8 @@
           ],
           "task_ref": "synthetic-task-ref"
         },
+        "pending_questions": [],
+        "answer_receipts": [],
         "issues": [],
         "continuation": {
           "actor": "pi",
@@ -387,6 +407,8 @@
           ],
           "task_ref": "synthetic-task-ref"
         },
+        "pending_questions": [],
+        "answer_receipts": [],
         "issues": [
           {
             "code": "PERMISSION_DENIED",

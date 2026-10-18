@@ -81,7 +81,7 @@ function anchors(original: string) {
 async function operationText(context: ResolverContext, metricTerms: string[]): Promise<string> {
   let text = context.originalMessage;
   if (context.resolveMetricMentions && anchors(text).rankingRequest) {
-    const matched = await context.resolveMetricMentions();
+    const matched = await context.resolveMetricMentions(text);
     const chars = Array.from(text);
     // 正式指标名称及其待确认口径可以含排名/数字；不能再解释成独立操作。
     for (const mention of matched.mentions) if (mention.resolution.status === "resolved"

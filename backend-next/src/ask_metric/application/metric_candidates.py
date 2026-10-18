@@ -1,7 +1,8 @@
 """目录指标识别：完整名称最长优先，结构化目录按“基础指标 + 口径”组合识别。
 
 只有目录数据和用户能确定指标：完整名称、基础指标加口径的精确组合直接确定；
-缺口径、口径没说完、基础指标不确定时交用户确认。拼音完全相同且唯一对应一个
+完整基础名称唯一命中且仅省略口径时默认该指标的“当日数”；口径没说完、基础指标
+不确定或目录无唯一当日数成员时交用户确认。拼音完全相同且唯一对应一个
 词条的片段与精确匹配一同参与最长匹配；基础指标单字纠错须通过全目录竞争、语义
 限定和精确口径校验才可采用。其余模糊召回只决定是否提示候选和候选顺序。
 """
@@ -34,6 +35,8 @@ from ask_metric.domain.semantics import MetricCatalogItem
 _JOINERS = re.compile(r"(?:和|及|与|以及|还有|跟|的)*")
 _LEADING_JOINER = re.compile(r"(?:和|及|与|以及|还有|跟)$")
 _CANDIDATE_LIMIT = 5
+# 完整基础名称精确且唯一命中、仅省略口径时的默认口径；目录无唯一当日数成员时不默认、不拼造。
+_DEFAULT_VALUE_BASIS = normalize_semantic_text("当日数")
 # 别名命中两侧、共用后半段向前回看的最大字数。
 _CONTEXT_WINDOW = 8
 _CORRECTION_MIN_LENGTH = 5
@@ -642,7 +645,9 @@ class _Parse:
         else:
             members = self._chain(span.start, span.end, boundary, sources, group, **match)
             if not members:
+                # 同音待确认项不直接默认口径；基础别名是“指标术语”维护的精确词条，视同精确命中。
                 self._missing_basis(span.start, span.end, sources, group,
+                                    exact_base=not span.homophone,
                                     **({"understood_as": match["understood_as"]}
                                        if span.homophone else {}))
         canons.update(canon for _, _, member, partial in members if not partial
@@ -664,8 +669,25 @@ class _Parse:
         return members
 
     def _missing_basis(self, start: int, end: int, sources: frozenset[str],
-                       group: dict | None, **metadata) -> None:
-        # 只说了基础指标：追问口径，候选是该基础指标在目录中实际存在的指标。
+                       group: dict | None, *, exact_base: bool, **metadata) -> None:
+        # 只说了基础指标：完整基础名称精确且唯一命中、仅省略口径时，默认该基础在
+        # 目录中唯一的“当日数”成员，不追问口径；默认结果与明确口径共用 resolved
+        # 形态（字段解析、原问 mentions 与准入共用同一规则），调用方凭
+        # default_value_basis 识别并允许用户后续改口径。
+        if exact_base and len(sources) == 1:
+            source = next(iter(sources))
+            defaults = self.index.variants[source].get(_DEFAULT_VALUE_BASIS, set())
+            if len(defaults) == 1:
+                code = next(iter(defaults))
+                self._emit(start, end, self._resolved(
+                    [code], match="exact",
+                    default_value_basis=self.index.items[code].value_basis,
+                    source_metric_code=source,
+                    base_name=self.index.base_names[source],
+                ), "catalog_base", group)
+                return
+        # 其余情况（同音待确认、多源基础、目录无唯一当日数成员）维持追问口径，
+        # 候选是该基础指标在目录中实际存在的指标。
         codes = self.index.codes_for(sources, self.index.valid_canons(sources))
         self._emit(start, end, self._listing(
             "needs_confirmation", codes, issue="missing_value_basis", **metadata,

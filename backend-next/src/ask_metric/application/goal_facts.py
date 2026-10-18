@@ -12,8 +12,10 @@ from ask_metric.domain.semantics import MetricCatalogItem, OrganizationCatalogIt
 
 
 def inspect_goal(question: str, today: date, metrics: Sequence[MetricCatalogItem], organizations: Sequence[OrganizationCatalogItem], *, reference_year: int | None = None) -> dict:
-    year = re.search(r"(?<!\d)(\d{4})年", question)
-    reference_year = int(year.group(1)) if year else reference_year
+    # 参照年份只在外部未提供时从原文补全；各环节统一使用同一份来源，不再互相覆盖。
+    if reference_year is None:
+        year = re.search(r"(?<!\d)(\d{4})年", question)
+        reference_year = int(year.group(1)) if year else None
     chunks = [part.strip() for part in re.split(r"[；;。\n]|[，,](?!\s*截至(?:今日|今天))", question) if part.strip()]
     index = metric_candidate_index(metrics)
     def calendar_facts(text: str) -> dict:

@@ -1,7 +1,7 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {fixture, addPlanBackend, complete, proposal} from "./fixtures.js";
+import {fixture, complete, proposal} from "./fixtures.js";
 import {SemanticPlanService} from "../../src/semantic-task/planService.js";
-import {completeQuery, transitionBasis} from "../../src/semantic-task/transition.js";
+import {completeQuery} from "../../src/semantic-task/querySpec.js";
 import {createSemanticClarifyTool, createSemanticExecuteTool} from "../../src/semantic-task/tools.js";
 import {runTool} from "../../src/tools/testUtils.js";
 import type {SemanticOperation, SemanticRequest, SemanticSource} from "../../src/semantic-task/protocol.js";
@@ -10,7 +10,7 @@ const closes: Array<() => Promise<void>> = [];
 afterEach(async () => {for (const close of closes.splice(0)) await close();});
 async function setup() {
   const f = await fixture(); closes.push(f.close);
-  return {...f, planBackend: addPlanBackend(f.backend)};
+  return f;
 }
 type Fixture = Awaited<ReturnType<typeof setup>>;
 async function resolveAndExecute(f: Fixture, id: string, message: string,
@@ -62,7 +62,7 @@ describe("机构范围解析遵守同一集合操作", () => {
     expect(resolveOrganizationScope).toHaveBeenCalledTimes(2);
   });
 
-  it("追加已解析机构范围保留原机构，并在规范轨迹中体现合并结果", async () => {
+  it("追加已解析机构范围保留原机构，执行提交合并后的完整集合", async () => {
     const f = await setup();
     Object.assign(f.backend, {resolveOrganizationScope: vi.fn(async () => ({status: "resolved", value: {
       codes: ["O2"], names: ["合成机构乙"],
@@ -71,18 +71,16 @@ describe("机构范围解析遵守同一集合操作", () => {
     const next = await resolveAndExecute(f, "cohort-add", "再加上所有农商行",
       [{field: "organizations", action: "add", value: "所有农商行"}], {kind: "current"});
     expect(next.task.target.fields.organizations?.resolvedValue).toMatchObject({codes: ["O1", "O2"]});
-    expect(next.task.target.transition?.changes).toContainEqual({field: "organizations", action: "add", before: ["O1"], after: ["O1", "O2"]});
     expect(f.backend.basicQueries.mock.calls.at(-1)![0]).toMatchObject({org_codes: ["O1", "O2"]});
   });
 });
 
 describe("完整位次条件与比较总体清空轨迹", () => {
-  it("缺失或仍待明确比较总体的位次来源不能生成完整transition基准", async () => {
+  it("缺失或仍待明确比较总体的位次来源不能生成完整规范化 spec", async () => {
     const f = await setup(), base = await resolveAndExecute(f, "value-base", "查合成机构甲2025年末的合成指标甲");
     const target = structuredClone(base.task.target);
     target.fields.operation!.resolvedValue = {kind: "rank_position"};
     expect(completeQuery(target)).toBeUndefined();
-    expect(transitionBasis(target)).toBeUndefined();
     target.fields.comparison_organizations = {resolutionStatus: "resolved", source: "resolved",
       resolvedValue: {codes: ["O1", "O2"], names: ["合成机构甲", "合成机构乙"]}};
     target.pending.comparison_organizations = "尚需确认比较总体";
@@ -91,7 +89,7 @@ describe("完整位次条件与比较总体清空轨迹", () => {
     expect(completeQuery(target)).toMatchObject({operation: {kind: "rank_position"}, comparison_scope: {org_codes: ["O1", "O2"]}});
   });
 
-  it.each([true, false])("位次改为普通取值，explicitClear=%s时比较总体清空和操作变更均进入轨迹", async explicitClear => {
+  it.each([true, false])("位次改为普通取值，explicitClear=%s时比较总体清空和操作变更均落到新状态", async explicitClear => {
     const f = await setup();
     const base = await resolveAndExecute(f, "position-base", "合成机构甲2025年末的合成指标甲在合成机构甲和合成机构乙两家中的位次",
       [...complete(), {field: "comparison_organizations", action: "set", value: "合成机构甲和合成机构乙"}]);
@@ -99,10 +97,9 @@ describe("完整位次条件与比较总体清空轨迹", () => {
     const operations: SemanticOperation[] = [{field: "operation", action: "set", value: "普通取值"},
       ...(explicitClear ? [{field: "comparison_organizations" as const, action: "clear" as const}] : [])];
     const next = await resolveAndExecute(f, "position-to-value", "改为普通取值", operations, {kind: "current"});
-    expect(next.task.target.transition?.changes).toEqual(expect.arrayContaining([
-      {field: "operation", action: "set", before: {kind: "rank_position"}, after: {kind: "value"}},
-      {field: "comparison_organizations", action: "clear", before: ["O1", "O2"], after: []},
-    ]));
+    expect(next.task.target.fields.operation?.resolvedValue).toEqual({kind: "value"});
+    expect(next.task.target.fields.comparison_organizations).toBeUndefined();
+    expect(next.task.target.pending.comparison_organizations).toBeUndefined();
     expect(f.backend.basicQueries.mock.calls.at(-1)![0]).toMatchObject({operation: {kind: "value"}});
     expect(f.backend.basicQueries.mock.calls.at(-1)![0]).not.toHaveProperty("comparison_scope");
     expect(await next.request.frames!.get(base.task.target.frameId!)).toEqual(priorFrame);

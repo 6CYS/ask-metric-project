@@ -180,11 +180,6 @@ export class BusinessContextService {
         const merged = await mergeFields(schema, base, delta, this.resolvers, context);
         if (merged.issues.length) throw new BusinessInputError("FIELD_CHANGES_INVALID", "$fields", "fieldChanges 含未声明或重复字段。请按目标能力 Schema 修正字段，不要切换业务目标来绕过错误；原焦点未改变。");
         frame.fields = merged.fields;
-        // 宿主绑定的口径切换（前端 time_override）：等同用户本轮明确指定时间，覆盖继承或模型提交的取值。
-        if (context.timeOverride && schema.fields.time && frame.fields.time) {
-          frame.fields.time = {rawValue: {...context.timeOverride}, resolvedValue: {...context.timeOverride},
-            source: "explicit", resolver: "date", resolutionStatus: "resolved", metadata: {timeSource: "user_override"}};
-        }
         let constrained = delta;
         for (const saved of base?.recovery?.pendingChanges ?? []) {
           if (saved.mayRetain || saved.expectedCount === undefined) continue;

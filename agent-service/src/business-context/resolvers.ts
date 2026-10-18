@@ -1,5 +1,5 @@
 import { FieldResolverRegistry } from "./core.js";
-import type { DateModelValue, FieldCandidate, FieldResolution, MentionResolution, ResolverContext, OrganizationScopeInput, HistoryFieldReferenceInput, FieldTurnIntent } from "./types.js";
+import type { FieldCandidate, FieldResolution, MentionResolution, ResolverContext, OrganizationScopeInput, HistoryFieldReferenceInput, FieldTurnIntent } from "./types.js";
 import type { MetricMention } from "./metricMentions.js";
 import { BusinessInputError } from "./inputError.js";
 import { hasInputEvidence } from "./inputEvidence.js";
@@ -7,17 +7,6 @@ import {resolveRankingEvidence} from "./rankingEvidence.js";
 
 const invalid = (): FieldResolution => ({status: "invalid"});
 const resolved = (value: unknown): FieldResolution => ({status: "resolved", value});
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-/** 模型换算结果只做宽松形状校验：真实日历与口径取舍由服务端严格裁定，畸形时按未提交处理。 */
-function looseDateModelValue(raw: unknown): DateModelValue | undefined {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  const value = raw as {start?: unknown; end?: unknown; dates?: unknown};
-  if (typeof value.start !== "string" || !DATE_ONLY.test(value.start)
-    || typeof value.end !== "string" || !DATE_ONLY.test(value.end)) return undefined;
-  if (value.dates !== undefined && (!Array.isArray(value.dates) || value.dates.length < 2
-    || !value.dates.every(item => typeof item === "string" && DATE_ONLY.test(item)))) return undefined;
-  return {start: value.start, end: value.end, ...(value.dates ? {dates: [...(value.dates as string[])]} : {})};
-}
 /** 多 mention 的最终编码按编码去重合并，名称与编码一一对应。 */
 function mergeMetricValues(values: Array<{codes: string[]; names: string[]}>): {codes: string[]; names: string[]} {
   const merged = new Map<string, string>();
@@ -232,31 +221,6 @@ export function createFieldResolvers(): FieldResolverRegistry {
         const response = await context.resolveOrganizationScope(source);
         return {...response, metadata: {...response.metadata, refreshOnInherit: response.status === "resolved"}};
       }
-      if (entity === "organization" && raw && typeof raw === "object" && !Array.isArray(raw) && "orgSuggestion" in raw) {
-        // 模型按有权机构清单自主判断的结论：编码/名称至少其一，不再做原文子串校验；
-        // excerpt 仅记录用户原文片段供明示与审计，成员校验与编码来源由后端裁定。
-        const suggestion = (raw as {orgSuggestion?: unknown}).orgSuggestion;
-        const record = suggestion && typeof suggestion === "object" && !Array.isArray(suggestion)
-          ? suggestion as Record<string, unknown> : undefined;
-        const text = (key: string) => {
-          const value = record?.[key];
-          return typeof value === "string" && value.trim() ? value.trim() : undefined;
-        };
-        const code = text("code"), name = text("name"), excerpt = text("excerpt");
-        if (!record || (!code && !name)) {
-          throw new BusinessInputError("ORG_SUGGESTION_INVALID", entity,
-            "orgSuggestion 至少提交有权机构清单中的编码或名称之一，excerpt 为用户原文片段；无法判断时改用本轮原文名称提交或询问用户。原焦点未改变。");
-        }
-        if (!context.resolveCatalogSuggested) throw new Error("ORG_SUGGESTION_RESOLVER_UNAVAILABLE");
-        const response = await context.resolveCatalogSuggested(entity,
-          {...(code ? {code} : {}), ...(name ? {name} : {}), ...(excerpt ? {excerpt} : {})});
-        // 建议未唯一命中但其值在候选中时标记首推，澄清展示置顶并改为确认式话术。
-        const preferred = (candidate: FieldCandidate) =>
-          candidate.preferred === true || !!(code && candidate.code === code) || !!(name && candidate.value === name);
-        const candidates = response.candidates?.map(candidate => preferred(candidate) ? {...candidate, preferred: true} : candidate);
-        return {...response, ...(candidates ? {candidates} : {}),
-          metadata: {...response.metadata, ...(excerpt ? {rawExcerpt: excerpt} : {})}};
-      }
       if (raw && typeof raw === "object" && !Array.isArray(raw) && ("candidateIndex" in raw || "confirm" in raw)) {
         const previous = context.previous;
         if (!previous?.candidates?.length || !["needs_confirmation", "ambiguous"].includes(previous.resolutionStatus)) {
@@ -301,12 +265,14 @@ export function createFieldResolvers(): FieldResolverRegistry {
         }
         const pending = previous.metadata?.pendingRawValues;
         const values: unknown[] = Array.isArray(pending) ? [...pending] : Array.isArray(previous.rawValue) ? [...previous.rawValue] : [previous.rawValue];
+        const choices = new Map<number, unknown[]>();
         for (const {candidate} of chosen) {
           const index = Number(candidate.metadata?.rawValueIndex ?? 0);
           if (!Number.isInteger(index) || index < 0 || index >= values.length) return invalid();
-          // 同名候选必须用事实源返回的编码复核，不能再次按同名文本解析。
-          values[index] = candidate.code ?? candidate.value;
+          // 同槽多选按组保留全部身份，不能让最后一项覆盖先前所选项。
+          choices.set(index, [...(choices.get(index) ?? []), candidate.code ?? candidate.value]);
         }
+        for (const [index, members] of choices) values[index] = members.length === 1 ? members[0] : members;
         // 首轮已确定的省略口径保存的是可信编码；复核时展开，候选索引仍按原片段定位。
         const sourceIndexes = values.flatMap((value, valueIndex) =>
           (Array.isArray(value) ? value : [value]).map(() => valueIndex));
@@ -324,12 +290,12 @@ export function createFieldResolvers(): FieldResolverRegistry {
             confirmationSource: "user_reply", confirmationTurnId: context.turnId}};
         }
         const response = await context.resolveCatalog(entity, references as string[]);
-        const candidates = entity === "metric" ? response.candidates?.map(item => {
+        const candidates = response.candidates?.map(item => {
           const rawIndex = Number(item.metadata?.rawValueIndex);
           return {...item, metadata: {...item.metadata,
             ...(Number.isInteger(rawIndex) && sourceIndexes[rawIndex] !== undefined
               ? {rawValueIndex: sourceIndexes[rawIndex]} : {})}};
-        }) : response.candidates;
+        });
         // 所选项由系统按用户回复确定；旧 sourceText 参数不作为事实来源。
         return {...response, ...(candidates ? {candidates} : {}), metadata: {...response.metadata, confirmed: response.status === "resolved", confirmedRawValues: previous.rawValue,
           // 模型建议通道的原文片段跨确认保留，执行回执的非字面命中明示仍指向用户原话。
@@ -409,28 +375,17 @@ export function createFieldResolvers(): FieldResolverRegistry {
   });
   registry.register({name: "date", supports: schema => schema.resolver === "date",
     async resolve(raw, _schema, context) {
-      // 宿主绑定的口径切换等同用户明确指定：跳过原文解析与模型换算，不调用后端。
-      if (context.timeOverride) {
-        return {status: "resolved", value: {...context.timeOverride}, metadata: {timeSource: "user_override"}};
-      }
-      const input = typeof raw === "string" ? {rawValue: raw}
-        : raw && typeof raw === "object" && !Array.isArray(raw) ? raw as {rawValue?: unknown; modelValue?: unknown} : undefined;
-      if (!input || typeof input.rawValue !== "string" || !fromCurrentInput(input.rawValue, context)) {
-        throw new BusinessInputError("FIELD_INPUT_NOT_CURRENT", "date", "日期 set 提交 {rawValue: 本轮完整日期原文, modelValue: 按当前日历换算的 {start,end}（ISO YYYY-MM-DD，离散多点加 dates）}；无法确定换算时只提交 rawValue。不编造原文或拿系统日期代填。本轮未提供日期时删除 time 修改：已选来源有日期则继承，没有日期则服务端返回缺项澄清，请用户补充。不要重复改写虚构日期；原焦点未改变。");
+      if (typeof raw !== "string" || !fromCurrentInput(raw, context)) {
+        throw new BusinessInputError("FIELD_INPUT_NOT_CURRENT", "date", "日期 set 必须使用本轮原始表达，不自行换算或拿系统日期代填。本轮未提供日期时删除 time 修改：已选来源有日期则继承，没有日期则服务端返回缺项澄清，请用户补充。不要重复改写虚构日期；原焦点未改变。");
       }
       const previous = context.previous?.resolutionStatus === "resolved" ? context.previous.resolvedValue as {start?: string; end?: string} : undefined;
       const startYear = previous?.start?.slice(0, 4);
       const endYear = previous?.end?.slice(0, 4);
-      // 仅省略年份的日历表达继承可信历史年份；相对今天的表达由后端仍按今天计算。模型换算随原文一并提交，由服务端校验并兜底。
-      const resolution = await context.resolveCatalog("date", [input.rawValue], startYear && startYear === endYear ? Number(startYear) : undefined,
-        looseDateModelValue(input.modelValue));
+      // 仅省略年份的日历表达继承可信历史年份；相对今天的表达由后端仍按今天计算。
+      // 第4参是模型日历换算通道（semantic_v2 使用）；旧链只提交原文，固定不传。
+      const resolution = await context.resolveCatalog("date", [raw], startYear && startYear === endYear ? Number(startYear) : undefined, undefined);
       // 原文日期本身无效属于真实业务澄清；时间取值方式冲突另由组合校验判断。
-      if (resolution.status === "invalid") return {...resolution, metadata: {...resolution.metadata, userInputIssue: true}};
-      // “近N年”歧义的完整年度备选口径存入字段 metadata，执行回执据此透传前端切换。
-      if (resolution.status === "resolved" && resolution.alternative) {
-        return {...resolution, metadata: {...resolution.metadata, timeAlternative: resolution.alternative}};
-      }
-      return resolution;
+      return resolution.status === "invalid" ? {...resolution, metadata: {...resolution.metadata, userInputIssue: true}} : resolution;
     }});
   registry.register({name: "enum", supports: schema => !!schema.validation?.enum,
     async resolve(raw, schema) {

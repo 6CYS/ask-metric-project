@@ -31,7 +31,7 @@ if (!process.argv.includes("--live")) {
   const dir = await mkdtemp(join(tmpdir(), "pi-context-semantics-"));
   const config = {...loadConfig(), dataDir: dir};
   const store = new NativeSessionStore(dir);
-  const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store, createAskMetricTools({compactTurnArgs: config.compactTurnArgs}));
+  const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store, createAskMetricTools());
   const actor: BackendUser = {id: "synthetic-context", username: "synthetic", display_name: "合成验收", org_code: "O1", org_name: "合成机构甲", role_code: "USER"};
   const resolve = async (entity: string, raw: string[]): Promise<FieldResolution> => {
     if (entity === "date") {

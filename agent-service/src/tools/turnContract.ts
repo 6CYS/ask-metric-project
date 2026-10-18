@@ -15,10 +15,11 @@ const replyParameters = Type.Object({answer: Type.String({minLength: 1, maxLengt
   description: "无需业务操作即可交付的普通回答，不含未验证业务事实或操作计划。"})}, {additionalProperties: false});
 export function createConversationReplyTool(): AgentHarnessTool<AskMetricRequestContext, typeof replyParameters> {
   return {name: CONVERSATION_REPLY, label: "普通对话回答",
-    description: "仅用于问候、致谢、通用解释或尚未表达业务目标时的询问。必须本轮不需要选择/切换业务焦点、变更条件、读取历史业务/结果、查询/计算/目录或补充业务澄清。上述业务目标必须实际使用对应业务工具，不能用此工具叙述调用计划、承诺稍后执行或声称已经完成。",
+    description: "用于问候、致谢、通用解释或尚未表达业务目标时的询问；也可解释本轮business_context_read已读取的任务状态、失败原因和错误回执，不重新执行或修改原任务。需要选择/切换业务焦点、变更条件、读取数值结果、查询/计算/目录或补充业务澄清时必须使用对应业务工具，不能用此工具叙述调用计划、承诺稍后执行或声称已经完成。",
     parameters: replyParameters,
-    execute: async (_id, params) => ({content: [{type: "text", text: params.answer as string}],
-      details: {kind: "conversation_reply", status: "answered", answer: params.answer as string}, terminate: true}),
+    execute: async (_id, params, _update, request) => ({content: [{type: "text", text: params.answer as string}],
+      details: {kind: "conversation_reply", status: "answered", answer: params.answer as string,
+        history_sources: request.replyHistorySources ?? {tasks: [], organizationScopes: []}}, terminate: true}),
   };
 }
 

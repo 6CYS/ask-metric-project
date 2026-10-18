@@ -6,8 +6,8 @@ import {createCapabilities} from "../../src/business-context/capabilities.js";
 import {createFieldResolvers} from "../../src/business-context/resolvers.js";
 import {NativeSessionStore} from "../../src/nativeSessions.js";
 import {NativeFrameStore} from "../../src/business-context/store.js";
-import {toCompactTurnArgs} from "../../src/business-context/turnArgs.js";
-import {createExecuteBusinessFrameTool, createResolveBusinessTurnTool} from "../../src/tools/businessContext.js";
+import {createExecuteBusinessFrameTool} from "../../src/tools/businessContext.js";
+import {createResolveTurnShim as createResolveBusinessTurnTool} from "./resolveTurnShim.js";
 import {MemoryCommandBridge, receiptJson, runTool, testRequestContext} from "../../src/tools/testUtils.js";
 import type {BackendClient} from "../../src/backendClient.js";
 import type {ContextDelta, FieldResolution, ResolvedField, ResolverContext} from "../../src/business-context/types.js";
@@ -139,10 +139,10 @@ async function fixture(text = "查询合成甲行2026年7月31日合成余额当
   return {path, sessions, session, owner, store, backend, request, delta};
 }
 
-describe.each([false, true])("排名依据通过真实字段入口（compact=%s）", compactTurnArgs => {
-  const tool = () => createResolveBusinessTurnTool({compactTurnArgs});
+describe("排名依据通过真实字段入口", () => {
+  const tool = () => createResolveBusinessTurnTool();
   const call = async (delta: ContextDelta, request: ReturnType<typeof testRequestContext>) =>
-    receiptJson(await runTool(tool(), compactTurnArgs ? toCompactTurnArgs(delta) : delta, request));
+    receiptJson(await runTool(tool(), delta, request));
   const followup = (fieldChanges: ContextDelta["fieldChanges"]): ContextDelta => ({capabilityHint: "metric_query", baseReference: "current", executionMode: "execute",
     fieldIntents: {organizations: {mode: "inherit", sourceText: null, expectedCount: null}}, fieldChanges});
 

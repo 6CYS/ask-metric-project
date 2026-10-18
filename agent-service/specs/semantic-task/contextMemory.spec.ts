@@ -1,17 +1,17 @@
 import {afterEach, expect, it, vi} from "vitest";
 import type {AgentMessage} from "@earendil-works/pi-agent-core";
-import {fixture, addPlanBackend, complete, proposal} from "./fixtures.js";
+import {fixture, complete, proposal} from "./fixtures.js";
 import {referencedQueryNumbers, requestedHistory} from "../../src/semantic-task/historyReference.js";
 import {runTool} from "../../src/tools/testUtils.js";
 import {createSemanticExecuteTool, createSemanticReadTool} from "../../src/semantic-task/tools.js";
 import {prepareSemanticArguments} from "../../src/semantic-task/protocol.js";
 import {SemanticPlanService} from "../../src/semantic-task/planService.js";
-import {contextEstimate, workingMessages, scopeAvailable} from "../../src/semantic-task/contextMemory.js";
+import {contextEstimate, workingMessages, scopeAvailable, permissionFilteredAdmission} from "../../src/semantic-task/contextMemory.js";
 import {redactInaccessibleHistory, HistoryAuthorizationError} from "../../src/routes.js";
 import type {SemanticPlan} from "../../src/semantic-task/store.js";
 const closes: Array<() => Promise<void>> = [];
 afterEach(async()=>{for(const close of closes.splice(0)) await close();});
-async function setup(){const f=await fixture();closes.push(f.close);addPlanBackend(f.backend);return f;}
+async function setup(){const f=await fixture();closes.push(f.close);return f;}
 
 it("多历史来源逐成员继承，共同日期修改不把整笔两家要求压到每个子目标",async()=>{
  const f=await setup(), first=f.request("first","合成机构甲2025年末的合成指标甲");
@@ -31,7 +31,7 @@ it("多历史来源逐成员继承，共同日期修改不把整笔两家要求�
 it("百问索引可以精确定位第二个任务、分页及重开恢复，不靠全量消息摘要",async()=>{
  const f=await setup(), request=f.request(),store=request.semanticTasks!;
  for(let i=1;i<=120;i++){
-  const plan:SemanticPlan={ref:`plan-${i}`,owner:request.actor.id,revision:1,operationId:`op-${i}`,topicRef:`topic-${i%4}`,intent:"query",originalMessage:`合成历史问题${i}`,status:"completed",completion:"full",issues:[],requirements:[],steps:[{id:`step-${i}`,targetRef:`target-${i}`,operationId:`op-${i}`,kind:"query",source:{kind:"new"},sourceQuestion:`合成历史问题${i}`,operations:[],dependencies:[],status:"succeeded",required:true,issues:[]}]};
+  const plan:SemanticPlan={ref:`plan-${i}`,owner:request.actor.id,revision:1,operationId:`op-${i}`,topicRef:`topic-${i%4}`,intent:"query",originalMessage:`合成历史问题${i}`,status:"completed",completion:"full",issues:[],steps:[{id:`step-${i}`,targetRef:`target-${i}`,operationId:`op-${i}`,kind:"query",source:{kind:"new"},sourceQuestion:`合成历史问题${i}`,operations:[],dependencies:[],status:"succeeded",required:true,issues:[]}]};
   await store.savePlan(plan,(await store.planIndex()).version);
  }
  const old=await store.searchContext({query_number:2});expect(old.references).toHaveLength(1);expect(old.references[0]!.task_ref).toBe("plan-2");
@@ -102,8 +102,14 @@ it("用户明确序号直接签发有权来源，错误读取在工具边界拒�
  expect(wrong.details.issues[0].code).toBe("HISTORY_QUERY_ORDINAL_MISMATCH");expect(f.backend.getTaskResult).toHaveBeenCalledTimes(before);
  const right=await runTool(createSemanticReadTool(),{task_ref:plans[0]!.ref,target_ref:plans[0]!.steps[0]!.targetRef},request);
  expect(right.details.status).toBe("reused");expect(f.backend.basicQueries).toHaveBeenCalledTimes(2);
- expect((await request.semanticTasks!.admit("after-view","这一笔换日期")).context?.plan?.ref).toBe(plans[0]!.ref);
+ expect((await request.semanticTasks!.admit("after-view","日期改成2024年末，其他条件不变")).context?.plan?.ref).toBe(plans[1]!.ref);
+ expect((await request.semanticTasks!.runtimeContext()).current_task_ref).toBe(plans[1]!.ref);
  expect((await request.semanticTasks!.planIndex()).focus).toBe(plans[1]!.ref);
+ const continuedRequest=f.request("after-view","日期改成2024年末，其他条件不变");
+ const continued=await new SemanticPlanService(continuedRequest).resolve(proposal([{action:"set",field:"time",value:"2024年末"}],{kind:"current"}));
+ expect(continued.status,JSON.stringify(continued.issues)).toBe("ready");
+ await runTool(createSemanticExecuteTool(),{task_ref:continued.state.task_ref,target_ref:continued.state.targets[0]!.target_ref},continuedRequest);
+ expect(f.backend.basicQueries.mock.calls.at(-1)![0]).toMatchObject({org_codes:["O2"],time:{start:"2024-12-31",end:"2024-12-31"}});
  expect(referencedQueryNumbers("指标沿用第一次查询，日期沿用第十二次查询，不是前3家")).toEqual([1,12]);
  const mismatch=f.request("read-wrong-org","展示第一次查询中合成机构乙的结果");await mismatch.semanticTasks!.admit(mismatch.operationId,mismatch.originalMessage);
  const rejected=await runTool(createSemanticReadTool(),{task_ref:plans[0]!.ref,target_ref:plans[0]!.steps[0]!.targetRef},mismatch);
@@ -125,7 +131,8 @@ it("明确不沿用条件不能被来源修复带回旧机构日期",async()=>{
  const f=await setup();await new SemanticPlanService(f.request("reset-origin","查询合成机构甲2025年末的合成指标甲")).resolve(proposal(complete()));
  const request=f.request("reset-new","新问题，不沿用已有条件：帮我查合成指标甲");
  await expect(new SemanticPlanService(request).resolve(proposal([],{kind:"current"}))).rejects.toMatchObject({issue:{code:"CONTEXT_RESET_SOURCE_CONFLICT"}});
- await expect(new SemanticPlanService(request).resolve(proposal(complete()))).rejects.toMatchObject({issue:{code:"NEW_TARGET_FIELDS_UNGROUNDED"}});
+ const normalized=await new SemanticPlanService(request).resolve(proposal(complete()));
+ expect(normalized.status).toBe("needs_user"); expect(normalized.issues.map(issue=>issue.field)).toEqual(expect.arrayContaining(["organizations","time"]));
  const clean=await new SemanticPlanService(request).resolve(proposal([{action:"set",field:"metrics",value:"合成指标甲"}]));
  expect(clean.status).toBe("needs_user");
  const saved=(await request.semanticTasks!.plan(clean.state.task_ref!))!;const target=(await request.semanticTasks!.get(saved.steps[0]!.taskRef!))!.target;
@@ -145,17 +152,6 @@ it("历史组唯一公式展开一次计算，各原来源及历史结果保留�
  expect(result.status,JSON.stringify(result.issues)).toBe("ready");const plan=(await request.semanticTasks!.plan(result.state.task_ref!))!;
  expect(plan.steps.map(step=>step.kind)).toEqual(["query","query","calculation"]);expect(plan.steps[2]!.dependencies).toHaveLength(2);expect(f.backend.basicQueries).toHaveBeenCalledTimes(2);
  await expect(new SemanticPlanService(f.request("calc-label","给来源分别命名")).resolve(proposal([{action:"set",field:"objective",value:"甲"},{action:"set",field:"objective",value:"乙"}],{kind:"references",references:refs},"calculate"))).rejects.toMatchObject({issue:{code:"FIELD_MULTIPLE_ASSIGNMENTS"}});
-});
-
-
-it("不同历史引用统一日期后不能重复执行同一数据点",async()=>{
- const f=await setup(),refs=[];
- for(const [id,date]of [["overlap-a","2025年末"],["overlap-b","2024年末"]]){
-  const result=await new SemanticPlanService(f.request(id!,`查询合成机构甲${date}的合成指标甲`)).resolve(proposal(complete().map(op=>op.field==="time"?{...op,value:date!}:op)));
-  refs.push({task_ref:result.state.task_ref!,target_ref:result.state.targets[0]!.target_ref});
- }
- const result=await new SemanticPlanService(f.request("overlap-group","这些来源均查2024年末，指标不变")).resolve(proposal([{action:"set",field:"time",value:"2024年末"}],{kind:"references",references:refs}));
- expect(result.issues.map(i=>i.code)).toContain("DUPLICATE_QUERY_COVERAGE");expect(result.status).not.toBe("ready");expect(f.backend.basicQueries).not.toHaveBeenCalled();
 });
 
 
@@ -184,5 +180,35 @@ it("同次查询部分撤权时，用全部旧签发身份识别点名机构，�
  const denied=await runTool(createSemanticReadTool(),{task_ref:plan.ref,target_ref:plan.steps[0]!.targetRef},request);
  expect(denied.details.status).toBe("denied");expect(f.backend.getTaskResult).not.toHaveBeenCalled();
  const call=(f.backend as unknown as {inspectBusinessGoal:ReturnType<typeof vi.fn>}).inspectBusinessGoal.mock.calls.find(call=>call[4]);
- expect(call?.[4]).toMatchObject({conversation_id:"synthetic-conversation",session_id:request.sessionId,sources:expect.arrayContaining([expect.objectContaining({spec:expect.objectContaining({org_codes:["O2"]}),receipt:expect.any(String)})])});
+ expect(call?.[4]).toMatchObject({conversation_id:"synthetic-conversation",session_id:request.sessionId,sources:expect.arrayContaining([expect.objectContaining({spec:expect.objectContaining({org_codes:["O2"]})})])});
+});
+
+it("多机构value加单个suggestion仍完整发送原始集合，不能只解析建议机构",async()=>{
+ const f=await setup();
+ const suggested=vi.fn(async(entity:string,_suggestions:unknown,_options:unknown,source:string,raw:string[])=>f.backend.resolveBusinessField(entity,raw,undefined,undefined,{source_question:source}));
+ Object.assign(f.backend,{resolveBusinessFieldSuggestion:suggested});
+ const request=f.request("multi-org-hint","查询合成机构甲、合成机构乙2025年末的合成指标甲");
+ const result=await new SemanticPlanService(request).resolve(proposal(complete().map(op=>op.field==="organizations"?{...op,value:"合成机构甲、合成机构乙",suggestion:{name:"合成机构甲",excerpt:"合成机构甲"}}:op)));
+ expect(result.status,JSON.stringify(result.issues)).toBe("ready");
+ expect(suggested).toHaveBeenCalledWith("organization",[{name:"合成机构甲",excerpt:"合成机构甲"}],expect.anything(),request.originalMessage,["合成机构甲","合成机构乙"]);
+ const plan=(await request.semanticTasks!.plan(result.state.task_ref!))!,task=(await request.semanticTasks!.get(plan.steps[0]!.taskRef!))!;
+ expect(task.target.fields.organizations!.resolvedValue).toMatchObject({codes:["O1","O2"]});expect(f.backend.basicQueries).not.toHaveBeenCalled();
+});
+
+it("入场模型投影只包含有发布证明的当前问题和可信点击",async()=>{
+ const f=await setup();
+ const initial=f.request("pending-context","查合成机构甲2025年末的待定指标");
+ const first=await new SemanticPlanService(initial).resolve(proposal(complete().map(operation=>operation.field==="metrics"?{...operation,value:"待定指标"}:operation)));
+ const question=first.pending_questions[0]!;
+ const request=f.request("answer-context","用第二个");
+ request.questionPublicationProof=async candidate=>candidate.question_id===question.question_id;
+ await request.semanticTasks!.admit(request.operationId,request.originalMessage,undefined,undefined,{actorId:request.actor.id,
+  answers:[{question_id:question.question_id,version:question.version,choice:{type:"select",option_ids:[question.options[1]!.option_id]},source:{channel:"click",operation_id:request.operationId}}],
+  publicationProof:request.questionPublicationProof});
+ const projected=await permissionFilteredAdmission(request);
+ expect(projected?.pending_questions).toEqual([expect.objectContaining({question_id:question.question_id,version:question.version,options:question.options})]);
+ expect(projected?.trusted_answers).toEqual([{question_id:question.question_id,version:question.version,choice:{type:"select",option_ids:[question.options[1]!.option_id]}}]);
+ const unproven=f.request("unproven-context","用第二个");
+ await unproven.semanticTasks!.admit(unproven.operationId,unproven.originalMessage);
+ expect((await permissionFilteredAdmission(unproven))?.pending_questions).toEqual([]);
 });

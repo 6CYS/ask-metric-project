@@ -20,7 +20,7 @@ const config = {...loadConfig(), dataDir: dir};
 const skills = await loadBusinessSkills();
 const store = new NativeSessionStore(dir);
 const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store,
-  [...createAskMetricTools({compactTurnArgs: config.compactTurnArgs}), createBusinessSkillReadTool(skills)], {skills});
+  [...createAskMetricTools(), createBusinessSkillReadTool(skills)], {skills});
 const actor: BackendUser = {id: "synthetic", username: "synthetic", display_name: "合成回归",
   org_code: "A", org_name: "演示甲农商行", role_code: "SYSTEM_ADMIN"};
 const organizations = [{code: "A", name: "演示甲农商行"}, {code: "B", name: "演示乙农商行"}];

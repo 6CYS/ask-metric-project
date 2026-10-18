@@ -18,19 +18,6 @@ import {
 } from "./shared.js";
 
 const structuredQueryParameters = Type.Object({
-  source_semantic_receipt: Type.Optional(Type.String({minLength: 1, maxLength: 16000})),
-  verify_question_coverage: Type.Optional(Type.Boolean()),
-  source_question: Type.Optional(Type.String({minLength: 1,
-    description: "完整覆盖率复核原句，仅由业务 Frame 适配器注入，明确放弃片段也保留；缺省使用本轮用户原文"})),
-  source_metric_bindings: Type.Optional(Type.Array(Type.Object({
-    start: Type.Integer({minimum: 0}), end: Type.Integer({minimum: 1}), text: Type.String({minLength: 1}),
-    codes: Type.Array(Type.String({minLength: 1}), {minItems: 1, maxItems: 100}),
-  }, {additionalProperties: false}), {minItems: 1, maxItems: 100,
-    description: "仅宿主从已校验 Frame 注入的原句片段与指标编码绑定；区间使用 Unicode 码点"})),
-  source_metric_exclusions: Type.Optional(Type.Array(Type.Object({
-    start: Type.Integer({minimum: 0}), end: Type.Integer({minimum: 1}), text: Type.String({minLength: 1}),
-  }, {additionalProperties: false}), {minItems: 1, maxItems: 100,
-    description: "仅宿主从已校验 Frame 注入的明确放弃目标原始区间；原句不删除这些片段"})),
   metric_codes: Type.Array(Type.String({ minLength: 1 }), {
     minItems: 1,
     maxItems: 100,
@@ -118,9 +105,6 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
         : !!comparison?.org_codes?.length && !comparison.scope_fingerprint;
       const isRank = params.operation?.kind === "ranking" || params.operation?.kind === "rank_position";
       if (!scopeValid || (params.operation?.kind === "rank_position" ? !comparisonValid : comparison !== undefined)
-        || ((params.source_metric_bindings !== undefined || params.source_metric_exclusions !== undefined)
-        && (!params.verify_question_coverage || !params.source_question))
-        || (params.source_metric_exclusions !== undefined && params.source_metric_bindings === undefined)
         || !["exact", "latest_in_range", "all_in_range"].includes(params.selection)
         || "order" in params || "top_n" in params || (isRank && params.selection === "all_in_range")
         || (hasDates && (isRank || params.selection === "all_in_range"))) {
@@ -137,12 +121,8 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
           await request.commands.setConversationId(conversationId);
         }
         const spec: BasicQuerySpec = {
-          ...(params.source_semantic_receipt ? {source_semantic_receipt: params.source_semantic_receipt} : {}),
           conversation_id: conversationId,
           calculation_context: {scope_id: request.operationId, user_question: request.originalMessage},
-          ...(params.verify_question_coverage ? {source_question: params.source_question ?? request.originalMessage,
-            ...(params.source_metric_bindings ? {source_metric_bindings: params.source_metric_bindings} : {}),
-            ...(params.source_metric_exclusions ? {source_metric_exclusions: params.source_metric_exclusions} : {})} : {}),
           metric_codes: [...new Set(params.metric_codes)],
           schema_version: 2,
           ...(params.organization_scope ? {organization_scope: params.organization_scope, scope_fingerprint: params.scope_fingerprint!}

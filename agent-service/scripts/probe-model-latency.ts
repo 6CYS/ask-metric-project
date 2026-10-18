@@ -1,6 +1,6 @@
 /**
- * 一次性延迟探针：用合成文本（不含任何业务数据）测量模型网关的 TTFT 与总耗时，
- * 并对照 enable_thinking / no_think / 缓存命中对单次调用延迟的影响。
+ * 一次性延迟探针：用合成文本（不含任何业务数据）测量模型接口的 TTFT 与总耗时，
+ * 并对照 DeepSeek thinking 开关 / 缓存命中对单次调用延迟的影响。
  * 用法：npx tsx --env-file-if-exists=.env scripts/probe-model-latency.ts
  */
 import { loadConfig } from "../src/config.js";
@@ -22,8 +22,8 @@ type Probe = { label: string; extra?: Record<string, unknown>; suffix?: string; 
 const probes: Probe[] = [
   {label: "基线 6k tokens", chars: 9000},
   {label: "同前缀第二次（缓存）", chars: 9000, repeat: 2},
-  {label: "enable_thinking=false", chars: 9000, extra: {"enable_thinking": false}},
-  {label: "/no_think 后缀", chars: 9000, suffix: "\n/no_think"},
+  {label: "thinking 关闭", chars: 9000, extra: {"thinking": {"type": "disabled"}}},
+  {label: "thinking 开启", chars: 9000, extra: {"thinking": {"type": "enabled"}}},
   {label: "短上下文 1k tokens", chars: 1500},
 ];
 

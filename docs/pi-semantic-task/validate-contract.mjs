@@ -14,7 +14,7 @@ const schema = await read("request.schema.json");
 const examplesFile = await read("request-examples.json");
 const examples = Array.isArray(examplesFile) ? examplesFile : examplesFile.examples;
 assert(Array.isArray(examples) && examples.length > 0, "缺少正向样例");
-assert.deepEqual(Object.keys(schema.properties).sort(), ["intent", "protocol_version", "targets"]);
+assert.deepEqual(Object.keys(schema.properties).sort(), ["answers", "context_action", "intent", "protocol_version", "targets"]);
 assert.equal(schema.additionalProperties, false);
 const validate = Compile(schema);
 const tool = {name: "resolve_business_turn", description: "阶段一待接入契约", parameters: schema};
@@ -29,7 +29,7 @@ for (const example of examples) {
 }
 
 const baseline = examples.find(example => example.request.targets[0]?.source.kind === "new"
-  && example.request.targets[0]?.operations.some(operation => operation.action === "set"));
+  && example.request.targets[0]?.operations?.some(operation => operation.action === "set"));
 assert(baseline, "需要包含新建目标和 set 的样例");
 const invalid = (id, mutate) => {
   const request = structuredClone(baseline.request);
@@ -63,7 +63,7 @@ invalid("unknown_field", request => {request.targets[0].operations = [{action: "
 const feedbackSchema = await read("feedback.schema.json");
 const feedbackExamples = (await read("feedback-examples.json")).examples;
 const validateFeedback = Compile(feedbackSchema);
-assert.deepEqual(Object.keys(feedbackSchema.properties).sort(), ["continuation", "issues", "protocol_version", "state", "status"]);
+assert.deepEqual(Object.keys(feedbackSchema.properties).sort(), ["answer_receipts", "continuation", "issues", "pending_questions", "protocol_version", "state", "status"]);
 assert.deepEqual(feedbackSchema.definitions.field.enum, schema.definitions.field.enum, "输入与反馈必须使用同一业务槽位");
 for (const {id, feedback} of feedbackExamples) {
   assert(validateFeedback.Check(feedback), `${id}: 反馈结构错误`);

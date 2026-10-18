@@ -21,7 +21,7 @@ async function main(): Promise<void> {
     config,
     (authorize) => createAskMetricModels(config, authorize),
     store,
-    [...createAskMetricTools({compactTurnArgs: config.compactTurnArgs}), createBusinessSkillReadTool(skills)],
+    [...createAskMetricTools(), createBusinessSkillReadTool(skills)],
     { skills },
   );
   const app = createApp(config, host, store);

@@ -244,7 +244,7 @@ async function main() {
   }
   const config = {...loadConfig(), dataDir: dir};
   const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), sessions,
-    createAskMetricTools({compactTurnArgs: config.compactTurnArgs}));
+    createAskMetricTools());
   const reports: Array<Record<string, unknown>> = [];
   try {
     const fixtureChecks = await checkFixtures(sessions);
@@ -354,7 +354,7 @@ async function main() {
     const objectivesPassed = (!acceptance.length || passed) && diagnosticsAcceptable.length === diagnostics.length
       && recovery.every(item => item.passed);
     const report = {environment: "configured_model_synthetic_backend", created_at: new Date().toISOString(), model: config.model.name,
-      model_called: true, model_max_tokens: config.model.maxTokens, compact_turn_args: !!config.compactTurnArgs,
+      model_called: true, model_max_tokens: config.model.maxTokens,
       validation_turn_timeout_ms: timeoutMs, real_database_verified: false, production_accessed: false, fixture_mode: "empty_first_turn",
       fixture_scope: "Each scenario starts with no native chat messages and no Frames. Names reuse the authorized incident; all formal codes, permissions, dates and query results are synthetic.",
       session_data: dir, fixture_checks: fixtureChecks, acceptance_passed: passed, acceptance_cases: acceptance.length,
@@ -366,7 +366,7 @@ async function main() {
     await writeFile(`${reportBase}.json`, JSON.stringify(report, null, 2));
     await writeFile(join(dir, "report.json"), JSON.stringify(report, null, 2));
     const lines = reports.map(item => `| ${item.name} | ${item.scope === "independent_diagnostic" ? "独立诊断，不并入通过率" : item.passed ? "通过" : "失败"} | ${item.query_count} | ${item.failure ?? (item.diagnostic as {outcome?: string} | undefined)?.outcome ?? "完整目标与重开一致"} |`);
-    await writeFile(`${reportBase}.md`, `# 空历史首问工具契约真实模型验收\n\n时间：${report.created_at}\n\n模型：${report.model}；compact 参数：${report.compact_turn_args}。\n\n仅调用配置模型；业务目录、权限、查询及结果全部是隔离合成桩，未访问生产业务服务或任何真实业务数据库。每个首问独立新建空聊天、空 Frame；恢复回合沿用同一诊断会话。\n\n${report.acceptance_cases ? `明确目标首问 ${report.acceptance_passed_cases}/${report.acceptance_cases} 通过；` : "此次未重跑前三个明确首问；"}独立诊断 ${report.diagnostic_acceptable_cases}/${report.diagnostic_cases} 可接受；同会话恢复 ${report.followup_recovery_passed_cases}/${report.followup_recovery_cases} 通过。本结论仅限本次所选合成场景。事故原句另作为独立诊断，缺少月范围取数方式及排名条数，不能通过自动月末、latest 或 top10 获得虚假的成功。\n\n| 场景 | 结果 | 查询次数 | 说明 |\n| --- | --- | --- | --- |\n${lines.join("\n")}\n\n明确目标通过条件同时检查工具参数、正式查询 spec 的机构/指标/完整日期范围/selection/排名条数、查询次数恰为一次、成功 Frame、重开后的 Frame 与最终消息。零查询或文字正常不算通过；格式等价不允许改年/月/日或裁掉日期限定、排名和机构。\n\n事故原句诊断需要结构化澄清及已给目标的持久化证据。原契约将普通回答限定于非业务对话，selection 缺失视为模型参数错误，ranking 输入又要求完整 position/top_n；诊断要求通过公开的字段澄清契约保留已知目标和两项未决业务选择，不能用普通文字或参数兜底代替。\n\n详细工具参数、回执、正式 spec、持久化 Frame 及失败见 [JSON 报告](${basename(reportBase)}.json)。本报告仅证明这些合成样本的本地宿主行为，不代表生产部署、真实目录、数据库或任意自然语言均已验收。\n`);
+    await writeFile(`${reportBase}.md`, `# 空历史首问工具契约真实模型验收\n\n时间：${report.created_at}\n\n模型：${report.model}。\n\n仅调用配置模型；业务目录、权限、查询及结果全部是隔离合成桩，未访问生产业务服务或任何真实业务数据库。每个首问独立新建空聊天、空 Frame；恢复回合沿用同一诊断会话。\n\n${report.acceptance_cases ? `明确目标首问 ${report.acceptance_passed_cases}/${report.acceptance_cases} 通过；` : "此次未重跑前三个明确首问；"}独立诊断 ${report.diagnostic_acceptable_cases}/${report.diagnostic_cases} 可接受；同会话恢复 ${report.followup_recovery_passed_cases}/${report.followup_recovery_cases} 通过。本结论仅限本次所选合成场景。事故原句另作为独立诊断，缺少月范围取数方式及排名条数，不能通过自动月末、latest 或 top10 获得虚假的成功。\n\n| 场景 | 结果 | 查询次数 | 说明 |\n| --- | --- | --- | --- |\n${lines.join("\n")}\n\n明确目标通过条件同时检查工具参数、正式查询 spec 的机构/指标/完整日期范围/selection/排名条数、查询次数恰为一次、成功 Frame、重开后的 Frame 与最终消息。零查询或文字正常不算通过；格式等价不允许改年/月/日或裁掉日期限定、排名和机构。\n\n事故原句诊断需要结构化澄清及已给目标的持久化证据。原契约将普通回答限定于非业务对话，selection 缺失视为模型参数错误，ranking 输入又要求完整 position/top_n；诊断要求通过公开的字段澄清契约保留已知目标和两项未决业务选择，不能用普通文字或参数兜底代替。\n\n详细工具参数、回执、正式 spec、持久化 Frame 及失败见 [JSON 报告](${basename(reportBase)}.json)。本报告仅证明这些合成样本的本地宿主行为，不代表生产部署、真实目录、数据库或任意自然语言均已验收。\n`);
     console.log(JSON.stringify({contract_objectives_passed: objectivesPassed, acceptance_passed: passed, acceptance_cases: acceptance.length,
       diagnostics: report.diagnostic_cases, diagnostic_acceptable_cases: diagnosticsAcceptable.length, report: `${reportBase}.json`}));
     if (!objectivesPassed) process.exitCode = 1;

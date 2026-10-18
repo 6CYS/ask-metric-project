@@ -10,12 +10,14 @@ import {BackendApiError} from "../backendClient.js";
 import {semanticParameters, prepareSemanticArguments} from "./protocol.js";
 import {SemanticPlanService} from "./planService.js";
 import {SemanticConflict, SemanticTaskService} from "./service.js";
-import type {SemanticIssue, SemanticTask} from "./store.js";
+import type {SemanticIssue} from "./store.js";
 import {semanticFeedback, type SemanticFeedback} from "./feedback.js";
 import {permissionFilteredContext, scopeAvailable} from "./contextMemory.js";
 import type {SemanticHistoryQuery} from "./store.js";
 import {referencedQueryNumbers, requestedHistory} from "./historyReference.js";
-import {completeQuery} from "./transition.js";
+import {completeQuery} from "./querySpec.js";
+import {QuestionAnswerError} from "./questions.js";
+import {backendIssue} from "./backendIssue.js";
 
 type Tool = AgentHarnessTool<AskMetricRequestContext>;
 const receipt = (feedback: SemanticFeedback, evidence?: AgentToolResult<unknown>): AgentToolResult<SemanticFeedback> => {
@@ -36,11 +38,16 @@ const readSchema = Type.Object({cursor: Type.Optional(Type.String({minLength: 1}
 const errors = (error: unknown): SemanticFeedback => {
   const denied = error instanceof BackendApiError && [401, 403].includes(error.status)
     || error instanceof SemanticConflict && error.issue.category === "permission";
-  const issue: SemanticIssue = error instanceof SemanticConflict ? error.issue : {code: denied ? "PERMISSION_DENIED" : "SEMANTIC_SERVICE_UNAVAILABLE",
-    category: denied ? "permission" : "infrastructure", message: denied ? "当前身份无权继续此查询。" : "业务状态或事实服务暂不可用，原始问题已保存。", remediation: "stop"};
+  const answerError = error instanceof QuestionAnswerError ? error : undefined;
+  const issue: SemanticIssue = error instanceof SemanticConflict ? error.issue : answerError
+    ? {code: answerError.code, category: answerError.remediation === "stop" ? "reference" : "input_shape",
+      message: answerError.message, remediation: answerError.remediation}
+    : backendIssue(error);
   const status = denied ? "denied" : error instanceof SemanticConflict
     ? error.issue.remediation === "user" ? "needs_user"
-      : error.issue.remediation === "pi" ? error.issue.category === "reference" ? "conflict" : "needs_interpretation" : "failed" : "failed";
+      : error.issue.remediation === "pi" ? error.issue.category === "reference" ? "conflict" : "needs_interpretation" : "failed"
+    : answerError ? answerError.remediation === "user" ? "needs_user" : answerError.remediation === "pi" ? "needs_interpretation" : "failed"
+      : issue.remediation === "pi" ? "needs_interpretation" : "failed";
   const feedback = semanticFeedback(undefined, status, [issue]);
   if (issue.remediation === "pi" && issue.source_options?.length) feedback.continuation = {actor: "pi", action: "revise_proposal"};
   return feedback;
@@ -57,7 +64,7 @@ const readFailure = (result: AgentToolResult<unknown>) => {
     message: denied ? "当前权限不足，不能读取历史结果。" : "结果读取未成功，原查询结果仍保留。", remediation: "stop"});
 };
 export function createSemanticResolveTool(): Tool {
-  return {name: "resolve_business_turn", label: "解析业务语义任务", description: "版本2整笔业务提议，初始和修改共用operations。普通问数用query，分析支持步骤用analyze；所有明确目标整批校验。只改机构/日期/指标也要继承current/reference，不能new重填旧条件。source及引用见轮状态或business_context_read。机构suggestion须来自有权清单且与用户措辞相符，无匹配用原文value。失败按回执修正，不删目标过检。",
+  return {name: "resolve_business_turn", label: "解析业务语义任务", description: "版本2整笔业务提议。新查询用target.query输出完整结构化机构、指标、时间、取数方式与操作，真实缺项写null；排名直接给position/top_n，不写排序描述。继承或局部修改用operations，排序修改使用queryOperation对象。已发布字段问题用顶层answers。程序绑定目录身份、机构权限和日历后执行，不重新猜排序语义。source及引用见轮状态或business_context_read。",
     parameters: semanticParameters, prepareArguments: prepareSemanticArguments,
     execute: async (_id, args, _update, request, _invocation, context) => {
       try {const feedback = await new SemanticPlanService(request, context.abortSignal).resolve(prepareSemanticArguments(args));
@@ -148,10 +155,6 @@ export function createSemanticExecuteTool(): Tool {
         if (["unknown", "failed"].includes(task.target.status)) return receipt(semanticFeedback(task, task.target.status));
         const consumed = await service.consume(internalRef, target_ref);
         const result = await createExecuteBusinessFrameTool().execute(id, {frameId: consumed.frameId}, update, request, invocation, context);
-        const data = result.details as {kind?: string; status?: string; items?: Array<{metric_code: string; metric_name: string}>};
-        if (data?.kind === "data_availability" && data.status === "succeeded" && data.items?.length) {
-          await request.semanticTasks!.recordCatalog([{operationId: request.operationId, keyword: "data_availability", codes: data.items.map(item => item.metric_code), names: data.items.map(item => item.metric_name)}]);
-        }
         const state = await store.state();
         const current = frame ? await store.get(state.operations[frame.operationFrameId] ?? consumed.frameId) : undefined;
         const settled = (await service.settle(consumed.task, current))!;
@@ -168,6 +171,7 @@ export function createSemanticReadTool(): Tool {
       const originalMessage = request.originalMessage;
       const rootOperationId = request.operationId, plans = new SemanticPlanService(request, context.abortSignal);
       let readOnly = false;
+      let requiresCalculation = false;
       try {
         const {task_ref, target_ref} = args as {task_ref: string; target_ref: string};
         const numbers = referencedQueryNumbers(request.originalMessage);
@@ -192,17 +196,18 @@ export function createSemanticReadTool(): Tool {
           const conversation = await request.commands.getConversationId();
           const sources = [];
           // 失权不能让用户点名的旧机构消失，再把同次查询的有权机构误当成唯一来源。
+          // 历史定位只传历史规范化 spec，不再附旧签票回执。
           for (const row of (await request.semanticTasks!.historyCatalog()).filter(row => numbers.includes(row.query_number))) {
             const plan = await request.semanticTasks!.plan(row.task_ref);
             const step = plan?.steps.find(step => step.targetRef === row.target_ref);
             const historical = step?.taskRef ? await request.semanticTasks!.get(step.taskRef) : undefined;
             const spec = historical && completeQuery(historical.target);
-            const receipt = historical?.target.fields.metrics?.metadata?.semanticSelectionReceipt;
-            if (plan?.owner === request.actor.id && historical?.owner === request.actor.id && spec && typeof receipt === "string") sources.push({spec, receipt});
+            if (plan?.owner === request.actor.id && historical?.owner === request.actor.id && spec) sources.push({spec});
           }
           const goal = await request.backend.inspectBusinessGoal(originalMessage, turn!.businessDate, {signal: context.abortSignal}, undefined,
             conversation && sources.length ? {conversation_id: conversation, session_id: request.sessionId, sources} : undefined);
-          if (!goal.requires_calculation) {
+          requiresCalculation = goal.requires_calculation === true;
+          if (!requiresCalculation) {
             const orgs = goal.fragments.flatMap(fragment => fragment.organizations);
             if (!await scopeAvailable(request, orgs)) throw new SemanticConflict({code: "PERMISSION_DENIED", category: "permission", remediation: "stop", message: "用户指定的历史机构当前无权访问，未读取或交付结果。"});
             const spec = completeQuery(task.target);
@@ -223,7 +228,7 @@ export function createSemanticReadTool(): Tool {
         if (succeeded && binding) {
           const discussion = (args as {discussion?:boolean}).discussion;
           const explicitView = discussion === undefined && numbers.length === 1 && /展示|重显|回看|查看|回读/u.test(originalMessage)
-            && !(await request.backend.inspectBusinessGoal(originalMessage, (await request.semanticTasks!.turn(rootOperationId))!.businessDate, {signal: context.abortSignal})).requires_calculation;
+            && !requiresCalculation;
           if (discussion || explicitView) await request.semanticTasks!.discussion(binding.plan.ref);
         }
         const failure = readFailure(result);
@@ -231,35 +236,18 @@ export function createSemanticReadTool(): Tool {
       } catch (error) {return receipt(binding ? await plans.rejected(binding.plan.ref, error, {readOnly}) : errors(error));}
     }};
 }
-export function semanticTools(base: Tool[]): Tool[] {
-  const replacements = [createSemanticResolveTool(), createSemanticContextTool(), createSemanticExecuteTool(), createSemanticReadTool()];
-  return base.map(tool => {
-    const replacement = replacements.find(candidate => candidate.name === tool.name);
-    if (replacement) return replacement;
-    if (tool.name === "business_capability_explain") return {...tool,
-      description: "说明尚未提供的预测、因果归因或血缘能力。综合分析已支持现有指标查询、比较排名、覆盖和可验证公式，应使用resolve_business_turn的analyze分阶段规划，不因综合分析这一名称拒绝。",
-      execute: async (...args: Parameters<Tool["execute"]>) => {
-        if ((args[1] as {capability: string}).capability === "comprehensive_analysis") return receipt(semanticFeedback(undefined, "needs_interpretation", [{
-          code: "ANALYSIS_AVAILABLE", category: "capability", message: "综合分析已支持现有指标、比较排名、覆盖与公式；请保留用户目标，使用analyze继续同一Pi循环，取得结果后再规划。", remediation: "pi"}]));
-        const result = await tool.execute(...args), details = result.details as {public_answer?: string};
-        return receipt(semanticFeedback(undefined, "unsupported", [{code: "CAPABILITY_UNSUPPORTED", category: "capability",
-          message: details.public_answer ?? "当前能力尚未提供。", remediation: "stop"}]));
-      }};
-    if (tool.name !== "catalog") return tool;
-    return {...tool, execute: async (...args: Parameters<Tool["execute"]>) => {
-      const result = await tool.execute(...args);
-      const request = args[3];
-      for (const block of result.content) if (block.type === "text") {
-        let payload: {results?: Array<{entity: string; status: string; keyword: string; items?: Array<{code?: string; name?: string; metric_code?: string; metric_name?: string}>}>};
-        try {payload = JSON.parse(block.text);} catch {continue;}
-        await request.semanticTasks?.recordCatalog((payload.results ?? []).filter(item => item.entity === "metric" && item.status === "succeeded")
-          .map(item => ({operationId: request.operationId, keyword: item.keyword, codes: (item.items ?? []).flatMap(value => value.code ?? value.metric_code ? [String(value.code ?? value.metric_code)] : []), names: (item.items ?? []).flatMap(value => value.name ?? value.metric_name ? [String(value.name ?? value.metric_name)] : [])})));
-      }
-      return result;
+/** 能力说明工具接入语义回执：综合分析改用 analyze 规划，其余保留原能力说明。 */
+export function semanticCapabilityTool(tool: Tool): Tool {
+  return {...tool,
+    description: "说明尚未提供的预测、因果归因或血缘能力。综合分析已支持现有指标查询、比较排名、覆盖和可验证公式，应使用resolve_business_turn的analyze分阶段规划，不因综合分析这一名称拒绝。",
+    execute: async (...args: Parameters<Tool["execute"]>) => {
+      if ((args[1] as {capability: string}).capability === "comprehensive_analysis") return receipt(semanticFeedback(undefined, "needs_interpretation", [{
+        code: "ANALYSIS_AVAILABLE", category: "capability", message: "综合分析已支持现有指标、比较排名、覆盖与公式；请保留用户目标，使用analyze继续同一Pi循环，取得结果后再规划。", remediation: "pi"}]));
+      const result = await tool.execute(...args), details = result.details as {public_answer?: string};
+      return receipt(semanticFeedback(undefined, "unsupported", [{code: "CAPABILITY_UNSUPPORTED", category: "capability",
+        message: details.public_answer ?? "当前能力尚未提供。", remediation: "stop"}]));
     }};
-  }).concat(createSemanticClarifyTool());
 }
-
 /** 原生校验失败会跳过after_tool。隔离结构错误为正式回执，避免不同错误走不同恢复链。
  * 仅原生注册适配器接收未转换JSON；执行入口仍先用唯一严格Schema核验，错误绝不进入解析/执行。
  */

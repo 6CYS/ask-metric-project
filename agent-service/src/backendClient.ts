@@ -204,27 +204,9 @@ export interface TaskResultPage {
 }
 
 /** 结构化基础查询（basic-queries）契约：不调用模型，按正式编码与明确日期取数 */
-export interface SourceMetricExclusion {
-  /** source_question 中的 Unicode 码点区间，不能使用 JS UTF-16 下标。 */
-  start: number;
-  end: number;
-  text: string;
-}
-
-export interface SourceMetricBinding extends SourceMetricExclusion {
-  codes: string[];
-}
-
 export interface BasicQuerySpec {
-  /** 宿主从已记录目录选择取得的服务端回执，模型输入中不提供。 */
-  source_semantic_receipt?: string;
   conversation_id?: string;
   calculation_context?: {scope_id: string; user_question: string};
-  source_question?: string;
-  /** 已校验 Frame 的逐目标身份；后端仍须按当前启用目录复核。 */
-  source_metric_bindings?: SourceMetricBinding[];
-  /** 用户明确放弃的原始目标区间；保留整句以支持共用基础指标名称的省略口径。 */
-  source_metric_exclusions?: SourceMetricExclusion[];
   metric_codes: string[];
   schema_version?: 2;
   org_codes?: string[];
@@ -355,19 +337,13 @@ export class BackendClient {
   }
 
   inspectBusinessGoal(question: string, businessDate: string, options?: CallOptions, referenceYear?: number,
-    history?: {conversation_id: string; session_id: string; sources: Array<{spec: BasicQuerySpec; receipt: string}>}): Promise<{
+    history?: {conversation_id: string; session_id: string; sources: Array<{spec: BasicQuerySpec}>}): Promise<{
     question: string; requires_calculation?: boolean; reference_year: number | null;
     fragments: Array<{question: string; organizations: string[];
       calendar: {ranges: Array<{start: string; end: string; dates?: string[]}>; unresolved: string[]};
       mentions: import("./business-context/metricMentions.js").MetricMention[]}>;
   }> {
     return this.request("/api/v1/business-context/inspect-goal", {method: "POST", body: JSON.stringify({question, business_date: businessDate, ...(referenceYear ? {reference_year: referenceYear} : {}), ...(history ? {history} : {})})}, options);
-  }
-  admitSemanticPlan(payload: {conversation_id: string; session_id: string; goal: string; business_date: string; analysis: boolean; reference_year?: number; context_sources?: import("./semantic-task/transition.js").SemanticTransition[];
-    steps: Array<{target_ref: string; fragment: number; origin: "user_explicit" | "history" | "analysis_selected"; spec: BasicQuerySpec;
-      source_question?: string; source_semantic_receipt?: string; bindings?: unknown[]; exclusions?: unknown[];
-      transition?: import("./semantic-task/transition.js").SemanticTransition}>; fragment_bindings: Record<string, unknown[]>}, options?: CallOptions): Promise<{status: "admitted"; receipts: Array<{target_ref: string; receipt: string}>}> {
-    return this.request("/api/v1/business-context/admit-plan", {method: "POST", body: JSON.stringify(payload)}, options);
   }
 
   resolveOrganizationScope(scope: import("./business-context/types.js").OrganizationScopeInput, options?: CallOptions): Promise<import("./business-context/types.js").FieldResolution> {
@@ -383,9 +359,9 @@ export class BackendClient {
   }
 
   /** resolve-field 的模型建议通道：成员校验、编码来源与非字面命中标记仍由后端裁定 */
-  resolveBusinessFieldSuggestion(entity: string, suggested: FieldSuggestion[], options?: CallOptions, sourceQuestion?: string): Promise<import("./business-context/types.js").FieldResolution> {
+  resolveBusinessFieldSuggestion(entity: string, suggested: FieldSuggestion[], options?: CallOptions, sourceQuestion?: string, rawValues: string[] = []): Promise<import("./business-context/types.js").FieldResolution> {
     return this.request("/api/v1/business-context/resolve-field", {
-      method: "POST", body: JSON.stringify({entity, raw_values: [], suggested, ...(sourceQuestion ? {source_question: sourceQuestion} : {})}),
+      method: "POST", body: JSON.stringify({entity, raw_values: rawValues, suggested, ...(sourceQuestion ? {source_question: sourceQuestion} : {})}),
     }, options);
   }
 

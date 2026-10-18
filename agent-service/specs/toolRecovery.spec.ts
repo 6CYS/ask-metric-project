@@ -60,3 +60,14 @@ it("相同成功历史读取按原生配对计数，不把另一个序号或旁�
  expect(repeatedContextRead([...rows,...attempt("r2",{query_number:1},"ok","business_context_read")],{query_number:1})).toBe(2);
  expect(repeatedContextRead(rows,{query_number:2})).toBe(0);
 });
+
+it("同一根因换引用、改参数或改错误文案都不算进展；正式条件收敛才继续", () => {
+  const semantic = (id: string, ref: string, display: string, message: string): AgentMessage[] => [
+    {role: "assistant", content: [{type: "toolCall", id, name: "resolve_business_turn", arguments: {target_ref: ref}}]} as unknown as AgentMessage,
+    {role: "toolResult", toolName: "resolve_business_turn", toolCallId: id, isError: false, content: [],
+      details: {protocol_version: 2, status: "needs_interpretation", issues: [{code: "TARGET_UNBOUND", field: "time", message}],
+        state: {task_ref: ref, targets: [{target_ref: ref, conditions: [{field: "time", display}], pending: []}]}}} as unknown as AgentMessage,
+  ];
+  expect(repeatedToolFailure([...semantic("a", "ref-a", "待定", "先明确日期"), ...semantic("b", "ref-b", "待定", "日期还没确定")])).toBe(true);
+  expect(repeatedToolFailure([...semantic("a", "ref-a", "待定", "先明确日期"), ...semantic("b", "ref-b", "2026-06-30", "日期还没确定")])).toBe(false);
+});

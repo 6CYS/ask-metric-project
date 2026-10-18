@@ -41,9 +41,16 @@ export function repeatedToolFailure(messages: readonly AgentMessage[]): boolean 
       && details?.status !== "reference_mismatch") continue;
     const proposal = proposals.get(message.toolCallId);
     if (!proposal || proposal.name !== message.toolName) continue;
-    // 参数或错误变化仍交回模型纠正；同一失败提案再次出现才认定循环，总调用预算另行兜底。
-    const fingerprint = businessKey({tool: proposal.name, args: proposal.args,
-      failure: details?.protocol_version === 2 ? details.issues : message.content, contextEvidence});
+    // 语义进展只认正式条件、候选和根因。随机引用、参数改写与重复读取不产生新进展。
+    const semantic = details as typeof details & {state?: {targets?: Array<{conditions?: unknown[]; pending?: unknown[]}>};
+      issues?: Array<{code?: string; field?: string; category?: string}>; pending_questions?: Array<{scope?: {field?: string}; options?: Array<{label?: string}>}>};
+    const progress = semantic?.protocol_version === 2 ? {
+      conditions: semantic.state?.targets?.map(target => ({conditions: target.conditions, pending: target.pending})),
+      questions: semantic.pending_questions?.map(question => ({field: question.scope?.field, options: question.options?.map(option => option.label)})),
+    } : undefined;
+    const fingerprint = businessKey({tool: proposal.name,
+      failure: semantic?.protocol_version === 2 ? [...new Set(semantic.issues?.map(issue => JSON.stringify([issue.code, issue.field, issue.category])))].sort() : message.content,
+      progress, ...(semantic?.protocol_version === 2 ? {} : {args: proposal.args, contextEvidence})});
     if (failures.has(fingerprint)) repeated = true;
     failures.add(fingerprint);
   }

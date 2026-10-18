@@ -22,10 +22,6 @@ export interface AgentServiceConfig {
   modelRetry: { enabled: boolean; maxRetries: number; baseDelayMs: number };
   /** 临时回答流式展示；最终内容仍由原生快照投影。 */
   answerStreaming?: boolean;
-  /** 仅精简模型工具参数；内部业务 Delta 与持久化协议保持一致。 */
-  compactTurnArgs?: boolean;
-  /** 候选协议仅用于显式启用后创建的新会话；旧Session保持原协议。 */
-  businessProtocol?: "fixed_v1" | "semantic_v2";
   /** 仅影响新 operation；普通取值的宿主交付，observe 只记资格不省模型调用。 */
   directQueryDelivery?: "off" | "observe" | "on";
   /** 发送副本的回执视图；raw 保留原始工具内容，持久记录始终不变。 */
@@ -94,8 +90,6 @@ function parseBoolean(raw: string | undefined, fallback: boolean, name: string):
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceConfig {
-  const businessProtocol = env.AGENT_BUSINESS_PROTOCOL?.trim() || "semantic_v2";
-  if (!["fixed_v1", "semantic_v2"].includes(businessProtocol)) throw new Error("AGENT_BUSINESS_PROTOCOL 必须为 fixed_v1 或 semantic_v2");
   const directQueryDelivery = env.AGENT_DIRECT_QUERY_DELIVERY?.trim() || "on";
   if (!["off", "observe", "on"].includes(directQueryDelivery)) throw new Error("AGENT_DIRECT_QUERY_DELIVERY 必须为 off、observe 或 on");
   const modelContextView = env.AGENT_MODEL_CONTEXT_VIEW?.trim() || "compact_v1";
@@ -143,8 +137,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceCo
       "AGENT_MODEL_FIRST_RESPONSE_TIMEOUT_MS"),
     modelRetry,
     answerStreaming: parseBoolean(env.AGENT_ANSWER_STREAMING, false, "AGENT_ANSWER_STREAMING"),
-    compactTurnArgs: parseBoolean(env.AGENT_COMPACT_TURN_ARGS, false, "AGENT_COMPACT_TURN_ARGS"),
-    businessProtocol: businessProtocol as "fixed_v1" | "semantic_v2",
     directQueryDelivery: directQueryDelivery as "off" | "observe" | "on",
     modelContextView: modelContextView as "raw" | "compact_v1",
     semanticPromptVariant: semanticPromptVariant as "full" | "compact_v1",

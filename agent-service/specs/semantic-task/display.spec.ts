@@ -1,12 +1,12 @@
 import {afterEach, expect, it} from "vitest";
-import {fixture, addPlanBackend, complete, proposal} from "./fixtures.js";
+import {fixture, complete, proposal} from "./fixtures.js";
 import {SemanticPlanService} from "../../src/semantic-task/planService.js";
 import {createSemanticExecuteTool} from "../../src/semantic-task/tools.js";
 import {runTool} from "../../src/tools/testUtils.js";
 const closes: Array<() => Promise<void>> = [];
 afterEach(async () => {for (const close of closes.splice(0)) await close();});
 it("反馈、入场上下文、历史条件与标签都显示实际集合，动作原文仍可追溯", async () => {
-  const f = await fixture(); closes.push(f.close); addPlanBackend(f.backend);
+  const f = await fixture(); closes.push(f.close);
   async function query(id: string, message: string, ops = complete(), kind: "new" | "current" = "new") {
     const request = f.request(id, message), result = await new SemanticPlanService(request).resolve(proposal(ops, {kind}));
     expect(result.status, JSON.stringify(result.issues)).toBe("ready");
@@ -20,7 +20,8 @@ it("反馈、入场上下文、历史条件与标签都显示实际集合，动�
   const removal = await query("exclude", "不要合成指标甲", [{action: "exclude", field: "metrics", subject: "合成指标甲"}], "current");
   expect(removal.result.state.targets[0]!.conditions.find(c => c.field === "metrics")!.display).toBe("合成指标乙");
   const target = (await removal.request.semanticTasks!.get(removal.plan.steps[0]!.taskRef!))!.target;
-  expect(target.fields.metrics!.rawValue).toBe("合成指标甲"); expect(target.fields.metrics!.resolvedValue).toMatchObject({codes: ["M2"]});
+  expect(target.fields.metrics!.rawValue).toBe("合成指标乙");
+  expect(removal.plan.steps[0]!.operations).toContainEqual({action: "exclude", field: "metrics", subject: "合成指标甲"}); expect(target.fields.metrics!.resolvedValue).toMatchObject({codes: ["M2"]});
   expect(removal.plan.steps[0]!.label).toContain("合成指标乙"); expect(removal.plan.steps[0]!.label).not.toContain("合成指标甲");
   await removal.request.semanticTasks!.admit("next", "合成机构乙呢？");
   expect((await removal.request.semanticTasks!.admissionContext("next"))!.targets[0]!.conditions.metrics).toMatchObject({expression: "合成指标乙", confirmed: ["合成指标乙"]});

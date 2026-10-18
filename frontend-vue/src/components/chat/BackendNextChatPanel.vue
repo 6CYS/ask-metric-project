@@ -13,9 +13,8 @@ import ChatMarkdown from "@/components/chat/ChatMarkdown.vue"
 import ChatResultContent from "@/components/chat/ChatResultContent.vue"
 import CalculationResult from "@/components/chat/CalculationResult.vue"
 import StructuredClarificationForm from "@/components/chat/StructuredClarificationForm.vue"
-import ClarificationChoices from "@/components/chat/ClarificationChoices.vue"
 import TimeVariantChoices from "@/components/chat/TimeVariantChoices.vue"
-import { asChoiceSet, withoutListing } from "@/lib/clarificationChoices"
+import { semanticQuestionFeedback } from "@/lib/clarificationChoices"
 import BaseAlert from "@/components/ui/BaseAlert.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton.vue"
@@ -37,10 +36,11 @@ import {
   type AgentPromptInput,
   type AgentSessionDetail,
   type AgentStreamEvent,
+  type AnswerReceipt,
   type MetricAskDetails,
   type CalculationDetails,
-  type ClarificationChoice,
-  type ClarificationChoiceSet,
+  type PendingQuestion,
+  type QuestionState,
 } from "@/lib/agentApi"
 import { getBackendTaskResult } from "@/lib/api"
 import type { BackendNextClarification, ChatResponse, TimeVariant } from "@/types/api"
@@ -55,7 +55,7 @@ import { toolCallLabel, toolCallSummary, type ToolCallSummary } from "@/lib/tool
 /**
  * 指标问数面板：问答数据链路走 agent-service（pi harness）的 SSE 事件流，
  * 模型经受治理接口取数；页面骨架、样式与交互约定保持与既有问数页一致。
- * 会话由 agent-service 持久化（重启可恢复），历史消息含工具明细，可还原结果表与澄清卡片。
+ * 会话由 agent-service 持久化（重启可恢复），历史消息含工具明细，可还原结果表与历史澄清记录。
  */
 type ToolCallDisplay = {
   id: string
@@ -115,8 +115,10 @@ type DisplayMessage = {
   metricAskClarificationPrompt?: string
   /** 待补充澄清的业务目标：回答卡片时随请求回传，由后端精确命中原任务 */
   clarificationTarget?: { task_id: string; version: number; clarification_id: string }
-  /** 系统给出的待确认清单（指标/机构候选），可点选 */
-  choiceSet?: ClarificationChoiceSet
+  /** 发布时的题目快照；仅作历史回放与状态恢复，澄清统一为文字追问，不再渲染选择卡片。 */
+  pendingQuestions?: PendingQuestion[]
+  /** 仅来自正式工具回执，不在点击时本地伪造受理明示。 */
+  answerReceipts?: AnswerReceipt[]
 }
 
 type DisplayConversation = {
@@ -135,6 +137,8 @@ type DisplayConversation = {
   legacy?: boolean
   /** 当前活动原生 operation，用于显式停止 */
   activeOperationId?: string | null
+  /** 服务端投影的当前状态；缺失时不能从历史题目推断为 open。 */
+  questionStates: QuestionState[]
 }
 
 const toolLabels: Record<string, string> = {
@@ -217,30 +221,6 @@ function formatMessageTime(value?: string) {
 
 const activeConversation = computed(() => conversations.value.find((item) => item.id === activeConversationId.value) ?? conversations.value[0])
 const activeConversationIsSending = computed(() => Boolean(activeConversation.value && sendingConversationIds.value.has(activeConversation.value.id)))
-/** 正文末尾的清单改为可点选展示，避免同一份清单显示两遍。 */
-function visibleContent(message: DisplayMessage): string {
-  return withoutListing(message.content, message.choiceSet)
-}
-
-/** 只有会话中最新、已完成的待确认消息可以点选。 */
-function isActiveChoice(message: DisplayMessage): boolean {
-  const conversation = activeConversation.value
-  const messages = conversation?.messages ?? []
-  return Boolean(message.choiceSet) && messages[messages.length - 1]?.id === message.id
-    && message.status === "done" && !conversation?.running && !activeConversationIsSending.value && queryReady.value
-}
-
-function chooseClarificationOption(message: DisplayMessage, choice: ClarificationChoice) {
-  const conversation = activeConversation.value
-  if (!conversation || !message.choiceSet || !isActiveChoice(message) || conversation.legacy) return
-  const input: AgentPromptInput = {
-    request_id: createId(),
-    message: choice.label,
-    clarification_selection: { frame_id: message.choiceSet.frame_id, option_ids: [choice.id] },
-  }
-  void runQuestion(conversation.id, choice.label, "clarification_answer", input)
-}
-
 /** 只有会话中最新、已完成的答案消息可以切换口径。 */
 function isActiveTimeVariant(chatMessage: DisplayMessage): boolean {
   const conversation = activeConversation.value
@@ -277,7 +257,7 @@ const composerPlaceholder = computed(() => {
   if (clarification.fields?.length && clarification.fields.every((field) => field.type === "date_range")) {
     return "补充查询日期，例如：2026年7月末"
   }
-  return "选择候选项或直接补充查询条件"
+  return "直接回复序号或名称进行选择，或补充查询条件"
 })
 const sortedConversations = computed(() => conversations.value
   .filter((item) => item.persisted || item.messages.length > 0)
@@ -359,10 +339,10 @@ function executionStatus(chatMessage: DisplayMessage) {
       titleClass: "text-muted-foreground",
     }
   }
-  if ((chatMessage.clarification || isActiveChoice(chatMessage)) && chatMessage.status === "done") {
+  if (chatMessage.clarification && chatMessage.status === "done") {
     return {
       kind: "waiting",
-      title: chatMessage.clarification ? "待补充条件" : "待确认",
+      title: "待补充条件",
       titleClass: "text-muted-foreground",
     }
   }
@@ -379,7 +359,7 @@ function executionStatus(chatMessage: DisplayMessage) {
 }
 
 function createConversation(id = createId()): DisplayConversation {
-  return { id, serverId: null, title: "新的问数会话", preview: "尚未开始", messages: [], loaded: true, persisted: false, running: false, createdAt: null, lastActiveAt: null }
+  return { id, serverId: null, title: "新的问数会话", preview: "尚未开始", messages: [], loaded: true, persisted: false, running: false, createdAt: null, lastActiveAt: null, questionStates: [] }
 }
 
 function formatConversationDate(value?: string | null) {
@@ -524,13 +504,91 @@ function historyTimestamp(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? new Date(value).toISOString() : undefined
 }
 
-/** 还原历史消息：连续的助手片段合并为一个气泡，其后的工具明细还原结果表与只读澄清卡片。 */
+/** 展开批次证据时保留批次字段及完整 semantic_task，不能用空壳协议标记覆盖正式反馈。 */
+function expandSemanticResultDetails(details: unknown): unknown[] | undefined {
+  if (!details || typeof details !== "object") return undefined
+  const bundle = details as Record<string, unknown>
+  if (bundle.kind !== "semantic_results" || !Array.isArray(bundle.results)) return undefined
+  const { results, ...published } = bundle
+  return results.map(result => {
+    const value = result && typeof result === "object" ? result as Record<string, unknown> : {}
+    return {
+      ...published,
+      ...value,
+      semantic_task: published.semantic_task ?? value.semantic_task ?? { protocol_version: 2 },
+    }
+  })
+}
+
+function mergeQuestionSnapshots(current: PendingQuestion[] | undefined, incoming: PendingQuestion[]) {
+  const merged = [...(current ?? [])]
+  for (const question of incoming) {
+    const index = merged.findIndex(item => item.question_id === question.question_id && item.version === question.version)
+    if (index >= 0) merged[index] = question
+    else merged.push(question)
+  }
+  return merged
+}
+
+function mergeAnswerReceipts(current: AnswerReceipt[] | undefined, incoming: AnswerReceipt[]) {
+  const merged = [...(current ?? [])]
+  for (const receipt of incoming) {
+    const key = JSON.stringify([receipt.question_id, receipt.version, receipt.outcome, receipt.code, receipt.notice,
+      receipt.selected_options?.map(option => option.option_id)])
+    const duplicate = merged.some(item => JSON.stringify([item.question_id, item.version, item.outcome, item.code, item.notice,
+      item.selected_options?.map(option => option.option_id)]) === key)
+    if (!duplicate) merged.push(receipt)
+  }
+  return merged
+}
+
+function withQuestionFeedback(chatMessage: DisplayMessage, details: unknown): DisplayMessage {
+  const feedback = semanticQuestionFeedback(details)
+  if (!feedback.pendingQuestions.length && !feedback.answerReceipts.length) return chatMessage
+  return {
+    ...chatMessage,
+    ...(feedback.pendingQuestions.length ? { pendingQuestions: mergeQuestionSnapshots(chatMessage.pendingQuestions, feedback.pendingQuestions) } : {}),
+    ...(feedback.answerReceipts.length ? { answerReceipts: mergeAnswerReceipts(chatMessage.answerReceipts, feedback.answerReceipts) } : {}),
+  }
+}
+
+function statesAfterQuestionFeedback(current: QuestionState[], feedback: ReturnType<typeof semanticQuestionFeedback>) {
+  let states = [...current]
+  const upsert = (next: QuestionState) => {
+    const index = states.findIndex(item => item.question_id === next.question_id && item.version === next.version)
+    if (index >= 0) states[index] = next
+    else states.push(next)
+  }
+  for (const question of feedback.pendingQuestions) {
+    states = states.map(item => item.question_id === question.question_id && item.version < question.version
+      ? { ...item, status: "superseded" as const } : item)
+    upsert({ question_id: question.question_id, version: question.version, status: question.status })
+  }
+  for (const receipt of feedback.answerReceipts) {
+    const status: QuestionState["status"] | undefined = receipt.outcome === "applied" || receipt.outcome === "already_applied" ? "answered"
+      : receipt.outcome === "declined" ? "rejected"
+        : receipt.code === "QUESTION_SUPERSEDED" ? "superseded" : undefined
+    if (status) upsert({ question_id: receipt.question_id, version: receipt.version, status })
+  }
+  return states
+}
+
+function applyRealtimeQuestionFeedback(conversationId: string, assistantId: string, details: unknown) {
+  const feedback = semanticQuestionFeedback(details)
+  if (!feedback.pendingQuestions.length && !feedback.answerReceipts.length) return
+  updateAssistantMessage(conversationId, assistantId, item => withQuestionFeedback(item, details))
+  updateConversation(conversationId, item => ({
+    ...item,
+    questionStates: statesAfterQuestionFeedback(item.questionStates ?? [], feedback),
+  }))
+}
+
+/** 还原历史消息：连续的助手片段合并为一个气泡，其后的工具明细还原结果表与只读澄清记录。 */
 function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConversation, "messages"> {
   const messages: DisplayMessage[] = []
   const expanded = detail.messages.flatMap(item => {
-    const bundle = item.role === "tool" && "details" in item ? item.details as {kind?: string; results?: unknown[]} : undefined
-    return bundle?.kind === "semantic_results" && Array.isArray(bundle.results)
-      ? bundle.results.map(details => ({...item, details: {...details as object, semantic_task: {protocol_version: 2}}})) : [item]
+    const details = item.role === "tool" && "details" in item ? expandSemanticResultDetails(item.details) : undefined
+    return details ? details.map(expandedDetails => ({...item, details: expandedDetails})) : [item]
   })
   for (const item of expanded) {
     if (item.role === "user") {
@@ -593,6 +651,8 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
         if (index >= 0) calls[index] = call
         else calls.push(call)
         assistant.toolCalls = calls
+        // 历史只保存当时发布的题目/回执快照；当前 open 状态由 detail.question_states 单独恢复。
+        Object.assign(assistant, withQuestionFeedback(assistant, item.details))
       }
       if ((item.details as { answer_selected?: boolean } | null)?.answer_selected === false) continue
       const delivery = asDeliveredAnswer(item.details)
@@ -625,12 +685,6 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
           last.calculations = [...(last.calculations ?? []).filter(previous =>
             !(calculation.status === "succeeded" && previous.retryable)), calculation]
         }
-        continue
-      }
-      const choices = asChoiceSet(item.details)
-      if (choices) {
-        const last = messages[messages.length - 1]
-        if (last?.role === "assistant") last.choiceSet = choices
         continue
       }
       const details = asMetricAskDetails(item.details)
@@ -692,6 +746,7 @@ async function loadHistory(expectedUserId = auth.user.value?.id ?? null) {
         legacy: item.legacy === true,
         createdAt: item.created_at,
         lastActiveAt: item.last_active_at,
+        questionStates: [],
       }))
       .sort((left, right) => new Date(right.lastActiveAt ?? 0).getTime() - new Date(left.lastActiveAt ?? 0).getTime())
     // 列表没有正文；保留本地当前会话，避免再次激活把已加载消息或未发送草稿覆盖为空。
@@ -743,6 +798,7 @@ async function selectConversation(conversationId: string) {
       activeOperationId: detail.operation_id ?? null,
       legacy: detail.legacy === true ? true : conversation.legacy,
       messages: conversationFromDetail(detail).messages,
+      questionStates: detail.question_states ?? [],
     }
     loaded.title = titleOverrides.value[loaded.serverId ?? ""] ?? detail.title ?? conversationTitle(loaded.serverId, loaded.messages)
     const lastAssistant = [...loaded.messages].reverse().find((item) => item.role === "assistant")
@@ -940,10 +996,10 @@ async function runQuestion(conversationId: string, question: string, kind: strin
   updateConversation(conversationId, (conversation) => ({
     ...conversation,
     title: conversation.messages.length || conversation.title !== "新的问数会话" ? conversation.title : question.slice(0, 24),
-    preview: question,
+    preview: question || conversation.preview,
     messages: [
       ...conversation.messages,
-      { id: createId(), role: "user", content: question, kind, createdAt: new Date().toISOString() },
+      { id: createId(), role: "user" as const, content: question, kind, createdAt: new Date().toISOString() },
       { id: assistantId, role: "assistant", content: "", nativeAnswer: true, createdAt: new Date().toISOString(), status: "pending", toolCalls: [] },
     ],
     createdAt: conversation.createdAt ?? new Date().toISOString(),
@@ -962,7 +1018,9 @@ async function runQuestion(conversationId: string, question: string, kind: strin
     const cancelFailure = pendingPrompts.get(conversationId)?.cancelFailure
     // 404 不自动新建会话并重发：输入保留在消息里，由用户决定下一步
     if (cancelFailure) failMessage(conversationId, assistantId, cancelFailure)
-    else if (error instanceof AgentApiError && (error.status === 0 || error.status === 409)) {
+    else if (error instanceof AgentApiError && error.message.includes("QUESTION_SUPERSEDED")) {
+      await selectConversation(conversationId)
+    } else if (error instanceof AgentApiError && (error.status === 0 || error.status === 409)) {
       await reconnectConversation(conversationId, assistantId, controller)
     } else failMessage(conversationId, assistantId, error)
   } finally {
@@ -1007,11 +1065,12 @@ async function streamPrompt(conversationId: string, serverId: string, input: Age
 
 function handleStreamEvent(conversationId: string, assistantId: string, event: AgentStreamEvent) {
   if (event.type === "tool_end") {
-    const bundle = event.details as {kind?: string; results?: unknown[]} | undefined
-    if (bundle?.kind === "semantic_results" && Array.isArray(bundle.results)) {
-      for (const details of bundle.results) handleStreamEvent(conversationId, assistantId, {...event, details: {...details as object, semantic_task: {protocol_version: 2}}})
+    const expanded = expandSemanticResultDetails(event.details)
+    if (expanded) {
+      for (const details of expanded) handleStreamEvent(conversationId, assistantId, {...event, details})
       return
     }
+    applyRealtimeQuestionFeedback(conversationId, assistantId, event.details)
   }
   if (event.type === "answer_delta" || event.type === "answer_reset") {
     updateAssistantMessage(conversationId, assistantId, item => applyProvisionalAnswer(item, event))
@@ -1124,8 +1183,6 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
       return { ...item, toolCalls, taskIds, calculations: [...(item.calculations ?? []).filter(previous =>
         !(calculation.status === "succeeded" && previous.retryable)), calculation] }
     }
-    const choices = asChoiceSet(event.details)
-    if (choices) return { ...item, toolCalls, choiceSet: choices }
     const details = asMetricAskDetails(event.details)
     if (!details) return { ...item, toolCalls }
     const taskIds = details.task_id ? [...new Set([...(item.taskIds ?? []), details.task_id])] : item.taskIds
@@ -1186,7 +1243,14 @@ function applyAgentSnapshot(conversationId: string, snapshot: AgentSnapshot, ass
         message.response = archiveTimeVariantsResponse(message.response)
       }
     }
-    return { ...item, loaded: true, running: snapshot.running, activeOperationId: snapshot.operation_id, messages: restored }
+    return {
+      ...item,
+      loaded: true,
+      running: snapshot.running,
+      activeOperationId: snapshot.operation_id,
+      messages: restored,
+      questionStates: snapshot.question_states ?? [],
+    }
   })
   void hydrateResultTables(conversationId)
 }
@@ -1394,11 +1458,13 @@ async function scrollToBottom() {
                 <ChatProvisionalAnswer v-if="chatMessage.status === 'pending' && chatMessage.provisionalContent" :text="chatMessage.provisionalContent" />
                 <div v-else-if="chatMessage.status === 'pending' && chatMessage.content && (!chatMessage.availability?.length || chatMessage.metricAskDetails)" class="leading-7"><ChatMarkdown :source="chatMessage.nativeAnswer ? chatMessage.content : chatMessage.metricAskClarificationPrompt ?? chatMessage.metricAskClarification?.prompt ?? governedReply(chatMessage.metricAskDetails) ?? chatMessage.content" /><span class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" /></div>
                 <ChatResultContent v-else-if="chatMessage.status !== 'pending' && chatMessage.response" :response="chatMessage.response" :show-data-details="!(chatMessage.queryResults && chatMessage.queryResults.length > 1) && !chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
-                <ChatMarkdown v-else-if="chatMessage.status !== 'pending'" class="leading-6" :source="visibleContent(chatMessage)" />
+                <ChatMarkdown v-else-if="chatMessage.status !== 'pending'" class="leading-6" :source="chatMessage.content" />
                 <template v-if="chatMessage.status !== 'pending' && chatMessage.queryResults && chatMessage.queryResults.length > 1">
                   <ChatResultContent v-for="result in chatMessage.queryResults" :key="result.task_id" :response="{ ...responseFromMetricAsk(result, ''), answer: '', answer_blocks: undefined }" :question="questionForMessage(chatMessage)" />
                 </template>
-                <ClarificationChoices v-if="chatMessage.status !== 'pending' && chatMessage.choiceSet" :choices="chatMessage.choiceSet" :active="isActiveChoice(chatMessage)" @choose="(choice) => chooseClarificationOption(chatMessage, choice)" />
+                <div v-if="chatMessage.answerReceipts?.length" class="mt-3 space-y-1" aria-live="polite">
+                  <p v-for="(receipt, index) in chatMessage.answerReceipts" :key="`${receipt.question_id}:${receipt.version}:${index}`" class="text-sm text-muted-foreground">{{ receipt.notice }}</p>
+                </div>
                 <TimeVariantChoices v-if="isActiveTimeVariant(chatMessage) && chatMessage.response?.time_variants" :variants="chatMessage.response.time_variants" :active="true" @choose="(variant) => chooseTimeVariant(chatMessage, variant)" />
                 <p v-if="chatMessage.availability?.length && chatMessage.availabilityError" class="text-sm text-muted-foreground">{{ chatMessage.availabilityError }}</p>
                 <div v-if="chatMessage.clarification?.fields?.length" class="mt-1">

@@ -3,10 +3,12 @@ import {BackendClient} from "../src/backendClient.js";
 import {createStructuredQueryTool} from "../src/tools/structuredQuery.js";
 import {MemoryCommandBridge, runTool, testRequestContext} from "../src/tools/testUtils.js";
 
-describe("结构化查询覆盖率契约传输", () => {
+describe("结构化查询规范化契约传输", () => {
   const calls: Array<{url: string; body: unknown}> = [];
   const params = {metric_codes: ["SYNTHETIC_A"], org_codes: ["SYNTHETIC_ORG"],
     start: "2026-04-30", end: "2026-04-30", selection: "exact"};
+  const proofFields = ["verify_question_coverage", "source_question", "source_semantic_receipt",
+    "source_metric_bindings", "source_metric_exclusions"];
   const context = () => testRequestContext(new BackendClient("http://backend.test", "synthetic-token", 5000),
     new MemoryCommandBridge(), {originalMessage: "查询合成甲和合成乙"});
   beforeEach(() => {
@@ -24,30 +26,26 @@ describe("结构化查询覆盖率契约传输", () => {
   });
   afterEach(() => {vi.unstubAllGlobals(); calls.length = 0;});
 
-  it("覆盖率复核透传宿主原句和逐目标编码绑定及排除片段", async () => {
-    const source = {source_question: "查询合成甲和合成乙",
-      source_metric_bindings: [{start: 2, end: 5, text: "合成甲", codes: ["SYNTHETIC_A"]}],
-      source_metric_exclusions: [{start: 6, end: 9, text: "合成乙"}]};
-    const result = await runTool(createStructuredQueryTool(), {...params, ...source, verify_question_coverage: true}, context());
+  it("只提交规范化 BasicQuerySpec，不含旧原句覆盖证明字段", async () => {
+    const result = await runTool(createStructuredQueryTool(), params, context());
     expect(result.details?.status).toBe("succeeded");
-    expect(calls.find(call => call.url.endsWith("/basic-queries"))?.body).toMatchObject(source);
+    const body = calls.find(call => call.url.endsWith("/basic-queries"))?.body as Record<string, unknown>;
+    expect(body).toMatchObject({metric_codes: ["SYNTHETIC_A"], org_codes: ["SYNTHETIC_ORG"],
+      time: {start: "2026-04-30", end: "2026-04-30"}, selection: "exact", operation: {kind: "value"}});
+    for (const field of proofFields) expect(body[field]).toBeUndefined();
   });
 
-  it.each([{}, {verify_question_coverage: true}, {source_question: "查询合成甲"}])(
-    "绑定必须与覆盖率复核及明确原句同行：%j", async partial => {
-      const result = await runTool(createStructuredQueryTool(), {...params, ...partial,
-        source_metric_bindings: [{start: 2, end: 5, text: "合成甲", codes: ["SYNTHETIC_A"]}]}, context());
-      expect(result.details?.error_code).toBe("QUERY_CONTRACT_INVALID");
-      expect(calls).toHaveLength(0);
-    },
-  );
-
-  it.each([{}, {verify_question_coverage: true, source_question: "合成甲和合成乙"}])(
-    "排除片段必须与复核、明确原句及保留项绑定同行：%j", async partial => {
-      const result = await runTool(createStructuredQueryTool(), {...params, ...partial,
-        source_metric_exclusions: [{start: 0, end: 3, text: "合成甲"}]}, context());
-      expect(result.details?.error_code).toBe("QUERY_CONTRACT_INVALID");
-      expect(calls).toHaveLength(0);
-    },
-  );
+  it.each([
+    {verify_question_coverage: true, source_question: "查询合成甲和合成乙"},
+    {source_semantic_receipt: "legacy-receipt"},
+    {source_metric_bindings: [{start: 2, end: 5, text: "合成甲", codes: ["SYNTHETIC_A"]}]},
+    {source_metric_exclusions: [{start: 6, end: 9, text: "合成乙"}]},
+  ])("旧证明参数不再进入后端请求：%j", async legacy => {
+    // 工具 Schema 已删除这些参数（additionalProperties=false 会在协议层拒绝）；
+    // 即使绕过 Schema 直接调用，适配器也不得把它们透传到 basic-queries。
+    const result = await runTool(createStructuredQueryTool(), {...params, ...legacy}, context());
+    expect(result.details?.status).toBe("succeeded");
+    const body = calls.find(call => call.url.endsWith("/basic-queries"))?.body as Record<string, unknown>;
+    for (const field of proofFields) expect(body[field]).toBeUndefined();
+  });
 });

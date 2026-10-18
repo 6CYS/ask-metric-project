@@ -8,7 +8,7 @@ import {BusinessContextService} from "../../src/business-context/service.js";
 import {createCapabilities} from "../../src/business-context/capabilities.js";
 import {createFieldResolvers} from "../../src/business-context/resolvers.js";
 import {BusinessInputError} from "../../src/business-context/inputError.js";
-import {createResolveBusinessTurnTool} from "../../src/tools/businessContext.js";
+import {createResolveTurnShim as createResolveBusinessTurnTool} from "./resolveTurnShim.js";
 import {MemoryCommandBridge, receiptJson, runTool, testRequestContext} from "../../src/tools/testUtils.js";
 import type {BackendClient} from "../../src/backendClient.js";
 import type {ContextDelta, FieldResolution, ResolverContext} from "../../src/business-context/types.js";

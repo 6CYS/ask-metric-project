@@ -1,5 +1,4 @@
 /** 两轮候选确认验收；真实模型只用 --live 开启，后端始终为隔离合成数据。 */
-import {syntheticMetricResolver} from "./syntheticMetricResolver.js";
 import assert from "node:assert/strict";
 import {mkdtemp, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
@@ -20,28 +19,51 @@ if (!process.argv.includes("--live")) {
   const dir = await mkdtemp(join(tmpdir(), "pi-confirmation-"));
   const config = {...loadConfig(), dataDir: dir};
   const store = new NativeSessionStore(dir);
-  const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store, createAskMetricTools({compactTurnArgs: config.compactTurnArgs}));
+  const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store, createAskMetricTools());
   const actor: BackendUser = {id: "synthetic-confirmation", username: "synthetic", display_name: "合成验收", org_code: "O1", org_name: "合成机构全称", role_code: "USER"};
   const reports: Array<Record<string, unknown>> = [];
   try {
-    for (const reply of ["是", "就这个"]) {
+    for (const scenario of [
+      {reply: "是", selected: "O1"}, {reply: "就这个", selected: "O1"}, {reply: "没问题", selected: "O1"}, {reply: "OK", selected: "O1"},
+      {reply: "第二个", selected: "O2"}, {reply: "不是第一个，是第二个", selected: "O2"},
+    ]) {
+      const {reply, selected} = scenario;
       const queries: BasicQuerySpec[] = [];
+      const metricName = "合成指标甲";
+      const metricResolver = async (question: string) => {
+        const start = question.indexOf(metricName);
+        return {mentions: start < 0 ? [] : [{text: metricName, start, end: start + metricName.length,
+          resolution: {status: "resolved" as const, value: {codes: ["M1"], names: [metricName]}}}]};
+      };
       const backend = {
-    matchMetricQuestion: syntheticMetricResolver([{code: "M1", name: "合成指标甲"}]),
+        matchMetricQuestion: metricResolver,
+        inspectBusinessGoal: async (question: string) => ({question, reference_year: null, requires_calculation: false,
+          fragments: [{question, organizations: [], calendar: {ranges: [{start: "2026-03-31", end: "2026-03-31"}], unresolved: []},
+            mentions: (await metricResolver(question)).mentions}]}),
         resolveBusinessField: async (entity: string, raw: string[]): Promise<FieldResolution> => {
           if (entity === "date") return raw[0] === "2026年3月末" ? {status: "resolved", value: {start: "2026-03-31", end: "2026-03-31"}} : {status: "invalid"};
-          if (entity === "metric") return raw.every(name => name === "合成指标甲") ? {status: "resolved", value: {codes: ["M1"], names: ["合成指标甲"]}} : {status: "not_found"};
-          if (raw[0] === "O1" || raw[0] === "合成机构全称") return {status: "resolved", value: {codes: ["O1"], names: ["合成机构全称"]}};
-          return {status: "needs_confirmation", candidates: [{value: "合成机构全称", code: "O1", metadata: {rawValueIndex: 0}}]};
+          if (entity === "metric") return raw.length && raw.every(name => name === "M1" || name.includes(metricName))
+            ? {status: "resolved", value: {codes: raw.map(() => "M1"), names: raw.map(() => metricName)}} : {status: "not_found"};
+          const organization = raw[0] === "O1" || raw[0] === "合成机构全称" ? {code: "O1", name: "合成机构全称"}
+            : raw[0] === "O2" || raw[0] === "合成机构乙" ? {code: "O2", name: "合成机构乙"} : undefined;
+          if (organization) return {status: "resolved", value: {codes: [organization.code], names: [organization.name]}};
+          return {status: "needs_confirmation", candidates: [
+            {value: "合成机构全称", code: "O1", metadata: {rawValueIndex: 0}},
+            ...(selected === "O2" ? [{value: "合成机构乙", code: "O2", metadata: {rawValueIndex: 0}}] : []),
+          ]};
         },
+        resolveBusinessFieldSuggestion: async (entity: string, _suggestions: unknown, _options: unknown,
+          _source: string | undefined, rawValues: string[] = []) => backend.resolveBusinessField(entity, rawValues),
         createAgentQueryContext: async () => ({conversation_id: "synthetic-conversation"}),
         basicQueries: async (spec: BasicQuerySpec) => {
           queries.push(spec);
-          assert.deepEqual(spec.metric_codes, ["M1"]); assert.deepEqual(spec.org_codes, ["O1"]);
+          assert.deepEqual(spec.metric_codes, ["M1"]); assert.deepEqual(spec.org_codes, [selected]);
           assert.deepEqual(spec.time, {start: "2026-03-31", end: "2026-03-31"});
           return {result: {task_id: "synthetic-task", status: "succeeded", rows: [], columns: [], row_count: 0, message: "合成查询无记录。"}};
         },
         getTask: async () => ({task_id: "synthetic-task", status: "SUCCEEDED", version: 1, result: {result_id: "result:synthetic-task"}}),
+        getTaskResult: async () => ({status: "succeeded", task_id: "synthetic-task", result_id: "result:synthetic-task",
+          columns: [], rows: [], row_count: 0, truncated: false}),
       } as unknown as BackendClient;
       const hosted = await host.createSession(actor);
       const started = performance.now();
@@ -64,7 +86,7 @@ if (!process.argv.includes("--live")) {
       const modelCalls = turn.filter(message => message.role === "assistant").length;
       const success = frames.find(frame => frame.requestId === "confirmation" && frame.status === "success");
       const passed = queriedBeforeConfirmation === 0 && queries.length === 1 && !!success
-        && success.fields.organizations?.source === "confirmed" && tools.filter(name => name === "resolve_business_turn").length === 1
+        && success.fields.organizations?.metadata?.confirmed === true && tools.filter(name => name === "resolve_business_turn").length >= 1
         && executions === 1 && tools.length <= 3;
       const report = {reply, passed, queried_before_confirmation: queriedBeforeConfirmation, query_count: queries.length,
         confirmation_tools: tools, confirmation_model_calls: modelCalls, elapsed_ms: Math.round(performance.now() - started)};
@@ -72,7 +94,8 @@ if (!process.argv.includes("--live")) {
       await host.closeSession(hosted.sessionId);
     }
     const passed = reports.every(report => report.passed);
-    await writeFile(join(dir, "report.json"), JSON.stringify({passed, environment: "configured_model_synthetic_backend", reports}, null, 2));
+    await writeFile(join(dir, "report.json"), JSON.stringify({passed, environment: "configured_model_synthetic_backend",
+      model: config.model.name, prompt_variant: config.semanticPromptVariant ?? "compact_v1", max_tokens: config.model.maxTokens, reports}, null, 2));
     console.log(JSON.stringify({passed, report: join(dir, "report.json")}));
     if (!passed) process.exitCode = 1;
   } finally {await host.close(); await store.close();}

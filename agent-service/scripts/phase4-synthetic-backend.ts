@@ -1,4 +1,4 @@
-/** 阶段4合成后端；不读取数据库配置，复用当前Python目录、日历、准入及内存SQL。 */
+/** 阶段4合成后端；不读取数据库配置，复用当前Python目录、日历及内存SQL。 */
 import {execFileSync} from 'node:child_process';
 import {join,resolve} from 'node:path';
 import {BackendApiError,type BackendClient} from '../src/backendClient.js';
@@ -20,7 +20,6 @@ export function createSyntheticBackend() {
   return {queries, client: {
     resolveBusinessField: async (entity: string, raw: string[], _options?: unknown, year?: number, source?: unknown) => python({action: 'resolve', entity, raw, year, source}),
     inspectBusinessGoal: async (question: string, businessDate: string, _options?: unknown, reference_year?: number) => python({action: 'inspect', question, business_date: businessDate, reference_year}),
-    admitSemanticPlan: async (payload: unknown) => python({action: 'admit', payload}),
     calculate: async (spec: any) => {
       const known = [...results.values()].flatMap(result => result.facts ?? []);
       const inputs = Object.fromEntries(Object.entries(spec.bindings).map(([name, binding]: [string, any]) => {

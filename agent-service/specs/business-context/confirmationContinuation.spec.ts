@@ -7,9 +7,9 @@ import {NativeFrameStore} from "../../src/business-context/store.js";
 import {BusinessContextService} from "../../src/business-context/service.js";
 import {createCapabilities} from "../../src/business-context/capabilities.js";
 import {createFieldResolvers} from "../../src/business-context/resolvers.js";
-import {frameClarificationOptions, modelFrame} from "../../src/business-context/modelView.js";
-import {toCompactTurnArgs} from "../../src/business-context/turnArgs.js";
-import {createExecuteBusinessFrameTool, createResolveBusinessTurnTool} from "../../src/tools/businessContext.js";
+import {frameClarificationOptions, modelRecovery} from "../../src/business-context/modelView.js";
+import {createExecuteBusinessFrameTool} from "../../src/tools/businessContext.js";
+import {createResolveTurnShim as createResolveBusinessTurnTool} from "./resolveTurnShim.js";
 import {MemoryCommandBridge, receiptJson, runTool, testRequestContext} from "../../src/tools/testUtils.js";
 import type {BackendClient} from "../../src/backendClient.js";
 import type {BusinessFrame, ContextDelta, FieldResolution, FieldTurnIntent} from "../../src/business-context/types.js";
@@ -20,7 +20,7 @@ const inherited: FieldTurnIntent = {mode: "inherit", sourceText: null, expectedC
 const july = {start: "2026-07-01", end: "2026-07-31"};
 const august = {start: "2026-08-01", end: "2026-08-31"};
 
-async function fixture(compact: boolean, point: boolean, knownScope = false, reply = "合成利润金额") {
+async function fixture(point: boolean, knownScope = false, reply = "合成利润金额") {
   vi.spyOn(console, "info").mockImplementation(() => {});
   const path = mkdtempSync(join(tmpdir(), "confirmation-continuation-"));
   let sessions = new NativeSessionStore(path);
@@ -59,8 +59,8 @@ async function fixture(compact: boolean, point: boolean, knownScope = false, rep
     frames: store, sessionId: session.metadata.id, operationId: "reply", requestId: "reply", originalMessage: reply,
     ...(point ? {clarificationSelection: {frame_id: first.frameId, option_ids: [option.id]}} : {}),
   });
-  const tool = createResolveBusinessTurnTool({compactTurnArgs: compact});
-  const run = (delta: ContextDelta) => runTool(tool, compact ? toCompactTurnArgs(delta) : delta, request());
+  const tool = createResolveBusinessTurnTool();
+  const run = (delta: ContextDelta) => runTool(tool, delta, request());
   const failedDelta: ContextDelta = {capabilityHint: "metric_query", baseReference: {frameId: first.frameId}, executionMode: "execute",
     fieldIntents: {organizations: {mode: "confirm", sourceText: orgText, expectedCount: null}}, fieldChanges: [
       {fieldHint: "metrics", operation: "set", rawValue: {confirm: true}},
@@ -82,14 +82,14 @@ async function fixture(compact: boolean, point: boolean, knownScope = false, rep
   return {first, backend, run, request, failed, failedDelta, continued, reopen, get store() {return store;}};
 }
 
-describe.each([false, true])("确认恢复结构化续接：compact=%s", compact => {
+describe("确认恢复结构化续接", () => {
   it.each([false, true])("仅指标确认后取消无依据额外动作，保留其它澄清：point=%s", async point => {
-    const f = await fixture(compact, point);
+    const f = await fixture(point);
     const {receipt, recovery} = await f.failed();
     expect(receipt).toMatchObject({status: "ARGUMENT_ERROR", error_code: "FIELD_INTENT_EVIDENCE_INVALID",
       retry_reference: {frameId: recovery.frameId}, pending_fields: ["organizations", "selection"], confirmed_fields: ["metrics"],
       pending_changes: [{field: "organizations", operation: "set", may_retain: true}, {field: "selection", operation: "set", may_retain: true}]});
-    expect(modelFrame(recovery, "reply", compact)).toMatchObject({retry_reference: {frameId: recovery.frameId},
+    expect(modelRecovery(recovery)).toMatchObject({retry_reference: {frameId: recovery.frameId},
       pending_fields: ["organizations", "selection"], confirmed_fields: ["metrics"]});
     expect(recovery.operationFrameId).toBe(f.first.operationFrameId);
     expect((await f.store.get(f.first.frameId))?.fields.metrics?.resolutionStatus).toBe("needs_confirmation");
@@ -107,7 +107,7 @@ describe.each([false, true])("确认恢复结构化续接：compact=%s", compact
   });
 
   it("刷新后仍保留确认、恢复来源与可取消字段", async () => {
-    const f = await fixture(compact, true);
+    const f = await fixture(true);
     const {recovery} = await f.failed();
     await f.reopen();
     expect((await f.store.get(recovery.frameId))?.recovery).toEqual(recovery.recovery);
@@ -117,7 +117,7 @@ describe.each([false, true])("确认恢复结构化续接：compact=%s", compact
   });
 
   it("点选仅绑定指标，肯定展示文字不能顺带确认其它机构", async () => {
-    const f = await fixture(compact, true, false, "是");
+    const f = await fixture(true, false, "是");
     const {recovery} = await f.failed();
     expect(recovery.fields.organizations?.resolutionStatus).toBe("needs_confirmation");
     const result = receiptJson(await f.run(f.continued(recovery)));
@@ -126,7 +126,7 @@ describe.each([false, true])("确认恢复结构化续接：compact=%s", compact
   });
 
   it("自然回复不能只凭模型affirmation保存整份候选", async () => {
-    const f = await fixture(compact, false, false, "没问题");
+    const f = await fixture(false, false, "没问题");
     const before = await f.store.state();
     const failed = receiptJson(await f.run({...f.failedDelta, fieldChanges: [
       {fieldHint: "metrics", operation: "set", rawValue: {confirm: true, evidence: {decision: "accept", sourceText: "没问题"}}},
@@ -138,7 +138,7 @@ describe.each([false, true])("确认恢复结构化续接：compact=%s", compact
   });
 
   it("省略全部pending不能自动放弃其它失败提案", async () => {
-    const f = await fixture(compact, true);
+    const f = await fixture(true);
     const {recovery} = await f.failed();
     const before = await f.store.state();
     const delta = {...f.continued(recovery), fieldIntents: {organizations: inherited}};
@@ -150,7 +150,7 @@ describe.each([false, true])("确认恢复结构化续接：compact=%s", compact
   });
 
   it.each([false, true])("本轮真实日期变化不能被inherit/retain吞掉：retain=%s", async retain => {
-    const f = await fixture(compact, true, false, "合成利润金额，日期改成2026年8月");
+    const f = await fixture(true, false, "合成利润金额，日期改成2026年8月");
     const delta = {...f.failedDelta, fieldChanges: [...f.failedDelta.fieldChanges, {fieldHint: "time", operation: "set" as const, rawValue: "2026年8月"}]};
     const {recovery} = await f.failed(delta);
     const bad = {...f.continued(recovery), fieldIntents: {organizations: inherited, selection: inherited, time: inherited},
@@ -166,7 +166,7 @@ describe.each([false, true])("确认恢复结构化续接：compact=%s", compact
   });
 
   it("机构真实变化不能靠合法inherit或retain取消，修正后保留新机构", async () => {
-    const f = await fixture(compact, true, false, "合成利润金额，机构改成合成机构乙");
+    const f = await fixture(true, false, "合成利润金额，机构改成合成机构乙");
     const delta: ContextDelta = {...f.failedDelta,
       fieldIntents: {organizations: {mode: "set", sourceText: "合成机构乙", expectedCount: 1}}, fieldChanges: [
         {fieldHint: "metrics", operation: "set", rawValue: {confirm: true}},
@@ -187,7 +187,7 @@ describe.each([false, true])("确认恢复结构化续接：compact=%s", compact
 
   it("失败提案中的本轮数量不能在恢复时用null或新数量删掉", async () => {
     const sourceText = "合成机构甲和合成机构乙共两家";
-    const f = await fixture(compact, true, false, `合成利润金额，机构改成${sourceText}`);
+    const f = await fixture(true, false, `合成利润金额，机构改成${sourceText}`);
     const input: ContextDelta = {...f.failedDelta, fieldIntents: {organizations: {mode: "set", sourceText, expectedCount: 2}},
       fieldChanges: [{fieldHint: "metrics", operation: "set", rawValue: {confirm: true}},
         {fieldHint: "organizations", operation: "set", rawValue: ["合成机构甲", "合成机构乙"]},
@@ -207,7 +207,7 @@ describe.each([false, true])("确认恢复结构化续接：compact=%s", compact
   });
 
   it.each([null, 99])("已有全量数量不变，无依据额外数量%j不会锁入恢复，可执行一次", async expectedCount => {
-    const f = await fixture(compact, true, true);
+    const f = await fixture(true, true);
     const {recovery} = await f.failed({...f.failedDelta, fieldIntents: {organizations: {
       ...f.failedDelta.fieldIntents!.organizations!, expectedCount}}});
     expect(recovery.recovery?.pendingChanges?.find(item => item.field === "organizations")?.expectedCount).toBeUndefined();
@@ -221,7 +221,7 @@ describe.each([false, true])("确认恢复结构化续接：compact=%s", compact
   });
 
   it("旧无provenance草稿仍要求明确处理，显式retain兼容且不吞省略项", async () => {
-    const f = await fixture(compact, true);
+    const f = await fixture(true);
     const {recovery} = await f.failed();
     const legacy = structuredClone(recovery);
     legacy.frameId = "legacy-recovery"; legacy.parentFrameId = recovery.frameId;
@@ -237,7 +237,7 @@ describe.each([false, true])("确认恢复结构化续接：compact=%s", compact
   });
 
   it("不能切回旧Frame或更换点选来源以绕过待修提案", async () => {
-    const f = await fixture(compact, true);
+    const f = await fixture(true);
     const {recovery} = await f.failed();
     const before = await f.store.state();
     const old = receiptJson(await f.run({...f.continued(recovery), baseReference: {frameId: f.first.frameId}}));
@@ -245,31 +245,31 @@ describe.each([false, true])("确认恢复结构化续接：compact=%s", compact
       retry_reference: {frameId: recovery.frameId}, pending_fields: ["organizations", "selection"]});
     expect(await f.store.state()).toEqual(before);
     const badSelection = {...f.request(), clarificationSelection: {frame_id: "foreign-frame", option_ids: ["metrics:0:code:M1"]}};
-    const invalid = receiptJson(await runTool(createResolveBusinessTurnTool({compactTurnArgs: compact}),
-      compact ? toCompactTurnArgs(f.continued(recovery)) : f.continued(recovery), badSelection));
+    const invalid = receiptJson(await runTool(createResolveBusinessTurnTool(),
+      f.continued(recovery), badSelection));
     expect(invalid.status).toBe("NEEDS_CLARIFICATION");
     expect((await f.store.get(String(invalid.frameId)))?.fields.organizations?.resolutionStatus).toBe("needs_confirmation");
     expect(f.backend.basicQueries).not.toHaveBeenCalled();
   });
 
   it.each(["foreign_session", "old_frame"])("失效点选%s不回退到自然文字匹配其它Frame", async source => {
-    const f = await fixture(compact, true);
-    const other = await fixture(compact, true);
+    const f = await fixture(true);
+    const other = await fixture(true);
     const optionId = frameClarificationOptions(other.first).flatMap(group => group.options).find(item => item.field === "metrics")!.id;
     let base = f.first;
     if (source === "old_frame") {
       const keepPending: ContextDelta = {capabilityHint: "metric_query", baseReference: {frameId: f.first.frameId},
         executionMode: "resolve_more", fieldChanges: [], fieldIntents: {organizations: inherited}};
-      const latest = receiptJson(await runTool(createResolveBusinessTurnTool({compactTurnArgs: compact}),
-        compact ? toCompactTurnArgs(keepPending) : keepPending,
+      const latest = receiptJson(await runTool(createResolveBusinessTurnTool(),
+        keepPending,
         {...f.request(), clarificationSelection: {frame_id: other.first.frameId, option_ids: [optionId]}}));
       base = (await f.store.get(String(latest.frameId)))!;
     }
     const selection = {frame_id: source === "foreign_session" ? other.first.frameId : f.first.frameId, option_ids: [optionId]};
     const delta: ContextDelta = {capabilityHint: "metric_query", baseReference: {frameId: base.frameId}, executionMode: "execute",
       fieldIntents: {organizations: inherited}, fieldChanges: [{fieldHint: "metrics", operation: "set", rawValue: {confirm: true}}]};
-    const result = receiptJson(await runTool(createResolveBusinessTurnTool({compactTurnArgs: compact}),
-      compact ? toCompactTurnArgs(delta) : delta, {...f.request(), originalMessage: "合成利润金额", clarificationSelection: selection}));
+    const result = receiptJson(await runTool(createResolveBusinessTurnTool(),
+      delta, {...f.request(), originalMessage: "合成利润金额", clarificationSelection: selection}));
     expect(result.status).toBe("NEEDS_CLARIFICATION");
     const saved = (await f.store.get(String(result.frameId)))!;
     expect(saved.fields.metrics?.resolutionStatus).toBe("needs_confirmation");

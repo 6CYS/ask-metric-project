@@ -59,7 +59,8 @@ it("入口注册普通回答与内部协议纠错，概览仍生成可交付回�
   const tools = [...createAskMetricTools(), createBusinessSkillReadTool([])];
   expect(tools.map(tool => tool.name)).toEqual([
     "business_capability_explain", "resolve_business_turn", "business_context_read", "execute_business_frame",
-    "read_business_result", "read", "catalog", "respond_without_business_action", "business_action_required", "business_skill_read",
+    "read_business_result", "read", "catalog", "respond_without_business_action", "business_action_required",
+    "clarify_business_turn", "business_skill_read",
   ]);
   const result = await runTool(tools.find(tool => tool.name === "catalog")!, {action: "overview"}, request({
     metricCatalogOverview: async () => ({total: 2, groups: []}),

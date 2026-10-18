@@ -90,40 +90,15 @@ it("普通回答一次模型往返即完成，页面恰好一条完整回答，�
   expect(projectEntries(await reopened.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT))).toEqual(messages);
 });
 
-it("本轮已有业务动作时普通回答被拦截，不结束本轮，Pi 继续依据回执作答", async () => {
+it("上下文读取不算业务动作，仍可显式选择普通回答结束本轮", async () => {
   const {faux, ask, projected} = await setup([
     {call: "business_context_read", args: {}},
-    {call: CONVERSATION_REPLY, args: {answer: "无需操作。"}},
-    {text: "当前会话还没有业务条件，请告诉我要查询的指标、机构和日期。"},
+    {call: CONVERSATION_REPLY, args: {answer: "当前会话还没有业务条件，请告诉我要查询的指标、机构和日期。"}},
   ]);
   const outcome = await ask("read-then-reply", "我之前查过什么");
 
   expect(outcome).toMatchObject({ok: true, outcome: {kind: "settled", outcome: {status: "completed"}}});
-  expect(faux.record.calls).toBe(3);
-  const messages = await projected();
-  expect(messages.find(message => message.role === "tool" && message.tool === CONVERSATION_REPLY))
-    .toMatchObject({is_error: true});
-  expect(messages.at(-1)).toMatchObject({role: "assistant", text: "当前会话还没有业务条件，请告诉我要查询的指标、机构和日期。"});
-  expect(messages.some(message => message.role === "assistant" && message.text === "无需操作。")).toBe(false);
-});
-
-it("普通回答结束后的下一轮照常要求实际动作，并能继续查询流程", async () => {
-  const {faux, ask, projected} = await setup([
-    {call: CONVERSATION_REPLY, args: {answer: "你好。"}},
-    {call: "resolve_business_turn", args: {protocol_version: 1, capability: "metric_query", base: null, mode: "execute",
-      changes: {organizations: {action: "inherit"}, selection: {action: "set", value: "exact"}}}},
-    {text: "请补充指标、机构和日期。"},
-  ]);
-  await ask("turn-1", "你好");
-  const second = await ask("turn-2", "新建一笔查询");
-
-  expect(second).toMatchObject({ok: true, outcome: {kind: "settled", outcome: {status: "completed"}}});
   expect(faux.record.calls).toBe(2);
-  // 上一轮的普通回答不能解除本轮“必须实际动作”的约束。
-  expect(faux.record.toolChoices[1]).toBe("required");
   const messages = await projected();
-  expect(messages.filter(message => message.role === "user")).toHaveLength(2);
-  expect(messages.flatMap(message => message.role === "assistant" && message.text ? [message.text] : []))
-    .toEqual(["你好。", "请补充指标。\n\n请补充机构。\n\n请补充日期范围。"]);
-  expect(messages.some(message => message.role === "tool" && message.tool === ACTION_REQUIRED)).toBe(false);
+  expect(messages.at(-1)).toMatchObject({role: "assistant", text: "当前会话还没有业务条件，请告诉我要查询的指标、机构和日期。"});
 });

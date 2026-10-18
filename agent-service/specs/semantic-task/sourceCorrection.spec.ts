@@ -1,19 +1,19 @@
 import {afterEach, expect, it} from "vitest";
-import {fixture, addPlanBackend, complete, proposal} from "./fixtures.js";
+import {fixture, complete, proposal} from "./fixtures.js";
 import {SemanticPlanService} from "../../src/semantic-task/planService.js";
 import {createSemanticExecuteTool, createSemanticResolveTool} from "../../src/semantic-task/tools.js";
 import {runTool} from "../../src/tools/testUtils.js";
 const closes: Array<() => Promise<void>> = [];
 afterEach(async () => {for (const close of closes.splice(0)) await close();});
-it("未获准new错误草案可由Pi明确reference替换，不遗留多余目标或重复追问", async () => {
-  const f = await fixture(); closes.push(f.close); addPlanBackend(f.backend);
+it("省略式续问的唯一来源直接绑定，不遗留多余目标或重复追问", async () => {
+  const f = await fixture(); closes.push(f.close);
   const firstRequest = f.request("base", "查合成机构甲2025年末的合成指标甲");
   const first = await new SemanticPlanService(firstRequest).resolve(proposal(complete()));
   await runTool(createSemanticExecuteTool(), {task_ref: first.state.task_ref, target_ref: first.state.targets[0]!.target_ref}, firstRequest);
   const plan = (await firstRequest.semanticTasks!.plan(first.state.task_ref!))!, before = (await firstRequest.semanticTasks!.get(plan.steps[0]!.taskRef!))!;
   const request = f.request("followup", "合成机构乙呢？"), service = new SemanticPlanService(request);
   const bad = await runTool(createSemanticResolveTool(), proposal([{action: "set", field: "organizations", value: "合成机构乙"}, {action: "set", field: "metrics", value: "合成指标甲"}]), request);
-  expect(bad.details.status).toBe("conflict"); expect(bad.details.issues[0].code).toBe("NEW_TARGET_SOURCE_UNBOUND"); expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
+  expect(bad.details.status).toBe("ready"); expect(bad.details.issues).toEqual([]); expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
   const fixed = await service.resolve(proposal([{action: "set", field: "organizations", value: "合成机构乙"}], {kind: "reference", task_ref: plan.ref, target_ref: before.target.ref}));
   expect(fixed.status, JSON.stringify(fixed.issues)).toBe("ready"); expect(fixed.state.targets).toHaveLength(1);
   await runTool(createSemanticExecuteTool(), {task_ref: fixed.state.task_ref, target_ref: fixed.state.targets[0]!.target_ref}, request);

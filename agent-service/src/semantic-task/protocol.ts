@@ -1,10 +1,31 @@
 import {Type} from "@earendil-works/pi-ai";
 import {Compile} from "typebox/compile";
+import type {ModelAnswerInput} from "./questions.js";
+import type {OrganizationScopeInput, QueryOperation} from "../business-context/types.js";
+export type {ModelAnswerInput} from "./questions.js";
 export type SemanticField = "organizations" | "comparison_organizations" | "metrics" | "time" | "selection" | "operation" | "objective" | "calculation" | "availability";
 /** 模型按有权机构清单自主判断的机构结论：code/name 至少其一取自清单，excerpt 仅记录用户原文片段。 */
 export interface OrgSuggestion {code?: string; name?: string; excerpt?: string}
-export type SemanticOperation = {action: "set" | "add" | "confirm"; field: SemanticField; value: string; suggestion?: OrgSuggestion}
-  | {action: "replace"; field: SemanticField; subject: string; value: string; suggestion?: OrgSuggestion}
+export type ModelCalendar = {start: string; end: string; dates?: string[]};
+export type StructuredOrganization = {kind: "named"; names: string[]; suggestion?: OrgSuggestion}
+  | {kind: "authorized_cohort"; cohort: "rural_commercial_banks"; source_text: string}
+  | {kind: "children_of"; parent_name: string; source_text: string};
+export type StructuredOperation = QueryOperation | {kind: "sort"; direction: "ascending" | "descending"}
+  | {kind: "ranking"; position: "top" | "bottom" | null; top_n: number | null};
+export interface StructuredQuery {
+  objective?: string;
+  organizations: StructuredOrganization | null;
+  metrics: string[] | null;
+  time: {expression: string; calendar?: ModelCalendar} | null;
+  selection: "exact" | "latest_in_range" | "all_in_range" | null;
+  operation: StructuredOperation;
+  comparison_organizations?: StructuredOrganization | null;
+}
+/** 结构化字段编译后沿用现有状态与执行链；这些标记只由工具入口生成。 */
+export interface QueryBinding {structured?: true; values?: string[]; organizationScope?: OrganizationScopeInput;
+  queryOperation?: StructuredOperation; selectionValue?: StructuredQuery["selection"]}
+export type SemanticOperation = ({action: "set" | "add" | "confirm"; field: SemanticField; value: string; suggestion?: OrgSuggestion; modelCalendar?: ModelCalendar} & QueryBinding)
+  | {action: "replace"; field: SemanticField; subject: string; value: string; suggestion?: OrgSuggestion; modelCalendar?: ModelCalendar}
   | {action: "exclude"; field: SemanticField; subject: string} | {action: "clear"; field: SemanticField}
   | {action: "copy"; field: SemanticField; reference: SemanticReference}
   | {action: "select"; field: "organizations"; offset: number; limit: number}
@@ -13,13 +34,13 @@ export type SemanticReference = {task_ref: string; target_ref: string};
 export type SemanticSource = {kind: "new" | "current"} | ({kind: "reference"} & SemanticReference)
   | {kind: "references"; references: SemanticReference[]};
 export interface SemanticRequest {protocol_version: 2; context_action?: "resume" | "defer" | "abandon"; intent: "query" | "prepare" | "reuse" | "analyze" | "availability" | "calculate";
-  targets: Array<{source: SemanticSource; operations: SemanticOperation[]}>}
+  answers?: ModelAnswerInput[]; targets: Array<{source: SemanticSource; operations: SemanticOperation[]; query?: StructuredQuery}>}
 // 与已评审的版本2契约一致；部署不依赖仓库docs目录。
 export const semanticParameters = Type.Unsafe<SemanticRequest>({
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "urn:ask-metric:pi-semantic-task:request:v2",
   "title": "Pi 语义业务提案请求候选协议",
-  "description": "版本2语义提议。Schema校验形状；原问、来源、权限、完整性与执行许可由宿主独立核验。",
+  "description": "版本2语义提议。Schema一次校验形状与字段动作；宿主绑定正式条件并统一更新状态，后端控制权限与执行。",
   "type": "object",
   "additionalProperties": false,
   "required": ["protocol_version", "intent", "targets"],
@@ -31,6 +52,8 @@ export const semanticParameters = Type.Unsafe<SemanticRequest>({
       "enum": ["query", "analyze", "availability", "calculate", "reuse", "prepare"],
       "description": "prepare只保存条件，reuse只读旧结果；其余按整笔目的选择并接受治理校验。"
     },
+    "answers": {"type": "array", "maxItems": 20, "items": {"$ref": "#/definitions/modelAnswer"},
+      "description": "回答 admitted_context.pending_questions 的唯一方式；引用 question_id/version/option_id，已有新题时不得改用 operations.confirm。"},
     "targets": {
       "type": "array",
       "minItems": 1,
@@ -40,6 +63,31 @@ export const semanticParameters = Type.Unsafe<SemanticRequest>({
     }
   },
   "definitions": {
+    "answerChoice": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["type", "option_ids"], "properties": {
+          "type": {"const": "select"},
+          "option_ids": {"type": "array", "minItems": 1, "maxItems": 100, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+        }},
+        {"type": "object", "additionalProperties": false, "required": ["type"], "properties": {"type": {"const": "accept"}}},
+        {"type": "object", "additionalProperties": false, "required": ["type"], "properties": {"type": {"const": "reject"}}},
+        {"type": "object", "additionalProperties": false, "required": ["type"], "properties": {"type": {"const": "none_of_these"}}}
+      ]
+    },
+    "modelAnswer": {
+      "type": "object",
+      "description": "模型对一张已发布问题的回答；evidence.excerpt 必须保留本轮完整选择语句及否定/转折。",
+      "additionalProperties": false,
+      "required": ["question_id", "version", "choice", "evidence"],
+      "properties": {
+        "question_id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "choice": {"$ref": "#/definitions/answerChoice"},
+        "evidence": {"type": "object", "additionalProperties": false, "required": ["excerpt"], "properties": {
+          "excerpt": {"type": "string", "minLength": 1, "maxLength": 4000}
+        }}
+      }
+    },
     "businessText": {
       "type": "string",
       "minLength": 1,
@@ -100,14 +148,66 @@ export const semanticParameters = Type.Unsafe<SemanticRequest>({
         "name": {"type": "string", "minLength": 1, "maxLength": 200, "description": "有权机构清单中的正式名称。"},
         "excerpt": {"type": "string", "minLength": 1, "maxLength": 2000, "description": "用户措辞片段。"}
       },
-      "description": "按有权清单建议用户所指机构；code/name至少其一。无法匹配用原文value，不选无关成员；宿主复核并明示纠正。"
+      "description": "按有权清单建议用户所指机构；code/name至少其一。value逐成员保留用户原文称谓，规范名放suggestion；无法唯一匹配仍保留原称谓，不补成某家机构。宿主复核并明示纠正。"
+    },
+    "modelCalendar": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+        "end": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+        "dates": {"type": "array", "minItems": 2, "maxItems": 31, "items": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"}}
+      },
+      "description": "仅time字段随value原文一并提交的日历换算：按当前业务日期换算的ISO日期（YYYY-MM-DD，start不晚于end），离散多点加升序dates；无法确定时省略。严格日历与口径校验由事实服务完成，模型不编造。"
+    },
+    "queryOrganization": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind", "names"], "properties": {
+          "kind": {"const": "named"}, "names": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "#/definitions/businessText"}},
+          "suggestion": {"$ref": "#/definitions/orgSuggestion"}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "cohort", "source_text"], "properties": {
+          "kind": {"const": "authorized_cohort"}, "cohort": {"const": "rural_commercial_banks"},
+          "source_text": {"$ref": "#/definitions/businessText", "description": "原句中表达机构集合的完整短语。"}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "parent_name", "source_text"], "properties": {
+          "kind": {"const": "children_of"}, "parent_name": {"$ref": "#/definitions/businessText"}, "source_text": {"$ref": "#/definitions/businessText"}}}
+      ]
+    },
+    "queryOperation": {
+      "description": "模型直接给出操作语义，程序按字段绑定执行，不重新解析排序描述。缺少排名方向或条数时写null，不猜测。",
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "value"}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "position", "top_n"], "properties": {
+          "kind": {"const": "ranking"}, "position": {"enum": ["top", "bottom", null]},
+          "top_n": {"anyOf": [{"type": "integer", "minimum": 1, "maximum": 100}, {"type": "null"}]}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "direction"], "properties": {
+          "kind": {"const": "sort"}, "direction": {"enum": ["ascending", "descending"]}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "rank_position"}}}
+      ]
+    },
+    "query": {
+      "type": "object", "additionalProperties": false,
+      "required": ["organizations", "metrics", "time", "selection", "operation"],
+      "description": "完整结构化查询条件。同一对象绑定机构、指标、时间及操作；真实缺项写null。新查询使用query，继承和局部修改使用operations。",
+      "properties": {
+        "objective": {"$ref": "#/definitions/businessText"},
+        "organizations": {"anyOf": [{"$ref": "#/definitions/queryOrganization"}, {"type": "null"}]},
+        "metrics": {"anyOf": [{"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "#/definitions/businessText"}}, {"type": "null"}]},
+        "time": {"anyOf": [{"type": "object", "additionalProperties": false, "required": ["expression"], "properties": {
+          "expression": {"$ref": "#/definitions/businessText"}, "calendar": {"$ref": "#/definitions/modelCalendar"}}}, {"type": "null"}]},
+        "selection": {"enum": ["exact", "latest_in_range", "all_in_range", null]},
+        "operation": {"$ref": "#/definitions/queryOperation"},
+        "comparison_organizations": {"anyOf": [{"$ref": "#/definitions/queryOrganization"}, {"type": "null"}]}
+      }
     },
     "operation": {
       "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["action", "field", "queryOperation"],
+          "properties": {"action": {"const": "set"}, "field": {"const": "operation"}, "queryOperation": {"$ref": "#/definitions/queryOperation"}}},
         {"type": "object", "additionalProperties": false, "required": ["action", "field", "direction"],
           "properties": {"action": {"const": "rank_all"}, "field": {"const": "operation"}, "direction": {"enum": ["ascending", "descending"]}}},
         {"type": "object", "additionalProperties": false, "required": ["action", "field", "reference"],
-          "properties": {"action": {"const": "copy"}, "field": {"$ref": "#/definitions/field"}, "reference": {
+          "properties": {"action": {"const": "copy"}, "field": {"enum": ["organizations", "comparison_organizations", "metrics", "time", "selection", "operation"]}, "reference": {
             "type": "object", "additionalProperties": false, "required": ["task_ref", "target_ref"],
             "properties": {"task_ref": {"type": "string", "minLength": 1}, "target_ref": {"type": "string", "minLength": 1}}}}},
         {"type": "object", "additionalProperties": false, "required": ["action", "field", "offset", "limit"],
@@ -120,7 +220,8 @@ export const semanticParameters = Type.Unsafe<SemanticRequest>({
             "action": {"const": "set"},
             "field": {"$ref": "#/definitions/field"},
             "value": {"$ref": "#/definitions/businessText"},
-            "suggestion": {"$ref": "#/definitions/orgSuggestion"}
+            "suggestion": {"$ref": "#/definitions/orgSuggestion"},
+            "modelCalendar": {"$ref": "#/definitions/modelCalendar"}
           }
         },
         {
@@ -129,10 +230,11 @@ export const semanticParameters = Type.Unsafe<SemanticRequest>({
           "required": ["action", "field", "subject", "value"],
           "properties": {
             "action": {"const": "replace"},
-            "field": {"$ref": "#/definitions/field"},
+            "field": {"enum": ["organizations", "comparison_organizations", "metrics", "time"]},
             "subject": {"$ref": "#/definitions/businessText"},
             "value": {"$ref": "#/definitions/businessText"},
-            "suggestion": {"$ref": "#/definitions/orgSuggestion"}
+            "suggestion": {"$ref": "#/definitions/orgSuggestion"},
+            "modelCalendar": {"$ref": "#/definitions/modelCalendar"}
           }
         },
         {
@@ -141,7 +243,7 @@ export const semanticParameters = Type.Unsafe<SemanticRequest>({
           "required": ["action", "field", "value"],
           "properties": {
             "action": {"const": "add"},
-            "field": {"$ref": "#/definitions/field"},
+            "field": {"enum": ["organizations", "comparison_organizations", "metrics"]},
             "value": {"$ref": "#/definitions/businessText"}
           }
         },
@@ -151,7 +253,7 @@ export const semanticParameters = Type.Unsafe<SemanticRequest>({
           "required": ["action", "field", "subject"],
           "properties": {
             "action": {"const": "exclude"},
-            "field": {"$ref": "#/definitions/field"},
+            "field": {"enum": ["organizations", "comparison_organizations", "metrics"]},
             "subject": {"$ref": "#/definitions/businessText"}
           }
         },
@@ -170,7 +272,7 @@ export const semanticParameters = Type.Unsafe<SemanticRequest>({
           "required": ["action", "field", "value"],
           "properties": {
             "action": {"const": "confirm"},
-            "field": {"$ref": "#/definitions/field"},
+            "field": {"enum": ["organizations", "comparison_organizations", "metrics", "time"]},
             "value": {"$ref": "#/definitions/businessText"}
           }
         }
@@ -179,9 +281,11 @@ export const semanticParameters = Type.Unsafe<SemanticRequest>({
     "target": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source", "operations"],
+      "required": ["source"],
+      "oneOf": [{"required": ["query"], "not": {"required": ["operations"]}}, {"required": ["operations"], "not": {"required": ["query"]}}],
       "properties": {
         "source": {"$ref": "#/definitions/source"},
+        "query": {"$ref": "#/definitions/query"},
         "operations": {
           "type": "array",
           "minItems": 0,

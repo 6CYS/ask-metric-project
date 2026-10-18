@@ -46,6 +46,20 @@ const cases: Case[] = handoff ? [
   {text: "查询合成机构甲2024年3月31日的合成指标甲和合成指标丙。", org: "O1", metrics: ["M1", "M2"],
     start: "2024-03-31", end: "2024-03-31", query: 1,
     clarifyFields: ["metrics"], followup: [{message: "合成指标丙就是合成指标乙。"}]},
+  // —— 第 6 节补齐：单缺项只问缺项、多项缺失逐轮积累；补齐前不取数，补齐后按完整目标查询。 ——
+  // 缺日期：机构+指标已给出，只追问日期，补充后查询。
+  {text: "查询合成机构甲的合成指标甲。", org: "O1", start: "2024-03-31", end: "2024-03-31", query: 1,
+    clarifyFields: ["time"], followup: [{message: "日期是2024年3月31日。"}]},
+  // 缺机构：指标+日期已给出，只追问机构，补充后查询。
+  {text: "查询2024年3月31日的合成指标甲。", org: "O1", start: "2024-03-31", end: "2024-03-31", query: 1,
+    clarifyFields: ["organizations"], followup: [{message: "机构是合成机构甲。"}]},
+  // 缺指标：机构+日期已给出，只追问指标，补充后查询。
+  {text: "查询合成机构甲2024年3月31日的数据。", org: "O1", start: "2024-03-31", end: "2024-03-31", query: 1,
+    clarifyFields: ["metrics"], followup: [{message: "指标用合成指标甲。"}]},
+  // 多项缺失：只给指标 → 分轮补充机构与日期；逐轮积累已确认条件，未补齐不查，补齐后查完整目标。
+  {text: "帮我查合成指标甲。", org: "O1", start: "2024-03-31", end: "2024-03-31", query: 1,
+    clarifyFields: ["organizations", "time"],
+    followup: [{message: "机构是合成机构甲。"}, {message: "日期是2024年3月31日。"}]},
 ];
 if (!process.argv.includes("--live")) {
   console.log(JSON.stringify({status: "fixtures_valid", turns: cases.length, model_called: false}));
@@ -56,7 +70,7 @@ if (!process.argv.includes("--live")) {
   // 与正式服务一致加载可选业务知识，验证模型同时看到目录与当前工具契约的行为。
   const skills = await loadBusinessSkills();
   const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store,
-    [...createAskMetricTools({compactTurnArgs: config.compactTurnArgs}), createBusinessSkillReadTool(skills)], {skills});
+    [...createAskMetricTools(), createBusinessSkillReadTool(skills)], {skills});
   const actor: BackendUser = {id: "synthetic-multiturn", username: "synthetic", display_name: "合成验收", org_code: "O1", org_name: "合成机构甲", role_code: "USER"};
   const queries: BasicQuerySpec[] = [];
   const snapshots = new Map<string, Record<string, unknown>>();
@@ -64,17 +78,36 @@ if (!process.argv.includes("--live")) {
   const backendDir = resolve("../backend-next");
   const runFile = promisify(execFile);
   let reads = 0;
+  const orgCatalog = [{code: "O1", name: "合成机构甲"}, {code: "O2", name: "合成机构乙"}];
+  // 真实 Python DateResolver：与服务端 resolve-field 同一实现，业务日固定 2026-09-21。
+  const resolveDate = async (text: string, referenceYear?: number): Promise<FieldResolution> => {
+    const {stdout} = await runFile(join(backendDir, ".venv/bin/python"), ["-c",
+      "import json,sys;from datetime import date;from ask_metric.application.field_resolution import resolve_date_field;print(json.dumps(resolve_date_field(sys.argv[1],date(2026,9,21),reference_year=int(sys.argv[2]) if sys.argv[2] else None)))", text, String(referenceYear ?? "")],
+      {cwd: backendDir, env: {...process.env, PYTHONPATH: join(backendDir, "src")}});
+    return JSON.parse(stdout);
+  };
+  const metricResolver = syntheticMetricResolver(metricCatalog);
   const backend = {
-    matchMetricQuestion: syntheticMetricResolver(metricCatalog),
-    resolveBusinessField: async (entity: string, raw: string[], _options?: unknown, referenceYear?: number): Promise<FieldResolution> => {
-      if (entity === "date") {
-        const {stdout} = await runFile(join(backendDir, ".venv/bin/python"), ["-c",
-          "import json,sys;from datetime import date;from ask_metric.application.field_resolution import resolve_date_field;print(json.dumps(resolve_date_field(sys.argv[1],date(2026,9,21),reference_year=int(sys.argv[2]) if sys.argv[2] else None)))", raw[0]!, String(referenceYear ?? "")],
-          {cwd: backendDir, env: {...process.env, PYTHONPATH: join(backendDir, "src")}});
-        return JSON.parse(stdout);
+    matchMetricQuestion: metricResolver,
+    // inspectBusinessGoal 是 before_payload 钩子和 resolve_business_turn 的必经调用；桩必须提供真实片段事实。
+    inspectBusinessGoal: async (question: string, _businessDate: string, _options?: unknown, referenceYear?: number) => {
+      // 指标提及走真实 Python 候选算法，目录外名称（如合成指标丙）保留为候选提及，驱动澄清。
+      const mentions = (await metricResolver(question)).mentions ?? [];
+      const dateExprs = question.match(/\d{4}\s*年\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*[日号]|\s*末|\s*底)?|\d{1,2}\s*月(?:\s*\d{1,2}\s*[日号]|\s*末|\s*底|\s*份)/g) ?? [];
+      const ranges: Array<{start: string; end: string; dates?: string[]}> = [];
+      const unresolved: string[] = [];
+      for (const expr of dateExprs) {
+        const resolved = await resolveDate(expr, referenceYear);
+        if (resolved.status === "resolved") ranges.push(resolved.value as {start: string; end: string});
+        else unresolved.push(expr);
       }
-      const catalog = entity === "metric" ? metricCatalog
-        : [{code: "O1", name: "合成机构甲"}, {code: "O2", name: "合成机构乙"}];
+      return {question, reference_year: referenceYear ?? null, fragments: [{
+        question, organizations: orgCatalog.filter(org => question.includes(org.name)).map(org => org.code),
+        calendar: {ranges, unresolved}, mentions}]};
+    },
+    resolveBusinessField: async (entity: string, raw: string[], _options?: unknown, referenceYear?: number): Promise<FieldResolution> => {
+      if (entity === "date") return resolveDate(raw[0]!, referenceYear);
+      const catalog = entity === "metric" ? metricCatalog : orgCatalog;
       const matches = raw.map(value => catalog.find(item => item.name === value || item.code === value));
       return matches.length && matches.every(Boolean) ? {status: "resolved", value: {codes: matches.map(item => item!.code), names: matches.map(item => item!.name)}} : {status: "not_found"};
     },
@@ -112,9 +145,12 @@ if (!process.argv.includes("--live")) {
           `interim issues must stay within ${test.clarifyFields!.join(",")}`);
       }
       if (enteredClarification) {
-        if (test.org) {
-          assert.deepEqual(interim!.fields.time?.resolvedValue, {start: test.start, end: test.end});
+        // 澄清声明的字段本身未定，只断言未被澄清的条件已确定保存（机构/日期按 clarifyFields 豁免）。
+        if (test.org && !test.clarifyFields?.includes("organizations")) {
           assert.deepEqual((interim!.fields.organizations?.resolvedValue as {codes: string[]})?.codes, [test.org]);
+        }
+        if (test.org && !test.clarifyFields?.includes("time")) {
+          assert.deepEqual(interim!.fields.time?.resolvedValue, {start: test.start, end: test.end});
         }
         assert.equal(queries.length, before, "clarification must not query");
         clarificationFollowup = true;

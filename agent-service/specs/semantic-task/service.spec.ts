@@ -1,10 +1,11 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {readFileSync} from "node:fs";
 import {runTool} from "../../src/tools/testUtils.js";
-import {SemanticTaskService} from "../../src/semantic-task/service.js";
+import {SemanticTaskService,explicitOrganizationCount} from "../../src/semantic-task/service.js";
 import {prepareSemanticArguments, semanticParameters} from "../../src/semantic-task/protocol.js";
 import {createSemanticExecuteTool, createSemanticReadTool} from "../../src/semantic-task/tools.js";
 import {complete, fixture, proposal} from "./fixtures.js";
+import type {FieldResolution} from "../../src/business-context/types.js";
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {for (const close of cleanup.splice(0)) await close(); vi.restoreAllMocks();});
@@ -57,12 +58,11 @@ describe("统一语义任务及执行许可", () => {
     expect(repeated.task!.permit).toBeUndefined();
     expect(f.backend.basicQueries).not.toHaveBeenCalled();
   });
-  it("原句甲乙而Pi仅提交甲，完整义务对账拦截半份查询", async () => {
+  it("原句甲乙而模型仅提交甲，在构造状态时补齐两个指标", async () => {
     const f = await setup(), request = f.request("omit", "查询合成机构甲2025年末的合成指标甲和合成指标乙");
     const result = await new SemanticTaskService(request).resolve(proposal(complete()));
-    expect(result.status).toBe("needs_interpretation");
-    expect(result.task!.issues.some(issue => issue.code === "GOAL_OBLIGATION_UNCOVERED")).toBe(true);
-    expect(result.task!.permit).toBeUndefined();
+    expect(result.status).toBe("ready"); expect(result.task!.issues).toEqual([]);
+    expect(result.task!.target.fields.metrics!.resolvedValue).toMatchObject({codes: ["M1", "M2"]});
     expect(f.backend.basicQueries).not.toHaveBeenCalled();
   });
   it("泛指标首次与续补未匹配均保留机构日期并正常澄清", async () => {
@@ -83,16 +83,16 @@ describe("统一语义任务及执行许可", () => {
     expect(result.task!.target.fields.metrics!.resolutionStatus).toBe("needs_confirmation");
     expect(result.task!.permit).toBeUndefined();
   });
-  it("集合外排除对象不能变成可信排除或执行许可", async () => {
+  it("排除集合外成员幂等保留原集合，未查询的准备状态仍可查询", async () => {
     const f = await setup();
     const ops = complete().map(op => op.field === "metrics" ? {...op, value: "合成指标甲和合成指标乙"} : op);
     await new SemanticTaskService(f.request("initial", "查合成机构甲2025年末的合成指标甲和合成指标乙")).resolve(proposal(ops, {kind: "new"}, "prepare"));
     const result = await new SemanticTaskService(f.request("exclude", "不要合成指标丙，只保留其它指标")).resolve(proposal([{action: "exclude", field: "metrics", subject: "合成指标丙"}], {kind: "current"}));
-    expect(result.status).toBe("needs_interpretation");
+    expect(result.status).toBe("ready");
     expect(result.task!.target.fields.metrics!.resolvedValue).toMatchObject({codes: ["M1", "M2"]});
-    expect(result.task!.permit).toBeUndefined();
+    expect(result.task!.permit).toBeDefined();
   });
-  it("合法替换保留其它指标，并编译完整原句和排除证据", async () => {
+  it("合法替换保留其它指标，执行只提交规范化条件且不含旧证明字段", async () => {
     const f = await setup();
     const ops = complete().map(op => op.field === "metrics" ? {...op, value: "合成指标甲和合成指标丙"} : op);
     await new SemanticTaskService(f.request("initial", "查合成机构甲2025年末的合成指标甲和合成指标丙")).resolve(proposal(ops, {kind: "new"}, "prepare"));
@@ -100,11 +100,13 @@ describe("统一语义任务及执行许可", () => {
     const result = await new SemanticTaskService(request).resolve(proposal([{action: "replace", field: "metrics", subject: "合成指标甲", value: "合成指标乙"}], {kind: "current"}));
     expect(result.status).toBe("ready");
     expect(result.task!.target.fields.metrics!.resolvedValue).toMatchObject({codes: ["M3", "M2"]});
-    expect(result.task!.target.coverage!.removed.every(item => item.text === "合成指标甲")).toBe(true);
     await runTool(createSemanticExecuteTool(), {task_ref: result.task!.ref, target_ref: result.task!.target.ref}, request);
-    const spec = f.backend.basicQueries.mock.calls[0]?.[0] as unknown as {metric_codes: string[]; source_metric_exclusions: unknown[]};
+    const spec = f.backend.basicQueries.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
     expect(spec.metric_codes).toEqual(["M3", "M2"]);
-    expect(spec.source_metric_exclusions).toHaveLength(2);
+    // 旧准入的证明字段（票据、原句、指标绑定/排除）已从规范化查询契约删除。
+    for (const proof of ["source_semantic_receipt", "source_question", "source_metric_bindings", "source_metric_exclusions", "verify_question_coverage"]) {
+      expect(spec[proof]).toBeUndefined();
+    }
   });
   it("篡改规范字段后许可不能消费，伪造引用不能执行", async () => {
     const f = await setup(), request = f.request();
@@ -145,6 +147,29 @@ describe("统一语义任务及执行许可", () => {
     expect(result.status).toBe("ready");
     expect(result.task!.target.fields.metrics!.resolvedValue).toMatchObject({codes: ["M2"]});
   });
+  it("无候选可确认的提案修正只回到冻结基线，不清空待答槽位、待恢复变更和其他已保存字段", async () => {
+    const f = await setup();
+    // 首轮：指标未命中且无候选，保存待答槽位与待恢复变更；机构和日期已确定。
+    const first = await new SemanticTaskService(f.request("retain-initial", "查合成机构甲2025年末的大聪明")).resolve(proposal([
+      {action: "set", field: "organizations", value: "合成机构甲"},
+      {action: "set", field: "metrics", value: "大聪明"},
+      {action: "set", field: "time", value: "2025年末"},
+    ]));
+    expect(first.status).toBe("needs_user");
+    expect(first.task!.target.pending.metrics).toBe("大聪明");
+    expect(first.task!.target.pendingChanges?.metrics?.operations).toEqual([{action: "set", field: "metrics", value: "大聪明"}]);
+    // 次轮：模型提交没有候选可确认的 confirm（无依据提案），只恢复冻结基线，不能清空任何已保存内容。
+    const second = await new SemanticTaskService(f.request("retain-confirm", "就这个指标")).resolve(proposal([
+      {action: "confirm", field: "metrics", value: "大聪明"},
+    ], {kind: "current"}));
+    expect(second.status).toBe("needs_interpretation");
+    expect(second.task!.issues.some(issue => issue.code === "CONFIRMATION_NOT_AVAILABLE")).toBe(true);
+    expect(second.task!.target.fields.metrics).toMatchObject({rawValue: "大聪明", resolutionStatus: "not_found"});
+    expect(second.task!.target.pending.metrics).toBe("大聪明");
+    expect(second.task!.target.pendingChanges?.metrics?.operations).toEqual([{action: "set", field: "metrics", value: "大聪明"}]);
+    expect(second.task!.target.fields.organizations?.resolvedValue).toMatchObject({codes: ["O1"]});
+    expect(second.task!.target.fields.time?.resolvedValue).toMatchObject({start: "2025-12-31", end: "2025-12-31"});
+  });
   it("未决替换跨轮确认后保留未替换成员和原替换角色", async () => {
     const f = await setup();
     const initialOps = complete().map(op => op.field === "metrics" ? {...op, value: "合成指标甲和合成指标丙"} : op);
@@ -164,15 +189,15 @@ describe("统一语义任务及执行许可", () => {
     expect(result.task!.issues.some(issue => issue.code === "ORGANIZATION_COUNT_CONFLICT")).toBe(true);
     expect(result.task!.permit).toBeUndefined();
   });
-  it("提议缩短原日期和替换非来源成员不能得到许可", async () => {
+  it("确定日期直接归一，替换不存在的原成员只询问实际对象", async () => {
     const f = await setup();
     const wrongDate = await new SemanticTaskService(f.request("time", "查合成机构甲2024年末的合成指标甲")).resolve(proposal(complete()));
-    expect(wrongDate.status).toBe("needs_interpretation");
-    expect(wrongDate.task!.issues.some(issue => issue.code === "TIME_SCOPE_CONFLICT")).toBe(true);
+    expect(wrongDate.status).toBe("ready");
+    expect(wrongDate.task!.target.fields.time!.resolvedValue).toMatchObject({start: "2024-12-31", end: "2024-12-31"});
     const initialOps = complete().map(op => op.field === "metrics" ? {...op, value: "合成指标甲和合成指标乙"} : op);
     await new SemanticTaskService(f.request("initial", "查合成机构甲2025年末的合成指标甲和合成指标乙")).resolve(proposal(initialOps, {kind: "new"}, "prepare"));
     const reversed = await new SemanticTaskService(f.request("reverse", "把合成指标丙换成合成指标乙")).resolve(proposal([{action: "replace", field: "metrics", subject: "合成指标丙", value: "合成指标乙"}], {kind: "current"}));
-    expect(reversed.status).toBe("needs_interpretation"); expect(reversed.task!.permit).toBeUndefined();
+    expect(reversed.status).toBe("needs_user"); expect(reversed.task!.permit).toBeUndefined();
   });
   it("近N年保存两种日历口径，跨轮确认绑定原候选范围", async () => {
     const f = await setup();
@@ -255,7 +280,10 @@ describe("统一语义任务及执行许可", () => {
     const next = await new SemanticTaskService(f.request("mixed-choice", "指标用第二项")).resolve(proposal([{action: "confirm", field: "metrics", value: "第二项"}], {kind: "current"}));
     expect(next.status).toBe("ready");
     expect(next.task!.target.fields.metrics!.resolvedValue).toMatchObject({codes: ["M1", "M2"]});
-    expect(next.task!.target.coverage!.mentions.find(mention => mention.text === "待定指标")!.value?.codes).toEqual(["M2"]);
+    // 逐原句片段绑定改为工作状态 metadata.confirmedBindings：span=[start,end,text] → 该片段确认的编码。
+    const bindings = next.task!.target.fields.metrics!.metadata?.confirmedBindings as Record<string, string[]>;
+    const bound = Object.entries(bindings).find(([span]) => (JSON.parse(span) as [number, number, string])[2] === "待定指标");
+    expect(bound?.[1]).toEqual(["M2"]);
   });
   it("多个候选组可分轮确认，每轮保留进度，全部完成前零许可", async () => {
     const f = await setup();
@@ -274,7 +302,8 @@ describe("统一语义任务及执行许可", () => {
     const final = await new SemanticTaskService(f.request("remaining", "用第三项")).resolve(proposal([{action: "confirm", field: "metrics", value: "第三项"}], {kind: "current"}));
     expect(final.status).toBe("ready");
     expect(final.task!.target.fields.metrics!.resolvedValue).toMatchObject({codes: ["M2", "M3"]});
-    expect(final.task!.target.coverage!.mentions.map(mention => mention.value?.codes)).toEqual([["M2"], ["M3"]]);
+    const bound = Object.values(final.task!.target.fields.metrics!.metadata?.confirmedBindings as Record<string, string[]>).map(codes => codes[0]).sort();
+    expect(bound).toEqual(["M2", "M3"]);
   });
 });
 
@@ -293,4 +322,67 @@ it("日期名称出现在否定或其它字段选择中不能确认日期候选"
   const next=await new SemanticTaskService(f.request(id!,message!)).resolve(proposal([{action:"confirm",field:"time",value:"最近5个完整年度"}],{kind:"current"}));
   expect(next.status).toBe("needs_user");expect(next.task!.permit).toBeUndefined();
  }
+});
+
+
+it.each([false,true])("机构确认整表重解析，保留已定项与零候选项（零候选=%s）",async zero=>{
+ const f=await setup();
+ const original=f.backend.resolveBusinessField.getMockImplementation()!;
+ const resolveOrg=vi.fn(async(...args:Parameters<typeof original>):Promise<FieldResolution>=>{
+  const [entity,raw,...rest]=args;
+  if(entity!=="organization")return await original(entity,raw,...rest) as FieldResolution;
+  const known=raw.flatMap(text=>text==="O1"||text==="合成机构甲"?["O1"]:text==="O2"||text==="合成机构乙"?["O2"]:[]);
+  const pending=raw.flatMap((text,i)=>text==="待定机构"||text==="xyz123"?[{text,i}]:[]);
+  if(pending.length)return {status:"needs_confirmation",candidates:pending.filter(p=>p.text==="待定机构").map(p=>({code:"O2",value:"合成机构乙",metadata:{rawValueIndex:p.i}})),metadata:{pendingRawValues:raw,partialMembers:{codes:known,names:known.map(c=>c==="O1"?"合成机构甲":"合成机构乙")},source_codes:["O1"]}};
+  return await original(entity,raw,...rest) as FieldResolution;
+ });
+ Object.assign(f.backend,{resolveBusinessField:resolveOrg});
+ const names=zero?"合成机构甲、xyz123、待定机构":"合成机构甲、待定机构";
+ const initial=await new SemanticTaskService(f.request("org-pending",`查询${names}2025年末的合成指标甲`)).resolve(proposal(complete().map(op=>op.field==="organizations"?{...op,value:names}:op)));
+ expect(initial.status).toBe("needs_user");
+ const next=await new SemanticTaskService(f.request("org-confirm","机构用合成机构乙")).resolve(proposal([{action:"confirm",field:"organizations",value:"合成机构乙"}],{kind:"current"}));
+ if(zero){
+  expect(next.status).toBe("needs_user");
+  expect(next.task!.target.fields.organizations!.metadata!.pendingRawValues).toEqual(["合成机构甲","xyz123","O2"]);
+  expect(next.task!.target.fields.organizations!.metadata!.partialMembers).toMatchObject({codes:["O1","O2"]});
+ }else{
+  expect(next.status,JSON.stringify(next.task?.issues)).toBe("ready");
+  expect(next.task!.target.fields.organizations!.resolvedValue).toMatchObject({codes:["O1","O2"]});
+ }
+ expect(f.backend.resolveBusinessField.mock.calls).toContainEqual(expect.arrayContaining(["organization",zero?["合成机构甲","xyz123","O2"]:["合成机构甲","O2"]]));
+});
+
+it.each(["同槽多选","连续追加中段未决","连续追加首项未决"])('机构%s确认后保留全部集合变更',async scenario=>{
+ const f=await setup(),original=f.backend.resolveBusinessField.getMockImplementation()!;
+ Object.assign(f.backend,{orgCatalog:vi.fn(async()=>({items:[{code:"O1",name:"合成机构甲",aliases:["甲行"]},{code:"O2",name:"合成机构乙",aliases:["乙行"]}]}))});
+ const resolveOrg=vi.fn(async(...args:Parameters<typeof original>):Promise<FieldResolution>=>{
+  const [entity,raw,...rest]=args;
+  if(entity==='organization'&&raw.includes('待定机构'))return {status:'needs_confirmation',candidates:[{code:'O1',value:'合成机构甲',metadata:{rawValueIndex:0}},{code:'O2',value:'合成机构乙',metadata:{rawValueIndex:0}}],metadata:{pendingRawValues:raw}};
+  return await original(entity,raw,...rest) as FieldResolution;
+ });Object.assign(f.backend,{resolveBusinessField:resolveOrg});
+ await new SemanticTaskService(f.request('org-original')).resolve(proposal(complete()));
+ const operations=scenario==='同槽多选'?[{action:'set' as const,field:'organizations' as const,value:'待定机构'}]
+  :scenario==='连续追加中段未决'?[{action:'add' as const,field:'organizations' as const,value:'合成机构乙'},{action:'add' as const,field:'organizations' as const,value:'待定机构'}]
+  :[{action:'add' as const,field:'organizations' as const,value:'待定机构'},{action:'add' as const,field:'organizations' as const,value:'合成机构乙'}];
+ const initial=await new SemanticTaskService(f.request('org-pending-extra','追加合成机构乙和待定机构')).resolve(proposal(operations,{kind:'current'}));
+ expect(initial.status).toBe('needs_user');
+ const reply=scenario==='同槽多选'?'甲行、乙行都要':'甲行';
+ const next=await new SemanticTaskService(f.request('org-selected-extra',reply)).resolve(proposal([{action:'confirm',field:'organizations',value:'模型无权选择'}],{kind:'current'}));
+ expect(next.status,JSON.stringify(next.task?.issues)).toBe('ready');
+ expect(new Set((next.task!.target.fields.organizations!.resolvedValue as {codes:string[]}).codes)).toEqual(new Set(['O1','O2']));
+});
+it('机构简称前缀重叠只确认最长唯一身份',async()=>{
+ const f=await setup(),original=f.backend.resolveBusinessField.getMockImplementation()!;
+ Object.assign(f.backend,{orgCatalog:vi.fn(async()=>({items:[{code:'O1',name:'南京农商行',aliases:['南京']},{code:'O2',name:'南京江北农商行',aliases:['南京江北']}]})),resolveBusinessField:vi.fn(async(...args:Parameters<typeof original>):Promise<FieldResolution>=>args[0]==='organization'&&args[1].includes('待定机构')?{status:'needs_confirmation',candidates:[{code:'O1',value:'南京农商行',metadata:{rawValueIndex:0}},{code:'O2',value:'南京江北农商行',metadata:{rawValueIndex:0}}],metadata:{pendingRawValues:['待定机构']}}:await original(...args) as FieldResolution)});
+ await new SemanticTaskService(f.request('prefix-pending','查询待定机构2025年末的合成指标甲')).resolve(proposal(complete().map(op=>op.field==='organizations'?{...op,value:'待定机构'}:op)));
+ const next=await new SemanticTaskService(f.request('prefix-confirm','南京江北')).resolve(proposal([{action:'confirm',field:'organizations',value:'模型选南京'}],{kind:'current'}));
+ expect(next.status,JSON.stringify(next.task?.issues)).toBe('ready');
+ expect(next.task!.target.fields.organizations!.resolvedValue).toMatchObject({codes:['O2']});
+});
+
+
+it("机构序位只定位成员，不能成为整份集合的数量约束",()=>{
+ for(const text of ["后一家用机构乙","第二家指机构乙","第十二家改日期"])expect(explicitOrganizationCount(text)).toBeUndefined();
+ expect(explicitOrganizationCount("上述三家都查六月末")).toBe(3);
+ expect(explicitOrganizationCount("共十二家")).toBe(12);
 });

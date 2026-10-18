@@ -1,0 +1,306 @@
+{
+  "scope": "schema_and_examples_only",
+  "runtime_enabled": false,
+  "positive": [
+    {
+      "id": "structured_ranking_query",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "precise_query",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "generic_metric_and_relative_time",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "add_collection_member",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "replace_metric",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "exclude_metric",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "wrong_exclusion_is_not_authorized",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "supplement_missing_metric",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "supplement_date_preserves_identity",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "confirm_saved_candidate",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "explicit_history_reference",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "bound_multiple_targets",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "ambiguous_current_target",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "analysis_goal_without_fixed_metrics",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "prepare_only",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "availability_without_metric_default",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "calculate_from_selected_result",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "reuse_result",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "expired_reference",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    },
+    {
+      "id": "clear_without_becoming_unrestricted",
+      "strict_schema": "passed",
+      "pi_validator": "passed"
+    }
+  ],
+  "negative": [
+    {
+      "id": "legacy_protocol",
+      "strict_schema": "rejected",
+      "pi_validator": "rejected"
+    },
+    {
+      "id": "string_protocol_version",
+      "strict_schema": "rejected",
+      "pi_validator": "accepted_with_sdk_normalization"
+    },
+    {
+      "id": "legacy_base",
+      "strict_schema": "rejected",
+      "pi_validator": "rejected"
+    },
+    {
+      "id": "missing_targets",
+      "strict_schema": "rejected",
+      "pi_validator": "rejected"
+    },
+    {
+      "id": "empty_targets",
+      "strict_schema": "rejected",
+      "pi_validator": "rejected"
+    },
+    {
+      "id": "null_source",
+      "strict_schema": "rejected",
+      "pi_validator": "rejected"
+    },
+    {
+      "id": "natural_language_history",
+      "strict_schema": "rejected",
+      "pi_validator": "rejected"
+    },
+    {
+      "id": "partial_reference",
+      "strict_schema": "rejected",
+      "pi_validator": "rejected"
+    },
+    {
+      "id": "index_metric_value",
+      "strict_schema": "rejected",
+      "pi_validator": "rejected"
+    },
+    {
+      "id": "source_text_proof",
+      "strict_schema": "rejected",
+      "pi_validator": "rejected"
+    },
+    {
+      "id": "expected_count_proof",
+      "strict_schema": "rejected",
+      "pi_validator": "rejected"
+    },
+    {
+      "id": "code_value",
+      "strict_schema": "rejected",
+      "pi_validator": "rejected"
+    },
+    {
+      "id": "replace_missing_subject",
+      "strict_schema": "rejected",
+      "pi_validator": "rejected"
+    },
+    {
+      "id": "exclude_missing_subject",
+      "strict_schema": "rejected",
+      "pi_validator": "rejected"
+    },
+    {
+      "id": "clear_with_value",
+      "strict_schema": "rejected",
+      "pi_validator": "rejected"
+    },
+    {
+      "id": "unknown_action",
+      "strict_schema": "rejected",
+      "pi_validator": "rejected"
+    },
+    {
+      "id": "unknown_field",
+      "strict_schema": "rejected",
+      "pi_validator": "rejected"
+    }
+  ],
+  "feedback": [
+    {
+      "id": "invalid_raw_shape",
+      "schema": "passed",
+      "sample_state_consistency": "passed",
+      "runtime_tested": false
+    },
+    {
+      "id": "exact_query_group_ready",
+      "schema": "passed",
+      "sample_state_consistency": "passed",
+      "runtime_tested": false
+    },
+    {
+      "id": "metric_missing_only_necessary_clarification",
+      "schema": "passed",
+      "sample_state_consistency": "passed",
+      "runtime_tested": false
+    },
+    {
+      "id": "model_omits_second_obligation",
+      "schema": "passed",
+      "sample_state_consistency": "passed",
+      "runtime_tested": false
+    },
+    {
+      "id": "one_step_success_goal_remaining",
+      "schema": "passed",
+      "sample_state_consistency": "passed",
+      "runtime_tested": false
+    },
+    {
+      "id": "all_obligations_evidenced",
+      "schema": "passed",
+      "sample_state_consistency": "passed",
+      "runtime_tested": false
+    },
+    {
+      "id": "execution_unknown_reconcile_original_command",
+      "schema": "passed",
+      "sample_state_consistency": "passed",
+      "runtime_tested": false
+    },
+    {
+      "id": "current_reference_revision_conflict",
+      "schema": "passed",
+      "sample_state_consistency": "passed",
+      "runtime_tested": false
+    },
+    {
+      "id": "prepared_conditions_no_query",
+      "schema": "passed",
+      "sample_state_consistency": "passed",
+      "runtime_tested": false
+    },
+    {
+      "id": "reuse_without_new_query",
+      "schema": "passed",
+      "sample_state_consistency": "passed",
+      "runtime_tested": false
+    },
+    {
+      "id": "permission_changed_no_execution",
+      "schema": "passed",
+      "sample_state_consistency": "passed",
+      "runtime_tested": false
+    }
+  ],
+  "feedback_negative": [
+    {
+      "id": "missing_saved_state",
+      "schema": "rejected"
+    },
+    {
+      "id": "legacy_frame_root",
+      "schema": "rejected"
+    },
+    {
+      "id": "unknown_outcome",
+      "schema": "rejected"
+    },
+    {
+      "id": "unknown_completion",
+      "schema": "rejected"
+    },
+    {
+      "id": "invalid_retention_type",
+      "schema": "rejected"
+    },
+    {
+      "id": "missing_continuation_actor",
+      "schema": "rejected"
+    },
+    {
+      "id": "unknown_continuation",
+      "schema": "rejected"
+    },
+    {
+      "id": "missing_issue_code",
+      "schema": "rejected"
+    }
+  ],
+  "semantic_guards": [
+    {
+      "id": "unissued_reference",
+      "schema_valid": true,
+      "required_runtime_outcome": "reject_reference_no_execution",
+      "runtime_tested": false
+    }
+  ],
+  "audit_defects_mapped": 14,
+  "generated_at": "2026-10-18T05:02:51.794Z",
+  "sdk_normalization_requires_strict_prepare": true
+}

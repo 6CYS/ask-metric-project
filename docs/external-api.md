@@ -212,7 +212,7 @@ Bearer 认证，必填 `Idempotency-Key`（1～128 字符）。仍受查询就�
   "schema_version":2,
   "metric_codes":["已确认的指标编码"],
   "organization_scope":{"kind":"authorized_cohort","cohort":"rural_commercial_banks"},
-  "scope_fingerprint":"解析回执中的64位十六进制指纹",
+  "scope_fingerprint":"resolve-scope 解析结果中的64位十六进制指纹",
   "time":{"start":"2026-04-30","end":"2026-04-30"},
   "selection":"exact",
   "operation":{"kind":"ranking","position":"top","top_n":3}

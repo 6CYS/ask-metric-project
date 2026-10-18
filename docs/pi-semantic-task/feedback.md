@@ -1,10 +1,12 @@
 # Pi 语义任务反馈与引用契约
 
-这是版本 2 的待实现工具反馈，定义业务工具回执的 `details`，不替代 Pi 原生 `AgentToolResult` 包装和证据正文。公开请求、内部规范化结果与工具反馈构成同一个闭环；实现时必须一起接入。反馈形状见 [feedback.schema.json](feedback.schema.json)，合成状态样例见 [feedback-examples.json](feedback-examples.json)。内部状态仍以 [任务状态与执行](state-and-execution.md) 为准。
+这是版本 2 的工具反馈，定义业务工具回执的 `details`，不替代 Pi 原生 `AgentToolResult` 包装和证据正文。公开请求、内部规范化结果与工具反馈构成同一个闭环；实现时必须一起接入。反馈形状见 [feedback.schema.json](feedback.schema.json)，合成状态样例见 [feedback-examples.json](feedback-examples.json)。内部状态仍以 [任务状态与执行](state-and-execution.md) 为准。
 
 ## 固定反馈与下一步
 
-反馈固定为 `protocol_version`、`status`、`state`、`issues`、`continuation`。`state` 只投影已保存的可信条件、待解释提案和任务完成状态，内部编译参数及许可不交模型重填。`conditions` 中没有待确认值；未决表达放在 `pending`，不能因为它能显示在页面上就当作已确认条件。
+反馈固定为 `protocol_version`、`status`、`state`、`pending_questions`、`answer_receipts`、`issues`、`continuation`。`state` 只投影已保存的可信条件、待解释提案和任务完成状态，内部编译参数及许可不交模型重填。`conditions` 中没有待确认值；未决表达放在 `pending`，不能因为它能显示在页面上就当作已确认条件。
+
+`pending_questions` 合并任务级候选题和计划级来源确认题（`SOURCE_CONFIRMATION_REQUIRED`，由计划层首发），选项编号、差异说明、版本和确认对象均来自同一已保存快照。`answer_receipts` 记录 `applied`、`declined`、`not_applied` 或 `already_applied`；`applied` 只表示字段选择已应用，不代表执行许可已签发或查询已经成功。公开受理回执不包含内部编码、真实来源通道或目标绑定，确认明示由宿主生成。
 
 | 状态 | 含义及接续边界 |
 | --- | --- |

@@ -33,6 +33,12 @@ export interface HistoryEntrySummary {
   preview: string;
 }
 
+/** 历史正文的服务端来源摘要；回读回执持久化它，后续轮次重新核验权限。 */
+export interface HistoryReadSources {
+  tasks: Array<{task_id: string; result_id?: string}>;
+  organizationScopes: string[][];
+}
+
 /**
  * 原生分支历史的受控只读访问（宿主实现，落在当前 lane 的 findEntries/findEntry）。
  * 只读当前分支祖先；不暴露隐藏思考、凭据、SQL/debug。
@@ -41,12 +47,12 @@ export interface HistoryBridge {
   list(
     beforeSeq?: number,
     limit?: number,
-  ): Promise<{ entries: HistoryEntrySummary[]; next_before_seq: number | null; has_more: boolean }>;
+  ): Promise<{ entries: HistoryEntrySummary[]; next_before_seq: number | null; has_more: boolean; sources?: HistoryReadSources }>;
   read(
     entryId: string,
     offset?: number,
     length?: number,
-  ): Promise<{ entry_id: string; seq: number; type: string; text: string; next_offset: number | null } | null>;
+  ): Promise<{ entry_id: string; seq: number; type: string; text: string; next_offset: number | null; sources?: HistoryReadSources } | null>;
 }
 
 /** 单次用户请求的可信绑定，由宿主在接纳前装配，模型与工具参数不得改写 */
@@ -59,10 +65,14 @@ export interface AskMetricRequestContext {
   originalMessage: string;
   /** 当前请求的目录算法结果；不写入跨用户缓存或替代原生会话状态。 */
   metricMentions?: Promise<import("./business-context/metricMentions.js").MetricMentions>;
+  semanticFacts?: Map<string, Promise<import("./semantic-task/actionBinding.js").TurnFacts>>;
+  semanticResolutions?: Map<string, Promise<import("./business-context/types.js").FieldResolution>>;
   /** 当前请求的有权机构清单；临时失败不缓存，本轮降级为原文名称解析。 */
   orgCatalog?: Promise<import("./business-context/orgCatalog.js").OrgCatalog>;
   /** 仅本轮复用权限检查，下一轮必须重新校验，不能成为会话授权票。 */
   semanticScopeChecks?: Map<string, Promise<boolean>>;
+  /** 本次模型实际看到的正式历史来源；普通回答复述也随回执保存权限来源。 */
+  replyHistorySources?: HistoryReadSources;
   /** 完整 PromptInput 的确定性指纹（宿主计算） */
   promptFingerprint: string;
   sessionId: string;
@@ -74,17 +84,21 @@ export interface AskMetricRequestContext {
   selectedAnswers?: Record<string, unknown>;
   /** 用户点选待确认清单的选项；仅对同一待确认 Frame 生效，由系统而非模型应用。 */
   clarificationSelection?: { frame_id: string; option_ids: string[] };
+  /** 宿主从已鉴权 HTTP 输入绑定的可信点击；模型工具参数不能创建或覆盖。 */
+  trustedAnswers?: import("./semantic-task/questions.js").ClickAnswerInput[];
+  /** 读取本轮之前的原生最终工具回执，证明指定问题版本确已发布；缺失时核心不得受理新 Answer。 */
+  questionPublicationProof?: (question: import("./semantic-task/questions.js").PendingQuestion) => Promise<boolean>;
   /** 宿主绑定的口径切换时间（前端 time_override，已经路由层校验）；等同用户明确指定，模型参数不得创建或改写。 */
   timeOverride?: { start: string; end: string };
   /** 从本轮用户消息之前的原生业务回执投影；目录工具不能改变来源。 */
   queryCandidate?: { task_id: string; version: number } | undefined;
   frames?: import("./business-context/types.js").FrameStore;
   businessResults?: Pick<import("./business-context/store.js").NativeBusinessResultStore, "get" | "save" | "linkExecution" | "executionLink">;
-  businessProtocol?: "fixed_v1" | "semantic_v2";
   semanticTasks?: import("./semantic-task/store.js").NativeSemanticTaskStore;
+  /** 计划层已定向映射到当前子步骤的冻结回答；不进入模型 Schema。 */
+  semanticAnswers?: import("./semantic-task/store.js").SemanticAnswerSnapshot[];
   /** 宿主绑定的任务步骤；模型参数不能切换目标来源或领取执行许可。 */
-  semanticStep?: {planRef: string; rootOperationId: string; revision: number; kind: "query" | "availability" | "calculation"; analysis: boolean; calendar?: {ranges: Array<{start: string; end: string; dates?: string[]}>; unresolved: string[]}; partialCalendar?: boolean; jointCoverage?: boolean; referenceYear?: number;
-    analysisSelection?: {receipt: string; codes: string[]; orgs: string[]; time: unknown}};
+  semanticStep?: {planRef: string; rootOperationId: string; revision: number; kind: "query" | "availability" | "calculation"; analysis: boolean; facts?: import("./semantic-task/actionBinding.js").TurnFacts; multipleTargets?: boolean; referenceYear?: number};
   /** 仅服务端执行适配器绑定，绝不从模型参数读取。 */
   businessExecutionFrame?: string;
   commands: CommandBridge;

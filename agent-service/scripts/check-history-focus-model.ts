@@ -59,7 +59,7 @@ if (!process.argv.includes("--live")) {
   const dir = await mkdtemp(join(tmpdir(), "pi-history-focus-"));
   const config = {...loadConfig(), dataDir: dir};
   const sessions = new NativeSessionStore(dir);
-  const host = new HarnessHost(config, authorized => createAskMetricModels(config, authorized), sessions, createAskMetricTools({compactTurnArgs: config.compactTurnArgs}));
+  const host = new HarnessHost(config, authorized => createAskMetricModels(config, authorized), sessions, createAskMetricTools());
   const actor: BackendUser = {id: "synthetic-history", username: "synthetic", display_name: "合成验收", org_code: "O1", org_name: "合成机构甲", role_code: "USER"};
   const metrics: Record<string, string> = {合成指标甲: "M1", 合成指标乙: "M2", 合成指标丙: "M3"};
   const orgs: Record<string, string> = {合成机构甲: "O1", 合成机构乙: "O2", 合成机构丙: "O3"};

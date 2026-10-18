@@ -158,7 +158,7 @@ def test_fuzzy_suggestions_do_not_relax_correction_threshold():
     )
     assert "value" not in result
     assert result["metadata"]["issues"] == [
-        {"rawValue": "沐阳农村商业银行股份有限公司", "reason": "needs_confirmation"},
+        {"rawValue": "沐阳农村商业银行股份有限公司", "rawValueIndex": 0, "reason": "needs_confirmation"},
     ]
 
 

@@ -1,12 +1,13 @@
+import {inspectTurn} from "./actionBinding.js";
 import {referencedQueryNumbers} from "./historyReference.js";
 import {createHash} from "node:crypto";
 import type {AgentMessage} from "@earendil-works/pi-agent-core";
-import {BackendApiError, type AnswerBlock} from "../backendClient.js";
+import {BackendApiError, type AnswerBlock, type BasicQuerySpec} from "../backendClient.js";
 import type {AskMetricRequestContext} from "../requestContext.js";
 import {isSemanticFeedback, type SemanticFeedback} from "./feedback.js";
 import {semanticPlanDigest} from "./planService.js";
-import type {SemanticTask, SemanticTurn} from "./store.js";
-import {completeQuery, transitionValue, type TransitionField} from "./transition.js";
+import type {SemanticPlan, SemanticTask, SemanticTurn} from "./store.js";
+import {completeQuery} from "./querySpec.js";
 import {withoutContextResetInstruction} from "./sourceGuard.js";
 
 export interface DirectAnswerSource {
@@ -163,21 +164,24 @@ async function historicalQueryAt(request: AskMetricRequestContext, ordinal: numb
   return reference ? request.semanticTasks!.plan(reference.task_ref) : undefined;
 }
 
-function unchangedTransition(task: SemanticTask): boolean {
-  const transition = task.target.transition;
-  if (!transition || !completeQuery(task.target)) return false;
-  const fields: TransitionField[] = ["metrics", "organizations", "comparison_organizations", "time", "selection", "operation"];
-  return fields.every(field => {
-    const before = field === "metrics" ? transition.before.metric_codes : field === "organizations" ? transition.before.org_codes ?? []
-      : field === "comparison_organizations" ? transition.before.comparison_scope?.org_codes ?? [] : transition.before[field] ?? null;
-    const changes = transition.changes.filter(change => change.field === field);
-    let expected: unknown = before;
-    for (const change of changes) {
-      if (JSON.stringify(change.before) !== JSON.stringify(expected)) return false;
-      expected = change.after;
-    }
-    return JSON.stringify(expected) === JSON.stringify(transitionValue(task.target, field));
-  });
+/**
+ * “条件未变”核验：直接比较当前目标与冻结基线的规范化 spec 等值。
+ * 基线只取签发来源（reference 的源任务、current 的冻结入场任务）；new 没有基线，不能宣称条件未变。
+ */
+async function unchangedConditions(request: AskMetricRequestContext, plan: SemanticPlan, turn: SemanticTurn | undefined, task: SemanticTask): Promise<boolean> {
+  const current = completeQuery(task.target);
+  if (!current) return false;
+  const step = plan.steps.find(item => item.taskRef === task.ref);
+  if (!step) return false;
+  let before: BasicQuerySpec | undefined;
+  if (step.source.kind === "reference") {
+    const saved = await request.semanticTasks!.planReference(step.source.target_ref, step.source.task_ref);
+    const source = saved?.step.taskRef ? await request.semanticTasks!.get(saved.step.taskRef) : undefined;
+    before = source ? completeQuery(source.target) : undefined;
+  } else if (step.source.kind === "current" && turn?.context?.tasks.length === 1) {
+    before = completeQuery(turn.context.tasks[0]!.target);
+  }
+  return !!before && JSON.stringify(before) === JSON.stringify(current);
 }
 function terminal(feedback: SemanticFeedback, denied: boolean): SemanticFeedback {
   const {evidence: _evidence, ...state} = feedback.state;
@@ -200,9 +204,8 @@ export async function prepareDirectQueryDelivery(request: AskMetricRequestContex
   const turn = await request.semanticTasks?.turn(request.operationId);
   const plan = feedback.state.task_ref ? await request.semanticTasks?.plan(feedback.state.task_ref) : undefined;
   if (!turn || turn.originalMessage !== request.originalMessage || !plan || plan.owner !== request.actor.id
-    || !["query", "reuse"].includes(plan.intent) || plan.status !== "completed" || plan.completion !== "full" || plan.issues.length
-    || plan.admitted?.operationId !== plan.operationId || plan.admitted.revision !== plan.revision
-    || plan.admitted.digest !== semanticPlanDigest(plan)) return reject("plan_not_current_or_admitted");
+    || !["query", "reuse"].includes(plan.intent) || plan.status !== "completed" || plan.completion !== "full" || plan.issues.length)
+    return reject("plan_not_current");
   const historyRead = plan.operationId !== request.operationId;
   const readOnlyDelivery = historyRead || plan.intent === "reuse";
   const ordinalReferences = [...request.originalMessage.matchAll(/第[一二三四五六七八九十百\d]+次(?:查询)?/gu)];
@@ -222,18 +225,17 @@ export async function prepareDirectQueryDelivery(request: AskMetricRequestContex
       source = "admitted_focus";
     }
     readBinding = {planRef: plan.ref, revision: plan.revision,
-      digest: plan.admitted.digest, targetRefs: plan.steps.map(step => step.targetRef), source};
+      digest: semanticPlanDigest(plan), targetRefs: plan.steps.map(step => step.targetRef), source};
   } else if (plan.intent === "reuse") {
     const ordinal = queryOrdinal(request.originalMessage);
     const source = ordinal !== undefined ? await historicalQueryAt(request, ordinal)
       : /(?:刚才|上次|上一轮|当前)/u.test(request.originalMessage) ? turn.context?.plan : undefined;
     const issue = ordinal !== undefined ? "history_query_ordinal_mismatch" : "history_read_focus_mismatch";
-    if (!source || source.owner !== request.actor.id || source.admitted?.operationId !== source.operationId
-      || source.admitted.revision !== source.revision || source.admitted.digest !== semanticPlanDigest(source)
+    if (!source || source.owner !== request.actor.id || source.status !== "completed" || source.completion !== "full"
       || source.steps.length !== plan.steps.length || plan.steps.some(step => !source.steps.some(candidate => candidate.taskRef === step.taskRef
         && candidate.targetRef === step.targetRef && (step.source.kind === "reference" ? step.source.task_ref === source.ref && step.source.target_ref === candidate.targetRef
           : step.source.kind === "current" && source.ref === turn.context?.plan?.ref)))) return reject(issue);
-    readBinding = {planRef: source.ref, revision: source.revision, digest: source.admitted.digest,
+    readBinding = {planRef: source.ref, revision: source.revision, digest: semanticPlanDigest(source),
       targetRefs: source.steps.map(step => step.targetRef), source: ordinal !== undefined ? "query_ordinal" : "admitted_focus"};
   }
   if (!plan.steps.length || plan.steps.some(step => step.kind !== "query" || step.status !== "succeeded" || step.issues.length
@@ -244,15 +246,16 @@ export async function prepareDirectQueryDelivery(request: AskMetricRequestContex
   if (tasks.some(task => !task || task.owner !== request.actor.id || task.target.status !== "succeeded" || task.completion !== "full"
     || task.issues.length || Object.keys(task.target.pending).length || task.capability !== "metric_query"
     || ["metrics", "organizations", "time", "selection", "operation"].some(name => task.target.fields[name]?.resolutionStatus !== "resolved")
-    || !object(task.target.fields.operation?.resolvedValue) || task.target.fields.operation.resolvedValue.kind !== "value"
-    || !nonempty(task.target.fields.metrics?.metadata?.semanticSelectionReceipt))) return reject("unverified_value_contract");
+    || !object(task.target.fields.operation?.resolvedValue) || task.target.fields.operation.resolvedValue.kind !== "value")) return reject("unverified_value_contract");
   const presentTasks = tasks as SemanticTask[];
-  if (/(?:其他|其余|其它)条件(?:保持)?不变/u.test(request.originalMessage) && presentTasks.some(task => !unchangedTransition(task))) return reject("unchanged_conditions_unverified");
+  if (/(?:其他|其余|其它)条件(?:保持)?不变/u.test(request.originalMessage)) {
+    for (const task of presentTasks) if (!await unchangedConditions(request, plan, turn, task)) return reject("unchanged_conditions_unverified");
+  }
   if (/(?:不要|无需|不必)重新查询/u.test(request.originalMessage) && !historyRead && plan.intent !== "reuse") return reject("read_only_delivery_required");
   const questions = [request.originalMessage, ...(turn.contextAction === "resume" && turn.context?.clarification ? [turn.context.clarification.originalMessage] : [])];
   try {
     for (const question of questions) {
-      const goal = await request.backend.inspectBusinessGoal(question, turn.businessDate, {signal: input.signal}, plan.referenceYear);
+      const goal = await inspectTurn(request, question, turn.businessDate, plan.referenceYear, input.signal);
       if (readOnlyDelivery && !explicitReadFactsMatch(goal, presentTasks)) return reject("read_source_conditions_mismatch");
       if (goal.requires_calculation || goal.fragments.some(fragment => fragment.calendar.unresolved.length)
         || !await verifiedResultOnlyQuestion(request, question, presentTasks, goal, input.signal, readOnlyDelivery)) return reject(readOnlyDelivery ? "read_only_obligation_unverified" : "additional_or_unknown_answer_obligation");

@@ -11,6 +11,10 @@ export interface MetricMentions {mentions: MetricMention[]; status?: "temporary_
  * 传入其他原句（继承重试上一轮临时失败的指标）时不读写本轮缓存。
  */
 export function metricMentions(request: AskMetricRequestContext, question = request.originalMessage): Promise<MetricMentions> {
+  const facts = request.semanticStep?.facts;
+  if (facts && question === facts.question && facts.fragments.length === 1 && facts.fragments[0]?.question === question) {
+    return Promise.resolve({mentions: facts.fragments[0].mentions});
+  }
   if (question !== request.originalMessage) return matchMetricMentions(request, question);
   if (request.metricMentions) return request.metricMentions;
   const pending = matchMetricMentions(request, question);

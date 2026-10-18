@@ -2,22 +2,22 @@ import {mkdtempSync, rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {validateToolArguments} from "@earendil-works/pi-ai";
 import {NativeSessionStore} from "../../src/nativeSessions.js";
 import {NativeFrameStore} from "../../src/business-context/store.js";
 import {BusinessContextService} from "../../src/business-context/service.js";
 import {createCapabilities} from "../../src/business-context/capabilities.js";
 import {createFieldResolvers} from "../../src/business-context/resolvers.js";
-import {modelCapabilitySchemas, modelFrame} from "../../src/business-context/modelView.js";
+import {modelFields} from "../../src/business-context/modelView.js";
 import type {BusinessFrame, ContextDelta, ResolverContext} from "../../src/business-context/types.js";
 import {BackendApiError, type BackendClient} from "../../src/backendClient.js";
-import {createResolveBusinessTurnTool as resolveBusinessTurnTool, createExecuteBusinessFrameTool} from "../../src/tools/businessContext.js";
+import {createExecuteBusinessFrameTool} from "../../src/tools/businessContext.js";
+import {createResolveTurnShim} from "./resolveTurnShim.js";
 import {MemoryCommandBridge, receiptJson, runTool as executeTool, testRequestContext} from "../../src/tools/testUtils.js";
 import {BusinessInputError} from "../../src/business-context/inputError.js";
-import {toCompactTurnArgs, toContextDelta, toLegacyTurnArgs} from "../../src/business-context/turnArgs.js";
+import {toContextDelta} from "../../src/business-context/turnArgs.js";
 
-describe.each([false, true])("查询意图V2回归（compactTurnArgs=%s）", compactTurnArgs => {
-const createResolveBusinessTurnTool = () => resolveBusinessTurnTool({compactTurnArgs});
+describe("查询意图V2回归", () => {
+const createResolveBusinessTurnTool = () => createResolveTurnShim();
 
 /** 两种Schema均覆盖真实准备顺序；内部Delta缺省语义不补成模型要求的显式来源。 */
 /** 仅测试夹具显式声明既定字段意图；生产工具不会替模型补此契约，缺参另有专项测试。 */
@@ -39,22 +39,15 @@ async function fixtureFieldIntents(params: unknown, request: Parameters<typeof e
 }
 
 async function runTool(...[tool, params, request, context]: Parameters<typeof executeTool>) {
-  const candidate = tool as ReturnType<typeof resolveBusinessTurnTool>;
+  const candidate = tool as ReturnType<typeof createResolveTurnShim>;
   if (candidate.name === "resolve_business_turn") {
     params = await fixtureFieldIntents(params, request);
-    let compact: Record<string, unknown> | undefined;
-    try { compact = toCompactTurnArgs(toContextDelta(params)); } catch (error) {
-      if (!(error instanceof BusinessInputError)) throw error;
-    }
-    if (compact && params && typeof params === "object"
+    // 保留服务层的来源省略与能力继承；内部 Delta 不补成显式模型参数。
+    if (params && typeof params === "object"
       && Object.hasOwn(params, "capabilityHint") && Object.hasOwn(params, "baseReference")) {
-      const prepared = candidate.prepareArguments?.(params) ?? params;
-      expect(prepared).toEqual(compactTurnArgs ? compact : toLegacyTurnArgs(toContextDelta(params)));
-      const validated = validateToolArguments(candidate, {type: "toolCall", id: "tc-1", name: candidate.name, arguments: prepared});
-      return executeTool(tool, validated, request, context);
+      const prepared = candidate.prepareArguments?.(params as Record<string, unknown>) ?? params;
+      return executeTool(tool, prepared, request, context);
     }
-    // 保留服务层的来源省略与能力继承；新格式不补成显式模型参数。
-    if (compactTurnArgs && compact) return executeTool(tool, compact, request, context);
   }
   return executeTool(tool, params, request, context);
 }
@@ -101,7 +94,7 @@ it("指定日和排名正交，集合只传范围与指纹，不二次展开或�
   expect(receipt.status).toBe("READY");
   expect(JSON.stringify(receipt)).not.toContain("bank-1");
   const frame = (await f.store.get(String(receipt.frameId)))!;
-  expect(modelFrame(frame, f.identity.turnId).fields.organizations?.value).toEqual({scope, count: 4});
+  expect(modelFields(frame.fields).organizations?.resolvedValue).toEqual({scope, count: 4});
   await runTool(createExecuteBusinessFrameTool(), {frameId: receipt.frameId}, f.request);
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
   const spec = (f.backend.basicQueries.mock.calls as unknown[][])[0]![0];
@@ -228,11 +221,11 @@ it("临时故障保存可重试draft但不抢已确定焦点", async () => {
     executionMode: "execute", fieldChanges: []}, {...f.request, requestId: "retry", operationId: "retry", originalMessage: "重试"}));
   expect(next.status).toBe("READY");
 });
-it("模型可见完整scope/operation输入Schema，覆盖能力不承诺集合支持", () => {
-  const schemas = modelCapabilitySchemas();
-  expect(JSON.stringify(schemas.find(s => s.capability === "metric_query"))).toContain("authorized_cohort");
-  expect(JSON.stringify(schemas.find(s => s.capability === "metric_query")?.fields.operation)).toContain("top_n");
-  expect(JSON.stringify(schemas.find(s => s.capability === "data_availability"))).not.toContain("authorized_cohort");
+it("能力字段输入Schema公开完整scope/operation约束，覆盖能力不承诺集合支持", () => {
+  const capabilities = createCapabilities();
+  expect(JSON.stringify(capabilities.get("metric_query"))).toContain("authorized_cohort");
+  expect(JSON.stringify(capabilities.get("metric_query").fields.operation)).toContain("top_n");
+  expect(JSON.stringify(capabilities.get("data_availability"))).not.toContain("authorized_cohort");
 });
 it("旧排名Frame不能按新契约续跑，原焦点仍可供只读审计", async () => {
   const f = await fixture(); const ready = await f.service.resolve(f.delta, f.identity, f.context);

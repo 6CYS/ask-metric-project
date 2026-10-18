@@ -136,15 +136,7 @@ export function createCapabilities(): CapabilityRegistry {
         definition.requireTurnIntent = true;
         definition.turnIntentCollection = "codes";
         definition.description += " 整笔历史业务用 baseReference 明确定位，机构未重新指定时直接继承，无需重复包装机构引用；特定机构字段独立指代、明确数量约束或多源组合时，结合本会话索引按 inputSchema 提交 fromHistory、sourceText、sources 和 combine：single 引用完整单源，union 按正式编码合并去重。sourceText 来自本轮指代原文；expectedCount 仅声明用户明确的完整机构数量，与排名条数无关。来源唯一且无数量要求时可直接引用，多个合理来源或数量不符才澄清，不按最近记录或数量凑选来源。add 只追加本轮新名称。续补同一组合时 retainResolvedAdditions:true 保留已确定新增项、未决项与数量；replaceAdditions 按焦点 unresolvedAdditions 的0基 index 替换指定未决名称，value 来自本轮，未列项仍保留。服务端复核来源、状态、目录和权限，不展开历史名称或生成编码。sources 只决定机构，其余条件由 baseReference 继承；动态范围不能混并。";
-        definition.description += " 本轮注入有权机构清单时，可自主判断用户所指机构（含别名、简称、明显错字）并提交 orgSuggestion：code 或 name 至少其一且必须取自该清单，excerpt 为用户原文片段（仅记录，不做子串校验），sourceText 保留本轮原文；成员校验、编码来源与错字纠正明示由服务端完成。无法判断时仍按本轮原文名称提交或澄清，不能编造清单外机构。";
-        (definition.inputSchema.anyOf as unknown[]).push(historyFieldReferenceSchema,
-          {type: "object", required: ["orgSuggestion", "sourceText"], properties: {
-            orgSuggestion: {type: "object", minProperties: 1, properties: {
-              code: {type: "string", minLength: 1, maxLength: 200, description: "有权机构清单中的正式编码"},
-              name: {type: "string", minLength: 1, maxLength: 200, description: "有权机构清单中的正式名称"},
-              excerpt: {type: "string", minLength: 1, maxLength: 2000, description: "用户原文中表达该机构的片段，仅记录"},
-            }, additionalProperties: false},
-            sourceText: {type: "string", minLength: 1, maxLength: 200}}, additionalProperties: false});
+        (definition.inputSchema.anyOf as unknown[]).push(historyFieldReferenceSchema);
       }
       if (name === "organizations" && capability === "metric_query") {
         definition.description += " 用户要求机构集合或下辖范围时使用 inputSchema 声明的范围对象：authorized_cohort 对应已支持集合，children_of 以 parentName 指定本轮上级名称；sourceText 保留完整范围原文。纯文本不能代替范围对象。权限和层级由服务端确定，不枚举成员编码，也不把未知具体名称改为集合。";

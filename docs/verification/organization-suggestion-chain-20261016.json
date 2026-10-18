@@ -1,0 +1,611 @@
+{
+  "model": "deepseek-ai/DeepSeek-V4-Flash",
+  "environment": "development",
+  "oracle": {
+    "queries": 2,
+    "rows": 12,
+    "sha256": "d0ad210a663adeddeb4d8c28216aef0e16d303458468a0c750aa18e84abf8c30"
+  },
+  "cases": {
+    "main": {
+      "session_id": "01a14231-1fe9-744f-a51f-0e2295725931",
+      "done": true,
+      "error": null,
+      "native_sha256": "27a44f68555f7ca69ed7f6d171f04fbd62b99da87a56fc524b06dd49aa77aee4",
+      "rounds": [
+        {
+          "question": "查询无锡、江阴、启东2026年5月31日的对公协定存款余额当日数",
+          "model_calls": 1,
+          "provider_errors": 0,
+          "input_tokens": 10177,
+          "uncached_input_tokens": 10177,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 217,
+          "total_tokens": 10394,
+          "result_rows": 3,
+          "expected_rows": 3,
+          "exact_oracle_match": true,
+          "not_truncated": true,
+          "answer_value_coverage": true,
+          "formal_queries": 1,
+          "statuses": [
+            "succeeded"
+          ]
+        },
+        {
+          "question": "去掉江阴，其他条件不变",
+          "model_calls": 2,
+          "provider_errors": 0,
+          "input_tokens": 23128,
+          "uncached_input_tokens": 19032,
+          "cache_read_tokens": 4096,
+          "cache_write_tokens": 0,
+          "output_tokens": 180,
+          "total_tokens": 23308,
+          "result_rows": 2,
+          "expected_rows": 2,
+          "exact_oracle_match": true,
+          "not_truncated": true,
+          "answer_value_coverage": true,
+          "formal_queries": 1,
+          "statuses": [
+            "succeeded"
+          ]
+        },
+        {
+          "question": "把无锡换成江阴，其他条件不变",
+          "model_calls": 2,
+          "provider_errors": 0,
+          "input_tokens": 24042,
+          "uncached_input_tokens": 24042,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 214,
+          "total_tokens": 24256,
+          "result_rows": 2,
+          "expected_rows": 2,
+          "exact_oracle_match": true,
+          "not_truncated": true,
+          "answer_value_coverage": true,
+          "formal_queries": 1,
+          "statuses": [
+            "succeeded"
+          ]
+        },
+        {
+          "question": "再加上无锡，其他不变",
+          "model_calls": 2,
+          "provider_errors": 0,
+          "input_tokens": 24847,
+          "uncached_input_tokens": 16655,
+          "cache_read_tokens": 8192,
+          "cache_write_tokens": 0,
+          "output_tokens": 190,
+          "total_tokens": 25037,
+          "result_rows": 3,
+          "expected_rows": 3,
+          "exact_oracle_match": true,
+          "not_truncated": true,
+          "answer_value_coverage": true,
+          "formal_queries": 1,
+          "statuses": [
+            "succeeded"
+          ]
+        },
+        {
+          "question": "上述三家都改为2026年6月30日",
+          "model_calls": 2,
+          "provider_errors": 0,
+          "input_tokens": 24911,
+          "uncached_input_tokens": 24399,
+          "cache_read_tokens": 512,
+          "cache_write_tokens": 0,
+          "output_tokens": 218,
+          "total_tokens": 25129,
+          "result_rows": 3,
+          "expected_rows": 3,
+          "exact_oracle_match": true,
+          "not_truncated": true,
+          "answer_value_coverage": true,
+          "formal_queries": 1,
+          "statuses": [
+            "succeeded"
+          ]
+        },
+        {
+          "question": "只看启东，其他条件不变",
+          "model_calls": 1,
+          "provider_errors": 0,
+          "input_tokens": 11818,
+          "uncached_input_tokens": 7722,
+          "cache_read_tokens": 4096,
+          "cache_write_tokens": 0,
+          "output_tokens": 142,
+          "total_tokens": 11960,
+          "result_rows": 1,
+          "expected_rows": 1,
+          "exact_oracle_match": true,
+          "not_truncated": true,
+          "answer_value_coverage": true,
+          "formal_queries": 1,
+          "statuses": [
+            "succeeded"
+          ]
+        },
+        {
+          "question": "回到本对话第一次查询的三家机构，改查2026年6月30日，指标不变",
+          "model_calls": 2,
+          "provider_errors": 0,
+          "input_tokens": 25922,
+          "uncached_input_tokens": 15682,
+          "cache_read_tokens": 10240,
+          "cache_write_tokens": 0,
+          "output_tokens": 309,
+          "total_tokens": 26231,
+          "result_rows": 3,
+          "expected_rows": 3,
+          "exact_oracle_match": true,
+          "not_truncated": true,
+          "answer_value_coverage": true,
+          "formal_queries": 1,
+          "statuses": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    "clarification": {
+      "session_id": "01a1424a-2eb6-725c-a156-96ebbe91cda2",
+      "done": true,
+      "error": null,
+      "native_sha256": "c8e2f35d2cfcbaa394871d26835304324cac402ee425fab127b7bb442f670273",
+      "rounds": [
+        {
+          "question": "查询无锡和农村商业银行这两家2026年5月31日的对公协定存款余额当日数",
+          "model_calls": 2,
+          "provider_errors": 0,
+          "input_tokens": 20719,
+          "uncached_input_tokens": 239,
+          "cache_read_tokens": 20480,
+          "cache_write_tokens": 0,
+          "output_tokens": 491,
+          "total_tokens": 21210,
+          "result_rows": 0,
+          "expected_rows": 0,
+          "exact_oracle_match": true,
+          "not_truncated": true,
+          "answer_value_coverage": true,
+          "formal_queries": 0,
+          "statuses": [
+            "needs_interpretation",
+            "needs_user"
+          ]
+        }
+      ]
+    },
+    "clarification_resume": {
+      "session_id": "01a1424a-2eb6-725c-a156-96ebbe91cda2",
+      "done": true,
+      "error": null,
+      "native_sha256": "c8e2f35d2cfcbaa394871d26835304324cac402ee425fab127b7bb442f670273",
+      "rounds": [
+        {
+          "question": "第二家指江阴",
+          "model_calls": 3,
+          "provider_errors": 0,
+          "input_tokens": 40437,
+          "uncached_input_tokens": 40437,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 428,
+          "total_tokens": 40865,
+          "result_rows": 2,
+          "expected_rows": 2,
+          "exact_oracle_match": true,
+          "not_truncated": true,
+          "answer_value_coverage": true,
+          "formal_queries": 1,
+          "statuses": [
+            "needs_interpretation",
+            "succeeded"
+          ]
+        },
+        {
+          "question": "不是改日期，把江阴换成启东，其他条件不变",
+          "model_calls": 2,
+          "provider_errors": 0,
+          "input_tokens": 24077,
+          "uncached_input_tokens": 15885,
+          "cache_read_tokens": 8192,
+          "cache_write_tokens": 0,
+          "output_tokens": 214,
+          "total_tokens": 24291,
+          "result_rows": 2,
+          "expected_rows": 2,
+          "exact_oracle_match": true,
+          "not_truncated": true,
+          "answer_value_coverage": true,
+          "formal_queries": 1,
+          "statuses": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    "smoke": {
+      "session_id": "01a1424a-2ebb-725c-a156-96ed574b699a",
+      "done": true,
+      "error": null,
+      "native_sha256": "9ff0fa6ef909f479d3711f22eb034ccd7505843a26dae5d4031ef4411ef4c845",
+      "rounds": [
+        {
+          "question": "查询无锡、江阴、启东2026年5月31日的对公协定存款余额当日数",
+          "model_calls": 1,
+          "provider_errors": 0,
+          "input_tokens": 10248,
+          "uncached_input_tokens": 10248,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 243,
+          "total_tokens": 10491,
+          "result_rows": 3,
+          "expected_rows": 3,
+          "exact_oracle_match": true,
+          "not_truncated": true,
+          "answer_value_coverage": true,
+          "formal_queries": 1,
+          "statuses": [
+            "succeeded"
+          ]
+        },
+        {
+          "question": "查询江因2026年5月31日的对公协定存款余额当日数",
+          "model_calls": 3,
+          "provider_errors": 0,
+          "input_tokens": 34837,
+          "uncached_input_tokens": 26645,
+          "cache_read_tokens": 8192,
+          "cache_write_tokens": 0,
+          "output_tokens": 532,
+          "total_tokens": 35369,
+          "result_rows": 1,
+          "expected_rows": 1,
+          "exact_oracle_match": true,
+          "not_truncated": true,
+          "answer_value_coverage": true,
+          "formal_queries": 1,
+          "statuses": [
+            "conflict",
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    "multi_metric": {
+      "session_id": "01a14243-0595-714c-b649-9521b409516b",
+      "done": true,
+      "error": null,
+      "native_sha256": "4d1a42944ab5a7d6760205093dc883121e1001b75793ec8082c36dda00193190",
+      "rounds": [
+        {
+          "question": "查询无锡、江阴、启东2026年5月31日的对公协定存款余额当日数和个人活期存款余额当日数",
+          "model_calls": 2,
+          "provider_errors": 0,
+          "input_tokens": 20644,
+          "uncached_input_tokens": 17572,
+          "cache_read_tokens": 3072,
+          "cache_write_tokens": 0,
+          "output_tokens": 526,
+          "total_tokens": 21170,
+          "result_rows": 6,
+          "expected_rows": 6,
+          "exact_oracle_match": true,
+          "not_truncated": true,
+          "answer_value_coverage": true,
+          "formal_queries": 1,
+          "statuses": [
+            "needs_interpretation",
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    "delivery": {
+      "session_id": "01a14255-7b5d-74a1-bc5c-2b2cf406284f",
+      "done": true,
+      "error": null,
+      "native_sha256": "097ac5749470a9a893b39463bbf00bf72b84c0b5300efda5ed40c9a8246af2d3",
+      "rounds": [
+        {
+          "question": "查询无锡、江阴、启东2026年5月31日的对公协定存款余额当日数",
+          "model_calls": 1,
+          "provider_errors": 0,
+          "input_tokens": 10248,
+          "uncached_input_tokens": 8,
+          "cache_read_tokens": 10240,
+          "cache_write_tokens": 0,
+          "output_tokens": 243,
+          "total_tokens": 10491,
+          "result_rows": 3,
+          "expected_rows": 3,
+          "exact_oracle_match": true,
+          "not_truncated": true,
+          "answer_value_coverage": true,
+          "formal_queries": 1,
+          "statuses": [
+            "succeeded"
+          ]
+        },
+        {
+          "question": "只看江阴，其他条件不变",
+          "model_calls": 1,
+          "provider_errors": 0,
+          "input_tokens": 10928,
+          "uncached_input_tokens": 10928,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 140,
+          "total_tokens": 11068,
+          "result_rows": 1,
+          "expected_rows": 1,
+          "exact_oracle_match": true,
+          "not_truncated": true,
+          "answer_value_coverage": true,
+          "formal_queries": 1,
+          "statuses": [
+            "succeeded"
+          ]
+        }
+      ]
+    }
+  },
+  "baseline": {
+    "session_id": "01a14097-d455-7446-ad41-a68d828a05e3",
+    "round": {
+      "question": "查询无锡、江阴、启东2026年5月31日的对公协定存款余额当日数",
+      "model_calls": 1,
+      "provider_errors": 0,
+      "input_tokens": 9864,
+      "uncached_input_tokens": 1672,
+      "cache_read_tokens": 8192,
+      "cache_write_tokens": 0,
+      "output_tokens": 227,
+      "total_tokens": 10091
+    }
+  },
+  "retained_failures": [
+    {
+      "file": "clarify-final-live.json",
+      "session_id": "01a14231-ab9f-744f-a51f-0e604b198e0d",
+      "recorded_questions": [
+        "查询无锡和农村商业银行这两家2026年5月31日的对公协定存款余额当日数",
+        "第二家指江阴",
+        "不是改日期，把江阴换成启东，其他不变"
+      ],
+      "usage": [
+        {
+          "question": "查询无锡和农村商业银行这两家2026年5月31日的对公协定存款余额当日数",
+          "model_calls": 2,
+          "provider_errors": 0,
+          "input_tokens": 21111,
+          "uncached_input_tokens": 20855,
+          "cache_read_tokens": 256,
+          "cache_write_tokens": 0,
+          "output_tokens": 728,
+          "total_tokens": 21839
+        },
+        {
+          "question": "第二家指江阴",
+          "model_calls": 3,
+          "provider_errors": 0,
+          "input_tokens": 37252,
+          "uncached_input_tokens": 23940,
+          "cache_read_tokens": 13312,
+          "cache_write_tokens": 0,
+          "output_tokens": 1095,
+          "total_tokens": 38347
+        },
+        {
+          "question": "不是改日期，把江阴换成启东，其他不变",
+          "model_calls": 11,
+          "provider_errors": 0,
+          "input_tokens": 145771,
+          "uncached_input_tokens": 16747,
+          "cache_read_tokens": 129024,
+          "cache_write_tokens": 0,
+          "output_tokens": 526,
+          "total_tokens": 146297
+        }
+      ],
+      "native_sha256": "81a259889c87fc8b43116f7450075bd0042bacdc6e66f690a34e4435390d8e7a",
+      "evidence_sha256": "6956b0c49a231a7eb7a4a1d168152208890cf5f24bc5a05e55b63f9d10b8bae1"
+    },
+    {
+      "file": "clarify-recheck-live.json",
+      "session_id": "01a1423d-16d8-714c-b649-94cd1a598038",
+      "recorded_questions": [
+        "查询无锡和农村商业银行这两家2026年5月31日的对公协定存款余额当日数",
+        "第二家指江阴",
+        "不是改日期，把江阴换成启东，其他不变"
+      ],
+      "usage": [
+        {
+          "question": "查询无锡和农村商业银行这两家2026年5月31日的对公协定存款余额当日数",
+          "model_calls": 2,
+          "provider_errors": 2,
+          "input_tokens": 0,
+          "uncached_input_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0
+        },
+        {
+          "question": "第二家指江阴",
+          "model_calls": 3,
+          "provider_errors": 0,
+          "input_tokens": 31931,
+          "uncached_input_tokens": 18363,
+          "cache_read_tokens": 13568,
+          "cache_write_tokens": 0,
+          "output_tokens": 683,
+          "total_tokens": 32614
+        },
+        {
+          "question": "不是改日期，把江阴换成启东，其他不变",
+          "model_calls": 3,
+          "provider_errors": 0,
+          "input_tokens": 36392,
+          "uncached_input_tokens": 21032,
+          "cache_read_tokens": 15360,
+          "cache_write_tokens": 0,
+          "output_tokens": 663,
+          "total_tokens": 37055
+        }
+      ],
+      "native_sha256": "d6fbe6d2ebe4fb1d03addf6c279f36328d3f5c6e67c211e94ad02929580a3c13",
+      "evidence_sha256": "6e50b21454e2a978fcecbba57f7f2f5b583e50e78533412b0a1b6038b71bd9a8"
+    },
+    {
+      "file": "clarify-accepted-live.json",
+      "session_id": "01a14242-fb72-714c-b649-9515d5a79847",
+      "recorded_questions": [
+        "查询无锡和农村商业银行这两家2026年5月31日的对公协定存款余额当日数"
+      ],
+      "usage": [
+        {
+          "question": "查询无锡和农村商业银行这两家2026年5月31日的对公协定存款余额当日数",
+          "model_calls": 2,
+          "provider_errors": 0,
+          "input_tokens": 20722,
+          "uncached_input_tokens": 8946,
+          "cache_read_tokens": 11776,
+          "cache_write_tokens": 0,
+          "output_tokens": 440,
+          "total_tokens": 21162
+        }
+      ],
+      "native_sha256": "ffc6fc038fa717ff3c02fa49ce837abb9e85cc39bc46eab95525573d2904a8d7",
+      "evidence_sha256": "cbd299b60880563226cf6c8b0336f22f76ecf1093b3fd8efd93a2a6baf400788"
+    },
+    {
+      "file": "permission-before-read-fix-live.json",
+      "session_id": "01a14243-0595-714c-b649-9521b409516b",
+      "recorded_questions": [
+        "重新展示本对话第一次查询的正式结果，不要重新查询",
+        "查询江阴2026年5月31日的对公协定存款余额当日数"
+      ],
+      "usage": [
+        {
+          "question": "重新展示本对话第一次查询的正式结果，不要重新查询",
+          "model_calls": 4,
+          "provider_errors": 0,
+          "input_tokens": 44575,
+          "uncached_input_tokens": 23583,
+          "cache_read_tokens": 20992,
+          "cache_write_tokens": 0,
+          "output_tokens": 691,
+          "total_tokens": 45266
+        }
+      ],
+      "native_sha256": "4d1a42944ab5a7d6760205093dc883121e1001b75793ec8082c36dda00193190",
+      "evidence_sha256": "c34f0e51deca0148088dc08a54072e34fb786b551192656e703b76bd225c3ba2"
+    }
+  ],
+  "evidence_sha256": {
+    "permission-read-fixed-live.json": "4c116d259c97064ab8aeb451dfb31176876db6e7ea4dd902db67c1cf7fb5a004",
+    "permission-before-read-fix-live.json": "c34f0e51deca0148088dc08a54072e34fb786b551192656e703b76bd225c3ba2",
+    "restored-before-refresh.json": "3ce9e4687baa2da64783e24e8548bf9ed9df58638ae21baf9ea9d77b1ff03d87",
+    "restored-after-refresh.json": "3d0f301825b5d0b312a73b09dd4658bcae724878ac0a0345539eed7fdd2ee3c4",
+    "agent-final-delivery.json": "c2aced0097e57167f9f9ace4fc0408d2038927cb1955f27dd34d90019eedaeb4",
+    "backend-final.xml": "9d1b404df1c5f632acfe49c23bca5a6286863e40bb9768952fe74435ec96eb24",
+    "history-permission-final.json": "97833a9554db8ea03066bec4d8c0a555cfc87dbd5d652364d88562403cb40523",
+    "runtime-proof.json": "bda81e7fcecc7b0c5c2564d228ca5a29af4f4513f0fa788108d6e7472e78e8b9",
+    "delivery-refresh-proof.json": "0f48bdbec860caf7320846cd0f0645722718889f5fb48d472b2c3c30ae9dec17"
+  },
+  "scope_source_sha256": {
+    "agent-service/src/backendClient.ts": "a93935cb5e17b2727b452e0bcecd1c2309288411bccc95c63b0b9715839dd13c",
+    "agent-service/src/business-context/orgCatalog.ts": "643a6604c011455513f204e0742f52cfd1931b57a992e50f39f3dbaff3760d77",
+    "agent-service/src/semantic-task/service.ts": "1b653e952dac3c6fdac6347247bb76ad93bc85a320c49160fb1a1df8316b3196",
+    "agent-service/src/semantic-task/planService.ts": "18d7d6ed8d0faf9e21acbe150ce4d473830c3ecb3120124e0c0898ad9002c076",
+    "agent-service/src/semantic-task/sourceGuard.ts": "3d3c09bd20bf659317d501a812301fd6e4a95135e2688a13105006524a10e5d1",
+    "agent-service/src/semantic-task/prompt.ts": "ae16762e450b677b725547d7e5aa04bc56673c4cba067fa55432137110c5acb5",
+    "agent-service/src/semantic-task/protocol.ts": "4304c33ef5c0440bc27dc1f8ade1f05b0d15ef604b308c160ea79febbd64e1c9",
+    "agent-service/src/harnessHost.ts": "f8789d80ade40493e7cfe4a681dfa50aeff4da2e5c59cf0c2682e70fce603637",
+    "agent-service/src/historySources.ts": "2f63e2471be8cfe2d6f6e4ce1f504d6ef36e7efb948264ed21b7f238f4a630c5",
+    "agent-service/src/requestContext.ts": "f43ef69e61188de3dfa18f2dc40903e8b8edd9bb7628640a94fb5e4e136416b9",
+    "agent-service/src/tools/readTools.ts": "f9aa1375cd8b1360b8d5ae75b2411183faf5114caf1e7a4784512d063681a052",
+    "agent-service/src/tools/turnContract.ts": "ebb1982dca6f1406158142b3fc1dcbb5536384f50179121c64d40448e5c82608",
+    "backend-next/src/ask_metric/api/routes/business_context.py": "83c109396bdd6885b389922cae698dbd71be4872cf2eb5fc872ff89b49b6ce81",
+    "backend-next/src/ask_metric/application/field_resolution.py": "252a6d6377b8faf8b63aa34a786173a0f0cd73bb3c5e299eb9d2fb0ae7951961"
+  },
+  "permission": {
+    "method": "isolated development process policy; no account or database permission mutation",
+    "denied_organization_code": "C001",
+    "old_result_rows_before": 6,
+    "old_result_visible_rows_after_revoke": 0,
+    "fixed_read_has_old_value": false,
+    "fixed_read_has_unavailable_notice": true,
+    "fresh_denied_statuses": [
+      "needs_user"
+    ],
+    "isolated_basic_query_http_calls": 0,
+    "first_read_failure_retained": true,
+    "rows_after_restore": 6
+  },
+  "refresh": {
+    "sid": "01a14255-7b5d-74a1-bc5c-2b2cf406284f",
+    "sameMessages": true,
+    "tableCount": 2,
+    "rowCounts": [
+      3,
+      1
+    ],
+    "canInput": true
+  },
+  "checks": {
+    "backend": {
+      "passed": 254,
+      "failed": 0
+    },
+    "history_permission_focused": {
+      "passed": 42,
+      "failed": 0
+    },
+    "agent_typecheck": "passed",
+    "agent_build": "passed",
+    "git_diff_check": "passed",
+    "agent_full": {
+      "success": true,
+      "numPassedTests": 1245,
+      "numFailedTests": 0,
+      "numTotalTests": 1245
+    },
+    "commands": [
+      "cd agent-service && npm run typecheck",
+      "cd agent-service && npm run build",
+      "cd agent-service && npm test -- --reporter=json --outputFile=<private evidence>/agent-final-delivery.json",
+      "cd backend-next && .venv/bin/python -m pytest verification/test_resolve_field_suggested.py verification/test_business_context.py verification/test_organization_ladder.py verification/test_organization_own_level_resolution.py verification/test_organization_query_scope.py verification/test_resolve_field_input_contract.py verification/test_semantic_transition.py -q",
+      "git diff --check"
+    ]
+  },
+  "comparison": {
+    "before_chain_audit_total_tokens": 10091,
+    "final_total_tokens": 10491,
+    "before_calls": 1,
+    "final_calls": 1,
+    "delta_tokens": 400
+  },
+  "runtime": {
+    "ports": {
+      "8010": 200,
+      "8020": 200,
+      "5173": 200
+    },
+    "isolated_8016_stopped": true,
+    "development_policy_restored": true,
+    "browser_handed_back": true
+  },
+  "compatible_history_policy": "Legacy unsourced read and conversation_reply are redacted in visible copies; original native records and independently authorized formal queries remain."
+}

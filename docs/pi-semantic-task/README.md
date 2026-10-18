@@ -2,13 +2,13 @@
 
 本次改造保留 Pi 作为唯一 Agent 核心，把易变的用户表达和可信执行参数分开：Pi 解释目标、提出变更、选择工具并根据结果调整计划；宿主维护同一 Session 中的任务状态，将通过校验的步骤编译成 Frame，后端执行受治理查询。用户输入不需要符合固定句式，模型也不再填写内部指标索引、原文证明、预计数量或状态版本。
 
-当前新建会话缺省使用 `semantic_v2`，可由 `AGENT_BUSINESS_PROTOCOL` 配置为 `fixed_v1`；已有会话继续使用 Session 中保存的协议。通用多轮上下文、Pi 目标澄清和内部状态变更见[当前实现及兼容边界](implementation-multiturn-context.md)，实际验收见[本轮验证目录](../verification/generic-multiturn-context-20261015/)。大于 95% 是独立实际问法样本上的验收目标，不是当前已证明的结果。
+新建会话统一使用 `semantic_v2`。`fixed_v1` 协议及 `AGENT_BUSINESS_PROTOCOL`、`AGENT_COMPACT_TURN_ARGS` 配置已于 2026-10 退役，不再是配置回退选项；旧 fixed 会话保留历史只读，不能继续提问或自动恢复执行。通用多轮上下文、Pi 目标澄清和内部状态变更见[当前实现及兼容边界](implementation-multiturn-context.md)，实际验收见[本轮验证目录](../verification/generic-multiturn-context-20261015/)。大于 95% 是独立实际问法样本上的验收目标，不是当前已证明的结果。
 
 此前阶段记录保留为历史证据：[阶段二](implementation-phase2.md)、[阶段三](implementation-phase3.md)、[阶段四](implementation-phase4.md)。其中“候选入口、尚未切换”等描述对应当时状态，不覆盖当前实现与配置。
 
 ## 当前链路与改造链路
 
-当前版本 2 链路为原始用户消息 → Pi 原生 Session 和工具循环 → `resolve_business_turn` 的 `source + operations` → 宿主规范字段与独立任务准入 → Frame 与执行许可 → 后端受治理接口 → 同一 Pi 继续规划或回答 → 页面及历史投影。旧版本 1 会话仍由绑定的旧协议处理。
+当前版本 2 链路为原始用户消息 → Pi 原生 Session 和工具循环 → `resolve_business_turn` 的 `source + operations` → 宿主统一入口绑定并更新版本化工作状态 → Frame 与任务级执行许可（`task.permit`）→ 后端规范化 `BasicQuerySpec` 受治理接口 → 同一 Pi 继续规划或回答 → 页面及历史投影。旧版本 1 会话仍由绑定的旧协议处理。
 
 新链路在同一循环中加入语义任务、完整目标义务及步骤执行许可。明确完整查询可以一次提交语义提议，宿主完成绑定和许可校验后直接执行；分析请求可以按证据增加步骤。目录探索、Skill 读取和可用性查询由 Pi 按需选择，不成为每次查询的固定前置流程。
 
@@ -19,7 +19,7 @@ flowchart LR
     T -->|未决条件与规范候选| P
     T -->|满足当前执行要求| F[编译 Frame 并签发许可]
     F --> B[后端鉴权和受治理执行]
-    B --> E[不可变证据与覆盖回执]
+    B --> E[不可变证据与结果回执]
     E -->|结果驱动后续步骤| P
     E --> T
     T --> V[完成判定和页面投影]
@@ -41,8 +41,8 @@ flowchart LR
 
 ## 已确定的契约
 
-- [公开协议](protocol.md)、[参数 Schema](request.schema.json) 和 [请求样例](request-examples.json)：必填根字段为 `protocol_version`、`intent`、`targets`，可选 `context_action` 明确续接、暂缓或放弃待澄清修改；初始输入与修改统一使用目标内的 `operations`。
-- [工具反馈与引用](feedback.md)、[反馈 Schema](feedback.schema.json) 和 [状态样例](feedback-examples.json)：统一诊断、保存状态、任务完成度、接续责任，以及引用签发、修订和恢复规则。
+- [公开协议](protocol.md)、[参数 Schema](request.schema.json) 和 [请求样例](request-examples.json)：必填根字段为 `protocol_version`、`intent`、`targets`，可选 `context_action` 明确续接、暂缓或放弃待澄清修改，可选 `answers` 结构化回答已发布字段问题；初始输入与修改统一使用目标内的 `operations`。
+- [工具反馈与引用](feedback.md)、[反馈 Schema](feedback.schema.json) 和 [状态样例](feedback-examples.json)：统一诊断、保存状态、任务完成度、接续责任，以及引用签发、修订和恢复规则；`pending_questions` 与 `answer_receipts` 分别提供已发布问题快照和正式受理结果。
 - [任务状态与执行](state-and-execution.md)：目标绑定、未决提议、任务与步骤版本、许可消费、恢复和完成判定。
 - [迁移与回退](migration.md)：旧历史、旧在途 operation、版本绑定和新旧读取器兼容。
 - [验收条件](acceptance.md)：已有缺陷的反例、分阶段门槛和真实模型及数据库及页面证据。
@@ -78,7 +78,7 @@ flowchart LR
 
 ## 当前源码索引与阶段一改动计划
 
-当前版本 2 的协议、工具、任务编排、规范化、状态变更和持久化入口集中在 `agent-service/src/semantic-task/`；后端独立准入位于 `business_context.py` 与 `semantic_transition.py`，Frame 和受治理执行继续复用现有模块。具体调用链见[当前实现说明](implementation-multiturn-context.md)。
+当前版本 2 的协议、工具、任务编排、规范化、状态变更和持久化入口集中在 `agent-service/src/semantic-task/`；`resolve_business_turn` 内部为 `SemanticPlanService.resolve` → 逐步 `SemanticTaskService.resolve` 的单一绑定入口。后端字段事实与历史定位接口位于 `business_context.py`，执行接口只接收规范化 `BasicQuerySpec`；旧的后端独立准入（`/admit-plan`）、来源票据与 `semantic_transition.py` 已删除。Frame 和受治理执行继续复用现有模块。具体调用链见[当前实现说明](implementation-multiturn-context.md)。
 
 下表保留阶段一设计时的改动计划，不能将旧模块路径自动视为当前版本 2 的直接入口。文件划分可以随实现收敛，但不能再增加模型可选的平行参数方言。
 

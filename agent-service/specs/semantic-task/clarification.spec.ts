@@ -1,12 +1,12 @@
 import {afterEach, expect, it} from "vitest";
-import {fixture, addPlanBackend, complete, proposal} from "./fixtures.js";
+import {fixture, complete, proposal} from "./fixtures.js";
 import {SemanticPlanService} from "../../src/semantic-task/planService.js";
 import {createSemanticClarifyTool, createSemanticExecuteTool} from "../../src/semantic-task/tools.js";
 import {runTool} from "../../src/tools/testUtils.js";
 const closes: Array<() => Promise<void>> = [];
 afterEach(async () => {for (const close of closes.splice(0)) await close();});
 async function setup() {
-  const f = await fixture(); closes.push(f.close); addPlanBackend(f.backend);
+  const f = await fixture(); closes.push(f.close);
   const input = proposal(complete());
   input.targets.push({source: {kind: "new"}, operations: complete().map(op => op.field === "organizations" ? {...op, value: "合成机构乙"} : op.field === "metrics" ? {...op, value: "合成指标乙"} : op)});
   const request = f.request("base", "查合成机构甲2025年末的合成指标甲；查合成机构乙2025年末的合成指标乙");

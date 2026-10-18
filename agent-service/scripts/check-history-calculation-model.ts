@@ -26,7 +26,7 @@ if (!process.argv.includes("--live")) {
   const sessions = new NativeSessionStore(dir);
   const skills = await loadBusinessSkills();
   const host = new HarnessHost(config, authorized => createAskMetricModels(config, authorized), sessions,
-    [...createAskMetricTools({compactTurnArgs: config.compactTurnArgs}), createBusinessSkillReadTool(skills)], {skills});
+    [...createAskMetricTools(), createBusinessSkillReadTool(skills)], {skills});
   const actor: BackendUser = {id: "synthetic-calculation", username: "synthetic", display_name: "合成验收",
     org_code: "O1", org_name: "合成机构甲", role_code: "USER"};
   const orgs: Record<string, string> = {合成机构甲: "O1", 合成机构乙: "O2"};
@@ -141,7 +141,7 @@ if (!process.argv.includes("--live")) {
     const passed = reports.every(report => report.passed);
     const path = join(dir, "report.json");
     await writeFile(path, JSON.stringify({environment: "configured_model_synthetic_backend", model: config.model.name,
-      real_database_verified: false, compact_turn_args: config.compactTurnArgs, passed, reports}, null, 2));
+      real_database_verified: false, passed, reports}, null, 2));
     console.log(JSON.stringify({passed, report: path}));
     if (!passed) process.exitCode = 1;
   } finally {await host.close(); await sessions.close();}

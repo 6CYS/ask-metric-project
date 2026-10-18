@@ -1,0 +1,1604 @@
+{
+  "environment": "real_model_synthetic_catalog_in_memory_SQL",
+  "real_database": false,
+  "business_dates": [
+    "2026-10-18"
+  ],
+  "model": "deepseek-flash",
+  "source_hashes": {
+    "scripts/check-clarification-acceptance.ts": "a7fb6107763d457e246309c14e7c1d61a8743404d98687fb2c6f08e3385d3c87",
+    "scripts/clarification-acceptance-fixture.py": "eb231fbbc93f779b349ef52deb79418b74193d9356160eaf0a9f3e89a9926022",
+    "src/semantic-task/actionBinding.ts": "75b0490543dba606b5288360c8334498f7eff04e84cff0d2d64b6997160858da",
+    "src/semantic-task/planService.ts": "a5bedb589078a67e61c9d1e831724be5e45df00817d6716bd6610ecc989295eb",
+    "src/semantic-task/service.ts": "0ed6bb2de8419b2d3150b58f3445d7080373dc60d3cf98da89e8a6cd842b5381",
+    "src/semantic-task/sourceGuard.ts": "509d4683021d9b6f34ccd9bd6973de8077d962a6d548b7b9495719b86e91590a",
+    "src/semantic-task/protocol.ts": "510a9a5734c5a8525c2c5e504e96d99e0f154a27dee6a9aea7b41a878f814238",
+    "src/semantic-task/structuredQuery.ts": "3f313ef39a8537f64b60358d8e0533aaa0843ec001f872178d8a97baa60f7703",
+    "src/semantic-task/prompt.ts": "55317f6892b864a4b0b1c65fa4af8a1f8ca2e4dcc77dcf2a3d69dd57afb801eb",
+    "src/semantic-task/questions.ts": "5f16abffcc9384a8c6ff766e0b255544d80e15500a36b0302f882662b4dfd646",
+    "src/semantic-task/store.ts": "bbe98d9de1b0f110d1b14b7935d4feb0d92fc6d2863c3796a090acfb6f77f533",
+    "src/semantic-task/tools.ts": "499c3d1ddf8e2938ff54a29120bf0399f06fd92f19d3ae7658ed2acb9314944a",
+    "src/toolRecovery.ts": "e246de8c01847c71f155f163a9dbe4c126916e804e30d5e735913feef30c0736",
+    "src/harnessHost.ts": "69c48cb2f58c5245a55eed86a8c942e037a2c76199900d000fa74a708fbeeb16"
+  },
+  "native_session_directory": "/var/folders/7f/j2pytcyx6_94xqkqkr4rn63h0000gn/T/clarification-acceptance-AKXIWS",
+  "gateway_blocked": false,
+  "requested_scenarios": [
+    "B1-missing-date",
+    "B12-history-ordinal",
+    "B13-multiple-missing"
+  ],
+  "scenarios": [
+    {
+      "id": "B1-missing-date",
+      "passed": true,
+      "attempts": 1,
+      "failures": []
+    },
+    {
+      "id": "B12-history-ordinal",
+      "passed": true,
+      "attempts": 1,
+      "failures": []
+    },
+    {
+      "id": "B13-multiple-missing",
+      "passed": true,
+      "attempts": 1,
+      "failures": []
+    }
+  ],
+  "turns": [
+    {
+      "scenario": "B1-missing-date",
+      "attempt": 1,
+      "turn": 1,
+      "message": "查询无锡的对公协定存款余额当日数。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "needs_user",
+      "elapsed_ms": 4405,
+      "queries": [],
+      "pending_questions": [],
+      "saved_pending_fields": [
+        "time"
+      ],
+      "saved_questions": [],
+      "issues": [
+        {
+          "code": "FIELD_REQUIRED",
+          "field": "time",
+          "message": "请补充或确定日期范围。",
+          "remediation": "user",
+          "category": "semantic"
+        }
+      ],
+      "answer": "请补充或确定日期范围。",
+      "tool_calls": {
+        "resolve_business_turn": 1
+      },
+      "binding_calls": {
+        "inspections": [
+          {
+            "question": "查询无锡的对公协定存款余额当日数。",
+            "businessDate": "2026-10-18"
+          }
+        ],
+        "fields": [
+          {
+            "entity": "organization",
+            "raw": [
+              "无锡"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "metric",
+            "raw": [
+              "对公协定存款余额当日数"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "metric",
+            "raw": [
+              "SYNTH_DEP:D"
+            ],
+            "status": "resolved"
+          }
+        ]
+      },
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "无锡农商行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "selection",
+          "display": "latest_in_range",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "普通取值",
+          "origin": "user_explicit"
+        }
+      ],
+      "resolved": {
+        "organizations": {
+          "codes": [
+            "SYNTH_WX"
+          ],
+          "names": [
+            "无锡农商行"
+          ]
+        },
+        "metrics": {
+          "codes": [
+            "SYNTH_DEP:D"
+          ],
+          "names": [
+            "对公协定存款余额当日数"
+          ]
+        },
+        "selection": "latest_in_range",
+        "operation": {
+          "kind": "value"
+        }
+      }
+    },
+    {
+      "scenario": "B1-missing-date",
+      "attempt": 1,
+      "turn": 2,
+      "message": "日期用2026年5月31日。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 5147,
+      "queries": [
+        {
+          "spec": {
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14d7b-4449-711b-a6c2-7b740799b701:50e2b09e-15a2-4e1f-b061-1cd4abb72220",
+              "user_question": "日期用2026年5月31日。"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_WX"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-05-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "saved_pending_fields": [],
+      "saved_questions": [],
+      "issues": [],
+      "answer": "2026年5月31日，无锡农商行的对公协定存款余额当日数为 **1006.02 元**。",
+      "tool_calls": {
+        "resolve_business_turn": 1
+      },
+      "binding_calls": {
+        "inspections": [
+          {
+            "question": "日期用2026年5月31日。",
+            "businessDate": "2026-10-18"
+          }
+        ],
+        "fields": [
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_WX"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "date",
+            "raw": [
+              "2026年5月31日"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_WX"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "metric",
+            "raw": [
+              "SYNTH_DEP:D"
+            ],
+            "status": "resolved"
+          }
+        ]
+      },
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "无锡农商行",
+          "origin": "history"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        },
+        {
+          "field": "operation",
+          "display": "普通取值",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "user_explicit"
+        }
+      ],
+      "resolved": {
+        "organizations": {
+          "codes": [
+            "SYNTH_WX"
+          ],
+          "names": [
+            "无锡农商行"
+          ]
+        },
+        "metrics": {
+          "codes": [
+            "SYNTH_DEP:D"
+          ],
+          "names": [
+            "对公协定存款余额当日数"
+          ]
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        },
+        "time": {
+          "start": "2026-05-31",
+          "end": "2026-05-31"
+        }
+      }
+    },
+    {
+      "scenario": "B1-missing-date",
+      "attempt": 1,
+      "turn": 3,
+      "message": "那6月末呢？",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 4096,
+      "queries": [
+        {
+          "spec": {
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14d7b-5865-711b-a6c2-7b87af745b93:909699ca-6617-4f50-9d19-fa41a1504817",
+              "user_question": "那6月末呢？"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_WX"
+            ],
+            "time": {
+              "start": "2026-06-30",
+              "end": "2026-06-30"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "saved_pending_fields": [],
+      "saved_questions": [],
+      "issues": [],
+      "answer": "2026-06-30，无锡农商行的对公协定存款余额当日数为1009.03元。",
+      "tool_calls": {
+        "resolve_business_turn": 1
+      },
+      "binding_calls": {
+        "inspections": [
+          {
+            "question": "那6月末呢？",
+            "businessDate": "2026-10-18"
+          },
+          {
+            "question": "那6月末呢？",
+            "businessDate": "2026-10-18",
+            "reference_year": 2026
+          }
+        ],
+        "fields": [
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_WX"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "date",
+            "raw": [
+              "2026-06-30"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_WX"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "metric",
+            "raw": [
+              "SYNTH_DEP:D"
+            ],
+            "status": "resolved"
+          }
+        ]
+      },
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "无锡农商行",
+          "origin": "history"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        },
+        {
+          "field": "operation",
+          "display": "普通取值",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026-06-30",
+          "origin": "user_explicit"
+        }
+      ],
+      "resolved": {
+        "organizations": {
+          "codes": [
+            "SYNTH_WX"
+          ],
+          "names": [
+            "无锡农商行"
+          ]
+        },
+        "metrics": {
+          "codes": [
+            "SYNTH_DEP:D"
+          ],
+          "names": [
+            "对公协定存款余额当日数"
+          ]
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        },
+        "time": {
+          "start": "2026-06-30",
+          "end": "2026-06-30"
+        }
+      }
+    },
+    {
+      "scenario": "B12-history-ordinal",
+      "attempt": 1,
+      "turn": 1,
+      "message": "查询无锡2026年5月31日的对公协定存款余额当日数。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 5493,
+      "queries": [
+        {
+          "spec": {
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14d7b-6866-711b-a6c2-7b95e156530d:30822c79-b8e3-4366-b4ea-db26fb93d1e4",
+              "user_question": "查询无锡2026年5月31日的对公协定存款余额当日数"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_WX"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-05-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "saved_pending_fields": [],
+      "saved_questions": [],
+      "issues": [],
+      "answer": "2026年5月31日，无锡农商行的对公协定存款余额当日数为 **1006.02 元**。",
+      "tool_calls": {
+        "resolve_business_turn": 1
+      },
+      "binding_calls": {
+        "inspections": [
+          {
+            "question": "查询无锡2026年5月31日的对公协定存款余额当日数。",
+            "businessDate": "2026-10-18"
+          }
+        ],
+        "fields": [
+          {
+            "entity": "organization",
+            "raw": [
+              "无锡"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "metric",
+            "raw": [
+              "对公协定存款余额当日数"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "metric",
+            "raw": [
+              "SYNTH_DEP:D"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "date",
+            "raw": [
+              "2026年5月31日"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_WX"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "metric",
+            "raw": [
+              "SYNTH_DEP:D"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_WX"
+            ],
+            "status": "resolved"
+          }
+        ]
+      },
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "无锡农商行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        },
+        {
+          "field": "operation",
+          "display": "普通取值",
+          "origin": "user_explicit"
+        }
+      ],
+      "resolved": {
+        "organizations": {
+          "codes": [
+            "SYNTH_WX"
+          ],
+          "names": [
+            "无锡农商行"
+          ]
+        },
+        "metrics": {
+          "codes": [
+            "SYNTH_DEP:D"
+          ],
+          "names": [
+            "对公协定存款余额当日数"
+          ]
+        },
+        "time": {
+          "start": "2026-05-31",
+          "end": "2026-05-31"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        }
+      }
+    },
+    {
+      "scenario": "B12-history-ordinal",
+      "attempt": 1,
+      "turn": 2,
+      "message": "另外单独查询江阴2026年6月30日的净利润金额当日数。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 6996,
+      "queries": [
+        {
+          "spec": {
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14d7b-7ddb-711b-a6c2-7ba71ac0bde8:c3a6872b-d704-4a8f-bf7c-95d1411c7ed6",
+              "user_question": "另外单独查询江阴2026年6月30日的净利润金额当日数"
+            },
+            "metric_codes": [
+              "SYNTH_PROFIT:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_JY"
+            ],
+            "time": {
+              "start": "2026-06-30",
+              "end": "2026-06-30"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 0
+        }
+      ],
+      "pending_questions": [],
+      "saved_pending_fields": [],
+      "saved_questions": [],
+      "issues": [],
+      "answer": "江阴农商行 2026年6月30日的净利润金额当日数查询已完成，但暂无匹配数据（无记录返回）。",
+      "tool_calls": {
+        "resolve_business_turn": 1
+      },
+      "binding_calls": {
+        "inspections": [
+          {
+            "question": "另外单独查询江阴2026年6月30日的净利润金额当日数。",
+            "businessDate": "2026-10-18"
+          }
+        ],
+        "fields": [
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_WX"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "organization",
+            "raw": [
+              "江阴"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "metric",
+            "raw": [
+              "净利润金额当日数"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "metric",
+            "raw": [
+              "SYNTH_PROFIT:D"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "date",
+            "raw": [
+              "2026年6月30日"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_JY"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "metric",
+            "raw": [
+              "SYNTH_PROFIT:D"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_JY"
+            ],
+            "status": "resolved"
+          }
+        ]
+      },
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "江阴农商行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "metrics",
+          "display": "净利润金额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "2026年6月30日",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        },
+        {
+          "field": "operation",
+          "display": "普通取值",
+          "origin": "user_explicit"
+        }
+      ],
+      "resolved": {
+        "organizations": {
+          "codes": [
+            "SYNTH_JY"
+          ],
+          "names": [
+            "江阴农商行"
+          ]
+        },
+        "metrics": {
+          "codes": [
+            "SYNTH_PROFIT:D"
+          ],
+          "names": [
+            "净利润金额当日数"
+          ]
+        },
+        "time": {
+          "start": "2026-06-30",
+          "end": "2026-06-30"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        }
+      }
+    },
+    {
+      "scenario": "B12-history-ordinal",
+      "attempt": 1,
+      "turn": 3,
+      "message": "把第1次查询的日期改为2026年4月30日，其他条件不变。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 5851,
+      "queries": [
+        {
+          "spec": {
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14d7b-992f-711b-a6c2-7bb9e8f69888:82f13c1d-26d6-4f02-b931-8437430be4aa",
+              "user_question": "把第1次查询的日期改为2026年4月30日，其他条件不变。"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_WX"
+            ],
+            "time": {
+              "start": "2026-04-30",
+              "end": "2026-04-30"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "saved_pending_fields": [],
+      "saved_questions": [],
+      "issues": [],
+      "answer": "已按“第1次查询”的条件（无锡农商行、对公协定存款余额当日数）把日期改为2026年4月30日，结果如下：\n\n- 无锡农商行 2026-04-30 对公协定存款余额当日数：**1003.01 元**\n\n说明：上一轮江阴净利润的查询属于另一次任务，本次修改的是第1次查询（无锡农商行对公协定存款余额）。如需同时把江阴净利润的日期也改为2026年4月30日，请告知。",
+      "tool_calls": {
+        "resolve_business_turn": 1
+      },
+      "binding_calls": {
+        "inspections": [
+          {
+            "question": "把第1次查询的日期改为2026年4月30日，其他条件不变。",
+            "businessDate": "2026-10-18"
+          },
+          {
+            "question": "把第1次查询的日期改为2026年4月30日，其他条件不变。",
+            "businessDate": "2026-10-18",
+            "reference_year": 2026
+          }
+        ],
+        "fields": [
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_JY"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_WX"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "date",
+            "raw": [
+              "2026年4月30日"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_WX"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "metric",
+            "raw": [
+              "SYNTH_DEP:D"
+            ],
+            "status": "resolved"
+          }
+        ]
+      },
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "无锡农商行",
+          "origin": "history"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年4月30日",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        },
+        {
+          "field": "operation",
+          "display": "普通取值",
+          "origin": "history"
+        }
+      ],
+      "resolved": {
+        "organizations": {
+          "codes": [
+            "SYNTH_WX"
+          ],
+          "names": [
+            "无锡农商行"
+          ]
+        },
+        "metrics": {
+          "codes": [
+            "SYNTH_DEP:D"
+          ],
+          "names": [
+            "对公协定存款余额当日数"
+          ]
+        },
+        "time": {
+          "start": "2026-04-30",
+          "end": "2026-04-30"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        }
+      }
+    },
+    {
+      "scenario": "B12-history-ordinal",
+      "attempt": 1,
+      "turn": 4,
+      "message": "只展示第2次查询的结果，不重新取数。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "reused",
+      "elapsed_ms": 2658,
+      "queries": [],
+      "pending_questions": [],
+      "saved_pending_fields": [],
+      "saved_questions": [],
+      "issues": [],
+      "answer": "第2次查询（江阴农商行 / 2026年6月30日 / 净利润金额当日数）的原有结果如下，本次未重新取数：\n\n- 查询状态：成功\n- 结果：**暂无匹配数据**（0 行）\n\n也就是说，该口径下 2026年6月30日 没有可用的净利润金额当日数记录。如需换日期或换口径再查，请告知。",
+      "tool_calls": {
+        "read_business_result": 1
+      },
+      "binding_calls": {
+        "inspections": [
+          {
+            "question": "只展示第2次查询的结果，不重新取数。",
+            "businessDate": "2026-10-18"
+          },
+          {
+            "question": "只展示第2次查询的结果，不重新取数。",
+            "businessDate": "2026-10-18"
+          }
+        ],
+        "fields": [
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_WX"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_JY"
+            ],
+            "status": "resolved"
+          }
+        ]
+      },
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "江阴农商行",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "metrics",
+          "display": "净利润金额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "time",
+          "display": "2026年6月30日",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        },
+        {
+          "field": "operation",
+          "display": "普通取值",
+          "origin": "user_explicit"
+        }
+      ],
+      "resolved": {
+        "organizations": {
+          "codes": [
+            "SYNTH_WX"
+          ],
+          "names": [
+            "无锡农商行"
+          ]
+        },
+        "metrics": {
+          "codes": [
+            "SYNTH_DEP:D"
+          ],
+          "names": [
+            "对公协定存款余额当日数"
+          ]
+        },
+        "time": {
+          "start": "2026-04-30",
+          "end": "2026-04-30"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        }
+      }
+    },
+    {
+      "scenario": "B12-history-ordinal",
+      "attempt": 1,
+      "turn": 5,
+      "message": "日期改成2026年6月30日，其他条件不变。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 5870,
+      "queries": [
+        {
+          "spec": {
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14d7b-ba6d-711b-a6c2-7bdc69af39e5:00cab069-e665-43e8-8422-d270bb23fce2",
+              "user_question": "日期改成2026年6月30日，其他条件不变。"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_WX"
+            ],
+            "time": {
+              "start": "2026-06-30",
+              "end": "2026-06-30"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "saved_pending_fields": [],
+      "saved_questions": [],
+      "issues": [],
+      "answer": "已按“其他条件不变”把日期改为2026年6月30日，查询结果如下：\n\n- 无锡农商行 2026-06-30 对公协定存款余额当日数：**1009.03 元**\n\n（机构、指标、取数方式均沿用原条件，仅日期变更。）",
+      "tool_calls": {
+        "resolve_business_turn": 1
+      },
+      "binding_calls": {
+        "inspections": [
+          {
+            "question": "日期改成2026年6月30日，其他条件不变。",
+            "businessDate": "2026-10-18"
+          },
+          {
+            "question": "日期改成2026年6月30日，其他条件不变。",
+            "businessDate": "2026-10-18",
+            "reference_year": 2026
+          }
+        ],
+        "fields": [
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_WX"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "date",
+            "raw": [
+              "2026年6月30日"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_WX"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "metric",
+            "raw": [
+              "SYNTH_DEP:D"
+            ],
+            "status": "resolved"
+          }
+        ]
+      },
+      "conditions": [
+        {
+          "field": "organizations",
+          "display": "无锡农商行",
+          "origin": "history"
+        },
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年6月30日",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        },
+        {
+          "field": "operation",
+          "display": "普通取值",
+          "origin": "history"
+        }
+      ],
+      "resolved": {
+        "organizations": {
+          "codes": [
+            "SYNTH_WX"
+          ],
+          "names": [
+            "无锡农商行"
+          ]
+        },
+        "metrics": {
+          "codes": [
+            "SYNTH_DEP:D"
+          ],
+          "names": [
+            "对公协定存款余额当日数"
+          ]
+        },
+        "time": {
+          "start": "2026-06-30",
+          "end": "2026-06-30"
+        },
+        "selection": "exact",
+        "operation": {
+          "kind": "value"
+        }
+      }
+    },
+    {
+      "scenario": "B13-multiple-missing",
+      "attempt": 1,
+      "turn": 1,
+      "message": "查询对公协定存款余额当日数。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "needs_user",
+      "elapsed_ms": 2214,
+      "queries": [],
+      "pending_questions": [],
+      "saved_pending_fields": [
+        "organizations",
+        "time"
+      ],
+      "saved_questions": [],
+      "issues": [
+        {
+          "code": "FIELD_REQUIRED",
+          "field": "organizations",
+          "message": "请补充或确定机构。",
+          "remediation": "user",
+          "category": "semantic"
+        },
+        {
+          "code": "FIELD_REQUIRED",
+          "field": "time",
+          "message": "请补充或确定日期范围。",
+          "remediation": "user",
+          "category": "semantic"
+        }
+      ],
+      "answer": "请补充或确定机构。\n请补充或确定日期范围。",
+      "tool_calls": {
+        "resolve_business_turn": 1
+      },
+      "binding_calls": {
+        "inspections": [
+          {
+            "question": "查询对公协定存款余额当日数。",
+            "businessDate": "2026-10-18"
+          }
+        ],
+        "fields": [
+          {
+            "entity": "metric",
+            "raw": [
+              "对公协定存款余额当日数"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "metric",
+            "raw": [
+              "SYNTH_DEP:D"
+            ],
+            "status": "resolved"
+          }
+        ]
+      },
+      "conditions": [
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "operation",
+          "display": "普通取值",
+          "origin": "user_explicit"
+        }
+      ],
+      "resolved": {
+        "metrics": {
+          "codes": [
+            "SYNTH_DEP:D"
+          ],
+          "names": [
+            "对公协定存款余额当日数"
+          ]
+        },
+        "operation": {
+          "kind": "value"
+        }
+      }
+    },
+    {
+      "scenario": "B13-multiple-missing",
+      "attempt": 1,
+      "turn": 2,
+      "message": "机构是无锡。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "needs_user",
+      "elapsed_ms": 2962,
+      "queries": [],
+      "pending_questions": [],
+      "saved_pending_fields": [
+        "time"
+      ],
+      "saved_questions": [],
+      "issues": [
+        {
+          "code": "FIELD_REQUIRED",
+          "field": "time",
+          "message": "请补充或确定日期范围。",
+          "remediation": "user",
+          "category": "semantic"
+        }
+      ],
+      "answer": "请补充或确定日期范围。",
+      "tool_calls": {
+        "resolve_business_turn": 1
+      },
+      "binding_calls": {
+        "inspections": [
+          {
+            "question": "机构是无锡。",
+            "businessDate": "2026-10-18"
+          }
+        ],
+        "fields": [
+          {
+            "entity": "organization",
+            "raw": [
+              "无锡"
+            ],
+            "status": "resolved"
+          }
+        ]
+      },
+      "conditions": [
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "operation",
+          "display": "普通取值",
+          "origin": "history"
+        },
+        {
+          "field": "organizations",
+          "display": "无锡农商行",
+          "origin": "user_explicit"
+        }
+      ],
+      "resolved": {
+        "metrics": {
+          "codes": [
+            "SYNTH_DEP:D"
+          ],
+          "names": [
+            "对公协定存款余额当日数"
+          ]
+        },
+        "operation": {
+          "kind": "value"
+        },
+        "organizations": {
+          "codes": [
+            "SYNTH_WX"
+          ],
+          "names": [
+            "无锡农商行"
+          ]
+        }
+      }
+    },
+    {
+      "scenario": "B13-multiple-missing",
+      "attempt": 1,
+      "turn": 3,
+      "message": "日期是2026年5月31日。",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 4157,
+      "queries": [
+        {
+          "spec": {
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14d7b-e594-711b-a6c2-7c09a074b6a0:985cffed-4cf9-4820-aa25-ded03907c7e8",
+              "user_question": "日期是2026年5月31日。"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_WX"
+            ],
+            "time": {
+              "start": "2026-05-31",
+              "end": "2026-05-31"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "saved_pending_fields": [],
+      "saved_questions": [],
+      "issues": [],
+      "answer": "2026-05-31，无锡农商行的对公协定存款余额当日数为1006.02元。",
+      "tool_calls": {
+        "resolve_business_turn": 1
+      },
+      "binding_calls": {
+        "inspections": [
+          {
+            "question": "日期是2026年5月31日。",
+            "businessDate": "2026-10-18"
+          }
+        ],
+        "fields": [
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_WX"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "date",
+            "raw": [
+              "2026年5月31日"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_WX"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "metric",
+            "raw": [
+              "SYNTH_DEP:D"
+            ],
+            "status": "resolved"
+          }
+        ]
+      },
+      "conditions": [
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "operation",
+          "display": "普通取值",
+          "origin": "history"
+        },
+        {
+          "field": "organizations",
+          "display": "无锡农商行",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "2026年5月31日",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {
+        "metrics": {
+          "codes": [
+            "SYNTH_DEP:D"
+          ],
+          "names": [
+            "对公协定存款余额当日数"
+          ]
+        },
+        "operation": {
+          "kind": "value"
+        },
+        "organizations": {
+          "codes": [
+            "SYNTH_WX"
+          ],
+          "names": [
+            "无锡农商行"
+          ]
+        },
+        "time": {
+          "start": "2026-05-31",
+          "end": "2026-05-31"
+        },
+        "selection": "exact"
+      }
+    },
+    {
+      "scenario": "B13-multiple-missing",
+      "attempt": 1,
+      "turn": 4,
+      "message": "6月末呢？",
+      "passed": true,
+      "guard_aborted": false,
+      "model_error_codes": [],
+      "status": "succeeded",
+      "elapsed_ms": 3420,
+      "queries": [
+        {
+          "spec": {
+            "conversation_id": "synthetic-clarification",
+            "calculation_context": {
+              "scope_id": "01a14d7b-f5d1-711b-a6c2-7c156cd51067:68a82bea-3e7c-4b6c-87cd-da0af69eb85c",
+              "user_question": "6月末呢？"
+            },
+            "metric_codes": [
+              "SYNTH_DEP:D"
+            ],
+            "schema_version": 2,
+            "org_codes": [
+              "SYNTH_WX"
+            ],
+            "time": {
+              "start": "2026-06-30",
+              "end": "2026-06-30"
+            },
+            "selection": "exact",
+            "operation": {
+              "kind": "value"
+            }
+          },
+          "row_count": 1
+        }
+      ],
+      "pending_questions": [],
+      "saved_pending_fields": [],
+      "saved_questions": [],
+      "issues": [],
+      "answer": "2026-06-30，无锡农商行的对公协定存款余额当日数为1009.03元。",
+      "tool_calls": {
+        "resolve_business_turn": 1
+      },
+      "binding_calls": {
+        "inspections": [
+          {
+            "question": "6月末呢？",
+            "businessDate": "2026-10-18"
+          },
+          {
+            "question": "6月末呢？",
+            "businessDate": "2026-10-18",
+            "reference_year": 2026
+          }
+        ],
+        "fields": [
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_WX"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "date",
+            "raw": [
+              "6月末"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "organization",
+            "raw": [
+              "SYNTH_WX"
+            ],
+            "status": "resolved"
+          },
+          {
+            "entity": "metric",
+            "raw": [
+              "SYNTH_DEP:D"
+            ],
+            "status": "resolved"
+          }
+        ]
+      },
+      "conditions": [
+        {
+          "field": "metrics",
+          "display": "对公协定存款余额当日数",
+          "origin": "history"
+        },
+        {
+          "field": "operation",
+          "display": "普通取值",
+          "origin": "history"
+        },
+        {
+          "field": "organizations",
+          "display": "无锡农商行",
+          "origin": "history"
+        },
+        {
+          "field": "time",
+          "display": "6月末",
+          "origin": "user_explicit"
+        },
+        {
+          "field": "selection",
+          "display": "指定日期",
+          "origin": "rule_default"
+        }
+      ],
+      "resolved": {
+        "metrics": {
+          "codes": [
+            "SYNTH_DEP:D"
+          ],
+          "names": [
+            "对公协定存款余额当日数"
+          ]
+        },
+        "operation": {
+          "kind": "value"
+        },
+        "organizations": {
+          "codes": [
+            "SYNTH_WX"
+          ],
+          "names": [
+            "无锡农商行"
+          ]
+        },
+        "time": {
+          "start": "2026-06-30",
+          "end": "2026-06-30"
+        },
+        "selection": "exact"
+      }
+    }
+  ],
+  "passed": true
+}

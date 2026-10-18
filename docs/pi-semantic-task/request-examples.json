@@ -6,6 +6,50 @@
   "expectation_scope": "expected 描述候选协议要求，属于设计断言，不是已经执行的模型、数据库或运行时结果。",
   "examples": [
     {
+      "id": "structured_ranking_query",
+      "user_message": "查询合成机构甲和合成机构乙2025年末的合成余额当日数前2名。",
+      "request": {
+        "protocol_version": 2,
+        "intent": "query",
+        "targets": [
+          {
+            "source": {
+              "kind": "new"
+            },
+            "query": {
+              "organizations": {
+                "kind": "named",
+                "names": [
+                  "合成机构甲",
+                  "合成机构乙"
+                ]
+              },
+              "metrics": [
+                "合成余额当日数"
+              ],
+              "time": {
+                "expression": "2025年末",
+                "calendar": {
+                  "start": "2025-12-31",
+                  "end": "2025-12-31"
+                }
+              },
+              "selection": "exact",
+              "operation": {
+                "kind": "ranking",
+                "position": "top",
+                "top_n": 2
+              }
+            }
+          }
+        ]
+      },
+      "expected": {
+        "status": "ready",
+        "binding": "机构和指标解析正式编码，按结构化日期和操作生成执行条件。"
+      }
+    },
+    {
       "id": "precise_query",
       "user_message": "查询合成机构甲2025年末的合成余额当日数。",
       "request": {

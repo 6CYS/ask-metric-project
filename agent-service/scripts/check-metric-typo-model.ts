@@ -22,7 +22,7 @@ if (!process.argv.includes("--live")) {
   const dir = await mkdtemp(join(tmpdir(), "pi-metric-typo-"));
   const config = {...loadConfig(), dataDir: dir};
   const store = new NativeSessionStore(dir);
-  const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store, createAskMetricTools({compactTurnArgs: config.compactTurnArgs}));
+  const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store, createAskMetricTools());
   const actor: BackendUser = {id: "synthetic-typo", username: "synthetic", display_name: "合成验收", org_code: "O", org_name: "合成机构", role_code: "USER"};
   const reports: Array<Record<string, unknown>> = [];
   try {

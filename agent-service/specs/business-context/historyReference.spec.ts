@@ -2,19 +2,21 @@ import {mkdtempSync, rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, expect, it, vi} from "vitest";
-import {validateToolArguments} from "@earendil-works/pi-ai";
 import {NativeSessionStore} from "../../src/nativeSessions.js";
 import {NativeFrameStore} from "../../src/business-context/store.js";
 import {BusinessContextService} from "../../src/business-context/service.js";
 import {createCapabilities} from "../../src/business-context/capabilities.js";
 import {createFieldResolvers} from "../../src/business-context/resolvers.js";
-import {modelHistoryIndex} from "../../src/business-context/modelView.js";
-import {createBusinessContextReadTool, createResolveBusinessTurnTool, createReadBusinessResultTool} from "../../src/tools/businessContext.js";
+import {createReadBusinessResultTool} from "../../src/tools/businessContext.js";
+import {createResolveTurnShim as createResolveBusinessTurnTool} from "./resolveTurnShim.js";
 import {createMetricReadTool, createReadTool} from "../../src/tools/readTools.js";
 import {BackendApiError} from "../../src/backendClient.js";
 import {MemoryCommandBridge, receiptJson, runTool as executeTool, testRequestContext} from "../../src/tools/testUtils.js";
 import type {BackendClient} from "../../src/backendClient.js";
-import type {BusinessFrame, ContextDelta, FieldResolution, FrameSelector, HistoryFieldReferenceInput} from "../../src/business-context/types.js";
+import type {BusinessFrame, BusinessSessionState, ContextDelta, FieldResolution, FrameSelector, HistoryFieldReferenceInput} from "../../src/business-context/types.js";
+import type {AskMetricRequestContext} from "../../src/requestContext.js";
+import {historicalOperations, inheritableFrame, resolveFrame} from "../../src/business-context/core.js";
+import {modelFields} from "../../src/business-context/modelView.js";
 import {toContextDelta} from "../../src/business-context/turnArgs.js";
 
 /** 仅测试夹具显式声明既定字段意图；生产工具不会替模型补此契约，缺参另有专项测试。 */
@@ -38,6 +40,56 @@ async function fixtureFieldIntents(params: unknown, request: Parameters<typeof e
 async function runTool(...[tool, params, request, context]: Parameters<typeof executeTool>) {
   const candidate = tool as ReturnType<typeof createResolveBusinessTurnTool>;
   return executeTool(tool, candidate.name === "resolve_business_turn" ? await fixtureFieldIntents(params, request) : params, request, context);
+}
+
+
+/** 已退役读取工具的测试替身：同一 resolveFrame/焦点门禁/分页语义，直接驱动公共函数。 */
+async function readContext(request: AskMetricRequestContext, params: {frameId?: string; selector?: FrameSelector; setFocus?: boolean; offset?: number; limit?: number}) {
+  const store = request.frames!;
+  const state = await store.state();
+  const allFrames = await store.list();
+  const operationIds = historicalOperations(state, allFrames, request.operationId);
+  if (params.selector || params.frameId || params.setFocus) {
+    if (params.selector && params.frameId || params.setFocus && !params.selector && !params.frameId) {
+      return {status: "ARGUMENT_ERROR", error_code: "FRAME_SELECTOR_REQUIRED"};
+    }
+    const resolution = resolveFrame(params.selector ?? {frameId: params.frameId!}, state, allFrames, request.operationId);
+    if (resolution.status !== "resolved") return {...resolution, frame: null, focusFrameId: state.focusFrameId};
+    const frame = (await store.get(resolution.frameId!))!;
+    const setFocus = params.setFocus !== false;
+    if (setFocus) {
+      if (!inheritableFrame(frame) || frame.status === "executing" || frame.issues.some(issue => issue.field === "$base")) {
+        return {status: "ARGUMENT_ERROR", error_code: "INVALID_FOCUS_FRAME"};
+      }
+      await store.setFocus(frame.frameId, state.version);
+    }
+    return {status: "resolved", frame,
+      ordinal: operationIds.indexOf(state.operations[frame.operationFrameId]!) + 1 || null, latestOrdinal: operationIds.length,
+      focusFrameId: setFocus ? frame.frameId : state.focusFrameId, baseReference: {frameId: frame.frameId}};
+  }
+  const offset = params.offset ?? Math.max(0, operationIds.length - 10);
+  const ids = operationIds.slice(offset, offset + (params.limit ?? 10));
+  const frames = await Promise.all(ids.map(async (id, index) => ({ordinal: offset + index + 1, frame: await store.get(id)})));
+  return {version: state.version, focusFrameId: state.focusFrameId, frames,
+    next_offset: offset + ids.length < operationIds.length ? offset + ids.length : null};
+}
+
+/** 已退役历史索引投影的测试替身：与历史操作同一来源，只保留序号、引用与条件字段。 */
+async function historyIndex(store: NativeFrameStore, state: BusinessSessionState, currentTurnId: string) {
+  const frames = await store.list();
+  const byId = new Map(frames.map(frame => [frame.frameId, frame]));
+  const operations = historicalOperations(state, frames, currentTurnId);
+  const offset = Math.max(0, operations.length - 10);
+  const indexes = operations.slice(offset).map((_, index) => offset + index);
+  const entries = indexes.map(index => {
+    const frame = byId.get(operations[index]!);
+    return frame ? {ordinal: index + 1, frameId: frame.frameId, capability: frame.capability, status: frame.status,
+      fields: modelFields(frame.fields)} : {ordinal: index + 1, unavailable: true};
+  });
+  const focus = state.focusFrameId ? byId.get(state.focusFrameId) : undefined;
+  const focusIndex = focus ? operations.indexOf(state.operations[focus.operationFrameId]!) : -1;
+  return {total: operations.length, latestOrdinal: operations.length || null, focusOrdinal: focusIndex < 0 ? null : focusIndex + 1,
+    entries, partial: entries.length < operations.length, currentTurnExcluded: true};
 }
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -92,13 +144,10 @@ it.each([1, 2, 3])("任意历史序号 %i 均可替换字段，保留该来源�
   expect(await f.store.get(source.frameId)).toEqual(source);
 });
 
-it("模型调用必须显式选择来源，省略不能默认继承最新焦点；current 保留普通续接能力", async () => {
+it("模型调用必须显式选择来源；current 保留普通续接能力", async () => {
   const f = await fixture();
   const tool = createResolveBusinessTurnTool();
-  const call = {type: "toolCall" as const, id: "source-required", name: tool.name, arguments: f.change};
-  expect(() => validateToolArguments(tool, call)).toThrow();
   const args = await fixtureFieldIntents({...f.change, baseReference: "current"}, f.request) as Record<string, unknown>;
-  expect(() => validateToolArguments(tool, {...call, arguments: args})).not.toThrow();
   const result = receiptJson(await runTool(tool, args, f.request));
   const frame = (await f.store.get(String(result.frameId)))!;
   expect(frame.parentFrameId).toBe(f.saved[2]!.frameId);
@@ -151,9 +200,9 @@ it.each(["resolve_more", "execute"] as const)("同一次提问准备阶段 %s �
   await f.service.finishExecution(await f.service.beginExecution(String(ready.frameId), id), {status: "success", resultRef: "query:first:r"});
   const second = receiptJson(await runTool(createResolveBusinessTurnTool(), make("second", "execute"),
     {...firstRequest, operationId: "second", requestId: "second", originalMessage: "合成指标丙 合成机构 2026-04-30"}));
-  const index = await modelHistoryIndex(f.store, await f.store.state(), "third");
+  const index = await historyIndex(f.store, await f.store.state(), "third");
   expect(index.total).toBe(2);
-  const selected = receiptJson(await runTool(createBusinessContextReadTool(), {selector: {ordinal: 2}}, {...f.request, operationId: "third"}));
+  const selected = await readContext({...f.request, operationId: "third"}, {selector: {ordinal: 2}});
   expect(selected.baseReference).toEqual({frameId: second.frameId});
   expect(await f.store.get(String(draft.frameId))).toMatchObject({status: "ready"}); // 历史准备快照仍不可变且可回读。
 });
@@ -163,10 +212,10 @@ it.each([
 ] satisfies FrameSelector[])("引用方式不同但指向同一Frame时，焦点切换后普通追问统一继承：%j", async selector => {
   const f = await fixture();
   const initial = await f.store.state();
-  const inspected = receiptJson(await runTool(createBusinessContextReadTool(), {selector, setFocus: false}, f.request));
+  const inspected = await readContext(f.request, {selector, setFocus: false});
   expect(inspected.status).toBe("resolved");
   expect(await f.store.state()).toEqual(initial); // 单纯浏览不抢焦点。
-  const selected = receiptJson(await runTool(createBusinessContextReadTool(), {selector}, f.request));
+  const selected = await readContext(f.request, {selector});
   expect(selected).toMatchObject({ordinal: 1, latestOrdinal: 3});
   expect(selected.focusFrameId).toBe(f.saved[0]!.frameId);
   expect((await f.store.state()).frameOrder).toEqual(initial.frameOrder); // 切焦点不占操作序号。
@@ -219,10 +268,10 @@ it("分页浏览保留焦点，其他会话的引用不能被选中或继承", a
   const f = await fixture();
   const other = await fixture();
   const before = await f.store.state();
-  const page = receiptJson(await runTool(createBusinessContextReadTool(), {offset: 0, limit: 2}, f.request));
+  const page = await readContext(f.request, {offset: 0, limit: 2});
   expect(page.frames).toHaveLength(2);
   expect(await f.store.state()).toEqual(before);
-  const foreign = receiptJson(await runTool(createBusinessContextReadTool(), {frameId: other.saved[0]!.frameId}, f.request));
+  const foreign = await readContext(f.request, {frameId: other.saved[0]!.frameId});
   expect(foreign.status).toBe("not_found");
   expect(await f.store.state()).toEqual(before);
   expect(f.backend.basicQueries).not.toHaveBeenCalled();
@@ -286,22 +335,22 @@ it("同轮产生新操作后，历史索引和相对来源仍以本轮开始前�
   const selected = {...f.change, baseReference: {relativePosition: -1}, executionMode: "resolve_more"};
   const first = receiptJson(await runTool(createResolveBusinessTurnTool(), selected, f.request));
   expect((await f.store.get(String(first.frameId)))?.parentFrameId).toBe(f.saved[1]!.frameId);
-  const index = await modelHistoryIndex(f.store, await f.store.state(), f.request.operationId);
+  const index = await historyIndex(f.store, await f.store.state(), f.request.operationId);
   expect(index).toMatchObject({total: 3, latestOrdinal: 3});
   expect(index.entries.map(entry => entry.ordinal)).toEqual([1, 2, 3]);
-  const current = receiptJson(await runTool(createBusinessContextReadTool(), {frameId: first.frameId, setFocus: false}, f.request));
+  const current = await readContext(f.request, {frameId: String(first.frameId), setFocus: false});
   expect(current.status).toBe("resolved"); // 本轮快照仍可按确切引用读取。
-  const read = receiptJson(await runTool(createBusinessContextReadTool(), {selector: {relativePosition: -1}}, f.request));
+  const read = await readContext(f.request, {selector: {relativePosition: -1}});
   expect(read.baseReference).toEqual({frameId: f.saved[1]!.frameId});
   const second = receiptJson(await runTool(createResolveBusinessTurnTool(), {...selected, fieldChanges: []}, f.request));
   expect((await f.store.get(String(second.frameId)))?.parentFrameId).toBe(f.saved[1]!.frameId);
-  expect(await modelHistoryIndex(f.store, await f.store.state(), "next-user-turn")).toMatchObject({total: 5, latestOrdinal: 5});
+  expect(await historyIndex(f.store, await f.store.state(), "next-user-turn")).toMatchObject({total: 5, latestOrdinal: 5});
 });
 
 it.each([{ordinal: 99}, {capability: "metric_query"}, {ordinal: 1, relativePosition: 0}])("无匹配、歧义或冲突引用均不切焦点：%j", async selector => {
   const f = await fixture();
   const before = await f.store.state();
-  const receipt = receiptJson(await runTool(createBusinessContextReadTool(), {selector, setFocus: true}, f.request));
+  const receipt = await readContext(f.request, {selector, setFocus: true});
   expect(["not_found", "ambiguous"]).toContain(receipt.status);
   expect(await f.store.state()).toEqual(before);
   expect(f.backend.basicQueries).not.toHaveBeenCalled();
@@ -310,12 +359,12 @@ it.each([{ordinal: 99}, {capability: "metric_query"}, {ordinal: 1, relativePosit
 it("历史索引有界、稳定且不含结果，早期来源仍能定位；恢复后焦点与最新操作分离", async () => {
   const f = await fixture(12);
   const state = await f.store.state();
-  const index = await modelHistoryIndex(f.store, state, f.request.operationId);
+  const index = await historyIndex(f.store, state, f.request.operationId);
   expect(index).toMatchObject({total: 12, latestOrdinal: 12, focusOrdinal: 12, partial: true});
   expect(index.entries.map(entry => entry.ordinal)).toEqual([3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   expect(JSON.stringify(index)).not.toMatch(/resultRef|sample_rows|fact_id/);
-  await runTool(createBusinessContextReadTool(), {selector: {ordinal: 2}, setFocus: true}, f.request);
-  expect(await modelHistoryIndex(f.store, await f.store.state(), f.request.operationId))
+  await readContext(f.request, {selector: {ordinal: 2}, setFocus: true});
+  expect(await historyIndex(f.store, await f.store.state(), f.request.operationId))
     .toMatchObject({latestOrdinal: 12, focusOrdinal: 2});
   await f.sessions.release("synthetic-history", f.session.metadata.id);
   const reopened = await f.sessions.open("synthetic-history", f.session.metadata);

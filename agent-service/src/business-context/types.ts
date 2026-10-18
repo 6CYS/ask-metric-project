@@ -184,8 +184,6 @@ export interface ResolverContext {
   resolveMetricMentions?(question?: string): Promise<import("./metricMentions.js").MetricMentions>;
   resolveFieldReference?(input: HistoryFieldReferenceInput, targetField: string, inputSource?: "explicit" | "inherited", previous?: ResolvedField): Promise<FieldResolution>;
   resolveOrganizationScope?(scope: OrganizationScopeInput): Promise<FieldResolution>;
-  /** 模型按有权机构清单自主判断后的建议通道；成员校验、编码来源与命中标记仍由后端裁定。 */
-  resolveCatalogSuggested?(entity: string, suggested: {code?: string; name?: string; excerpt?: string}): Promise<FieldResolution>;
   /**
    * 上一轮遗留的执行中 Frame：按发送前登记的幂等键只读回查真实终态，不重发查询。
    * 仍在执行或暂时无法确认时返回 undefined，Frame 保持 executing。

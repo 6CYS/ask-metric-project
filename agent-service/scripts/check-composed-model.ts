@@ -16,7 +16,7 @@ const dataDir = await mkdtemp(join(tmpdir(), "composed-model-probe-"));
 const config = {...loadConfig(), dataDir};
 const actor: BackendUser = {id: "synthetic", username: "synthetic", display_name: "合成测试", org_code: "A", org_name: "虚构甲机构", role_code: "tester"};
 const store = new NativeSessionStore(dataDir);
-const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store, createAskMetricTools({compactTurnArgs: config.compactTurnArgs}));
+const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store, createAskMetricTools());
 const report: Array<Record<string, unknown>> = [];
 const filter = process.argv.find(value => value.startsWith("--contains="))?.slice("--contains=".length) ?? "";
 const organizations = [{code: "A", name: "虚构甲机构", alias: "甲机构"}, {code: "B", name: "虚构乙机构", alias: "乙机构"}];

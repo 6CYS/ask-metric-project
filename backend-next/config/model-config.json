@@ -1,25 +1,29 @@
 {
   "schema_version": 2,
-  "provider": "bank_intranet_openai_compatible",
+  "provider": "deepseek_openai_compatible",
   "models": {
     "chat": {
       "enabled": true,
       "base_url": "",
       "path": "/v1/chat/completions",
-      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "model": "deepseek-flash",
       "send_model": true,
-      "api_key_env": "MODEL_SILICONFLOW_CHAT_API_KEY",
+      "api_key_env": "MODEL_CHAT_API_KEY",
       "authentication": {
         "type": "bearer",
         "header": "Authorization",
         "prefix": "Bearer "
       },
       "timeout_seconds": 60.0,
-      "extra_body": {},
+      "extra_body": {
+        "thinking": {
+          "type": "disabled"
+        }
+      },
       "temperature": 0.0,
       "max_tokens": 2048,
       "enable_thinking": false,
-      "send_enable_thinking": true,
+      "send_enable_thinking": false,
       "user_message_suffix": "",
       "chat_template_kwargs": {},
       "base_url_env": "MODEL_CHAT_BASE_URL"

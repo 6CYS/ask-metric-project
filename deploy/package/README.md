@@ -124,12 +124,11 @@ sudo vi /etc/ask-metric/agent.env   # 可选；启用智能助手时配置模型
 sudo ./ops/install.sh
 ```
 
-`AGENT_COMPACT_TURN_ARGS` 是旧配置兼容项，不再选择新会话工具格式。
-`AGENT_BUSINESS_PROTOCOL=semantic_v2` 为新会话默认入口，已贯通查询、复合目标、排名、覆盖、计算和结果驱动规划。
-阶段4按用户要求先切换本地并交付手测，自动稳定性验收尚未完成；模板默认值变化不代表已部署生产。
-修改此配置后重启 agent-service，只影响随后创建的会话。已有会话、原生 operation 及恢复始终沿用保存的协议；
-新协议 Session 使用增量领域值，无需本次数据库迁移。回到 fixed_v1 默认值仍须运行支持两种 Session 的新版服务；
-不能用旧二进制恢复 semantic_v2 的 READY 或在途操作。详细范围与回退见[阶段4说明](../../docs/pi-semantic-task/implementation-phase4.md)。
+fixed_v1 业务协议与 `AGENT_COMPACT_TURN_ARGS`、`AGENT_BUSINESS_PROTOCOL` 配置已退役，不再是配置回退选项：
+新会话统一使用 semantic_v2 业务协议，已贯通查询、复合目标、排名、覆盖、计算和结果驱动规划。
+旧 fixed 会话保留历史消息、工具回执和结果展示，仅只读查看；继续提问返回明确的只读状态，需新建会话，
+在途旧操作不再自动恢复执行。semantic_v2 Session 使用增量领域值，无需本次数据库迁移；
+不能用旧二进制恢复 semantic_v2 的 READY 或在途操作。详细范围见[阶段4说明](../../docs/pi-semantic-task/implementation-phase4.md)。
 
 模型超时使用两阶段配置：`AGENT_MODEL_FIRST_RESPONSE_TIMEOUT_MS` 控制首次有效输出等待，
 `AGENT_MODEL_STREAM_IDLE_TIMEOUT_MS` 控制开始输出后的空闲时限，默认均为 30000 毫秒。

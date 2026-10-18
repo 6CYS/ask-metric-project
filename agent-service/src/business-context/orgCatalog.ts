@@ -19,7 +19,7 @@ export function orgCatalog(request: AskMetricRequestContext): Promise<OrgCatalog
 }
 
 /**
- * 轮状态块的机构清单文本，fixed_v1 与 semantic_v2 两协议共用同一来源与降级约定。
+ * 轮状态块的机构清单文本，semantic_v2 使用本轮权限目录，不将完整目录写入固定提示词或历史。
  * 后端客户端不支持 orgCatalog（旧桩/旧部署）时返回空串，不注入。
  */
 export async function orgCatalogTurnState(request: AskMetricRequestContext): Promise<string> {
@@ -29,7 +29,7 @@ export async function orgCatalogTurnState(request: AskMetricRequestContext): Pro
     return "\n有权机构清单：暂不可用（机构目录服务临时失败）；机构字段仍可按本轮业务表达提交。";
   }
   if (!catalog.items.length) return "\n有权机构清单：当前账号无可用机构。";
-  // 建议字段的键名按当前协议（fixed 协议 orgSuggestion / 语义协议 suggestion），excerpt 均为用户原文片段。
+  // suggestion 只辅助未决成员；完整机构原值始终保留在 value。
   return "\n有权机构清单（编码|名称|别名，每行一条；据此自主判断用户所指的机构，可在机构字段按当前协议的建议键提交结论，名称或编码取自清单）：\n"
     + catalog.items.map(item => `${item.code}|${item.name}|${item.aliases.join(",")}`).join("\n");
 }
@@ -52,4 +52,26 @@ async function fetchOrgCatalog(request: AskMetricRequestContext): Promise<OrgCat
       reason: error instanceof Error ? error.message : String(error)}));
     return {items: [], status: "temporary_error"};
   }
+}
+
+
+/** 目录中的完整名称/别名优先于连接词，避免把“和盛银行”等正式身份拆坏。 */
+export async function organizationValues(request: AskMetricRequestContext, text: string): Promise<string[]> {
+  const catalog = typeof request.backend.orgCatalog === "function" ? await orgCatalog(request) : undefined;
+  const terms = [...new Set(catalog?.items.flatMap(item => [item.name, ...item.aliases]) ?? [])]
+    .filter(Boolean).sort((a, b) => b.length - a.length);
+  const values: string[] = [];
+  let start = 0;
+  for (let position = 0; position < text.length;) {
+    const term = terms.find(value => text.startsWith(value, position));
+    if (term) {position += term.length; continue;}
+    const separator = /^(?:、|，|,|以及|和|与|及)/u.exec(text.slice(position));
+    if (!separator) {position++; continue;}
+    const value = text.slice(start, position).trim();
+    if (value) values.push(value);
+    position += separator[0].length; start = position;
+  }
+  const tail = text.slice(start).trim();
+  if (tail) values.push(tail);
+  return values;
 }

@@ -3,12 +3,12 @@ import {BackendApiError, type BasicQuerySpec} from "../../src/backendClient.js";
 import {SemanticPlanService} from "../../src/semantic-task/planService.js";
 import {createSemanticExecuteTool, createSemanticReadTool} from "../../src/semantic-task/tools.js";
 import {runTool} from "../../src/tools/testUtils.js";
-import {addPlanBackend, complete, fixture, proposal} from "./fixtures.js";
+import {complete, fixture, proposal} from "./fixtures.js";
 
 const closes: Array<() => Promise<void>> = [];
 afterEach(async () => {for (const close of closes.splice(0)) await close();});
 async function setup() {
-  const f = await fixture(); closes.push(f.close); addPlanBackend(f.backend);
+  const f = await fixture(); closes.push(f.close);
   async function query(id: string, message: string, operations = complete()) {
     const request = f.request(id, message), result = await new SemanticPlanService(request).resolve(proposal(operations));
     expect(result.status, JSON.stringify(result.issues)).toBe("ready");
@@ -62,6 +62,8 @@ describe("历史结果读取与当前业务焦点", () => {
     expect(await request.semanticTasks!.planIndex()).toEqual(before);
     expect(await request.frames!.state()).toEqual(frames); expect(f.backend.basicQueries).not.toHaveBeenCalled();
   });
+  // reuse 派生计划的步骤保留来源计划的 taskRef；locate() 按步骤配对与 permit digest 认可该派生绑定，
+  // 读取/执行只结算新计划并保留显式焦点。
   it.each(readers)("明确reuse派生计划后，$name只结算新计划并保留显式焦点", async ({tool}) => {
     const f = await setup(), request = f.request("explicit-reuse", "只重显第一笔结果");
     const reused = await new SemanticPlanService(request).resolve(proposal([], {kind: "reference", task_ref: f.old.plan.ref, target_ref: f.old.task.target.ref}, "reuse"));

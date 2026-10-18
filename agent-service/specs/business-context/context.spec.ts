@@ -2,7 +2,6 @@ import {mkdtempSync, rmSync, readFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {validateToolArguments} from "@earendil-works/pi-ai";
 import {NativeSessionStore} from "../../src/nativeSessions.js";
 import {NativeBusinessResultStore, NativeFrameStore} from "../../src/business-context/store.js";
 import {BusinessContextService} from "../../src/business-context/service.js";
@@ -10,16 +9,17 @@ import {createCapabilities} from "../../src/business-context/capabilities.js";
 import {createFieldResolvers} from "../../src/business-context/resolvers.js";
 import {CapabilityRegistry, FieldResolverRegistry, mergeFields, resolveFrame, validateFrame} from "../../src/business-context/core.js";
 import type {BusinessFrame, ContextDelta, ResolverContext} from "../../src/business-context/types.js";
-import {createExecuteBusinessFrameTool, createResolveBusinessTurnTool as resolveBusinessTurnTool, createReadBusinessResultTool} from "../../src/tools/businessContext.js";
+import {createExecuteBusinessFrameTool, createReadBusinessResultTool} from "../../src/tools/businessContext.js";
+import {createResolveTurnShim} from "./resolveTurnShim.js";
 import {MemoryCommandBridge, receiptJson, runTool as executeTool, testRequestContext} from "../../src/tools/testUtils.js";
 import type {BackendClient} from "../../src/backendClient.js";
 import {BackendApiError} from "../../src/backendClient.js";
 import {createAskMetricTools} from "../../src/tools/index.js";
 import {BusinessInputError} from "../../src/business-context/inputError.js";
-import {toCompactTurnArgs, toContextDelta, toLegacyTurnArgs} from "../../src/business-context/turnArgs.js";
+import {toContextDelta} from "../../src/business-context/turnArgs.js";
 
-describe.each([false, true])("业务上下文回归（compactTurnArgs=%s）", compactTurnArgs => {
-const createResolveBusinessTurnTool = () => resolveBusinessTurnTool({compactTurnArgs});
+describe("业务上下文回归", () => {
+const createResolveBusinessTurnTool = () => createResolveTurnShim();
 
 /** 完整模型参数经过原生准备和Schema校验；内部省略型Delta仍测试原服务语义。 */
 /** 仅测试夹具显式声明既定字段意图；生产工具不会替模型补此契约，缺参另有专项测试。 */
@@ -41,22 +41,15 @@ async function fixtureFieldIntents(params: unknown, request: Parameters<typeof e
 }
 
 async function runTool(...[tool, params, request, context]: Parameters<typeof executeTool>) {
-  const candidate = tool as ReturnType<typeof resolveBusinessTurnTool>;
+  const candidate = tool as ReturnType<typeof createResolveTurnShim>;
   if (candidate.name === "resolve_business_turn") {
     params = await fixtureFieldIntents(params, request);
-    let compact: Record<string, unknown> | undefined;
-    try { compact = toCompactTurnArgs(toContextDelta(params)); } catch (error) {
-      if (!(error instanceof BusinessInputError)) throw error;
-    }
-    if (compact && params && typeof params === "object"
-      && Object.hasOwn(params, "capabilityHint") && Object.hasOwn(params, "baseReference")) {
-      const prepared = candidate.prepareArguments?.(params) ?? params;
-      expect(prepared).toEqual(compactTurnArgs ? compact : toLegacyTurnArgs(toContextDelta(params)));
-      const validated = validateToolArguments(candidate, {type: "toolCall", id: "tc-1", name: candidate.name, arguments: prepared});
-      return executeTool(tool, validated, request, context);
-    }
     // 内部调用可省略能力和来源；仅改表达，不补字段，也不套用模型Schema。
-    if (compactTurnArgs && compact) return executeTool(tool, compact, request, context);
+    if (params && typeof params === "object"
+      && Object.hasOwn(params, "capabilityHint") && Object.hasOwn(params, "baseReference")) {
+      const prepared = candidate.prepareArguments?.(params as Record<string, unknown>) ?? params;
+      return executeTool(tool, prepared, request, context);
+    }
   }
   return executeTool(tool, params, request, context);
 }
@@ -213,17 +206,15 @@ async function historicalToolFixture() {
   return {...f, first, second};
 }
 
-it.each(["ordinal", "frameId", "current"].flatMap(source => ["legacy", "compact"].map(format => ({source, format}))))(
-  "$format字段冲突保留$source明确来源，不写Frame或移动焦点，纠正后继承该来源", async ({source, format}) => {
+it.each(["ordinal", "frameId", "current"])(
+  "字段冲突保留%s明确来源，不写Frame或移动焦点，纠正后继承该来源", async source => {
   const f = await historicalToolFixture();
   const base = source === "ordinal" ? {ordinal: 1} : source === "frameId" ? {frameId: f.first.frameId} : "current";
   const expected = source === "current" ? f.second : f.first;
   const before = await f.store.state();
   const frames = await f.store.list();
-  const args = format === "legacy"
-    ? {capabilityHint: "metric_query", baseReference: base, executionMode: "resolve_more", fieldChanges: [
-      {fieldHint: "time", operation: "retain"}, {fieldHint: "time", operation: "retain"}]}
-    : {capability: "metric_query", base, mode: "resolve_more", set: {time: "2026年2月28日"}, retain: ["time"]};
+  const args = {capabilityHint: "metric_query", baseReference: base, executionMode: "resolve_more", fieldChanges: [
+    {fieldHint: "time", operation: "retain"}, {fieldHint: "time", operation: "retain"}]};
   const error = receiptJson(await runTool(createResolveBusinessTurnTool(), args, f.request));
   expect(error).toMatchObject({status: "ARGUMENT_ERROR", error_code: "FIELD_CHANGES_INVALID", focus_preserved: true,
     retry_reference: {frameId: expected.frameId}});
@@ -237,17 +228,14 @@ it.each(["ordinal", "frameId", "current"].flatMap(source => ["legacy", "compact"
   expect(f.backend.basicQueries).not.toHaveBeenCalled();
 });
 
-it.each(["null", "omitted", "ambiguous", "missing"].flatMap(source => ["legacy", "compact"].map(format => ({source, format}))))(
-  "$format字段冲突的$source来源不补猜当前焦点", async ({source, format}) => {
+it.each(["null", "omitted", "ambiguous", "missing"])(
+  "字段冲突的%s来源不补猜当前焦点", async source => {
   const f = await historicalToolFixture();
   const base = source === "null" ? null : source === "ambiguous" ? {capability: "metric_query"} : {ordinal: 999};
   const before = await f.store.state();
   const frames = await f.store.list();
-  const args = format === "legacy"
-    ? {capabilityHint: "metric_query", ...(source === "omitted" ? {} : {baseReference: base}),
-      executionMode: "resolve_more", fieldChanges: [{fieldHint: "time", operation: "retain"}, {fieldHint: "time", operation: "retain"}]}
-    : {capability: "metric_query", ...(source === "omitted" ? {} : {base}),
-      mode: "resolve_more", set: {time: "2026年2月28日"}, retain: ["time"]};
+  const args = {capabilityHint: "metric_query", ...(source === "omitted" ? {} : {baseReference: base}),
+    executionMode: "resolve_more", fieldChanges: [{fieldHint: "time", operation: "retain"}, {fieldHint: "time", operation: "retain"}]};
   const error = receiptJson(await runTool(createResolveBusinessTurnTool(), args, f.request));
   expect(error).toMatchObject({status: "ARGUMENT_ERROR", error_code: "FIELD_CHANGES_INVALID", focus_preserved: true});
   expect(error).not.toHaveProperty("retry_reference");
@@ -256,13 +244,11 @@ it.each(["null", "omitted", "ambiguous", "missing"].flatMap(source => ["legacy",
   expect(f.backend.basicQueries).not.toHaveBeenCalled();
 });
 
-it.each(["legacy", "compact"])("混合%s格式的专属键不能被当成已确认来源", async format => {
+it("混入已废弃格式的专属键不能被当成已确认来源", async () => {
   const f = await historicalToolFixture();
   const before = await f.store.state();
   const frames = await f.store.list();
-  const args = format === "legacy"
-    ? {capabilityHint: "metric_query", baseReference: {ordinal: 1}, executionMode: "resolve_more", fieldChanges: [], set: {time: "2026年2月28日"}}
-    : {capability: "metric_query", base: {ordinal: 1}, mode: "resolve_more", fieldChanges: []};
+  const args = {capabilityHint: "metric_query", baseReference: {ordinal: 1}, executionMode: "resolve_more", fieldChanges: [], set: {time: "2026年2月28日"}};
   const error = receiptJson(await runTool(createResolveBusinessTurnTool(), args, f.request));
   expect(error).toMatchObject({status: "ARGUMENT_ERROR", error_code: "FIELD_CHANGES_INVALID"});
   expect(error).not.toHaveProperty("retry_reference");
@@ -398,11 +384,10 @@ it("四指标中末项确认后按逐条 mention 快照合并全部指标并执�
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
   const query = (f.backend.basicQueries.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]![0];
   expect(query.metric_codes).toEqual(codes);
-  // 保留原始措辞，确认后的身份由逐目标编码绑定表达，不按正式名称重新选择。
-  expect(query.source_question).toBe(question);
-  expect(query.source_metric_bindings).toEqual(names.map((text, index) => ({
-    text, start: question.indexOf(text), end: question.indexOf(text) + text.length, codes: [codes[index]],
-  })));
+  // 旧原句覆盖证明通道已删除：执行只提交规范化编码，不附 source_question/逐目标绑定。
+  for (const proof of ["source_question", "source_metric_bindings", "source_metric_exclusions", "verify_question_coverage"]) {
+    expect(query[proof]).toBeUndefined();
+  }
 });
 it("多 mention 部分澄清→跨轮确认→续查一次执行双指标", async () => {
   const f = await toolFixture();
@@ -442,11 +427,7 @@ it("多 mention 部分澄清→跨轮确认→续查一次执行双指标", asyn
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
   const query = (f.backend.basicQueries.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]![0];
   expect(query.metric_codes).toEqual(["A", "B"]);
-  expect(query.source_question).toBe(question);
-  expect(query.source_metric_bindings).toEqual([
-    {text: "合成余额当日数", start: 17, end: 24, codes: ["A"]},
-    {text: "100万以下贷款余额当日数", start: 25, end: 38, codes: ["B"]},
-  ]);
+  for (const proof of ["source_question", "source_metric_bindings"]) expect(query[proof]).toBeUndefined();
 });
 it("同一基础指标下的多个口径共用一组候选，确认一次全部确定并只执行一次", async () => {
   const f = await toolFixture();
@@ -479,11 +460,7 @@ it("同一基础指标下的多个口径共用一组候选，确认一次全部�
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
   const query = (f.backend.basicQueries.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]![0];
   expect(query.metric_codes).toEqual(["CORP:当日数", "CORP:较同期增幅"]);
-  expect(query.source_question).toBe(question);
-  expect(query.source_metric_bindings).toEqual([
-    {text: "对公日均存钱余额当日数", start: 17, end: 28, codes: ["CORP:当日数"]},
-    {text: "较同期增幅", start: 29, end: 34, codes: ["CORP:较同期增幅"]},
-  ]);
+  for (const proof of ["source_question", "source_metric_bindings"]) expect(query[proof]).toBeUndefined();
 });
 it("只确认了基础指标、原文没有口径时继续按目录追问口径，不替用户默认", async () => {
   const f = await toolFixture();
@@ -618,7 +595,7 @@ it("点选只对当前待确认 Frame 生效，回复文字无法识别时由点
   expect(((await f.store.get(String(clicked.frameId)))?.fields.metrics?.resolvedValue as {codes: string[]}).codes).toEqual(["ORG:当日数排名"]);
   expect(f.backend.basicQueries).not.toHaveBeenCalled();
 });
-it("用户明确放弃一项指标后执行剩余项，原句保留并传明确排除片段", async () => {
+it("用户明确放弃一项指标后执行剩余项，执行只提交保留指标编码", async () => {
   const f = await toolFixture();
   const question = "样本机构甲 2026年2月28日 合成余额当日数、贷款余额当日数";
   const mention = (text: string, code: string) => ({text, start: question.indexOf(text), end: question.indexOf(text) + text.length,
@@ -648,11 +625,10 @@ it("用户明确放弃一项指标后执行剩余项，原句保留并传明确�
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
   const query = (f.backend.basicQueries.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]![0];
   expect(query.metric_codes).toEqual(["A"]);
-  // 原句保留共同基础名称的解析上下文，后端通过显式排除片段跳过用户放弃的目标。
-  expect(query.source_question).toBe(question);
-  expect(query.source_metric_exclusions).toEqual([{text: "贷款余额当日数", start: 25, end: 32}]);
+  // 排除证据不再以证明字段上送；放弃行为由工作状态 removedMentions（上方断言）承担。
+  for (const proof of ["source_question", "source_metric_exclusions"]) expect(query[proof]).toBeUndefined();
 });
-it("续查轮静默丢项正常发出但带覆盖率复核，source_question 含被丢项", async () => {
+it("续查轮静默丢项仍只按选中项执行，不再附覆盖率复核证明", async () => {
   const f = await toolFixture();
   const firstQuestion = "样本机构甲 2026年2月28日 合成余额当日数";
   const firstMentions = vi.fn(async () => ({mentions: [{text: "合成余额当日数", start: 17, end: 24,
@@ -684,11 +660,11 @@ it("续查轮静默丢项正常发出但带覆盖率复核，source_question 含
   await runTool(createExecuteBusinessFrameTool(), {frameId: String(ready.frameId)}, next);
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
   const query = (f.backend.basicQueries.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]![0];
-  // 被漏掉的目标仍完整暴露在原句中，绑定只能覆盖实际选中项，后端据此拦截漏项。
-  expect(query.source_question).toBe(followUpQuestion);
+  // 覆盖率复核通道已删除：执行只提交实际选中的规范化编码，不附原句或逐目标绑定。
   expect(query.metric_codes).toEqual(["A"]);
-  expect(query.source_metric_bindings).toEqual([{text: "合成余额当日数", start: 0, end: 7, codes: ["A"]}]);
-  expect(String(query.source_question)).toContain("贷款余额当日数");
+  for (const proof of ["source_question", "source_metric_bindings", "verify_question_coverage"]) {
+    expect(query[proof]).toBeUndefined();
+  }
 });
 it("同名双码的指标别名跨轮补条件后沿用已定编码，不改写为同名名称", async () => {
   const f = await toolFixture();
@@ -706,10 +682,11 @@ it("同名双码的指标别名跨轮补条件后沿用已定编码，不改写�
   expect(ready.status).toBe("READY");
   await runTool(createExecuteBusinessFrameTool(), {frameId: String(ready.frameId)}, next);
   const query = (f.backend.basicQueries.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]![0];
-  expect(query).toMatchObject({metric_codes: ["TEST_ASSET"], source_question: question,
-    source_metric_bindings: [{start: 5, end: 9, text: "资产总额", codes: ["TEST_ASSET"]}]});
+  // 沿用已定编码，不改写为同名名称；旧证明字段不再上送。
+  expect(query).toMatchObject({metric_codes: ["TEST_ASSET"]});
+  for (const proof of ["source_question", "source_metric_bindings"]) expect(query[proof]).toBeUndefined();
 });
-it("连续放弃后确认余项仍累计排除快照，执行绑定只覆盖保留项", async () => {
+it("连续放弃后确认余项仍累计排除快照，执行只提交保留项", async () => {
   const f = await toolFixture();
   const question = "样本机构甲 2026年2月28日 合成甲、合成乙、合成丙";
   const names = ["合成甲", "合成乙", "合成丙"];
@@ -741,11 +718,12 @@ it("连续放弃后确认余项仍累计排除快照，执行绑定只覆盖保�
   ]);
   await runTool(createExecuteBusinessFrameTool(), {frameId: String(ready.frameId)}, confirmedRequest);
   const query = (f.backend.basicQueries.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]![0];
-  expect(query).toMatchObject({metric_codes: ["C"], source_question: question,
-    source_metric_bindings: [{text: "合成丙", start: 25, end: 28, codes: ["C"]}],
-    source_metric_exclusions: [{text: "合成甲", start: 17, end: 20}, {text: "合成乙", start: 21, end: 24}]});
+  expect(query).toMatchObject({metric_codes: ["C"]});
+  for (const proof of ["source_question", "source_metric_bindings", "source_metric_exclusions"]) {
+    expect(query[proof]).toBeUndefined();
+  }
 });
-it("放弃首项保留共享基础名和省略口径原句，执行只绑定剩余口径", async () => {
+it("放弃首项保留共享基础名，执行只提交剩余口径编码", async () => {
   const f = await toolFixture();
   const question = "样本机构甲 2026年2月28日 贷款余额当日数和较上月增幅";
   const request = {...f.request, originalMessage: question, backend: {...f.backend,
@@ -766,9 +744,10 @@ it("放弃首项保留共享基础名和省略口径原句，执行只绑定剩�
   expect(ready.status).toBe("READY");
   await runTool(createExecuteBusinessFrameTool(), {frameId: String(ready.frameId)}, next);
   const query = (f.backend.basicQueries.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]![0];
-  expect(query).toMatchObject({metric_codes: ["LOAN:GROWTH"], source_question: question,
-    source_metric_bindings: [{text: "较上月增幅", start: 25, end: 30, codes: ["LOAN:GROWTH"]}],
-    source_metric_exclusions: [{text: "贷款余额当日数", start: 17, end: 24}]});
+  expect(query).toMatchObject({metric_codes: ["LOAN:GROWTH"]});
+  for (const proof of ["source_question", "source_metric_bindings", "source_metric_exclusions"]) {
+    expect(query[proof]).toBeUndefined();
+  }
 });
 it.each([false, true])("95%指标直接采用，只澄清仍未确定的机构（机构待确认=%s）", async unresolvedOrg => {
   const f = await toolFixture();
@@ -817,7 +796,7 @@ it("多指标由模型引用算法片段选择范围，非法引用不污染焦�
   }, followUp));
   expect((await f.store.get(String(ready.frameId)))?.fields.metrics?.resolvedValue).toEqual({codes: ["B"], names: ["合成乙"]});
 });
-it("独立四指标问题完整提交目录编码及宿主原句，不能只执行前一项", async () => {
+it("独立四指标问题完整提交目录编码，不能只执行前一项", async () => {
   const f = await toolFixture();
   const question = "样本机构甲 2026年2月28日 合成余额当日数、较上月增幅、贷款余额当日数、净利润本年累计";
   const names = ["合成余额当日数", "较上月增幅", "贷款余额当日数", "净利润本年累计"];
@@ -835,7 +814,7 @@ it("独立四指标问题完整提交目录编码及宿主原句，不能只执�
   await runTool(createExecuteBusinessFrameTool(), {frameId: String(ready.frameId)}, request);
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
   expect(f.backend.basicQueries).toHaveBeenCalledWith(
-    expect.objectContaining({metric_codes: codes, source_question: question}),
+    expect.objectContaining({metric_codes: codes}),
     expect.any(String), expect.any(Object),
   );
 });

@@ -24,6 +24,14 @@ it("提问声明支持累计回答，解析新事件并忽略未知事件；GET 
   expect((fetcher.mock.calls[1] as unknown as [string, RequestInit])[1].headers).not.toHaveProperty("X-Agent-Answer-Streaming")
 });
 
+it("纯点击请求允许空 message，并原样序列化结构化 answers", async () => {
+ const fetcher=vi.fn(async()=>new Response('event: run_terminal\ndata: {"run_status":"completed","answer_status":"ok"}\n\n'));vi.stubGlobal("fetch",fetcher);
+ const answers=[{question_id:"q1",version:2,choice:{type:"select" as const,option_ids:["o1","o2"]}},{question_id:"q2",version:1,choice:{type:"accept" as const}}];
+ await promptAgentSession("synthetic",{request_id:"click-only",message:"",answers},{onEvent:()=>{}});
+ const body=JSON.parse(String((fetcher.mock.calls[0] as unknown as [string,RequestInit])[1].body));
+ expect(body).toEqual({protocol_version:3,request_id:"click-only",message:"",answers});
+});
+
 
 it("停止支持accepted前的request身份，并保留旧operation停止接口",async()=>{
  const fetcher=vi.fn(async()=>new Response(null,{status:204}));vi.stubGlobal("fetch",fetcher);

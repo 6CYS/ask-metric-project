@@ -11,6 +11,8 @@ import type { MetricAskDetails } from "./tools/shared.js";
 import { CONVERSATION_REPLY } from "./tools/turnContract.js";
 import {isSemanticFeedback, semanticPublicAnswer} from "./semantic-task/feedback.js";
 import {readDirectAnswerSnapshot} from "./semantic-task/directDelivery.js";
+import type {NativeSemanticTaskStore} from "./semantic-task/store.js";
+import type {QuestionStatus} from "./semantic-task/questions.js";
 
 /** 同一正式回执同时投影任务状态和结果表；不从模型正文重建业务结果。 */
 function browserToolDetails(details: unknown): unknown {
@@ -115,6 +117,7 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
       errorMessage?: string;
       stopReason?: string;
       businessProtocol?: string;
+      displayText?: string;
     };
     const timestamp = message.timestamp ?? entry.timestamp ?? null;
     if (message.role === "user") {
@@ -124,7 +127,7 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
       directTurnAnswerId = undefined;
       frameTurn = ["frame_v1", "semantic_v2"].includes(message.businessProtocol ?? "");
       question = visibleText(message.content);
-      messages.push({ role: "user", text: visibleText(message.content), timestamp, entry_id: entry.id });
+      messages.push({ role: "user", text: typeof message.displayText === "string" ? message.displayText : visibleText(message.content), timestamp, entry_id: entry.id });
     } else if (message.role === "assistant") {
       if (directTurnAnswerId && !toolCallNames(message.content).length) {
         // 正式交付已持久化；非相邻的重放和旧兜底正文也不能再生成第二份答案。
@@ -237,6 +240,37 @@ export function projectSnapshot(snapshot: LaneSnapshot): {
     operation_id: snapshot.operation?.id ?? null,
     messages: projectEntries(snapshot.transcript),
   };
+}
+
+export interface ProjectedQuestionState {question_id: string; version: number; status: QuestionStatus}
+
+function projectionSemanticFeedback(details: unknown) {
+  if (isSemanticFeedback(details)) return details;
+  if (details && typeof details === "object" && !Array.isArray(details)) {
+    const wrapped = (details as {semantic_task?: unknown}).semantic_task;
+    if (isSemanticFeedback(wrapped)) return wrapped;
+  }
+  return undefined;
+}
+
+/** 只读取当前投影中仍可见的问题身份；脱敏或回撤后消失的题不补状态。 */
+export async function projectQuestionStates(messages: readonly ProjectedMessage[],
+  store: Pick<NativeSemanticTaskStore, "questionStates">): Promise<ProjectedQuestionState[]> {
+  const visible = new Set<string>();
+  for (const message of messages) {
+    if (message.role !== "tool") continue;
+    const feedback = projectionSemanticFeedback(message.details);
+    if (!feedback) continue;
+    for (const question of [...(feedback.pending_questions ?? []), ...(feedback.answer_receipts ?? [])]) {
+      if (typeof question.question_id !== "string" || !question.question_id) continue;
+      visible.delete(question.question_id);
+      visible.add(question.question_id);
+    }
+  }
+  const ids = [...visible].slice(-100);
+  if (!ids.length) return [];
+  const allowed = new Set(ids);
+  return (await store.questionStates(ids)).filter(state => allowed.has(state.question_id)).slice(0, 100);
 }
 
 /** 原生 watch 事件 → 浏览器事件；无关事件返回 null */

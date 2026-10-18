@@ -12,7 +12,7 @@ import {createAssistantMessageEventStream, createModels, createProvider,
   type AssistantMessage, type Model, type ProviderStreams} from "@earendil-works/pi-ai";
 import {BACKGROUND_CONTEXT} from "@earendil-works/pi-agent-core";
 import type {AgentServiceConfig} from "../src/config.js";
-import {BackendApiError, type BackendClient, type FieldSuggestion} from "../src/backendClient.js";
+import {type BackendClient, type FieldSuggestion} from "../src/backendClient.js";
 import type {FieldResolution} from "../src/business-context/types.js";
 import type {SemanticFeedback} from "../src/semantic-task/feedback.js";
 import {HarnessHost} from "../src/harnessHost.js";
@@ -33,16 +33,20 @@ const DATE = {start: "2026-03-31", end: "2026-03-31"};
 const DATE_TEXT = "2026年3月末";
 
 type Reply = {text: string} | {args: Record<string, unknown>};
+/** 动态剧本：依赖上一轮已发布问题的 question_id/option_id 时，按模型上下文现取。 */
+type ScriptedReply = Reply | ((context: {messages: Array<{role: string; toolName?: string; details?: unknown;
+  content?: unknown}>}) => Reply);
 
 /** 编排模型：只按剧本返回原生事件，不发起任何 HTTP 模型请求；同时捕获每轮发送的用户消息副本。 */
-function scriptedModel(script: Reply[], captured: string[][]) {
+function scriptedModel(script: ScriptedReply[], captured: string[][]) {
   const model: Model<"openai-completions"> = {id: "offline-semantic-org", name: "offline-semantic-org",
     api: "openai-completions", provider: "offline", baseUrl: "http://offline.invalid", reasoning: false, input: ["text"],
     cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}, contextWindow: 128_000, maxTokens: 8192};
   let calls = 0;
   const respond: ProviderStreams["streamSimple"] = (_model, context) => {
-    const next = script[calls++];
-    if (!next) throw new Error("OFFLINE_SCRIPT_EXHAUSTED");
+    const entry = script[calls++];
+    if (!entry) throw new Error("OFFLINE_SCRIPT_EXHAUSTED");
+    const next = typeof entry === "function" ? entry(context as never) : entry;
     captured.push(context.messages.filter(message => message.role === "user")
       .map(message => typeof message.content === "string" ? message.content
         : message.content.filter(block => block.type === "text").map(block => block.text).join("")));
@@ -73,11 +77,10 @@ function mention(question: string) {
     resolution: {status: "resolved" as const, value: {codes: [METRIC.code], names: [METRIC.name]}}}];
 }
 
-/** 桩后端：语义链路所需的目录/目标检查/整批准入/执行全部为合成数据；suggestCalls 记录建议通道负载。
- *  admitGrounding=true 时忠实复刻后端现行准入对账：变更新增的机构编码必须在 goal 原文中字面命中。 */
+/** 桩后端：语义链路所需的目录/目标检查/执行全部为合成数据；suggestCalls 记录建议通道负载。
+ *  统一语义入口后不再有后端整批准入，机构来源由宿主 suggestion 通道与来源确认题裁定。 */
 function stubBackend(options: {
-  suggest: (suggested: FieldSuggestion[]) => Promise<FieldResolution>;
-  admitGrounding?: boolean;
+  suggest: (suggested: FieldSuggestion[], rawValues?: string[]) => Promise<FieldResolution>;
   resolveFullNames?: boolean;
 }) {
   const suggestCalls: FieldSuggestion[][] = [];
@@ -108,25 +111,10 @@ function stubBackend(options: {
         value: {codes, names: codes.map(code => ORGS.find(org => org.code === code)!.name)},
         metadata: {source_codes: codes.filter((code, index) => question.includes(raw[index]!))}};
     },
-    resolveBusinessFieldSuggestion: async (_entity: string, suggested: FieldSuggestion[]): Promise<FieldResolution> => {
+    resolveBusinessFieldSuggestion: async (_entity: string, suggested: FieldSuggestion[], _options?: unknown,
+      _sourceQuestion?: string, rawValues?: string[]): Promise<FieldResolution> => {
       suggestCalls.push(suggested);
-      return options.suggest(suggested);
-    },
-    admitSemanticPlan: async (payload: {goal: string;
-      steps: Array<{target_ref: string; transition?: {changes: Array<{field: string; before: unknown; after: unknown}>}}>}) => {
-      if (options.admitGrounding) {
-        // 与 backend-next semantic_transition.validate_transition 一致：新增机构须字面出现在 goal 中。
-        const mentioned = ORGS.filter(org => [org.name, ...org.aliases].some(term => payload.goal.includes(term)))
-          .map(org => org.code);
-        for (const step of payload.steps) for (const change of step.transition?.changes ?? []) {
-          if (change.field !== "organizations" && change.field !== "comparison_organizations") continue;
-          const before = change.before as string[], after = change.after as string[];
-          if (after.some(code => !before.includes(code) && !mentioned.includes(code))) {
-            throw new BackendApiError(409, "新增机构须有本轮目录事实依据。", "TRANSITION_SOURCE_UNGROUNDED");
-          }
-        }
-      }
-      return {status: "admitted", receipts: payload.steps.map(step => ({target_ref: step.target_ref, receipt: `rcpt:${step.target_ref}`}))};
+      return options.suggest(suggested, rawValues);
     },
     createAgentQueryContext: async () => ({conversation_id: "synthetic-conversation"}),
     basicQueries: async (spec: {org_codes?: string[]}) => {
@@ -188,7 +176,7 @@ async function directSuggestion(): Promise<void> {
     suggest: async suggested => {
       assert.deepEqual(suggested, [{name: "沭阳农商银行", excerpt: "沐阳"}]);
       return {status: "resolved", value: {codes: ["O-SY"], names: ["沭阳农商银行"]},
-        metadata: {resolution_source: "corrected",
+        metadata: {resolution_source: "corrected", source_codes: ["O-SY"],
           corrections: [{raw: "沐阳", corrected_name: "沭阳农商银行", corrected_code: "O-SY"}]}};
     },
   });
@@ -228,7 +216,7 @@ async function replaceSubjectIdentity(): Promise<void> {
     suggest: async suggested => {
       assert.deepEqual(suggested, [{name: "沭阳农商银行", excerpt: "沐阳"}]);
       return {status: "resolved", value: {codes: ["O-SY"], names: ["沭阳农商银行"]},
-        metadata: {resolution_source: "model_inferred"}};
+        metadata: {resolution_source: "model_inferred", source_codes: ["O-SY"]}};
     },
   });
   const host = new HarnessHost(config(dir), () => scriptedModel([
@@ -289,13 +277,23 @@ async function preferredConfirmation(): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "semantic-org-preferred-"));
   const {backend, suggestCalls, queries} = stubBackend({
     suggest: async () => ({status: "needs_confirmation", candidates: [
-      {value: "锡银农商银行", code: "O-XY"},
+      // 首推标记由后端解析签发；桩忠实复刻该契约。
+      {value: "锡银农商银行", code: "O-XY", preferred: true},
       {value: "锡山农商银行", code: "O-XS"},
     ]}),
   });
   const host = new HarnessHost(config(dir), () => scriptedModel([
     {args: resolveArgs(fullOps(setOrg("锡银", {name: "锡银农商银行", excerpt: "锡银"})))},
-    {args: resolveArgs([{action: "confirm", field: "organizations", value: "是"}], {kind: "current"})},
+    // 已发布问题只用结构化 answers 回答（新契约）；kind=confirm 的问题 accept 即确认首推。
+    context => {
+      const receipt = [...context.messages].reverse().find(message => message.toolName === "resolve_business_turn"
+        && (message.details as SemanticFeedback | undefined)?.status === "needs_user");
+      const question = (receipt?.details as SemanticFeedback | undefined)?.pending_questions
+        ?.find(item => item.scope.field === "organizations");
+      assert(question?.kind === "confirm", "剧本依赖已发布的 confirm 问题");
+      return {args: {...resolveArgs([], {kind: "current"}), answers: [{question_id: question!.question_id,
+        version: question!.version, choice: {type: "accept"}, evidence: {excerpt: "是"}}]}};
+    },
     {text: "已告知锡银农商银行的查询结果。"},
   ], []), new NativeSessionStore(dir), createAskMetricTools());
   try {
@@ -306,8 +304,14 @@ async function preferredConfirmation(): Promise<void> {
     const first = (await receipts(hosted)).find(message => message.toolName === "resolve_business_turn"
       && (message.details as SemanticFeedback | undefined)?.status === "needs_user");
     const answer = first?.content.filter(block => block.type === "text").map(block => block.text).join("") ?? "";
-    assert(answer.includes("您是指「锡银农商银行」吗？回复“是”直接确认；或选择："), "首推候选应使用确认式话术");
+    // 确认式话术 + kind=confirm 机器契约：确认对象必须是首推候选。
+    assert(answer.includes("您是指「锡银农商银行」吗？"), "首推候选应使用确认式话术");
     assert(answer.indexOf("1. 锡银农商银行") < answer.indexOf("2. 锡山农商银行"), "首推候选应置顶");
+    const question = (first?.details as SemanticFeedback | undefined)?.pending_questions
+      ?.find(item => item.scope.field === "organizations");
+    assert.equal(question?.kind, "confirm", "首推问题应签发 confirm 类型");
+    const confirmation = question?.options.find(option => option.option_id === question.confirmation_option_id);
+    assert.equal(confirmation?.label, "锡银农商银行", "确认对象应指向首推候选");
     await host.runPrompt(hosted, {protocol_version: 3, request_id: "preferred-2",
       message: "是"}, {actor: TEST_ACTOR, backend});
     assert.equal(queries.length, 1, "确认后应执行一次查询");
@@ -315,16 +319,16 @@ async function preferredConfirmation(): Promise<void> {
   } finally { await host.close(); await rm(dir, {recursive: true, force: true}); }
 }
 
-/** ⑥ 实测复刻：追问「沐阳呢？」reference+replace+suggestion 被后端准入对账拒绝（现行契约）时，
- *  不再出现 pi 循环与熔断——转为可操作的 needs_user 澄清；用户回复机构全称后按原文路径一次通过。 */
+/** ⑥ 旧整批准入对账已删除：追问「沐阳呢？」replace+suggestion 在统一入口一次落地执行，
+ *  不再出现 TRANSITION_SOURCE_UNGROUNDED 拒绝、pi 循环与熔断；模型推断来源仍向用户明示。 */
 async function suggestionGroundingRecovery(): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "semantic-org-grounding-"));
   const {backend, suggestCalls, queries} = stubBackend({
-    admitGrounding: true, resolveFullNames: true,
+    resolveFullNames: true,
     suggest: async suggested => {
       assert.deepEqual(suggested, [{name: "沭阳农商银行", excerpt: "沐阳"}]);
       return {status: "resolved", value: {codes: ["O-SY"], names: ["沭阳农商银行"]},
-        metadata: {resolution_source: "model_inferred"}};
+        metadata: {resolution_source: "model_inferred", source_codes: ["O-SY"]}};
     },
   });
   const host = new HarnessHost(config(dir), () => scriptedModel([
@@ -332,7 +336,6 @@ async function suggestionGroundingRecovery(): Promise<void> {
     {text: "已告知无锡的查询结果。"},
     {args: resolveArgs([{action: "replace", field: "organizations", subject: "无锡农商银行",
       value: "沐阳", suggestion: {name: "沭阳农商银行", excerpt: "沐阳"}}], {kind: "current"})},
-    {args: resolveArgs([{action: "set", field: "organizations", value: "沭阳农商银行"}], {kind: "current"})},
     {text: "已告知沭阳农商银行的查询结果。"},
   ], []), new NativeSessionStore(dir), createAskMetricTools());
   try {
@@ -344,28 +347,55 @@ async function suggestionGroundingRecovery(): Promise<void> {
       message: "沐阳呢？"}, {actor: TEST_ACTOR, backend});
     assert.equal(suggestCalls.length, 1, "追问应走模型建议通道");
     const messages = await receipts(hosted);
-    const turn2 = [...messages].reverse().find(message => message.toolName === "resolve_business_turn"
-      && (message.details as SemanticFeedback | undefined)?.status !== "succeeded");
-    const feedback = turn2?.details as SemanticFeedback | undefined;
-    assert(feedback, "应有第二轮解析回执");
-    // 关键断言：不再以 remediation=pi 的 TRANSITION_SOURCE_UNGROUNDED 驱动模型原样重提（熔断根因）。
-    assert.equal(feedback!.status, "needs_user", "suggestion 落地的准入拒绝应转为用户澄清而非模型重试");
-    assert(!feedback!.issues.some(issue => issue.remediation === "pi"), "不应残留驱动模型重试的 pi 级 issue");
-    assert(!feedback!.issues.some(issue => issue.code === "TRANSITION_ADMISSION_REQUIRED"),
-      "准入失败复述标记应被过滤");
-    const grounded = feedback!.issues.find(issue => issue.code === "TRANSITION_SOURCE_UNGROUNDED");
-    assert(grounded?.message.includes("请直接回复机构全称") && grounded.message.includes("沭阳农商银行"),
-      "澄清话术应引导用户回复机构全称，实际：" + grounded?.message);
-    assert.equal(queries.length, 1, "准入被拒不得执行查询");
-    // 用户按引导回复机构全称：名称进入本轮原文，value 旧路径 + 准入对账一次通过。
-    await host.runPrompt(hosted, {protocol_version: 3, request_id: "grounding-3",
-      message: "沭阳农商银行"}, {actor: TEST_ACTOR, backend});
-    assert.equal(queries.length, 2, "用户补全称后应执行查询");
+    const feedback = succeededFeedback(messages);
+    // 关键断言：统一入口直接落地，无旧准入拒绝与模型重试循环。
+    assert(feedback, "追问应一次解析成功");
+    assert(!messages.some(message => message.toolName === "resolve_business_turn"
+      && ((message.details as SemanticFeedback | undefined)?.issues ?? [])
+        .some(issue => issue.remediation === "pi")), "不应残留驱动模型重试的 pi 级 issue");
+    assert(!JSON.stringify(messages).includes("TRANSITION_SOURCE_UNGROUNDED"), "旧准入错误码不得再出现");
+    assert.equal(queries.length, 2, "追问应直接执行一次查询");
     assert.deepEqual(queries[1]!.org_codes, ["O-SY"]);
+    const evidence = feedback?.state.evidence as {public_answer?: string} | undefined;
+    assert(evidence?.public_answer?.includes("已按「沭阳农商银行」查询（您说的是「沐阳」）"),
+      "模型推断来源仍应向用户明示");
   } finally { await host.close(); await rm(dir, {recursive: true, force: true}); }
 }
 
 /** ⑦ 提示词纪律：清单中没有与用户措辞相符的机构时，模型走 value 旧路径，不得换成不相干机构。 */
+/** ⑧ 多机构一次 set + 单条 suggestion：value 全部成员必须保留并进入查询（忠实模拟后端 raw_values+suggested 合并）。 */
+async function multiOrgSingleSuggestion(): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), "semantic-org-multi-"));
+  const {backend, queries} = stubBackend({
+    suggest: async (suggested, rawValues) => {
+      assert.deepEqual(suggested, [{name: "无锡农商银行", excerpt: "无锡"}]);
+      // 与后端 resolve-field 合并语义一致：raw_values 逐条阶梯解析，suggested 并入；
+      // 全部成员须保留，不能只留建议项。
+      const codes = (rawValues ?? []).map(text => ORGS.find(org => org.name === text
+        || org.aliases.includes(text))?.code).filter((code): code is string => !!code);
+      for (const entry of suggested) {
+        const hit = ORGS.find(org => org.code === entry.code || org.name === entry.name);
+        if (hit && !codes.includes(hit.code)) codes.push(hit.code);
+      }
+      return {status: "resolved",
+        value: {codes, names: codes.map(code => ORGS.find(org => org.code === code)!.name)},
+        metadata: {resolution_source: "model_inferred", source_codes: codes}};
+    },
+  });
+  const host = new HarnessHost(config(dir), () => scriptedModel([
+    {args: resolveArgs(fullOps(setOrg("无锡、锡山", {name: "无锡农商银行", excerpt: "无锡"})))},
+    {text: "已按回执告知用户查询结果。"},
+  ], []), new NativeSessionStore(dir), createAskMetricTools());
+  try {
+    const hosted = await host.createSession(TEST_ACTOR);
+    await host.runPrompt(hosted, {protocol_version: 3, request_id: "multi-1",
+      message: `查无锡、锡山${DATE_TEXT}贷款余额`}, {actor: TEST_ACTOR, backend});
+    assert.equal(queries.length, 1, "多机构提案应执行一次查询，实际：" + queries.length);
+    assert.deepEqual([...(queries[0]?.org_codes ?? [])].sort(), ["O-WX", "O-XS"],
+      "value 全部成员必须进入查询，实际：" + JSON.stringify(queries[0]?.org_codes));
+  } finally { await host.close(); await rm(dir, {recursive: true, force: true}); }
+}
+
 async function noMatchDiscipline(): Promise<void> {
   const {buildSemanticSystemPrompt, buildCompactSemanticSystemPrompt} = await import("../src/semantic-task/prompt.js");
   for (const prompt of [buildSemanticSystemPrompt("2026-10-15"), buildCompactSemanticSystemPrompt("2026-10-15")]) {
@@ -399,6 +429,7 @@ await scenario("semantic_org_not_found_guidance", notFoundGuidance);
 await scenario("semantic_preferred_confirmation", preferredConfirmation);
 await scenario("semantic_suggestion_grounding_recovery", suggestionGroundingRecovery);
 await scenario("semantic_no_match_discipline", noMatchDiscipline);
+await scenario("semantic_multi_org_single_suggestion", multiOrgSingleSuggestion);
 const passed = results.every(result => result.passed);
 console.log(JSON.stringify({passed, environment: "offline_scripted_model_stub_backend", scenarios: results.length}));
 if (!passed) process.exitCode = 1;

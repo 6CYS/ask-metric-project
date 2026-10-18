@@ -20,8 +20,16 @@ md.renderer.rules.link_open = (tokens, index, options, env, self) => {
   return defaultLinkOpen ? defaultLinkOpen(tokens, index, options, env, self) : self.renderToken(tokens, index, options)
 }
 
+// 旧版追问回答会在末尾追加“已保存条件”段落；条件已随结构化回执展示，
+// 这里只隐藏该历史后缀，不影响模型正文或其它段落。
+const LEGACY_SAVED_CONDITIONS = /(?:\r?\n){2,}已保存条件：[^\r\n]*(?=\r?\n|$)/u
+
+export function stripLegacySavedConditions(source: string): string {
+  return source.replace(LEGACY_SAVED_CONDITIONS, "")
+}
+
 export function renderAssistantHtml(source: string): string {
-  return md.render(source)
+  return md.render(stripLegacySavedConditions(source))
 }
 
 function escapeTableCell(text: string): string {

@@ -374,7 +374,7 @@ if (directlyInvoked && !args.includes("--live")) {
   const store = new NativeSessionStore(dir);
   const skills = await loadBusinessSkills();
   const host = new HarnessHost(config, authorize => createAskMetricModels(config, authorize), store,
-    [...createAskMetricTools({compactTurnArgs: config.compactTurnArgs}), createBusinessSkillReadTool(skills)], {skills});
+    [...createAskMetricTools(), createBusinessSkillReadTool(skills)], {skills});
   const reports: Array<Record<string, unknown>> = [];
   const reportPath = option("--report") ?? join(dir, "report.json");
   let reportWrite: Promise<void> = Promise.resolve();

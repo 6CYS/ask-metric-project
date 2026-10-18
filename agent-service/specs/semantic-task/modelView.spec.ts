@@ -65,3 +65,13 @@ it("发送副本去重不改原生details、工具配对、未知协议或非JSO
   const text = {...original, content: [{type: "text", text: "正式直接交付正文"}]} as AgentMessage;
   expect(projectSemanticModelMessages([text])[0]).toBe(text);
 });
+
+it("紧凑模型视图完整保留问题版本、选项差异和受理回执", () => {
+  const question = {question_id: "q_1", version: 2, scope: {task_ref: "plan-a", target_ref: "target-a", field: "metrics", item_ref: "item-a"},
+    prompt: "请选择指标", selection_mode: "single", options: [{option_id: "opt_a", no: 1, label: "同名指标", description: "当日口径"}],
+    status: "open", issued_operation_id: "op-a", kind: "choice"};
+  const receipt = {question_id: "q_1", version: 1, outcome: "applied", notice: "已确认", selected_options: [{option_id: "opt_old", no: 1, label: "旧指标"}]};
+  const projected = projectSemanticFeedback({...feedback(evidence()), pending_questions: [question], answer_receipts: [receipt]}) as Record<string, unknown>;
+  expect(projected.pending_questions).toEqual([question]);
+  expect(projected.answer_receipts).toEqual([receipt]);
+});

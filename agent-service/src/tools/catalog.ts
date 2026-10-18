@@ -1,4 +1,4 @@
-import { Type } from "@earendil-works/pi-ai";
+import { Type, type Static } from "@earendil-works/pi-ai";
 import type { AgentHarnessTool } from "@earendil-works/pi-agent-core";
 import type { AskMetricRequestContext } from "../requestContext.js";
 import { BackendApiError } from "../backendClient.js";
@@ -7,7 +7,7 @@ import { createOrgCatalogSearchTool } from "./orgCatalogSearch.js";
 import { createMetricCatalogOverviewTool } from "./metricCatalogOverview.js";
 import { catalogSearchParameters } from "./shared.js";
 
-const parameters = Type.Union([
+const catalogParameters = Type.Union([
   Type.Object({action: Type.Literal("search"), queries: Type.Array(Type.Object({
     entity: Type.Union([Type.Literal("metric"), Type.Literal("organization")]),
     ...catalogSearchParameters.properties,
@@ -16,6 +16,9 @@ const parameters = Type.Union([
   Type.Object({action: Type.Literal("overview")}, {additionalProperties: false,
     description: "启用指标总数、单位分组和名称示例；不支持机构总览"}),
 ]);
+// 顶层必须声明 type=object：DeepSeek 等 OpenAI 兼容接口会拒绝 type 为空的
+// function.parameters（anyOf 只用于分支判别）。
+const parameters = Type.Unsafe<Static<typeof catalogParameters>>({type: "object", anyOf: catalogParameters.anyOf});
 
 /** 只合并模型入口，匹配规则与鉴权继续复用原有实现；最多四项只读检索并发。 */
 export function createCatalogTool(): AgentHarnessTool<AskMetricRequestContext, typeof parameters> {

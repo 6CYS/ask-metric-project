@@ -1,28 +1,13 @@
 """算法回归使用合成目录，不连接模型或业务数据库。"""
-from contextlib import nullcontext
-from types import SimpleNamespace
-from unittest.mock import Mock
-
 import pytest
-from pydantic import ValidationError
 
-from ask_metric.api.routes.tasks import (
-    BasicQueryRequest,
-    SourceMetricBinding,
-    SourceMetricSpan,
-    _verify_metric_coverage,
-    execute_basic_query,
-)
 from ask_metric.application.catalog_sync import _build_metric_catalog
 from ask_metric.application.field_resolution import resolve_catalog_field
 from ask_metric.application.metric_candidates import (
     MetricCandidateIndex,
     metric_candidate_index,
 )
-from ask_metric.application.requests import ActorContext
-from ask_metric.core.errors import ApplicationError
-from ask_metric.domain.query_execution import QueryExecutionResult
-from ask_metric.domain.semantics import MetricCatalogItem
+from ask_metric.domain.semantics import MetricCatalogItem, OrganizationCatalogItem
 
 
 def catalog():
@@ -146,10 +131,6 @@ def test_high_confidence_base_typo_resolves_with_exact_basis_and_audit(base, raw
     assert correction["formal_metric"] == {
         "code": "SYNTH:当日数", "name": base + "当日数", "value_basis": "当日数",
     }
-    # 执行层重扫原句认可同一纠错，不能换口径或多查一个指标。
-    _verify_metric_coverage(question, ["SYNTH:当日数"], items)
-    assert_coverage_rejected(question, ["SYNTH:较上期增幅"], items, None,
-                             "METRIC_TARGETS_INCOMPLETE")
 
 
 def test_high_confidence_typo_keeps_all_explicit_metrics_and_shared_bases():
@@ -166,9 +147,6 @@ def test_high_confidence_typo_keeps_all_explicit_metrics_and_shared_bases():
     ]
     assert mentions[0]["group"]["id"] == mentions[1]["group"]["id"]
     assert mentions[2]["group"]["id"] != mentions[0]["group"]["id"]
-    codes = ["A:当日数", "A:较上期增幅", "B:当日数"]
-    _verify_metric_coverage(question, codes, items)
-    assert_coverage_rejected(question, codes[:-1], items, None, "METRIC_TARGETS_INCOMPLETE")
 
 
 @pytest.mark.parametrize("base,raw", [
@@ -186,7 +164,6 @@ def test_base_typo_never_rewrites_explicit_semantic_qualifiers(base, raw):
     items = structured("SYNTH", base, ["当日数"])
     mentions = MetricCandidateIndex(items).mentions(raw + "当日数")
     assert mentions and all(m["resolution"]["status"] != "resolved" for m in mentions)
-    assert_coverage_rejected(raw + "当日数", ["SYNTH:当日数"], items, None)
 
 
 @pytest.mark.parametrize("base,raw,bases", [
@@ -215,7 +192,6 @@ def test_base_typo_competition_is_checked_before_basis_filter_and_candidate_trun
     mention = index.mentions("净利润金融当日数")[0]
     assert mention["resolution"]["status"] == "needs_confirmation"
     assert [c["code"] for c in mention["resolution"]["candidates"]] == ["A:当日数"]
-    assert_coverage_rejected("净利润金融当日数", ["A:当日数"], items, None)
 
 
 def test_base_typo_close_runner_up_is_not_auto_selected():
@@ -262,8 +238,31 @@ def test_question_tail_does_not_turn_exact_metric_into_fuzzy_longer_one():
         assert result[0]["resolution"]["value"]["codes"] == ["M0"]
 
 
-def test_base_without_value_basis_asks_for_value_basis():
+def test_unique_full_base_name_defaults_to_current_day_basis():
+    # 验收 A1 首轮：完整基础名称精确且唯一命中、仅省略口径，默认当日数，不追问口径。
     items = structured("G", "保证金存款利息支出金额", ["当日数", "较同期", "较上月增幅"])
+    mentions = MetricCandidateIndex(items).mentions("保证金存款利息支出金额是多少")
+    assert len(mentions) == 1
+    assert mentions[0]["text"] == "保证金存款利息支出金额"
+    resolution = mentions[0]["resolution"]
+    assert resolution["status"] == "resolved"
+    assert resolution["value"] == {
+        "codes": ["G:当日数"], "names": ["保证金存款利息支出金额当日数"],
+    }
+    assert resolution["metadata"] == {
+        "match": "exact", "default_value_basis": "当日数",
+        "source_metric_code": "G", "base_name": "保证金存款利息支出金额",
+    }
+    # 目录只有一个口径且为当日数时同样默认。
+    single = MetricCandidateIndex(structured("U", "特种单位协定存款余额", ["当日数"]))
+    resolution = single.mentions("特种单位协定存款余额")[0]["resolution"]
+    assert resolution["status"] == "resolved"
+    assert resolution["value"]["codes"] == ["U:当日数"]
+
+
+def test_missing_value_basis_still_asks_when_no_unique_current_day_member():
+    # 目录无当日数成员、或当日数成员不唯一时才追问；候选仍是目录实际存在的指标。
+    items = structured("G", "保证金存款利息支出金额", ["较同期", "较上月增幅"])
     mentions = MetricCandidateIndex(items).mentions("保证金存款利息支出金额是多少")
     assert len(mentions) == 1
     assert mentions[0]["text"] == "保证金存款利息支出金额"
@@ -271,15 +270,56 @@ def test_base_without_value_basis_asks_for_value_basis():
     assert resolution["status"] == "needs_confirmation"
     assert resolution["metadata"]["issue"] == "missing_value_basis"
     assert {c["code"] for c in resolution["candidates"]} == {item.code for item in items}
-    # 候选带口径，用户只回答“当日数”时也能按原文确定。
+    # 候选带口径，用户只回答“较同期”时也能按原文确定。
     assert {c["metadata"]["value_basis"] for c in resolution["candidates"]} == {
-        "当日数", "较同期", "较上月增幅",
+        "较同期", "较上月增幅",
     }
-    # 目录只有一个口径时也不替用户默认口径。
-    single = MetricCandidateIndex(structured("U", "特种单位协定存款余额", ["当日数"]))
-    assert single.mentions("特种单位协定存款余额")[0]["resolution"]["status"] == (
-        "needs_confirmation"
-    )
+    duplicated = [
+        *structured("H", "特种单位协定存款余额", ["当日数", "较上月"]),
+        MetricCatalogItem(code="H-alt:当日数", name="特种单位协定存款余额当日数",
+                          source_metric_code="H", base_name="特种单位协定存款余额",
+                          value_basis="当日数"),
+    ]
+    resolution = MetricCandidateIndex(duplicated).mentions("特种单位协定存款余额")[0]["resolution"]
+    assert resolution["status"] == "needs_confirmation"
+    assert resolution["metadata"]["issue"] == "missing_value_basis"
+
+
+def test_homophone_or_multi_source_base_is_not_defaulted():
+    # 同音待确认项不直接默认口径。
+    resolution = MetricCandidateIndex(deposit_catalog()).mentions(
+        "对工日均存款余额"
+    )[0]["resolution"]
+    assert resolution["status"] == "needs_confirmation"
+    assert resolution["metadata"]["issue"] == "missing_value_basis"
+    assert resolution["metadata"]["understood_as"] == "对公日均存款余额"
+    # 同一基础名称对应多个源指标时不默认，候选保留各源完整目录解析。
+    shared = MetricCandidateIndex([
+        *structured("A", "合成余额", ["当日数", "较上月"]),
+        *structured("B", "合成余额", ["当日数"]),
+    ])
+    resolution = shared.mentions("合成余额")[0]["resolution"]
+    assert resolution["status"] == "needs_confirmation"
+    assert {c["code"] for c in resolution["candidates"]} == {
+        "A:当日数", "A:较上月", "B:当日数",
+    }
+
+
+def test_explicit_basis_and_formal_name_are_not_redefaulted():
+    # 验收 A1：首轮默认当日数；次轮明确口径优先；已含口径的正式名称不重套默认。
+    index = MetricCandidateIndex(structured("AGR", "对公协定存款余额", ["当日数", "较上月"]))
+    cases = [
+        ("查询无锡2026年5月31日的对公协定存款余额。", ["AGR:当日数"], True),
+        ("对公协定存款余额较上月", ["AGR:较上月"], False),
+        ("对公协定存款余额当日数", ["AGR:当日数"], False),
+    ]
+    for question, expected, defaulted in cases:
+        mentions = index.mentions(question)
+        assert len(mentions) == 1
+        resolution = mentions[0]["resolution"]
+        assert resolution["status"] == "resolved"
+        assert resolution["value"]["codes"] == expected
+        assert ("default_value_basis" in resolution["metadata"]) == defaulted
 
 
 def test_short_alias_inside_unfinished_specific_name_is_not_selected():
@@ -292,7 +332,7 @@ def test_short_alias_inside_unfinished_specific_name_is_not_selected():
     mentions = MetricCandidateIndex(items).mentions(question)
     assert summary(mentions) == [
         ("收单客户数量当日数", "resolved", ["ACQ:当日数"]),
-        ("个人贷记卡普通卡客户数量", "needs_confirmation", ["CARD:当日数", "CARD:较上月"]),
+        ("个人贷记卡普通卡客户数量", "resolved", ["CARD:当日数"]),
     ]
 
 
@@ -324,9 +364,6 @@ def test_unfinished_value_basis_is_confirmed_within_its_base():
     assert summary(index.mentions("对公日均存款余额较同期增加了多少")) == [
         ("对公日均存款余额较同期", "resolved", ["CORP:较同期"]),
     ]
-    with pytest.raises(ApplicationError) as unresolved:
-        _verify_metric_coverage("对公日均存款余额较同期增", ["CORP:较同期增幅"], deposit_catalog())
-    assert unresolved.value.code == "METRIC_TARGETS_UNRESOLVED"
 
 
 def test_crossing_names_are_ambiguous_instead_of_selecting_the_longer_one():
@@ -401,9 +438,6 @@ def test_catalog_without_source_structure_does_not_guess_ellipsis():
     mentions = MetricCandidateIndex(items).mentions(question)
     assert mentions[0]["resolution"]["value"]["codes"] == ["A1"]
     assert all(m["resolution"]["status"] != "resolved" for m in mentions[1:])
-    with pytest.raises(ApplicationError) as unresolved:
-        _verify_metric_coverage(question, ["A1", "A2"], items)
-    assert unresolved.value.code in {"METRIC_TARGETS_UNRESOLVED", "METRIC_TARGETS_INCOMPLETE"}
 
 
 @pytest.mark.parametrize("last_name,confirmed", [
@@ -423,17 +457,12 @@ def test_four_metrics_keep_ellipsis_group_and_independent_last_metric(last_name,
     assert [item["resolution"]["value"]["codes"] for item in mentions[:3]] == [
         ["INCOME:当日数"], ["INCOME:较上月增幅"], ["INCOME:较去年同期增幅"],
     ]
-    codes = ["INCOME:当日数", "INCOME:较上月增幅", "INCOME:较去年同期增幅", "LOAN:当日数"]
     if confirmed:
         assert mentions[3]["resolution"]["value"]["codes"] == ["LOAN:当日数"]
-        _verify_metric_coverage(question, codes, items)
     else:
         assert mentions[3]["resolution"]["status"] == "needs_confirmation"
         assert "LOAN:当日数" in {candidate.get("code") for candidate
                                  in mentions[3]["resolution"]["candidates"]}
-        with pytest.raises(ApplicationError) as unresolved:
-            _verify_metric_coverage(question, codes, items)
-        assert unresolved.value.code == "METRIC_TARGETS_UNRESOLVED"
 
 
 def test_source_structure_must_be_trusted_and_ambiguous_basis_is_not_selected():
@@ -484,7 +513,6 @@ def test_shared_base_with_several_value_bases(question):
     ]
     assert len({mention["group"]["id"] for mention in mentions}) == 1
     assert all(question[m["start"]:m["end"]] == m["text"] for m in mentions)
-    _verify_metric_coverage(question, ["CORP:当日数", "CORP:较同期增幅"], deposit_catalog())
 
 
 def test_homophone_base_resolves_every_value_basis_of_the_group():
@@ -539,16 +567,11 @@ def test_fuzzy_span_uses_complete_catalog_term_and_basis_boundary(
     if auto_corrected:
         assert mention["resolution"]["status"] == "resolved"
         assert mention["resolution"]["value"]["codes"] == ["SYNTH:期内累计"]
-        _verify_metric_coverage(question, ["SYNTH:期内累计"], items)
     else:
         assert mention["resolution"]["status"] == "needs_confirmation"
         assert [candidate["code"] for candidate in mention["resolution"]["candidates"]] == [
             "SYNTH:期内累计",
         ]
-        assert_coverage_rejected(question, ["SYNTH:期内累计"], items, None)
-    _verify_metric_coverage(question, ["SYNTH:期内累计"], items, [
-        binding(question, raw_base + "期内累计", ["SYNTH:期内累计"]),
-    ])
 
 
 def test_fuzzy_base_preserves_shared_bases_and_independent_metric():
@@ -610,8 +633,12 @@ def test_full_rank_value_basis_is_kept_as_metric_name():
     assert summary(index.mentions("各家农商行对公日均存款余额较上月增幅排名前三")) == [
         ("对公日均存款余额较上月增幅排名", "resolved", ["CORP:较上月增幅排名"]),
     ]
+    # 排名操作与口径分别处理：省略口径时默认当日数，排名由下游单独处理。
     missing = index.mentions("各家农商行对公日均存款余额排名前三")
-    assert missing[0]["resolution"]["metadata"]["issue"] == "missing_value_basis"
+    resolution = missing[0]["resolution"]
+    assert resolution["status"] == "resolved"
+    assert resolution["value"]["codes"] == ["CORP:当日数"]
+    assert resolution["metadata"]["default_value_basis"] == "当日数"
 
 
 def test_base_and_value_basis_aliases_compose():
@@ -626,9 +653,23 @@ def test_field_value_with_unrecognized_text_is_not_resolved():
     result = resolve_catalog_field("metric", ["甲乙丙丁戊己"], items)
     assert result["status"] == "needs_confirmation"
     assert [candidate["code"] for candidate in result["candidates"]] == ["A"]
-    missing = resolve_catalog_field("metric", ["对公日均存款余额"], deposit_catalog())
-    assert missing["status"] == "needs_confirmation"
-    assert len(missing["candidates"]) == 7
+    # 完整基础名称唯一命中、仅省略口径：字段解析与原问 mentions 共用默认当日数规则。
+    defaulted = resolve_catalog_field("metric", ["对公日均存款余额"], deposit_catalog())
+    assert defaulted["status"] == "resolved"
+    assert defaulted["value"] == {
+        "codes": ["CORP:当日数"], "names": ["对公日均存款余额当日数"],
+    }
+
+
+def test_metric_zero_hit_only_requests_the_metric_field():
+    # 零命中只请求补充指标：状态 not_found、无候选；机构等其它字段的独立解析不受影响。
+    result = resolve_catalog_field("metric", ["完全不存在的指标甲乙丙"], deposit_catalog())
+    assert result["status"] == "not_found"
+    assert result["candidates"] == []
+    orgs = [OrganizationCatalogItem(code="O1", name="无锡农商行")]
+    org = resolve_catalog_field("organization", ["无锡农商行"], orgs)
+    assert org["status"] == "resolved"
+    assert org["value"]["codes"] == ["O1"]
 
 
 def test_catalog_sync_retains_source_structure_and_rejects_conflicting_source_rows():
@@ -673,349 +714,3 @@ def test_aliases_are_derived_from_maintained_synonyms_only():
         writings={"较同期": "同比"},
     )
     assert "对公日均" not in MetricCandidateIndex(shared).base_terms
-
-
-def test_formal_task_rejects_omitted_or_uncertain_targets_before_sql():
-    items = [
-        MetricCatalogItem(code="A1", name="合成余额当日数", source_metric_code="A",
-                          base_name="合成余额", value_basis="当日数"),
-        MetricCatalogItem(code="A2", name="合成余额较上月增幅", source_metric_code="A",
-                          base_name="合成余额", value_basis="较上月增幅"),
-    ]
-    question = "合成余额当日数和较上月增幅"
-    _verify_metric_coverage(question, ["A1", "A2"], items)
-    with pytest.raises(ApplicationError) as missing:
-        _verify_metric_coverage(question, ["A1"], items)
-    assert getattr(missing.value, "code", None) == "METRIC_TARGETS_INCOMPLETE"
-    with pytest.raises(ApplicationError) as uncertain:
-        _verify_metric_coverage("未登记的指标", ["A1"], items)
-    assert getattr(uncertain.value, "code", None) == "METRIC_TARGETS_UNRESOLVED"
-    with pytest.raises(ApplicationError) as basis_missing:
-        _verify_metric_coverage("合成余额是多少", ["A1"], items)
-    assert getattr(basis_missing.value, "code", None) == "METRIC_TARGETS_UNRESOLVED"
-
-
-def binding(question, text, codes):
-    start = question.index(text)
-    return SourceMetricBinding(start=start, end=start + len(text), text=text, codes=codes)
-
-
-def same_name_catalog():
-    return [
-        MetricCatalogItem(code="A", name="资产总额当日数", aliases=["资产总额"]),
-        MetricCatalogItem(code="B", name="资产总额当日数", aliases=["总资产"]),
-    ]
-
-
-def assert_coverage_rejected(
-    question, requested, items, bindings, code="METRIC_TARGETS_UNRESOLVED", *, exclusions=None,
-):
-    with pytest.raises(ApplicationError) as error:
-        _verify_metric_coverage(question, requested, items, bindings, exclusions)
-    assert (error.value.code, error.value.status_code) == (code, 409)
-
-
-def test_original_alias_binding_survives_duplicate_formal_names():
-    items = same_name_catalog()
-    question = "那我需要查资产总额"
-    _verify_metric_coverage(question, ["A"], items, [binding(question, "资产总额", ["A"])])
-    # 旧的名称替换会把唯一别名变成同名歧义；新契约保持原文与已确认编码。
-    assert_coverage_rejected("那我需要查资产总额当日数", ["A"], items, None)
-
-
-def test_two_aliases_bind_two_same_name_metrics_without_losing_either_target():
-    items = same_name_catalog()
-    question = "资产总额和总资产"
-    bindings = [binding(question, "资产总额", ["A"]), binding(question, "总资产", ["B"])]
-    _verify_metric_coverage(question, ["A", "B"], items, bindings)
-    assert_coverage_rejected(question, ["A"], items, bindings, "METRIC_TARGETS_INCOMPLETE")
-    assert_coverage_rejected(question, ["A"], items, bindings[:1])
-
-
-def test_swapped_resolved_bindings_cannot_hide_behind_same_requested_union():
-    question = "资产总额和总资产"
-    bindings = [binding(question, "资产总额", ["B"]), binding(question, "总资产", ["A"])]
-    assert_coverage_rejected(question, ["A", "B"], same_name_catalog(), bindings)
-
-
-@pytest.mark.parametrize("code", ["A", "B"])
-def test_explicit_confirmation_can_choose_either_current_same_name_candidate(code):
-    question = "资产总额当日数"
-    _verify_metric_coverage(
-        question, [code], same_name_catalog(), [binding(question, question, [code])],
-    )
-
-
-def test_missing_value_basis_requires_binding_even_if_requested_is_one_candidate():
-    items = structured("ASSET", "资产总额", ["当日数", "较上月增幅"])
-    question = "查询资产总额"
-    chosen = "ASSET:当日数"
-    assert_coverage_rejected(question, [chosen], items, None)
-    _verify_metric_coverage(question, [chosen], items, [binding(question, "资产总额", [chosen])])
-
-
-@pytest.mark.parametrize("basis", ["当日数", "较上月增幅"])
-def test_fuzzy_base_confirmation_then_value_basis_can_bind_current_trusted_variant(basis):
-    items = structured("MOB", "手机银行客户数量", ["当日数", "较上月增幅"])
-    question = "手机银行客户数"
-    resolution = MetricCandidateIndex(items).mentions(question)[0]["resolution"]
-    assert resolution["status"] == "needs_confirmation"
-    assert any(candidate.get("metadata") == {
-        "kind": "base_only", "source_metric_code": "MOB",
-    } and "code" not in candidate for candidate in resolution["candidates"])
-    chosen = f"MOB:{basis}"
-    _verify_metric_coverage(question, [chosen], items, [binding(question, question, [chosen])])
-    assert_coverage_rejected(question, [chosen], items, None)
-
-
-def test_fuzzy_base_binding_does_not_trust_malformed_source_structure():
-    items = [
-        *structured("MOB", "手机银行客户数量", ["当日数", "较上月增幅"]),
-        MetricCatalogItem(code="FAKE", name="其他业务指标", source_metric_code="MOB",
-                          base_name="手机银行客户数量", value_basis="当日数"),
-    ]
-    question = "手机银行客户数"
-    assert "FAKE" not in MetricCandidateIndex(items).source_by_code
-    assert_coverage_rejected(question, ["FAKE"], items, [binding(question, question, ["FAKE"])])
-
-
-@pytest.mark.parametrize("codes", [["OUTSIDE"], ["A", "B"]])
-def test_confirmation_binding_cannot_choose_non_candidate_or_multiple_candidates(codes):
-    question = "资产总额当日数"
-    items = same_name_catalog() + [MetricCatalogItem(code="OUTSIDE", name="合成存款余额")]
-    assert_coverage_rejected(question, codes, items, [binding(question, question, codes)])
-
-
-def test_removed_catalog_code_is_rejected_even_when_original_frame_bound_it():
-    question = "资产总额当日数"
-    current_catalog = [same_name_catalog()[1]]
-    assert_coverage_rejected(question, ["A"], current_catalog, [binding(question, question, ["A"])])
-
-
-def test_unavailable_value_basis_cannot_bind_an_enabled_metric_with_another_basis():
-    items = [
-        *structured("ASSET", "资产总额", ["当日数"]),
-        *structured("DEPOSIT", "存款余额", ["较上月增幅"]),
-    ]
-    question = "资产总额较上月增幅"
-    assert MetricCandidateIndex(items).mentions(question)[0]["resolution"]["candidates"] == []
-    assert_coverage_rejected(
-        question, ["ASSET:当日数"], items, [binding(question, question, ["ASSET:当日数"])],
-    )
-
-
-@pytest.mark.parametrize("change", [
-    {"start": 0},
-    {"end": 100},
-    {"text": "总资产"},
-    {"start": 1, "end": 5, "text": "查询资产"},
-])
-def test_forged_or_out_of_bounds_binding_span_is_rejected(change):
-    question = "📈查询资产总额"
-    original = binding(question, "资产总额", ["A"])
-    forged = SourceMetricBinding.model_validate(original.model_dump() | change)
-    assert_coverage_rejected(question, ["A"], same_name_catalog(), [forged])
-
-
-def test_binding_unicode_offsets_are_codepoints_and_preserve_original_whitespace():
-    question = "📈查询资 产总额"
-    _verify_metric_coverage(
-        question, ["A"], same_name_catalog(), [binding(question, "资 产总额", ["A"])],
-    )
-
-
-def test_duplicate_overlapping_and_extra_non_metric_bindings_are_rejected():
-    question = "查询资产总额和总资产"
-    first, second = (binding(question, text, [code])
-                     for text, code in [("资产总额", "A"), ("总资产", "B")])
-    assert_coverage_rejected(question, ["A", "B"], same_name_catalog(), [first, first])
-    overlap = binding(question, "总额和总资产", ["B"])
-    assert_coverage_rejected(question, ["A", "B"], same_name_catalog(), [first, overlap])
-    extra = binding(question, "查询", ["A"])
-    assert_coverage_rejected(question, ["A", "B"], same_name_catalog(), [first, extra])
-    assert_coverage_rejected(question, ["A", "B"], same_name_catalog(), [first, second, extra])
-
-
-def test_binding_cannot_turn_non_metric_text_into_a_target():
-    question = "你好"
-    assert_coverage_rejected(
-        question, ["A"], same_name_catalog(), [binding(question, question, ["A"])],
-    )
-
-
-def test_extra_requested_code_is_still_rejected_after_binding_validation():
-    question = "资产总额"
-    assert_coverage_rejected(
-        question, ["A", "B"], same_name_catalog(), [binding(question, question, ["A"])],
-        "METRIC_TARGETS_INCOMPLETE",
-    )
-
-
-def source_span(question, text):
-    start = question.index(text)
-    return SourceMetricSpan(start=start, end=start + len(text), text=text)
-
-
-def test_excluding_first_metric_keeps_shared_base_for_following_value_basis():
-    items = structured("LOAN", "贷款余额", ["当日数", "较上月增幅"])
-    question = "贷款余额当日数和较上月增幅"
-    bindings = [binding(question, "较上月增幅", ["LOAN:较上月增幅"])]
-    exclusions = [source_span(question, "贷款余额当日数")]
-    _verify_metric_coverage(question, ["LOAN:较上月增幅"], items, bindings, exclusions)
-    assert_coverage_rejected(
-        question, ["LOAN:当日数", "LOAN:较上月增幅"], items, bindings,
-        "METRIC_TARGETS_INCOMPLETE", exclusions=exclusions,
-    )
-    # 真正删除首项会丢失基础指标上下文，不能识别剩余省略口径。
-    assert MetricCandidateIndex(items).mentions("和较上月增幅") == []
-
-
-def test_exclusion_can_drop_an_ambiguous_metric_without_forcing_confirmation():
-    items = same_name_catalog() + [MetricCatalogItem(code="L", name="贷款余额当日数")]
-    question = "资产总额当日数和贷款余额当日数"
-    _verify_metric_coverage(question, ["L"], items, [binding(question, "贷款余额当日数", ["L"])],
-                            [source_span(question, "资产总额当日数")])
-
-
-@pytest.mark.parametrize("changes", [
-    {"start": 1, "text": "款余额当日数"},
-    {"text": "存款余额当日数"},
-    {"end": 100},
-    {"start": 7, "end": 8, "text": "和"},
-])
-def test_partial_forged_out_of_bounds_or_non_metric_exclusion_is_rejected(changes):
-    items = structured("LOAN", "贷款余额", ["当日数", "较上月增幅"])
-    question = "贷款余额当日数和较上月增幅"
-    excluded = SourceMetricSpan.model_validate(
-        source_span(question, "贷款余额当日数").model_dump() | changes,
-    )
-    assert_coverage_rejected(
-        question, ["LOAN:较上月增幅"], items,
-        [binding(question, "较上月增幅", ["LOAN:较上月增幅"])], exclusions=[excluded],
-    )
-
-
-def test_missing_duplicate_overlapping_or_extra_exclusion_is_rejected():
-    items = structured("LOAN", "贷款余额", ["当日数", "较上月增幅"])
-    question = "贷款余额当日数和较上月增幅"
-    kept = binding(question, "较上月增幅", ["LOAN:较上月增幅"])
-    excluded = source_span(question, "贷款余额当日数")
-    for exclusions in [None, [excluded, excluded], [source_span(question, "较上月增幅")],
-                       [excluded, source_span(question, "和")]]:
-        assert_coverage_rejected(
-            question, ["LOAN:较上月增幅"], items, [kept], exclusions=exclusions,
-        )
-
-
-def test_excluding_a_metric_does_not_join_surrounding_text_into_another_metric():
-    items = [
-        MetricCatalogItem(code="E", name="存款余额当日数"),
-        MetricCatalogItem(code="L", name="贷款余额当日数"),
-        MetricCatalogItem(code="JOINED", name="甲乙"),
-    ]
-    question = "甲存款余额当日数乙和贷款余额当日数"
-    # 合成目录里的“甲乙”只在直接删除被放弃的指标片段后出现。
-    deleted_mentions = MetricCandidateIndex(items).mentions(question.replace("存款余额当日数", ""))
-    assert deleted_mentions[0]["resolution"]["value"]["codes"] == ["JOINED"]
-    bindings = [binding(question, "贷款余额当日数", ["L"])]
-    exclusions = [source_span(question, "存款余额当日数")]
-    _verify_metric_coverage(question, ["L"], items, bindings, exclusions)
-    assert_coverage_rejected(
-        question, ["L", "JOINED"], items, bindings, "METRIC_TARGETS_INCOMPLETE",
-        exclusions=exclusions,
-    )
-
-
-def test_exclusions_without_any_retained_binding_cannot_skip_legacy_verification():
-    question = "资产总额"
-    excluded = source_span(question, question)
-    assert_coverage_rejected(question, ["A"], same_name_catalog(), None, exclusions=[excluded])
-    assert_coverage_rejected(question, ["A"], same_name_catalog(), [], exclusions=[excluded])
-
-
-@pytest.mark.parametrize("change", [
-    {"start": "0"}, {"start": True}, {"start": -1}, {"end": 0}, {"end": 1},
-    {"end": 5.0}, {"text": ""}, {"text": 123}, {"codes": []}, {"codes": [""]},
-    {"codes": ["  "]}, {"codes": [1]}, {"codes": ["A", "A"]},
-    {"codes": "A"}, {"unknown": "ignored"},
-])
-def test_binding_schema_rejects_coercion_empty_identity_and_extra_fields(change):
-    with pytest.raises(ValidationError):
-        SourceMetricBinding.model_validate({
-            "start": 1, "end": 5, "text": "资产总额", "codes": ["A"],
-        } | change)
-
-
-def basic_query_body():
-    return {
-        "metric_codes": ["A"], "org_codes": ["ORG"],
-        "time": {"start": "2026-07-31", "end": "2026-07-31"}, "selection": "exact",
-    }
-
-
-def test_request_requires_source_question_and_nonempty_binding_list():
-    item = binding("资产总额", "资产总额", ["A"]).model_dump()
-    with pytest.raises(ValidationError):
-        BasicQueryRequest.model_validate(basic_query_body() | {"source_metric_bindings": [item]})
-    with pytest.raises(ValidationError):
-        BasicQueryRequest.model_validate(basic_query_body() | {
-            "source_question": "资产总额", "source_metric_bindings": [],
-        })
-
-
-def test_request_requires_complete_binding_contract_for_exclusions():
-    excluded = source_span("资产总额", "资产总额").model_dump()
-    for fields in [{}, {"source_question": "资产总额"}, {"source_metric_bindings": [
-        binding("资产总额", "资产总额", ["A"]).model_dump(),
-    ]}]:
-        with pytest.raises(ValidationError):
-            BasicQueryRequest.model_validate(basic_query_body() | fields | {
-                "source_metric_exclusions": [excluded],
-            })
-    with pytest.raises(ValidationError):
-        SourceMetricSpan.model_validate(excluded | {"codes": ["A"]})
-
-
-def test_route_verifies_binding_before_task_creation_and_keeps_it_out_of_query_spec():
-    question = "资产总额当日数和总资产"
-    payload = BasicQueryRequest.model_validate(basic_query_body() | {
-        "source_question": question,
-        "source_metric_bindings": [binding(question, "资产总额当日数", ["A"]).model_dump()],
-        "source_metric_exclusions": [source_span(question, "总资产").model_dump()],
-    })
-    tasks = Mock()
-    tasks.uow_factory.side_effect = lambda: nullcontext(SimpleNamespace(
-        metric_catalog=SimpleNamespace(list_enabled=same_name_catalog),
-    ))
-    tasks.submit_question.return_value = SimpleNamespace(task_id="synthetic-task", version=1)
-    execution = Mock()
-    execution.execute.return_value = QueryExecutionResult(
-        task_id="synthetic-task", status="succeeded", query_shape="metric_value",
-    )
-    arguments = {
-        "request": SimpleNamespace(state=SimpleNamespace(request_id="synthetic-request")),
-        "actor": ActorContext(subject="synthetic-user", authentication_method="test",
-                              trust_level="authenticated"),
-        "task_service": tasks, "execution_service": execution, "idempotency_key": "synthetic-key",
-    }
-    response = execute_basic_query(payload, **arguments)
-    assert response.result.status == "succeeded"
-    command = tasks.submit_question.call_args.args[0]
-    assert command.basic_query.metric_codes == ["A"]
-    assert "source_question" not in command.basic_query.model_dump()
-    assert "source_metric_bindings" not in command.basic_query.model_dump()
-    assert "source_metric_exclusions" not in command.basic_query.model_dump()
-    assert response.query == command.basic_query
-
-    # 不接受模型把另一个启用指标写进同一 span；失败发生在任务和取数之前。
-    tasks.reset_mock()
-    execution.reset_mock()
-    invalid = payload.model_copy(update={
-        "source_question": "资产总额",
-        "source_metric_bindings": [binding("资产总额", "资产总额", ["B"])],
-        "source_metric_exclusions": None,
-    })
-    with pytest.raises(ApplicationError):
-        execute_basic_query(invalid, **arguments)
-    tasks.submit_question.assert_not_called()
-    execution.execute.assert_not_called()

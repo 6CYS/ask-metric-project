@@ -2,15 +2,14 @@ import {mkdtempSync, rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {validateToolArguments} from "@earendil-works/pi-ai";
 import {NativeSessionStore} from "../../src/nativeSessions.js";
 import {NativeFrameStore} from "../../src/business-context/store.js";
 import {BusinessContextService} from "../../src/business-context/service.js";
 import {createCapabilities} from "../../src/business-context/capabilities.js";
 import {createFieldResolvers} from "../../src/business-context/resolvers.js";
 import {applyFieldIntentConstraints, FieldResolverRegistry, mergeFields, validateFieldIntents, validateFrame} from "../../src/business-context/core.js";
-import {toCompactTurnArgs, toContextDelta} from "../../src/business-context/turnArgs.js";
-import {createResolveBusinessTurnTool} from "../../src/tools/businessContext.js";
+import {toContextDelta} from "../../src/business-context/turnArgs.js";
+import {createResolveTurnShim as createResolveBusinessTurnTool} from "./resolveTurnShim.js";
 import {MemoryCommandBridge, receiptJson, runTool, testRequestContext} from "../../src/tools/testUtils.js";
 import type {BackendClient} from "../../src/backendClient.js";
 import type {BusinessFrame, CapabilitySchema, ContextDelta, FieldResolution, FieldTurnIntent, ResolverContext} from "../../src/business-context/types.js";
@@ -59,18 +58,6 @@ async function fixture() {
   return {store, service, saved, resolveCatalog, request, delta, reference, basicQueries};
 }
 
-it.each([false, true])("模型Schema强制目标声明且不能靠prepareArguments补继承：compact=%s", compactTurnArgs => {
-  const tool = createResolveBusinessTurnTool({compactTurnArgs});
-  const args = compactTurnArgs ? {capability: "metric_query", base: "current", mode: "execute"}
-    : {capabilityHint: "metric_query", baseReference: "current", executionMode: "execute", fieldChanges: []};
-  const call = {type: "toolCall" as const, name: tool.name, id: "missing", arguments: args};
-  expect(() => validateToolArguments(tool, call)).toThrow();
-  expect(tool.prepareArguments?.(args)).not.toHaveProperty("fieldIntents");
-  expect(() => validateToolArguments(tool, {...call, arguments: {...args, fieldIntents: {organizations: inherited}}})).not.toThrow();
-  expect(() => validateToolArguments(tool, {...call, arguments: {...args, fieldIntents: {organizations: {mode: "inherit"}}}})).toThrow();
-  expect(() => validateToolArguments(tool, {...call, arguments: {...args, fieldIntents: {organizations: inherited}, requireFieldIntents: false}})).toThrow();
-});
-
 it.each([undefined, {}])("工具执行入口也拒绝缺少机构声明，不落盘、不执行：%j", async fieldIntents => {
   const f = await fixture();
   const before = await f.store.state();
@@ -90,10 +77,10 @@ it("声明以上三家发生变化却给空修改，不能误查焦点两家", a
   expect(f.basicQueries).not.toHaveBeenCalled();
 });
 
-it.each([false, true])("普通续接显式inherit保留焦点全量条件：compact=%s", async compact => {
+it("普通续接显式inherit保留焦点全量条件", async () => {
   const f = await fixture();
   const delta = {...f.delta, fieldIntents: {organizations: inherited}};
-  const result = receiptJson(await runTool(createResolveBusinessTurnTool({compactTurnArgs: compact}), compact ? toCompactTurnArgs(delta) : delta,
+  const result = receiptJson(await runTool(createResolveBusinessTurnTool(), delta,
     {...f.request, originalMessage: "再查一次"}));
   expect(result.status).toBe("READY");
   const frame = (await f.store.get(String(result.frameId)))!;
@@ -222,7 +209,6 @@ it("旧内部Delta兼容，提供的新声明在legacy/compact之间无损", asy
   const context = {originalMessage: "再查一次", turnId: id.turnId, currentDate: "2026-10-13", resolveCatalog: f.resolveCatalog};
   expect((await f.service.resolve(f.delta, id, context)).status).toBe("ready");
   const delta = {...f.delta, fieldIntents: {organizations: inherited}};
-  expect(toContextDelta(toCompactTurnArgs(delta))).toEqual(delta);
   expect(toContextDelta(delta)).toEqual(delta);
 });
 

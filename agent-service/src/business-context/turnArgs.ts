@@ -4,7 +4,6 @@ import type { ContextDelta, FieldChange, FieldTurnIntent, FrameSelector } from "
 const operations = ["set", "remove", "clear", "retain"] as const;
 const modes = ["execute", "resolve_more", "reuse_result"] as const;
 const legacyKeys = ["capabilityHint", "baseReference", "executionMode", "fieldChanges"];
-const compactKeys = ["capability", "base", "mode", ...operations];
 const sharedKeys = ["goal", "purpose", "fieldIntents"];
 
 function invalid(field: string, message: string, code = "FIELD_CHANGES_INVALID"): never {
@@ -48,22 +47,6 @@ function fieldName(value: unknown): string {
   return value;
 }
 
-/** 精简格式会被发送为 JSON；无法原样传输的旧值必须拒绝转换，而不能消失或补成 null。 */
-function jsonValue(value: unknown, ancestors = new Set<object>()): boolean {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value) && !Object.is(value, -0);
-  if (!value || typeof value !== "object" || ancestors.has(value)) return false;
-  const array = Array.isArray(value);
-  if (!array && ![Object.prototype, null].includes(Object.getPrototypeOf(value) as object | null)) return false;
-  if (Object.getOwnPropertySymbols(value).length) return false;
-  ancestors.add(value);
-  const valid = array
-    ? value.length === Object.keys(value).length && Array.from(value).every(entry => jsonValue(entry, ancestors))
-    : Object.values(value).every(entry => jsonValue(entry, ancestors));
-  ancestors.delete(value);
-  return valid;
-}
-
 function sharedArgs(args: Record<string, unknown>, delta: ContextDelta): void {
   if (Object.hasOwn(args, "fieldIntents")) {
     const intents = record(args.fieldIntents, "$fieldIntents");
@@ -92,84 +75,35 @@ function sharedArgs(args: Record<string, unknown>, delta: ContextDelta): void {
   }
 }
 
-/** 新旧格式仅改表达；来源省略、null、current 和历史选择器保持各自语义。 */
+/** 内部 Delta 记录的唯一结构；来源省略、null、current 和历史选择器保持各自语义。 */
 export function toContextDelta(args: unknown): ContextDelta {
   const input = record(args, "$arguments");
-  const legacy = legacyKeys.some(key => Object.hasOwn(input, key));
-  const compact = compactKeys.some(key => Object.hasOwn(input, key));
-  if (legacy === compact) invalid("$arguments", "无法识别唯一的参数格式。");
-  onlyKeys(input, [...(legacy ? legacyKeys : compactKeys), ...sharedKeys], "$arguments");
-  const mode = input[legacy ? "executionMode" : "mode"];
+  if (!legacyKeys.some(key => Object.hasOwn(input, key))) invalid("$arguments", "无法识别参数格式。");
+  onlyKeys(input, [...legacyKeys, ...sharedKeys], "$arguments");
+  const mode = input.executionMode;
   if (typeof mode !== "string" || !modes.includes(mode as ContextDelta["executionMode"])) invalid("$mode", "执行方式必须为已声明的枚举。");
   const delta: ContextDelta = {executionMode: mode as ContextDelta["executionMode"], fieldChanges: []};
-  const capabilityKey = legacy ? "capabilityHint" : "capability";
-  if (Object.hasOwn(input, capabilityKey)) {
-    const capability = input[capabilityKey];
+  if (Object.hasOwn(input, "capabilityHint")) {
+    const capability = input.capabilityHint;
     if (typeof capability !== "string") invalid("$capability", "业务能力必须是字符串。");
     delta.capabilityHint = capability;
   }
-  const baseKey = legacy ? "baseReference" : "base";
-  if (Object.hasOwn(input, baseKey)) delta.baseReference = baseReference(input[baseKey]);
+  if (Object.hasOwn(input, "baseReference")) delta.baseReference = baseReference(input.baseReference);
   sharedArgs(input, delta);
   const seen = new Set<string>();
   const add = (change: FieldChange) => {
-    if (seen.has(change.fieldHint)) invalid("$fields", "同一字段不能出现多次或属于多个修改分组。");
+    if (seen.has(change.fieldHint)) invalid("$fields", "同一字段不能出现多次。");
     seen.add(change.fieldHint);
     if (seen.size > 32) invalid("$fields", "一次调用最多修改32个字段。");
     delta.fieldChanges.push(change);
   };
-  if (legacy) {
-    if (!Array.isArray(input.fieldChanges)) invalid("$fields", "字段修改必须是数组。");
-    for (const value of input.fieldChanges) {
-      const change = record(value, "$fields");
-      onlyKeys(change, ["fieldHint", "operation", "rawValue"], "$fields");
-      if (!operations.includes(change.operation as FieldChange["operation"])) invalid("$fields", "字段操作无效。");
-      add({fieldHint: fieldName(change.fieldHint), operation: change.operation as FieldChange["operation"],
-        ...(Object.hasOwn(change, "rawValue") ? {rawValue: change.rawValue} : {})});
-    }
-  } else {
-    for (const operation of operations) {
-      if (!Object.hasOwn(input, operation)) continue;
-      const group = input[operation];
-      if (operation === "clear" || operation === "retain") {
-        if (!Array.isArray(group)) invalid("$fields", "清除和保留分组必须是字段名数组。");
-        for (const name of group) add({fieldHint: fieldName(name), operation});
-      } else {
-        for (const [name, rawValue] of Object.entries(record(group, "$fields"))) add({fieldHint: fieldName(name), operation, rawValue});
-      }
-    }
+  if (!Array.isArray(input.fieldChanges)) invalid("$fields", "字段修改必须是数组。");
+  for (const value of input.fieldChanges) {
+    const change = record(value, "$fields");
+    onlyKeys(change, ["fieldHint", "operation", "rawValue"], "$fields");
+    if (!operations.includes(change.operation as FieldChange["operation"])) invalid("$fields", "字段操作无效。");
+    add({fieldHint: fieldName(change.fieldHint), operation: change.operation as FieldChange["operation"],
+      ...(Object.hasOwn(change, "rawValue") ? {rawValue: change.rawValue} : {})});
   }
   return delta;
-}
-
-/** 发送副本使用精简分组；不改原始 Delta 或原生会话记录。 */
-export function toCompactTurnArgs(delta: ContextDelta): Record<string, unknown> {
-  const value = toContextDelta(delta);
-  const args: Record<string, unknown> = {
-    ...(Object.hasOwn(value, "capabilityHint") ? {capability: value.capabilityHint} : {}),
-    ...(Object.hasOwn(value, "baseReference") ? {base: value.baseReference} : {}),
-    mode: value.executionMode,
-    ...(Object.hasOwn(value, "goal") ? {goal: value.goal} : {}),
-    ...(Object.hasOwn(value, "purpose") ? {purpose: value.purpose} : {}),
-    ...(Object.hasOwn(value, "fieldIntents") ? {fieldIntents: value.fieldIntents} : {}),
-  };
-  for (const operation of operations) {
-    const changes = value.fieldChanges.filter(change => change.operation === operation);
-    if (!changes.length) continue;
-    if (changes.some(change => operation === "clear" || operation === "retain"
-      ? Object.hasOwn(change, "rawValue")
-      : !Object.hasOwn(change, "rawValue") || !jsonValue(change.rawValue))) {
-      invalid("$fields", "字段操作的原始值无法无损转换为精简分组。");
-    }
-    args[operation] = operation === "clear" || operation === "retain"
-      ? changes.map(change => change.fieldHint)
-      : Object.fromEntries(changes.map(change => [change.fieldHint, change.rawValue]));
-  }
-  if (!jsonValue(args)) invalid("$arguments", "参数无法无损转换为JSON发送副本。");
-  return args;
-}
-
-/** 回滚发送副本保留可选键和原始值，不补猜能力或来源。 */
-export function toLegacyTurnArgs(delta: ContextDelta): Record<string, unknown> {
-  return {...toContextDelta(delta)};
 }

@@ -15,12 +15,15 @@ import {
   type Model,
   type ProviderStreams,
 } from "@earendil-works/pi-ai";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core";
 import type { AgentServiceConfig } from "../src/config.js";
 import { HarnessHost } from "../src/harnessHost.js";
 import { NativeSessionStore } from "../src/nativeSessions.js";
+import { NativeSemanticTaskStore } from "../src/semantic-task/store.js";
+import type { PendingQuestion, QuestionBinding } from "../src/semantic-task/questions.js";
 import { createAskMetricTools } from "../src/tools/index.js";
 import { CONVERSATION_REPLY } from "../src/tools/turnContract.js";
-import { createApp } from "../src/routes.js";
+import { createApp, parsePromptInput } from "../src/routes.js";
 import { loadBusinessSkills, createBusinessSkillReadTool } from "../src/businessSkills.js";
 
 const skills = await loadBusinessSkills();
@@ -92,12 +95,12 @@ function fauxModel(): { model: Model<"openai-completions">; models: ReturnType<t
             content: [calls === 1
               ? { type: "toolCall", id: "skill-1", name: "business_skill_read", arguments: { name: "metric-query" } }
               : { type: "toolCall", id: "call-1", name: "resolve_business_turn", arguments: {
-                protocol_version: 1, capability: "metric_query", base: null, mode: "execute", changes: {
-                  metrics: {action: "set", value: {fromQuestion: true}},
-                  organizations: {action: "set", source_text: "无锡分行", expected_count: null, value: {kind: "name", name: "无锡分行"}},
-                  time: {action: "set", value: "2026年8月"},
-                  selection: {action: "set", value: "latest_in_range"},
-                },
+                protocol_version: 2, intent: "query", targets: [{source: {kind: "new"}, operations: [
+                  {action: "set", field: "metrics", value: "存款余额"},
+                  {action: "set", field: "organizations", value: "无锡分行"},
+                  {action: "set", field: "time", value: "2026年8月"},
+                  {action: "set", field: "selection", value: "latest_in_range"},
+                ]}],
               }}],
             api: model.api,
             provider: model.provider,
@@ -162,6 +165,24 @@ function stubBackendFetch() {
         const auth = (init?.headers as Record<string, string> | undefined)?.Authorization ?? "";
         return json(auth === "Bearer token-2" ? { ...USER, id: "user-2", username: "user2" } : USER);
       }
+      if (url.endsWith("/api/v1/business-context/inspect-goal")) {
+        const payload = JSON.parse(String(init?.body)) as {question: string};
+        const question = payload.question;
+        const start = question.indexOf("存款余额");
+        return json({question, reference_year: null, fragments: [{question,
+          organizations: question.includes("无锡分行") ? ["WX01"] : [],
+          calendar: {ranges: question.includes("2026年8月") ? [{start: "2026-08-01", end: "2026-08-31"}] : [], unresolved: []},
+          mentions: start < 0 ? [] : [{text: "存款余额", start, end: start + 4,
+            resolution: {status: "resolved", value: {codes: ["存款余额"], names: ["存款余额"]}}}],
+        }]});
+      }
+      if (url.includes("/api/v1/catalog/organizations/search")) {
+        return json({total: 1, items: [{org_code: "WX01", org_name: "无锡分行", score: 1, match_type: "exact"}]});
+      }
+      if (url.endsWith("/api/v1/business-context/admit-plan")) {
+        const payload = JSON.parse(String(init?.body)) as {steps: Array<{target_ref: string}>};
+        return json({status: "admitted", receipts: payload.steps.map(step => ({target_ref: step.target_ref, receipt: `receipt:${step.target_ref}`}))});
+      }
       if (url.endsWith("/metric-mentions")) {
         const payload = JSON.parse(String(init?.body)) as {question: string};
         const start = payload.question.indexOf("存款余额");
@@ -170,7 +191,10 @@ function stubBackendFetch() {
       }
       if (url.endsWith("/resolve-field")) {
         const payload = JSON.parse(String(init?.body));
-        return json({status: "resolved", value: payload.entity === "date" ? {start: "2026-08-01", end: "2026-08-31"} : {codes: payload.raw_values, names: payload.raw_values}});
+        return json({status: "resolved", value: payload.entity === "date" ? {start: "2026-08-01", end: "2026-08-31"}
+          : payload.entity === "organization" ? {codes: ["WX01"], names: ["无锡分行"]}
+          : {codes: payload.raw_values, names: payload.raw_values},
+          ...(payload.entity === "organization" ? {metadata: {source_codes: ["WX01"]}} : {})});
       }
       if (url.endsWith("/agent-query-contexts")) return json({conversation_id: "conv-1"});
       if (url.endsWith("/basic-queries")) return json({result: {
@@ -273,7 +297,7 @@ describe("路由：协议 V3 与原生投影", () => {
     const first = new HarnessHost(config, () => firstModel, firstStore, [{name: "metric_ask", label: "旧工具", description: "只读迁移测试", parameters: Type.Object({action: Type.String()}),
       execute: async () => {throw new Error("RETIRED_TOOL_MUST_NOT_EXECUTE");}}]);
     const session = await first.createSession(USER);
-    const input = {protocol_version: 3 as const, request_id: "old-pending", message: "查询2026年8月无锡分行存款余额"};
+    const input = {protocol_version: 3 as const, request_id: "old-pending", message: "查询无锡分行2026年8月最新一期存款余额"};
     await first.admitPrompt(session, input, {actor: USER, backend: new BackendClient(config.backendBaseUrl, "token-1", 5000)});
     await first.close(); await firstStore.close();
     const store = new NativeSessionStore(dir); const model = fauxModel();
@@ -306,7 +330,7 @@ describe("路由：协议 V3 与原生投影", () => {
     // accept 已落盘，模型和业务工具尚未执行；重开后 current 与 open 同时非空。
     const { BackendClient } = await import("../src/backendClient.js");
     const admitted = await first.admitPrompt(session, {
-      protocol_version: 3, request_id: "recovered-request", message: "查询2026年8月无锡分行存款余额",
+      protocol_version: 3, request_id: "recovered-request", message: "查询无锡分行2026年8月最新一期存款余额",
     }, { actor: USER, backend: new BackendClient(config.backendBaseUrl, "token-1", 5000) });
     expect(admitted.ok).toBe(true);
     await first.close();
@@ -403,12 +427,10 @@ describe("路由：协议 V3 与原生投影", () => {
     expect(faux.calls()).toBe(1);
     const snapshot = [...events].reverse().find(event => event.type === "snapshot")!.data as { messages: Array<{ role: string; text?: string }> };
     expect(snapshot.messages.at(-1)).toMatchObject({ role: "assistant", text: answer });
-    const deltas = events.filter(event => event.type === "answer_delta");
-    if (answerStreaming) {
-      expect(deltas.length).toBeGreaterThan(0);
-      expect(deltas.at(-1)!.data).toMatchObject({mode: "reply", call_seq: 1, text: answer});
-      expect(events.indexOf(deltas.at(-1)!)).toBeLessThan(events.findIndex(event => event.type === "snapshot"));
-    } else expect(events.some(event => event.type.startsWith("answer_"))).toBe(false);
+    // semantic_v2 轮的回答流式只适用于 frame_v1 历史协议，本轮不产生 answer_delta。
+    expect(events.filter(event => event.type === "answer_delta")).toHaveLength(0);
+    expect(events.some(event => event.type.startsWith("answer_"))).toBe(false);
+    void answerStreaming;
     expect(terminal.data.timings_ms).toMatchObject({first_visible_ms: expect.any(Number), model_first_token_ms: [expect.any(Number)]});
     const detail = (await (await app.request(`/sessions/${sessionId}`, { headers })).json()) as { messages: Array<{ role: string; text?: string }> };
     expect(detail.messages.filter(message => message.role === "assistant" && message.text).map(message => message.text)).toEqual([answer]);
@@ -444,7 +466,7 @@ describe("路由：协议 V3 与原生投影", () => {
       body: JSON.stringify({
         protocol_version: 3,
         request_id: "req-1",
-        message: "查询2026年8月无锡分行存款余额",
+        message: "查询无锡分行2026年8月最新一期存款余额",
       }),
     });
     expect(response.status).toBe(200);
@@ -456,13 +478,10 @@ describe("路由：协议 V3 与原生投影", () => {
     expect(types).toContain("snapshot");
     expect(types).not.toContain("text_delta");
     expect(types[types.length - 1]).toBe("run_terminal");
-    const deltas = events.filter(event => event.type === "answer_delta");
-    if (answerStreaming) {
-      const snapshot = events.find(event => event.type === "snapshot")!.data as {messages: Array<{role: string; text?: string}>};
-      expect(deltas.length).toBeGreaterThan(0);
-      expect(deltas.at(-1)!.data).toMatchObject({mode: "text", call_seq: 3, text: snapshot.messages.at(-1)!.text});
-      expect(events.indexOf(deltas.at(-1)!)).toBeLessThan(events.findIndex(event => event.type === "snapshot"));
-    } else expect(types.some(type => type.startsWith("answer_"))).toBe(false);
+    // semantic_v2 轮的回答流式只适用于 frame_v1 历史协议，本轮不产生 answer_delta。
+    expect(events.filter(event => event.type === "answer_delta")).toHaveLength(0);
+    expect(types.some(type => type.startsWith("answer_"))).toBe(false);
+    void answerStreaming;
 
     const terminal = events[events.length - 1]!.data;
     expect(terminal.run_status).toBe("completed");
@@ -476,7 +495,7 @@ describe("路由：协议 V3 与原生投影", () => {
     });
     const detail = (await history.json()) as { messages: Array<{ text?: string }> };
     const texts = detail.messages.map((message: { text?: string }) => message.text ?? "");
-    expect(texts).toContain("查询2026年8月无锡分行存款余额");
+    expect(texts).toContain("查询无锡分行2026年8月最新一期存款余额");
     expect(texts.some((text: string) => text.includes("15147420074"))).toBe(true);
   });
 
@@ -562,6 +581,123 @@ describe("路由：协议 V3 与原生投影", () => {
     const delayed=await app.request(`/sessions/${session_id}/prompt`,{method:"POST",headers,body:JSON.stringify({protocol_version:3,request_id:"stopped-request",message:"不能执行的迟到请求"})});
     expect(delayed.status).toBe(400);expect(await delayed.json()).toMatchObject({code:"REQUEST_CANCELLED"});
     expect((await app.request(path,{method:"POST",headers,body:JSON.stringify({operation_id:"op",request_id:"request"})})).status).toBe(400);
+  });
+
+  it("V3 answers 严格解析，允许纯点击并保留 time_override", () => {
+    const answer = {question_id: "q1", version: 1, choice: {type: "select", option_ids: ["opt-b", "opt-a"]}};
+    expect(parsePromptInput({protocol_version: 3, request_id: "answers", message: " ", answers: [answer],
+      time_override: {start: "2026-09-01", end: "2026-09-30"}})).toEqual({
+      protocol_version: 3, request_id: "answers", message: "",
+      answers: [{question_id: "q1", version: 1, choice: {type: "select", option_ids: ["opt-a", "opt-b"]}}],
+      time_override: {start: "2026-09-01", end: "2026-09-30"},
+    });
+    expect(parsePromptInput({protocol_version: 3, request_id: "empty", message: " "})).toBeNull();
+    expect(parsePromptInput({protocol_version: 3, request_id: "empty", message: "", answers: []})).toBeNull();
+    expect(parsePromptInput({protocol_version: 3, request_id: "bad-message", message: 1, answers: [answer]})).toBeNull();
+    expect(parsePromptInput({protocol_version: 3, request_id: "missing-message", answers: [answer]})).toBeNull();
+    expect(parsePromptInput({protocol_version: 3, request_id: "too-many", message: "", answers:
+      Array.from({length: 21}, (_, index) => ({...answer, question_id: `q${index}`}))})).toBeNull();
+    for (const extra of [{source: {}}, {channel: "click"}, {evidence: {excerpt: "伪造"}}, {unknown: true}]) {
+      expect(parsePromptInput({protocol_version: 3, request_id: "invalid", message: "", answers: [{...answer, ...extra}]})).toBeNull();
+    }
+    expect(parsePromptInput({protocol_version: 3, request_id: "invalid-choice", message: "", answers: [
+      {...answer, choice: {type: "select", option_ids: ["opt-a"], evidence: {}}},
+    ]})).toBeNull();
+    expect(parsePromptInput({protocol_version: 3, request_id: "mixed", message: "", answers: [answer],
+      clarification_selection: {frame_id: "old", option_ids: ["opt-a"]}})).toBeNull();
+    expect(parsePromptInput({protocol_version: 3, request_id: "mixed", message: "", answers: [answer], selected_answers: {metrics: "opt-a"}})).toBeNull();
+    expect(parsePromptInput({protocol_version: 3, request_id: "mixed", message: "", answers: [answer],
+      clarification_target: {task_id: "old", clarification_id: "old", version: 0}})).toBeNull();
+  });
+
+  it("semantic_v2 收到旧 clarification_selection 返回明确不支持", async () => {
+    const app = buildApp(), headers = {Authorization: "Bearer token-1", "Content-Type": "application/json"};
+    const created = await app.request("/sessions", {method: "POST", headers});
+    const {session_id} = await created.json() as {session_id: string};
+    const response = await app.request(`/sessions/${session_id}/prompt`, {method: "POST", headers,
+      body: JSON.stringify({protocol_version: 3, request_id: "legacy-click", message: "选第一个",
+        clarification_selection: {frame_id: "old-frame", option_ids: ["old-option"]}})});
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({code: "CLARIFICATION_SELECTION_UNSUPPORTED", detail: expect.stringContaining("answers")});
+  });
+
+  it("GET、重连 snapshot 和提问 accepted/final snapshot 只投影可见问题最新状态", async () => {
+    const config = testConfig(dir), store = new NativeSessionStore(dir), faux = replyModel("好的。");
+    const host = new HarnessHost(config, () => faux, store, runtimeTools(), {skills});
+    const app = createApp(config, host, store), headers = {Authorization: "Bearer token-1", "Content-Type": "application/json"};
+    const question = {question_id: "q-visible", version: 1,
+      scope: {task_ref: "plan", target_ref: "target", field: "metrics" as const, item_ref: "item"},
+      prompt: "请选择指标", selection_mode: "single" as const, options: [{option_id: "opt-1", no: 1, label: "合成指标"}],
+      status: "open" as const, issued_operation_id: "issued", kind: "choice" as const};
+    const feedback = {protocol_version: 2, status: "needs_user",
+      state: {task_status: "waiting_input", completion: "unmet", raw_message_retained: true, proposals_retained: true, targets: []},
+      issues: [], continuation: {actor: "user", action: "ask_user"}, pending_questions: [question], answer_receipts: []};
+    const states = vi.spyOn(NativeSemanticTaskStore.prototype, "questionStates").mockImplementation(async ids =>
+      ids.flatMap(id => id === question.question_id ? [{question_id: id, version: 2, status: "answered" as const}] : []));
+    try {
+      const hosted = await host.createSession(USER);
+      await hosted.harness.setName("问数会话", BACKGROUND_CONTEXT);
+      await hosted.lane.appendMessage({role: "user", content: "原问题", timestamp: 1}, BACKGROUND_CONTEXT);
+      await hosted.lane.appendMessage({role: "toolResult", toolName: "resolve_business_turn", toolCallId: "resolve",
+        content: [{type: "text", text: JSON.stringify(feedback)}], details: feedback, isError: false, timestamp: 2}, BACKGROUND_CONTEXT);
+      const detailResponse = await app.request(`/sessions/${hosted.sessionId}`, {headers});
+      const detail = await detailResponse.json() as {question_states: unknown; messages: Array<{role: string; details?: {pending_questions?: unknown[]}}>};
+      expect(detail.question_states).toEqual([{question_id: "q-visible", version: 2, status: "answered"}]);
+      expect(detail.messages.find(message => message.role === "tool")?.details?.pending_questions).toHaveLength(1);
+      const reconnected = await readSse(await app.request(`/sessions/${hosted.sessionId}/stream`, {headers}));
+      expect(reconnected.find(event => event.type === "snapshot")?.data.question_states)
+        .toEqual([{question_id: "q-visible", version: 2, status: "answered"}]);
+      const prompted = await readSse(await app.request(`/sessions/${hosted.sessionId}/prompt`, {method: "POST", headers,
+        body: JSON.stringify({protocol_version: 3, request_id: "states", message: "你好"})}));
+      expect(prompted.find(event => event.type === "accepted")?.data.snapshot)
+        .toMatchObject({question_states: [{question_id: "q-visible", version: 2, status: "answered"}]});
+      expect([...prompted].reverse().find(event => event.type === "snapshot")?.data.question_states)
+        .toEqual([{question_id: "q-visible", version: 2, status: "answered"}]);
+      expect(states.mock.calls.every(([ids]) => ids.length === 1 && ids[0] === "q-visible")).toBe(true);
+    } finally {
+      states.mockRestore();
+      await host.close(); await store.close();
+    }
+  });
+
+  it("仅有机构候选的历史在撤权后 GET 与 SSE 一致脱敏且不补问题状态", async () => {
+    const config = testConfig(dir), store = new NativeSessionStore(dir), faux = replyModel("好的。");
+    const host = new HarnessHost(config, () => faux, store, runtimeTools(), {skills});
+    const app = createApp(config, host, store), headers = {Authorization: "Bearer token-1"};
+    const question: PendingQuestion = {question_id: "q-org-history", version: 1,
+      scope: {task_ref: "plan", target_ref: "target", field: "organizations", item_ref: "item"},
+      prompt: "请选择机构", selection_mode: "multiple", status: "open", issued_operation_id: "issued", kind: "choice",
+      options: [{option_id: "opt-WX01", no: 1, label: "无锡分行"}, {option_id: "opt-REVOKED", no: 2, label: "失权机构"}]};
+    const binding: QuestionBinding = {question_id: question.question_id, version: 1, reason: "candidate_choice",
+      planRef: "plan", targetRef: "target", taskRef: "task", item_ref: "item", resolutionBasis: {}, receipts: [],
+      options: [{option_id: "opt-WX01", candidateKey: "WX01", candidate: {code: "WX01", value: "无锡分行"}},
+        {option_id: "opt-REVOKED", candidateKey: "REVOKED", candidate: {code: "REVOKED", value: "失权机构"}}],
+      businessBasis: {field: "organizations", kind: "choice", prompt: question.prompt, selection_mode: "multiple",
+        options: [{key: "WX01", label: "无锡分行"}, {key: "REVOKED", label: "失权机构"}]}};
+    const feedback = {protocol_version: 2, status: "needs_user",
+      state: {task_status: "waiting_input", completion: "unmet", raw_message_retained: true, proposals_retained: true, targets: []},
+      issues: [], continuation: {actor: "user", action: "ask_user"}, pending_questions: [question], answer_receipts: []};
+    const reader = vi.spyOn(NativeSemanticTaskStore.prototype, "question").mockImplementation(async () => ({question, binding, revision: 0, itemKey: "item"}));
+    const states = vi.spyOn(NativeSemanticTaskStore.prototype, "questionStates").mockResolvedValue([]);
+    try {
+      const hosted = await host.createSession(USER);
+      await hosted.lane.appendMessage({role: "user", content: "原问题", timestamp: 1}, BACKGROUND_CONTEXT);
+      await hosted.lane.appendMessage({role: "toolResult", toolName: "resolve_business_turn", toolCallId: "resolve",
+        content: [{type: "text", text: JSON.stringify(feedback)}], details: feedback, isError: false, timestamp: 2}, BACKGROUND_CONTEXT);
+      const detailResponse = await app.request(`/sessions/${hosted.sessionId}`, {headers});
+      const detail = await detailResponse.json() as {question_states: unknown[]; messages: Array<{role: string; details?: {history_redacted?: boolean}}>};
+      expect(detail.messages.find(message => message.role === "tool")?.details?.history_redacted).toBe(true);
+      expect(detail.question_states).toEqual([]);
+      const streamed = await readSse(await app.request(`/sessions/${hosted.sessionId}/stream`, {headers}));
+      const snapshot = streamed.find(event => event.type === "snapshot")?.data;
+      expect(snapshot?.question_states).toEqual([]);
+      expect((snapshot?.messages as Array<{role: string; details?: {history_redacted?: boolean}}>).find(message => message.role === "tool")?.details?.history_redacted).toBe(true);
+      expect(states).not.toHaveBeenCalled();
+      expect(vi.mocked(fetch).mock.calls.some(([, init]) => String(init?.body).includes("REVOKED"))).toBe(true);
+    } finally {
+      reader.mockRestore(); states.mockRestore();
+      await host.close(); await store.close();
+    }
   });
 
 });

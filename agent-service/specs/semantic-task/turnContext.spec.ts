@@ -1,5 +1,5 @@
 import {afterEach, describe, expect, it} from "vitest";
-import {fixture, addPlanBackend, complete, proposal, metricNames} from "./fixtures.js";
+import {fixture, complete, proposal, metricNames} from "./fixtures.js";
 import {SemanticPlanService} from "../../src/semantic-task/planService.js";
 import {createSemanticExecuteTool, createSemanticResolveTool} from "../../src/semantic-task/tools.js";
 import {runTool} from "../../src/tools/testUtils.js";
@@ -8,7 +8,7 @@ import type {BasicQuerySpec} from "../../src/backendClient.js";
 
 const closes: Array<() => Promise<void>> = [];
 afterEach(async () => {for (const close of closes.splice(0)) await close();});
-async function setup() {const f = await fixture(); closes.push(f.close); const planBackend = addPlanBackend(f.backend); return {...f, planBackend};}
+async function setup() {const f = await fixture(); closes.push(f.close); return f;}
 async function execute(f: Awaited<ReturnType<typeof setup>>, id: string, message: string, operations = complete(), source: SemanticSource = {kind: "new"}) {
   const request = f.request(id, message), result = await new SemanticPlanService(request).resolve(proposal(operations, source));
   expect(result.status, JSON.stringify(result.issues)).toBe("ready");
@@ -33,15 +33,14 @@ describe("多轮目标快照、条件变更与Frame来源", () => {
       delta: {baseReference: {frameId: base.task.target.frameId}}});
     expect(await next.request.frames!.get(base.task.target.frameId!)).toMatchObject({fields: {metrics: {resolvedValue: {codes: ["M1"]}}}});
   });
-  it.each(["待定指标", "合成指标丙"])("模型无依据填写%s时反馈Pi修正，不能静默删除动作或向用户重复追问", async metric => {
+  it.each(["待定指标", "合成指标丙"])("只改机构时模型额外填写%s不会改变原指标，也不要求重提", async metric => {
     const f = await setup(), base = await execute(f, "base", "查合成机构甲2025年末的合成指标甲");
     const request = f.request("restated-metric", "合成机构乙呢？"), service = new SemanticPlanService(request);
     const rejected = await service.resolve(proposal([
       {action: "set", field: "organizations", value: "合成机构乙"}, {action: "set", field: "metrics", value: metric},
     ], {kind: "current"}));
-    expect(rejected.status).toBe("needs_interpretation");
-    expect(rejected.issues.some(issue => issue.field === "metrics" && issue.remediation === "pi")).toBe(true);
-    expect(rejected.continuation).toEqual({actor: "pi", action: "revise_proposal"});
+    expect(rejected.status).toBe("ready"); expect(rejected.issues).toEqual([]);
+    expect(rejected.state.targets[0]!.conditions.find(condition => condition.field === "metrics")?.display).toBe("合成指标甲");
     expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
     expect(await request.frames!.get(base.task.target.frameId!)).toMatchObject({fields: {metrics: {resolvedValue: {codes: ["M1"]}}}});
     const repaired = await service.resolve(proposal([{action: "set", field: "organizations", value: "合成机构乙"}], {kind: "current"}));
@@ -146,7 +145,7 @@ describe("多轮目标快照、条件变更与Frame来源", () => {
     {action: "add" as const, message: "另外增加合成指标丙", operation: {action: "add" as const, field: "metrics" as const, value: "合成指标丙"}, after: ["M1", "M2", "M3"]},
     {action: "exclude" as const, message: "不要查合成指标甲", operation: {action: "exclude" as const, field: "metrics" as const, subject: "合成指标甲"}, after: ["M2"]},
     {action: "replace" as const, message: "把合成指标甲换成合成指标丙", operation: {action: "replace" as const, field: "metrics" as const, subject: "合成指标甲", value: "合成指标丙"}, after: ["M2", "M3"]},
-  ])("Pi声明$action后规范集合和独立准入记录一致，原Frame不变", async ({action, message, operation, after}) => {
+  ])("Pi声明$action后规范集合正确展示，原Frame不变", async ({action, message, operation, after}) => {
     const f = await setup(), base = await execute(f, "base", "查合成机构甲2025年末的合成指标甲和合成指标乙",
       complete().map(op => op.field === "metrics" ? {...op, value: "合成指标甲和合成指标乙"} : op));
     const next = await execute(f, "collection-change", message, [operation], {kind: "current"});
@@ -154,9 +153,6 @@ describe("多轮目标快照、条件变更与Frame来源", () => {
     const display = after.map(code => metricNames[code as keyof typeof metricNames]).join("、");
     expect(next.result.state.targets[0]!.conditions.find(condition => condition.field === "metrics")!.display).toBe(display);
     expect(await next.request.semanticTasks!.runtimeContext()).toMatchObject({tasks: [{targets: [{conditions: {metrics: {expression: display}}}]}]});
-    const admission = [...f.planBackend.admitSemanticPlan.mock.calls].reverse().find(call => call[0].steps.some(step => step.transition));
-    expect(admission![0].steps[0]).toMatchObject({spec: {metric_codes: after}, transition: {before: {metric_codes: ["M1", "M2"]},
-      changes: [{field: "metrics", action, before: ["M1", "M2"], after}]}});
     expect(await next.request.semanticTasks!.get(base.task.ref)).toEqual(base.task);
     expect(await next.request.frames!.get(base.task.target.frameId!)).toMatchObject({fields: {metrics: {resolvedValue: {codes: ["M1", "M2"]}}}});
   });
@@ -178,50 +174,27 @@ describe("多轮目标快照、条件变更与Frame来源", () => {
     ], {kind: "current"});
     expect(f.backend.basicQueries.mock.calls.at(-1)![0]).toMatchObject({metric_codes: [field === "metrics" ? "M2" : "M1"], org_codes: [field === "organizations" ? "O2" : "O1"]});
   });
-  it("错误替换后Pi保持同一来源修正，不生成重叠草案", async () => {
-    const f = await setup(); await execute(f, "base", "查合成机构甲2025年末的合成指标甲");
-    const request = f.request("repair-source", "合成机构乙呢？"), service = new SemanticPlanService(request);
-    const wrong = await service.resolve(proposal([{action: "replace", field: "organizations", subject: "合成机构乙", value: "合成机构乙"}], {kind: "current"}));
-    expect(wrong.status).toBe("needs_interpretation");
-    const repaired = await service.resolve(proposal([{action: "set", field: "organizations", value: "合成机构乙"}], {kind: "current"}));
-    expect(repaired.status, JSON.stringify(repaired.issues)).toBe("ready"); expect(repaired.state.targets).toHaveLength(1);
-    await runTool(createSemanticExecuteTool(), {task_ref: repaired.state.task_ref, target_ref: repaired.state.targets[0]!.target_ref}, request);
-    expect(f.backend.basicQueries.mock.calls.at(-1)![0]).toMatchObject({metric_codes: ["M1"], org_codes: ["O2"]});
-  });
-  it("未获准current错误提案可由Pi完整重提reference修复，不执行多余旧草案", async () => {
+  it.each(["current", "reference"] as const)("唯一来源%s上的替换对象直接绑定正式身份，不再重提", async kind => {
     const f = await setup(), base = await execute(f, "base", "查合成机构甲2025年末的合成指标甲");
-    const request = f.request("wrong-source-repair", "合成机构乙呢？");
-    const wrong = await runTool(createSemanticResolveTool(), proposal([{action: "replace", field: "organizations", subject: "合成机构乙", value: "合成机构乙"}], {kind: "current"}), request);
-    expect(wrong.details.status).toBe("needs_interpretation");
-    expect((await request.semanticTasks!.planIndex()).focus).toBe(base.plan.ref);
-    expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
-    const source = {kind: "reference" as const, task_ref: base.plan.ref, target_ref: base.task.target.ref};
-    const repaired = await runTool(createSemanticResolveTool(), proposal([{action: "set", field: "organizations", value: "合成机构乙"}], source), request);
-    expect(repaired.details.status, JSON.stringify(repaired.details.issues)).toBe("ready"); expect(repaired.details.state.targets).toHaveLength(1);
-    const plan = (await request.semanticTasks!.plan(repaired.details.state.task_ref))!;
-    expect(plan.steps).toHaveLength(1); expect(plan.steps[0]!.source).toEqual(source);
-    await runTool(createSemanticExecuteTool(), {task_ref: repaired.details.state.task_ref, target_ref: repaired.details.state.targets[0]!.target_ref}, request);
+    const request = f.request("source-bind", "合成机构乙呢？");
+    const source: SemanticSource = kind === "current" ? {kind} : {kind, task_ref: base.plan.ref, target_ref: base.task.target.ref};
+    const result = await new SemanticPlanService(request).resolve(proposal([{action: "replace", field: "organizations", subject: "合成机构乙", value: "合成机构乙"}], source));
+    expect(result.status).toBe("ready"); expect(result.state.targets).toHaveLength(1); expect(result.issues).toEqual([]);
+    await runTool(createSemanticExecuteTool(), {task_ref: result.state.task_ref, target_ref: result.state.targets[0]!.target_ref}, request);
     expect(f.backend.basicQueries).toHaveBeenCalledTimes(2);
     expect(f.backend.basicQueries.mock.calls.at(-1)![0]).toMatchObject({metric_codes: ["M1"], org_codes: ["O2"], time: {start: "2025-12-31"}});
     expect(await request.semanticTasks!.plan(base.plan.ref)).toEqual(base.plan);
-    expect(await request.frames!.get(base.task.target.frameId!)).toMatchObject({fields: {metrics: {resolvedValue: {codes: ["M1"]}}, organizations: {resolvedValue: {codes: ["O1"]}}}});
   });
-  it.each(["current", "reference"] as const)("new补造历史日期时保持原焦点，Pi改用%s可明确续接", async kind => {
+  it("省略式续问即使模型误选new也绑定唯一当前来源，旧条件不靠模型复述建立", async () => {
     const f = await setup(), base = await execute(f, "base", "查合成机构甲2025年末的合成指标甲");
-    const request = f.request("new-source-repair", "合成机构乙呢？");
-    const wrong = await runTool(createSemanticResolveTool(), proposal([
+    const request = f.request("new-source-bind", "合成机构乙呢？");
+    const result = await new SemanticPlanService(request).resolve(proposal([
       {action: "set", field: "organizations", value: "合成机构乙"}, {action: "set", field: "metrics", value: "合成指标甲"}, {action: "set", field: "time", value: "2025年末"},
-    ]), request);
-    expect(wrong.details.status).toBe("conflict");
-    expect(wrong.details.issues.some((issue: {code: string; remediation: string}) => issue.code === "NEW_TARGET_SOURCE_UNBOUND" && issue.remediation === "pi")).toBe(true);
-    expect((await request.semanticTasks!.planIndex()).focus).toBe(base.plan.ref); expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
-    const source: SemanticSource = kind === "reference" ? {kind, task_ref: base.plan.ref, target_ref: base.task.target.ref} : {kind};
-    const repaired = await runTool(createSemanticResolveTool(), proposal([{action: "set", field: "organizations", value: "合成机构乙"}], source), request);
-    expect(repaired.details.status, JSON.stringify(repaired.details.issues)).toBe("ready"); expect(repaired.details.state.targets).toHaveLength(1);
-    await runTool(createSemanticExecuteTool(), {task_ref: repaired.details.state.task_ref, target_ref: repaired.details.state.targets[0]!.target_ref}, request);
+    ]));
+    expect(result.status).toBe("ready"); expect(result.issues).toEqual([]); expect(result.state.targets).toHaveLength(1);
+    await runTool(createSemanticExecuteTool(), {task_ref: result.state.task_ref, target_ref: result.state.targets[0]!.target_ref}, request);
     expect(f.backend.basicQueries).toHaveBeenCalledTimes(2);
     expect(f.backend.basicQueries.mock.calls.at(-1)![0]).toMatchObject({metric_codes: ["M1"], org_codes: ["O2"], time: {start: "2025-12-31"}});
-    expect(await request.semanticTasks!.plan(base.plan.ref)).toEqual(base.plan);
     expect(await request.semanticTasks!.get(base.task.ref)).toEqual(base.task);
   });
   it("时间replace的旧范围不匹配时交给Pi修正，不能忽略subject执行", async () => {

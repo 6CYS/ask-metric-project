@@ -4,8 +4,7 @@ import {BackendApiError} from "../../src/backendClient.js";
 import {createSemanticExecuteTool, createSemanticResolveTool} from "../../src/semantic-task/tools.js";
 import {prepareDirectQueryDelivery, readDirectAnswerSnapshot, supportedResultOnlyQuestion, verifiedResultOnlyQuestion} from "../../src/semantic-task/directDelivery.js";
 import type {SemanticFeedback} from "../../src/semantic-task/feedback.js";
-import {semanticPlanDigest} from "../../src/semantic-task/planService.js";
-import {complete, fixture, proposal, addPlanBackend} from "./fixtures.js";
+import {complete, fixture, proposal} from "./fixtures.js";
 
 const cleanup: Array<() => Promise<void>> = [];
 beforeEach(() => {vi.spyOn(console, "info").mockImplementation(() => {});});
@@ -15,7 +14,7 @@ const batch = (siblings = false): AgentMessage[] => [{role: "assistant", content
   usage: {input: 0, output: 0, totalTokens: 0, cacheRead: 0, cacheWrite: 0, cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0}},
   stopReason: "toolUse", timestamp: 0}];
 async function successful(question = "查询合成机构甲2025年末的合成指标甲", resultRows?: Record<string, unknown>[]) {
-  const f = await fixture(); cleanup.push(f.close); addPlanBackend(f.backend);
+  const f = await fixture(); cleanup.push(f.close);
   if (resultRows) {
     f.backend.basicQueries.mockResolvedValue({result: {status: "succeeded", task_id: "synthetic-query", result_id: "synthetic-result",
       columns: ["metric_value"], rows: resultRows, row_count: resultRows.length, truncated: false, message: "查询完成，请查看正式结果。"}} as unknown as Awaited<ReturnType<typeof f.backend.basicQueries>>);
@@ -71,9 +70,18 @@ it("完整正式取值资格与快照解析一致，篡改或残缺记录不能�
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
 });
 
-it.each(["分析原因", "解释为什么下降", "并给出建议", "相减求差", "返回JSON"])("已成功查询不能消去附加义务：%s", async suffix => {
+it.each(["分析原因", "解释为什么下降", "并给出建议", "返回JSON"])("已成功查询不能消去附加义务：%s", async suffix => {
   const f = await successful(`查询合成机构甲2025年末的合成指标甲，${suffix}`);
   expect(await f.qualify()).toMatchObject({eligible: false, reason: "additional_or_unknown_answer_obligation"});
+});
+
+it("计算目的未提交计算动作时不能执行普通查询或直出", async () => {
+  const f = await fixture(); cleanup.push(f.close);
+  const request = f.request("calculation-required", "查询合成机构甲2025年末的合成指标甲，相减求差");
+  const result = await createSemanticResolveTool().execute("calc", proposal(complete()), () => {}, request,
+    {invocationId: "calc", operationId: request.operationId, turnId: request.operationId, getMemo: async () => undefined, setMemo: async () => {}}, BACKGROUND_CONTEXT);
+  expect(result.details).toMatchObject({status: "needs_interpretation", issues: [expect.objectContaining({code: "CALCULATION_REQUIRED"})]});
+  expect(f.backend.basicQueries).not.toHaveBeenCalled();
 });
 
 it("分析继续规划、partial、unknown与混合原生批次均不直出", async () => {
@@ -128,14 +136,6 @@ it("排名operation不能走普通取值交付", async () => {
   task.target.fields.operation!.resolvedValue = {kind: "ranking", position: "top", top_n: 10};
   await f.request.semanticTasks!.save(task, (await f.request.semanticTasks!.index()).version);
   expect(await f.qualify()).toMatchObject({eligible: false, reason: "unverified_value_contract"});
-});
-
-it("已准入revision变化不能直接交付", async () => {
-  const f = await successful();
-  const plan = (await f.request.semanticTasks!.plan(f.feedback.state.task_ref!))!;
-  plan.revision++;
-  await f.request.semanticTasks!.savePlan(plan, (await f.request.semanticTasks!.planIndex()).version);
-  expect(await f.qualify()).toMatchObject({eligible: false, reason: "plan_not_current_or_admitted"});
 });
 
 it("机构简称只有当前目录exact身份与原文机构事实同配对时可消去，模型整句rawValue无效", async () => {
@@ -200,7 +200,6 @@ it.each(["historical_read", "current_reuse"] as const)("%s 只有纯回读且本
     if (mode === "current_reuse") {
       selected = {...structuredClone(original), ref: `reuse-plan-${index}`, operationId: request.operationId, intent: "reuse", originalMessage: question,
         steps: original.steps.map(step => ({...structuredClone(step), source: {kind: "reference" as const, task_ref: original.ref, target_ref: step.targetRef}}))};
-      selected.admitted = {operationId: request.operationId, revision: selected.revision, digest: semanticPlanDigest(selected)};
       await request.semanticTasks!.savePlan(selected, (await request.semanticTasks!.planIndex()).version);
     }
     const feedback: SemanticFeedback = {...f.feedback, state: {...f.feedback.state, task_ref: selected.ref}};
@@ -224,14 +223,12 @@ it.each(["第一次", "第一次查询", "刚才那份"])("当前reuse误选来�
   const f = await successful(), first = (await f.request.semanticTasks!.plan(f.feedback.state.task_ref!))!;
   const store = f.request.semanticTasks!;
   const second = {...structuredClone(first), ref: "second-query-plan", operationId: "second-query-operation"};
-  second.admitted = {operationId: second.operationId, revision: second.revision, digest: semanticPlanDigest(second)};
   await store.savePlan(second, (await store.planIndex()).version, true);
   const question = ordinal === "刚才那份" ? "再看刚才那份结果" : `再看本对话${ordinal}的结果`, request = f.makeRequest("wrong-ordinal-reuse", question);
   await store.admit(request.operationId, question, undefined, "on");
   const referenced = ordinal === "刚才那份" ? first : second;
   const selected = {...structuredClone(referenced), ref: "current-wrong-reuse", operationId: request.operationId, intent: "reuse", originalMessage: question,
     steps: referenced.steps.map(step => ({...structuredClone(step), source: {kind: "reference" as const, task_ref: referenced.ref, target_ref: step.targetRef}}))};
-  selected.admitted = {operationId: request.operationId, revision: selected.revision, digest: semanticPlanDigest(selected)};
   await store.savePlan(selected, (await store.planIndex()).version);
   const feedback = {...f.feedback, state: {...f.feedback.state, task_ref: selected.ref}};
   const messages = batch(), assistant = messages[0]!;

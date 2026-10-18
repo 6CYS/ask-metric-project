@@ -2,16 +2,15 @@ import {mkdtempSync, rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {validateToolArguments} from "@earendil-works/pi-ai";
 import {NativeSessionStore} from "../../src/nativeSessions.js";
 import {NativeFrameStore} from "../../src/business-context/store.js";
 import {BusinessContextService} from "../../src/business-context/service.js";
 import {createCapabilities} from "../../src/business-context/capabilities.js";
+import {modelFieldInputSchema} from "../../src/business-context/fieldClarification.js";
 import {createFieldResolvers} from "../../src/business-context/resolvers.js";
-import {modelCapabilitySchemas} from "../../src/business-context/modelView.js";
 import {renderFrameClarification} from "../../src/business-context/clarificationPresentation.js";
-import {toCompactTurnArgs} from "../../src/business-context/turnArgs.js";
-import {createExecuteBusinessFrameTool, createResolveBusinessTurnTool} from "../../src/tools/businessContext.js";
+import {createExecuteBusinessFrameTool} from "../../src/tools/businessContext.js";
+import {createResolveTurnShim as createResolveBusinessTurnTool} from "./resolveTurnShim.js";
 import {MemoryCommandBridge, receiptJson, runTool, testRequestContext} from "../../src/tools/testUtils.js";
 import type {BackendClient} from "../../src/backendClient.js";
 import type {ContextDelta} from "../../src/business-context/types.js";
@@ -51,11 +50,10 @@ async function fixture(singleDay = false) {
   return {path, sessions, session, service, store, request, delta, backend};
 }
 
-describe.each([false, true])("声明的业务澄清（compact=%s）", compactTurnArgs => {
+describe("声明的业务澄清", () => {
   const call = async (f: Awaited<ReturnType<typeof fixture>>, delta = f.delta, request = f.request) => {
-    const tool = createResolveBusinessTurnTool({compactTurnArgs});
-    const args = compactTurnArgs ? toCompactTurnArgs(delta) : delta;
-    expect(() => validateToolArguments(tool, {type: "toolCall", id: "clarification", name: tool.name, arguments: args})).not.toThrow();
+    const tool = createResolveBusinessTurnTool();
+    const args = delta;
     return receiptJson(await runTool(tool, args, request));
   };
 
@@ -182,15 +180,16 @@ it("保存的业务问题在刷新及服务重开后相同", async () => {
     selection: "latest_in_range", operation: {kind: "ranking", position: "bottom", top_n: 2}});
 });
 
-it("模型能力块公开仅声明字段的澄清输入，正常值输入约束仍保留", () => {
-  const schemas = modelCapabilitySchemas();
-  const query = schemas.find(schema => schema.capability === "metric_query")!;
+it("能力字段澄清输入公开声明，正常值输入约束仍保留", () => {
+  const query = createCapabilities().get("metric_query");
   for (const name of ["selection", "operation"]) {
-    expect(query.fields[name]).toMatchObject({userClarification: {question: expect.any(String)}, inputSchema: {anyOf: expect.arrayContaining([
+    const field = query.fields[name]!;
+    expect(field.userClarification).toMatchObject({question: expect.any(String)});
+    expect(modelFieldInputSchema(field)).toMatchObject({anyOf: expect.arrayContaining([
       {type: "object", required: ["clarify", "sourceText"], properties: {clarify: {const: true}, sourceText: {type: "string", minLength: 1}}, additionalProperties: false},
-    ])}});
+    ])});
   }
   expect(query.fields.organizations).not.toHaveProperty("userClarification");
-  expect(createCapabilities().get("metric_query").fields.operation?.inputSchema).toHaveProperty("oneOf");
-  expect(schemas.find(schema => schema.capability === "data_availability")?.fields.dimension).not.toHaveProperty("userClarification");
+  expect(query.fields.operation?.inputSchema).toHaveProperty("oneOf");
+  expect(createCapabilities().get("data_availability").fields.dimension).not.toHaveProperty("userClarification");
 });

@@ -1,7 +1,7 @@
 import {expect, it, vi} from "vitest";
 import {resolveHistoryFieldReference} from "../../src/business-context/historyReferences.js";
 import type {HistoryReferenceContext} from "../../src/business-context/historyReferences.js";
-import {toCompactTurnArgs, toContextDelta} from "../../src/business-context/turnArgs.js";
+import {toContextDelta} from "../../src/business-context/turnArgs.js";
 import type {BusinessFrame, FieldResolution, HistoryFieldReferenceInput, ResolvedOrganizations} from "../../src/business-context/types.js";
 
 function fixture(values: ResolvedOrganizations[] = [{codes: ["A", "B"], names: ["机构甲", "机构乙"]},
@@ -118,11 +118,10 @@ it("动态scope不能混并成固定名单；单源刷新原范围且按刷新�
   expect(f.context.resolveOrganizationScope).toHaveBeenCalledWith({...scope, sourceText: "账号权限内农商行"});
 });
 
-it("结构化引用在legacy与compact格式间保持无损且不改变来源契约", () => {
+it("结构化引用经内部 Delta 解析保持无损且不改变来源契约", () => {
   const f = fixture();
   const delta = {capabilityHint: "metric_query", baseReference: "current" as const, executionMode: "execute" as const,
     fieldChanges: [{fieldHint: "organizations", operation: "set" as const, rawValue: f.input}]};
-  expect(toContextDelta(toCompactTurnArgs(delta))).toEqual(delta);
   expect(toContextDelta(delta)).toEqual(delta);
 });
 

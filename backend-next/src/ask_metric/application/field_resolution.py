@@ -22,7 +22,12 @@ from ask_metric.application.text_correction import (
 )
 from ask_metric.domain.metric_matching import _normalize_with_index, normalize_semantic_text
 from ask_metric.domain.semantics import MetricCatalogItem, OrganizationCatalogItem
-from ask_metric.domain.time_expression import SemanticValidationError, normalize_calendar_text, parse_discrete_dates, parse_time_expression
+from ask_metric.domain.time_expression import (
+    SemanticValidationError,
+    normalize_calendar_text,
+    parse_discrete_dates,
+    parse_time_expression,
+)
 
 # 机构纠错全目录竞争的最低领先幅度；机构短名只有 2-4 字，
 # 不设指标那套最短长度限制，用“编辑距离==1 或拼音全同 + 唯一领先”控制。
@@ -156,6 +161,38 @@ def resolve_catalog_field(
     *,
     suggested: list[dict] | None = None,
 ) -> dict:
+    # 完整原值决定成员集合；建议只辅助未决槽位，不能追加、替换已确定成员。
+    if entity == "organization" and raw_values and suggested:
+        result = resolve_catalog_field(entity, raw_values, items)
+        if result["status"] == "resolved":
+            return result
+        candidates = result.get("candidates", [])
+        pending = result.get("metadata", {}).get("issues", [])
+        for hint in suggested:
+            excerpt = normalize_semantic_text(str(hint.get("excerpt") or ""))
+            matched = [entry for entry in pending
+                       if excerpt and normalize_semantic_text(entry["rawValue"]) == excerpt]
+            # 有来源片段时必须匹配该未决槽位；已定成员的建议不能首推到另一槽位。
+            slots = matched or (pending if not excerpt and len(raw_values) == 1 and len(pending) == 1 else [])
+            if len(slots) != 1:
+                continue
+            index = slots[0]["rawValueIndex"]
+            identity = str(hint.get("code") or hint.get("name") or "").strip()
+            member = _exact_matches(items, normalize_semantic_text(identity), include_code=True)
+            if len(member) != 1:
+                continue
+            existing = next((candidate for candidate in candidates
+                             if candidate.get("code") == member[0].code
+                             and candidate.get("metadata", {}).get("rawValueIndex") == index), None)
+            if existing is not None:
+                existing["preferred"] = True
+            else:
+                candidates.append({"code": member[0].code, "value": member[0].name,
+                                   "preferred": True, "metadata": {"rawValueIndex": index}})
+        if candidates and result["status"] == "not_found":
+            result["status"] = "needs_confirmation"
+        result["metadata"]["candidate_count"] = len(candidates)
+        return result
     selected = {}
     candidates = {}
     issues = []
@@ -176,6 +213,7 @@ def resolve_catalog_field(
             elif name and normalize_semantic_text(name) not in seen_raw:
                 # 与 raw_values 字面重复的建议不重复解析，保留原值自己的字面来源。
                 entries.append((name, None, "model_inferred"))
+    pending_values: list[str | list[str]] = [raw for raw, _, _ in entries]
     for raw_index, (raw, suggested_code, source_override) in enumerate(entries):
         if suggested_code is not None:
             # 模型建议编码只做目录成员资格核验：命中以目录数据为准（不信任提交名称），
@@ -185,13 +223,14 @@ def resolve_catalog_field(
                       if normalize_semantic_text(item.code) == normalized_code]
             if member:
                 selected[member[0].code] = member[0]
+                pending_values[raw_index] = member[0].code
                 resolution_sources.append("model_inferred")
                 continue
             result = rank_organizations(raw, items, limit=20)
             hits = [{"value": hit.name, "code": hit.code, "score": hit.score}
                     for hit in result.items]
             reason = "not_found"
-            issues.append({"rawValue": raw, "reason": reason})
+            issues.append({"rawValue": raw, "rawValueIndex": raw_index, "reason": reason})
             for hit in hits:
                 candidates[(raw_index, hit["code"])] = {
                     **hit, "metadata": {**hit.get("metadata", {}), "rawValueIndex": raw_index},
@@ -204,6 +243,7 @@ def resolve_catalog_field(
             exact = _exact_matches(items, normalized[:-2], include_code=False)
         if len(exact) == 1:
             selected[exact[0].code] = exact[0]
+            pending_values[raw_index] = exact[0].code
             resolution_sources.append(source_override or "exact")
             continue
         if exact:
@@ -217,8 +257,10 @@ def resolve_catalog_field(
                 if mentions and _covers_raw(raw, mentions) and all(
                     mention["resolution"]["status"] == "resolved" for mention in mentions
                 ):
-                    for code in resolved_metric_codes(mentions):
+                    codes = resolved_metric_codes(mentions)
+                    for code in codes:
                         selected[code] = index.items[code]
+                    pending_values[raw_index] = codes
                     continue
                 # 原值还有未识别的文字时，已识别的指标也只能作为候选，不能丢掉多余文字直接采用。
                 hits = [
@@ -242,6 +284,7 @@ def resolve_catalog_field(
                     outcome, matched = "none", []
                 if outcome in ("contains", "corrected"):
                     selected[matched[0].code] = matched[0]
+                    pending_values[raw_index] = matched[0].code
                     resolution_sources.append(source_override or outcome)
                     if outcome == "corrected":
                         corrections.append({"raw": raw, "corrected_name": matched[0].name,
@@ -259,7 +302,7 @@ def resolve_catalog_field(
                     if not hits:
                         hits = _fuzzy_org_suggestions(normalized, items)
                     reason = "needs_confirmation" if hits else "not_found"
-        issues.append({"rawValue": raw, "reason": reason})
+        issues.append({"rawValue": raw, "rawValueIndex": raw_index, "reason": reason})
         for hit in hits:
             candidates[(raw_index, hit["code"])] = {
                 **hit, "metadata": {**hit.get("metadata", {}), "rawValueIndex": raw_index},
@@ -268,8 +311,12 @@ def resolve_catalog_field(
         reasons = {issue["reason"] for issue in issues}
         status = next(reason for reason in ("ambiguous", "not_found", "needs_confirmation")
                       if reason in reasons)
-        return {"status": status, "candidates": list(candidates.values())[:50],
-                "metadata": {"issues": issues, "candidate_count": len(candidates)}}
+        return {"status": status, "candidates": list(candidates.values())[:1000 if entity == "organization" else 50],
+                "metadata": {"issues": issues, "candidate_count": len(candidates),
+                             "pendingRawValues": pending_values,
+                             **({"partialMembers": {"codes": list(selected),
+                                                    "names": [item.name for item in selected.values()]}}
+                                if selected else {})}}
     result = {"status": "resolved", "value": {
         "codes": list(selected), "names": [item.name for item in selected.values()],
     }}
@@ -280,6 +327,14 @@ def resolve_catalog_field(
         if corrections:
             metadata["corrections"] = corrections
         result["metadata"] = metadata
+    elif entity == "metric":
+        # 目录基础名与价值口径随解析结果返回：宿主据此核验“仅换口径”的明确表达，
+        # 不与日期混用，也不从名称字符串拼造指标。
+        result["metadata"] = {"metrics": [
+            {"code": item.code, "name": item.name, "base_name": item.base_name,
+             "value_basis": item.value_basis}
+            for item in selected.values()
+        ]}
     return result
 
 
@@ -366,21 +421,25 @@ def resolve_date_field(
         result = parse_time_expression(raw, today=today, reference_year=reference_year)
         if result.start is None or result.end is None or result.start > result.end:
             return {"status": "invalid", "metadata": {
-                "reason": "unsupported_expression", "businessDate": today.isoformat(),
+                "reason": "incomplete_range" if incomplete_calendar_range(raw) else "unsupported_expression",
+                "businessDate": today.isoformat(),
             }}
         return {"status": "resolved", "value": {
             "start": result.start.isoformat(), "end": result.end.isoformat(),
         }, "metadata": {"resolution_source": "deterministic", "businessDate": today.isoformat()}}
     except SemanticValidationError as error:
         # 表达不支持时给模型换算一次兜底机会；日历值非法（含 N 越界）不兜底。
-        if error.reason == "unsupported_expression" and model_value is not None:
+        # 只给出一端的区间（“到2026年9月末”）先按确定性形状判为不完整：即使模型
+        # 提交了单点换算，也不能据此截掉未说出的起点，仍交用户补充完整范围。
+        incomplete = incomplete_calendar_range(raw)
+        if error.reason == "unsupported_expression" and model_value is not None and not incomplete:
             normalized = validate_calendar_value(model_value, today)
             if normalized is not None:
                 return {"status": "resolved", "value": normalized, "metadata": {
                     "resolution_source": "model", "businessDate": today.isoformat(),
                 }}
         return {"status": "invalid", "metadata": {
-            "reason": error.reason,
+            "reason": "incomplete_range" if incomplete else error.reason,
             "businessDate": today.isoformat(),
         }}
     except (ValueError, OverflowError):
@@ -393,10 +452,12 @@ def source_organization_codes(question: str, items: Sequence[OrganizationCatalog
                               *, allow_typo: bool = False) -> list[str]:
     """独立扫描目录实体依据；最长片段优先，不能由模型提交集合反推完整目标。
 
-    allow_typo=True 时追加错字片段依据（原文片段与目录词条一字之差或拼音全同，
-    且全目录竞争唯一胜出——与解析阶梯同一把尺子）。仅准入/解析对账开启：
+    allow_typo=True 时追加错字片段依据（片段与目录词条一字之差或拼音全同，
+    且全目录竞争唯一胜出——与解析阶梯同一把尺子）。仅允许对“作为机构槽位提交、
+    且确为本轮连续原文”的字段片段（rawExcerpt / suggestion.excerpt）开启：
     这些路径的权限与目录有效性另有独立强制校验，且结论经明示或候选确认对用户
-    可见。身份隐藏类扫描（inspect_goal 片段）必须保持严格精确，防止把被撤权
+    可见。完整原问只做精确覆盖——准入对账与身份隐藏类扫描（inspect_goal 片段）
+    必须保持严格精确，防止“大聪明”这类非机构文字虚增机构义务，或把被撤权
     机构的精确名称当成在权机构的错字而静默替身。
     """
     text = normalize_semantic_text(question)
@@ -431,19 +492,29 @@ _TYPO_TERM_MAX_LENGTH = 10
 def _typo_org_spans(text: str, items: Sequence[OrganizationCatalogItem],
                     chosen: list[tuple[int, int]]) -> set[str]:
     """在未被精确命中覆盖的原文窗口中找错字依据；同阶梯判定：距离==1 或拼音全同 + 唯一领先。"""
+    return {code for _, code in _typo_org_matches(text, items, chosen)}
+
+
+def _typo_org_matches(text: str, items: Sequence[OrganizationCatalogItem],
+                      chosen: list[tuple[int, int]]) -> list[tuple[tuple[int, int], str]]:
+    """返回唯一胜出的错字片段及其目录身份（span, code），供来源核对复用同一判定。"""
     terms_by_length: dict[int, list[CorrectionTerm]] = {}
     for item in items:
         for term in _normalized_terms(item):
             if _TYPO_TERM_MIN_LENGTH <= len(term) <= _TYPO_TERM_MAX_LENGTH:
                 terms_by_length.setdefault(len(term), []).append(
                     CorrectionTerm(item.code, term, phonetic(term)))
-    codes: set[str] = set()
-    for length, terms in terms_by_length.items():
+    matches: list[tuple[tuple[int, int], str]] = []
+    windows = sorted((length for length in terms_by_length), reverse=True)
+    for length in windows:
+        terms = terms_by_length[length]
         if len(text) < length:
             continue
         for start in range(len(text) - length + 1):
             span = (start, start + length)
             if any(span[0] < other[1] and other[0] < span[1] for other in chosen):
+                continue
+            if any(span[0] < other[1] and other[0] < span[1] for other, _ in matches):
                 continue
             window = text[start:start + length]
             ranked = rank_corrections(window, terms, pinyin_score=pinyin_syllable_similarity)
@@ -456,9 +527,19 @@ def _typo_org_spans(text: str, items: Sequence[OrganizationCatalogItem],
                 continue
             if margin + 1e-9 < _ORG_CORRECTION_MIN_MARGIN:
                 continue
-            chosen.append(span)
-            codes.add(winner.term.identity)
-    return codes
+            matches.append((span, winner.term.identity))
+    return matches
+
+
+def typo_organization_matches(
+    question: str, items: Sequence[OrganizationCatalogItem],
+) -> list[tuple[tuple[int, int], str]]:
+    """整句错字扫描的受限入口：只供“已提交机构槽位”核对同一份原文依据。
+
+    返回（规范化文本中的 span，目录身份）。调用方必须同时确认该槽位的原值不是
+    本轮连续原文，且扫描出的身份与槽位解析集合完全一致；不用于片段义务扫描。
+    """
+    return _typo_org_matches(normalize_semantic_text(question), items, [])
 
 
 _SOURCE_MONTH = r"[0-9一二两三四五六七八九十]{1,3}月份?(?:末|底)?"
@@ -470,16 +551,115 @@ _SOURCE_CALENDAR = re.compile(
     r"(?:近|最近|过去)\s*(?:\d+|[一二两三四五六七八九十]+)\s*个?(?:完整)?[年月天]|今天|今日|昨天"
 )
 
+# 区间连接符：两端须由同一段整区间命中、或两侧各自命中且无未解释日历残留共同解释。
+_SOURCE_RANGE_JOINER = re.compile(r"\s*(?:至|到|~|～)\s*")
+# 日历语素：连接符一侧的未命中片段含这些字时，视为同一日历表达的未解释残段
+# （如“最后一天”“国庆后第一个交易日”）；纯连接语（“截至”“为止”）不算。
+_SOURCE_CALENDAR_TOKEN = re.compile(r"[\d零〇一二两三四五六七八九十]|[年月日号末底初天今昨前季]")
+# 紧邻连接符的移动动词与字段标签（“日期移到/时间调整到/改到/顺延到”）是表述文字，
+# 不是日历残段；剥离后残段为空则不记 gap（“最后一天”等真实日历残段不受影响）。
+_SOURCE_MOVE_WORDS = re.compile(
+    r"(?:顺延|提前|推迟|延期|调整|移动|改期|日期|时间|移|改|调|换|挪|动)+$")
 
-def source_calendar_constraints(question: str, today: date, *, reference_year: int | None = None) -> dict:
-    """扫描日历词法并复用同一解析器；不推测整句意图，不把局部匹配当完整范围。"""
+# 只给出一端的区间（“到2026年9月末”“2021年末到”）：只做确定性形状核验，
+# 供 resolve_date_field 在采纳模型换算前复核完整性；不解释日期含义、不改日期。
+_INCOMPLETE_RANGE_LEAD = re.compile(r"^\s*(?:从)?(?:到|至|~|～)\s*")
+_INCOMPLETE_RANGE_TRAIL = re.compile(r"(?:到|至|~|～)\s*$")
+
+
+def incomplete_calendar_range(raw: str) -> bool:
+    """判断表达式是否是缺口形状的区间（只有起点或只有终点）。
+
+    只回答“是否缺一端”，不推断缺失值；调用方据此拒绝把单点换算当成完整范围，
+    仍由用户补充缺失端。连接符带普通文字（“截至”“截止到”“日期改到”）不算缺口。
+    """
+    text = normalize_calendar_text(raw).strip()
+    return bool(text and (
+        _INCOMPLETE_RANGE_LEAD.match(text) or _INCOMPLETE_RANGE_TRAIL.search(text)
+    ))
+
+
+def source_calendar_constraints(question: str, today: date, *, reference_year: int | None = None,
+                                adopted: dict | None = None) -> dict:
+    """扫描日历词法并复用同一解析器；不推测整句意图，不把局部匹配当完整范围。
+
+    adopted 为字段解析已采纳的日历（model_value 复核通过后的规范值）：采纳结果
+    优先复用，不再对同一表达做词法重扫。无采纳结果时走词法扫描；区间连接符
+    只有一端能解释（漏另一端）时整段转入 unresolved，防止按单侧范围执行。
+    """
+    if adopted is not None:
+        return {"ranges": [adopted], "unresolved": []}
+    text = normalize_calendar_text(question)
+    matches = [(match.start(), match.end(), match.group())
+               for match in _SOURCE_CALENDAR.finditer(text)]
+    dropped: set[int] = set()
+    partial: list[str] = []
+    for joiner in _SOURCE_RANGE_JOINER.finditer(text):
+        # 连接符已被某段整区间命中覆盖时无需再核对（如“1月末至2月末”整体命中）。
+        if any(start < joiner.end() and joiner.start() < end for start, end, _ in matches):
+            continue
+        left = _calendar_side(matches, text, joiner.start(), forward=False)
+        right = _calendar_side(matches, text, joiner.end(), forward=True)
+        # 两侧都是日历表达（命中、日历残段或开口端）且至少一侧留有未解释残段
+        # → 只命中一端，整段未决，不得按单侧执行；一侧是普通文字则不动。
+        left_expr = left[0] or left[1] or not left[3]
+        right_expr = right[0] or right[1] or not right[3]
+        if left_expr and right_expr and (left[1] or right[1]):
+            dropped.update(left[0] + right[0])
+            start = matches[left[0][0]][0] if left[0] else left[2]
+            end = matches[right[0][-1]][1] if right[0] else right[2]
+            partial.append(text[start:end])
     ranges: list[dict] = []
-    unresolved: list[str] = []
-    for match in _SOURCE_CALENDAR.finditer(normalize_calendar_text(question)):
-        expression = match.group()
+    unresolved: list[str] = [*partial]
+    for index, (_, _, expression) in enumerate(matches):
+        if index in dropped:
+            continue
         parsed = resolve_date_field(expression, today, reference_year=reference_year)
         if parsed["status"] == "resolved":
             ranges.append(parsed["value"])
         else:
             unresolved.append(expression)
     return {"ranges": ranges, "unresolved": unresolved}
+
+
+def _calendar_side(matches: list[tuple[int, int, str]], text: str, boundary: int, *,
+                   forward: bool) -> tuple[list[int], bool, int, bool]:
+    """从连接符边界向一侧扩张：相邻命中收入链条，残段含日历语素记 gap。
+
+    返回 (命中下标链, 是否有未解释日历残段, 该侧表达边界, 是否止于普通文字)。
+    止于普通文字（如“截至”的“截”、“到期”的“期”）表示该侧不是日历表达；
+    空残段（开口区间端，如“到明年”的左端）仍按日历表达一侧对待。
+    """
+    chain: list[int] = []
+    gap = False
+    other = False
+    edge = boundary
+    while True:
+        hit = next((index for index, (start, end, _) in enumerate(matches)
+                    if (start == edge if forward else end == edge)), None)
+        if hit is not None:
+            chain.append(hit)
+            edge = matches[hit][1] if forward else matches[hit][0]
+            continue
+        if forward:
+            limit = min((start for start, _, _ in matches if start > edge), default=len(text))
+            segment = text[edge:limit]
+        else:
+            limit = max((end for _, end, _ in matches if end < edge), default=0)
+            segment = text[limit:edge]
+        residue = segment.strip(" 从由自\t")
+        if not residue:
+            break
+        # 移动动词/字段标签剥离后为空（“日期移到”“改到”）：越过该段继续扩张，
+        # 使“从5月末改到……”左侧的命中仍收入链条，但整段不记 gap。
+        residue = _SOURCE_MOVE_WORDS.sub("", residue).strip(" 从由自\t")
+        if not residue:
+            edge = limit
+            continue
+        if _SOURCE_CALENDAR_TOKEN.search(residue):
+            gap = True
+            edge = limit
+            continue
+        other = True
+        break
+    return chain, gap, edge, other
