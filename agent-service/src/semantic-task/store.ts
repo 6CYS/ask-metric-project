@@ -26,7 +26,7 @@ export interface SemanticTask {
   completion: "unmet" | "partial" | "full"; issues: SemanticIssue[];
   permit?: {operationId: string; revision: number; frameId: string; digest: string; actor: string; consumed: boolean};
   parentPlan?: string;
-  capability?: "metric_query" | "data_availability" | "metric_calculate";
+  capability?: "metric_query" | "data_availability" | "metric_calculate" | "business_overview" | "business_analysis";
   /** 当前反馈使用的公共快照；权威版本、状态和受理事实仍在独立问题记录中。 */
   questionSnapshots?: PendingQuestion[];
   answerReceipts?: AnswerReceipt[];
@@ -105,6 +105,9 @@ export interface SemanticTurn {
   directQueryDelivery?: "off" | "observe" | "on";
   /** 本轮只读交付的签发来源；与旧计划隔离，不能把历史operation改成当前operation。 */
   readDelivery?: {planRef: string; revision: number; digest: string; targetRefs: string[]; source: "query_ordinal" | "admitted_focus"};
+  /** 基础指标未命中后的有限恢复；范围在首次恢复时冻结，重启和重提不能重置预算。 */
+  queryRecovery?: {planRef: string; attempts: number; scopes: Array<{taskRef: string; targetRef: string;
+    fields: Record<string, ResolvedField>}>};
   /** 在原生Session事务中冻结入场来源；本轮重提、工具执行或焦点移动不能改变它。 */
   context?: {plan?: SemanticPlan; tasks: SemanticTask[]; clarification?: SemanticClarification};
   contextAction?: "resume" | "defer" | "abandon"; source?: SemanticSource; baseline?: SemanticTarget; operations: Record<string, SemanticOperation[]>;
@@ -614,6 +617,19 @@ export class NativeSemanticTaskStore {
       const address = turnAddress(operationId), turn = (await tx.getValue(address, context))?.value;
       if (!turn) throw new Error("SEMANTIC_TURN_NOT_ADMITTED");
       await tx.commit([setValue(address, {...turn, contextAction: action})], context);
+    }, BACKGROUND_CONTEXT);
+  }
+  async claimQueryRecovery(operationId: string, planRef: string,
+    scopes: NonNullable<SemanticTurn["queryRecovery"]>["scopes"], limit: number) {
+    return this.session.mutate(async (tx, context) => {
+      const address = turnAddress(operationId), turn = (await tx.getValue(address, context))?.value;
+      if (!turn) throw new Error("SEMANTIC_TURN_NOT_ADMITTED");
+      const previous = turn.queryRecovery;
+      if (previous && (previous.planRef !== planRef || previous.attempts >= limit)) return undefined;
+      const recovery = {planRef, attempts: (previous?.attempts ?? 0) + 1,
+        scopes: structuredClone(previous?.scopes ?? scopes)};
+      await tx.commit([setValue(address, {...turn, queryRecovery: recovery})], context);
+      return recovery;
     }, BACKGROUND_CONTEXT);
   }
   async bindReadDelivery(operationId: string, binding: NonNullable<SemanticTurn["readDelivery"]>) {

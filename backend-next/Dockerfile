@@ -26,6 +26,9 @@ COPY scripts ./scripts
 RUN useradd --create-home --uid 10001 app \
     && chown -R app:app /app
 
+# 配置与源码共同部署在 /app；运行时从源码加载，确保项目相对配置路径可解析。
+ENV PYTHONPATH=/app/src
+
 USER app
 
 EXPOSE 8010

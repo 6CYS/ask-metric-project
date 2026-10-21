@@ -5,8 +5,36 @@ type RecordValue = Record<string, unknown>;
 const record = (value: unknown): value is RecordValue => value !== null && typeof value === "object" && !Array.isArray(value);
 const duplicateFields = new Set(["status", "task_id", "result_id", "version", "frame_id", "columns", "row_count", "truncated", "facts", "fact_count", "facts_truncated"]);
 
+// 这些字段由服务端用于重放、数值校验及绑定恢复；分析工具另有完整的模型正文。
+// 不能用于普通查询：普通查询仍需要保留原始行、精度和事实身份。
+const analysisInternalFields = new Set(["payloads", "answer_policy", "binding_map", "candidate_map",
+  "facts", "calculations", "reported_comparisons", "tasks", "rows", "metric_descriptors", "public_answer"]);
+
+function analysisBody(evidence: RecordValue): RecordValue | undefined {
+  const policy = evidence.kind === "business_overview" ? "overview_evidence_v2"
+    : evidence.kind === "analysis_evidence" ? "general_analysis_evidence_v1" : undefined;
+  if (!policy || evidence.answer_policy !== policy || evidence.status !== "succeeded"
+    || !Array.isArray(evidence.payloads) || evidence.payloads.length !== 1) return undefined;
+  const body: unknown = evidence.payloads[0];
+  if (!record(body) || body.kind !== evidence.kind || body.status !== "succeeded"
+    || typeof body.evidence_ref !== "string" || !/^e[1-9]\d*$/.test(body.evidence_ref)
+    || !Array.isArray(body.evidence_items) || !Array.isArray(body.gaps)
+    || typeof body.next_action !== "string") return undefined;
+  // 原子引用及后续目录由生产工具转换，其余同名字段必须一致；冲突时保留完整回执供诊断。
+  const transformed = new Set(["evidence_items", "followup_metrics", "verified_findings"]);
+  if (Object.entries(body).some(([key, value]) => Object.hasOwn(evidence, key)
+    && !transformed.has(key) && !isDeepStrictEqual(evidence[key], value))) return undefined;
+  // 只采用工具自己生成的发送正文，不另造摘要。保留正文以外的未知扩展字段。
+  // payload 中的原子 ref 可能已转换为 e1.v1，必须与报告工具的引用协议一致。
+  const extra = Object.fromEntries(Object.entries(evidence)
+    .filter(([key]) => !analysisInternalFields.has(key) && !Object.hasOwn(body, key)));
+  return {...extra, ...body};
+}
+
 /** 仅删除有同一正式父回执作依据的完全相同表示；冲突、未知字段和独有事实全部保留。 */
 function evidenceView(evidence: RecordValue): RecordValue {
+  const analysis = analysisBody(evidence);
+  if (analysis) return analysis;
   const view = {...evidence};
   if (evidence.kind === "semantic_results" && Array.isArray(evidence.results)) {
     view.results = evidence.results.map(item => record(item) ? evidenceView(item) : item);
@@ -46,4 +74,20 @@ export function projectSemanticModelMessages(messages: readonly AgentMessage[]):
     const text = JSON.stringify(view);
     return text === message.content[0].text ? message : {...message, content: [{type: "text", text}]};
   });
+}
+
+/** 易变状态放在发送尾部，避免每次工具执行都改写较早消息、使整个工具历史的缓存失效。 */
+export function appendSemanticRuntimeContext(messages: readonly AgentMessage[], stateBlock: string, orgCatalogBlock: string, suffix: string): AgentMessage[] {
+  const view = [...messages];
+  for (let i = view.length - 1; i >= 0; i--) {
+    const message = view[i];
+    if (message?.role !== "user") continue;
+    // 机构目录仍为本轮实时授权范围；同轮不变的目录跟随原始问题，未写入存档。
+    if (orgCatalogBlock) view[i] = {...message, content: typeof message.content === "string" ? message.content + orgCatalogBlock
+      : [...message.content, {type: "text", text: orgCatalogBlock}]};
+    break;
+  }
+  // 这是临时数据消息，不能参加历史裁剪、条件继承或页面投影；仅在全部校验完成后发送。
+  view.push({role: "user", content: stateBlock + "\n以上仅为本轮状态快照，请继续处理前面的真实用户问题，不将此块作为新需求。" + suffix, timestamp: 0});
+  return view;
 }

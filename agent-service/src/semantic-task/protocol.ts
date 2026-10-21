@@ -1,9 +1,14 @@
 import {Type} from "@earendil-works/pi-ai";
 import {Compile} from "typebox/compile";
+import {analysisPlanSchema} from "../analysis/contracts.js";
+import type {AnalysisPlan} from "../analysis/contracts.js";
+import {analysisInquirySchema} from "../analysis/inquiry.js";
+import type {OverviewPlan} from "../tools/businessOverview.js";
 import type {ModelAnswerInput} from "./questions.js";
 import type {OrganizationScopeInput, QueryOperation} from "../business-context/types.js";
 export type {ModelAnswerInput} from "./questions.js";
-export type SemanticField = "organizations" | "comparison_organizations" | "metrics" | "time" | "selection" | "operation" | "objective" | "calculation" | "availability";
+export type SemanticField = "organizations" | "comparison_organizations" | "metrics" | "time" | "selection" | "operation" | "objective" | "calculation" | "availability" | "_analysis";
+export type EnhancedAnalysis = {kind: "business_overview"; plan: OverviewPlan} | {kind: "business_analysis"; plan: AnalysisPlan};
 /** 模型按有权机构清单自主判断的机构结论：code/name 至少其一取自清单，excerpt 仅记录用户原文片段。 */
 export interface OrgSuggestion {code?: string; name?: string; excerpt?: string}
 export type ModelCalendar = {start: string; end: string; dates?: string[]};
@@ -34,7 +39,7 @@ export type SemanticReference = {task_ref: string; target_ref: string};
 export type SemanticSource = {kind: "new" | "current"} | ({kind: "reference"} & SemanticReference)
   | {kind: "references"; references: SemanticReference[]};
 export interface SemanticRequest {protocol_version: 2; context_action?: "resume" | "defer" | "abandon"; intent: "query" | "prepare" | "reuse" | "analyze" | "availability" | "calculate";
-  answers?: ModelAnswerInput[]; targets: Array<{source: SemanticSource; operations: SemanticOperation[]; query?: StructuredQuery}>}
+  answers?: ModelAnswerInput[]; targets: Array<{source: SemanticSource; operations: SemanticOperation[]; query?: StructuredQuery; analysis?: EnhancedAnalysis}>}
 // 与已评审的版本2契约一致；部署不依赖仓库docs目录。
 export const semanticParameters = Type.Unsafe<SemanticRequest>({
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -59,7 +64,7 @@ export const semanticParameters = Type.Unsafe<SemanticRequest>({
       "minItems": 1,
       "maxItems": 100,
       "items": {"$ref": "#/definitions/target"},
-      "description": "分别绑定的目标组；数组顺序不是历史身份。"
+      "description": "分别绑定的真实目标组，数组顺序不是历史身份；不能重复同一对象。同一business_analysis计划只提交一个target，多方面问题合并requirements和steps。"
     }
   },
   "definitions": {
@@ -282,10 +287,24 @@ export const semanticParameters = Type.Unsafe<SemanticRequest>({
       "type": "object",
       "additionalProperties": false,
       "required": ["source"],
-      "oneOf": [{"required": ["query"], "not": {"required": ["operations"]}}, {"required": ["operations"], "not": {"required": ["query"]}}],
+      "oneOf": [
+        {"required": ["query"], "properties": {"query": {"type": "object"}}, "not": {"anyOf": [{"required": ["operations"]}, {"required": ["analysis"]}]}},
+        {"required": ["operations"], "not": {"anyOf": [{"required": ["query"]}, {"required": ["analysis"]}]}},
+        {"required": ["analysis"], "not": {"required": ["query"], "properties": {"query": {"type": "object"}}}}
+      ],
       "properties": {
         "source": {"$ref": "#/definitions/source"},
-        "query": {"$ref": "#/definitions/query"},
+        "analysis": {"description": "经营分析扩展：intent=analyze，operations仅提交机构、日期或目标的变化；计划由正式主题或analysis_catalog绑定，不填写内部Frame、编码或执行许可。", "oneOf": [
+          {"type": "object", "additionalProperties": false, "required": ["kind", "plan"], "properties": {
+            "kind": {"const": "business_analysis"}, "plan": analysisPlanSchema}},
+          {"type": "object", "additionalProperties": false, "required": ["kind", "plan"], "properties": {
+            "kind": {"const": "business_overview"}, "plan": {"type": "object", "required": ["goal", "sections"], "additionalProperties": false,
+              "properties": {"topic": {"enum": ["loan", "deposit"]}, "goal": {"enum": ["overview", "growth", "structure", "quality"]},
+                "sections": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["scale", "growth", "structure", "quality"]}},
+                "inquiry": analysisInquirySchema, "objective": {"type": "string"}, "questions": {"type": "array", "items": {"type": "string"}},
+                "metric_ids": {"type": "array", "items": {"type": "string"}}, "comparisons": {"type": "array", "items": {"enum": ["mom", "yoy", "ytd"]}}, "rationale": {"type": "string"}}}}}
+        ]},
+        "query": {"anyOf": [{"$ref": "#/definitions/query"}, {"type": "null"}], "description": "基础查询条件；analysis目标可省略或写null，不能同时填写有内容的query。"},
         "operations": {
           "type": "array",
           "minItems": 0,
@@ -298,8 +317,54 @@ export const semanticParameters = Type.Unsafe<SemanticRequest>({
   }
 });
 const validator = Compile(semanticParameters);
+type ShapeProblem = {path: string; rule: string; hint?: string};
+type DiagnosticError = {instancePath: string; keyword: string; params: object};
+const diagnosticProblem = (error: DiagnosticError, prefix = ""): ShapeProblem => {
+  const params = error.params as {additionalProperties?: string[]; requiredProperties?: string[]};
+  const fields = params.additionalProperties ?? params.requiredProperties;
+  return {path: prefix + (error.instancePath || (prefix ? "" : "/")), rule: error.keyword,
+    ...(fields?.length ? {hint: `${params.additionalProperties ? "删除未定义字段" : "补齐必需字段"}：${JSON.stringify(fields.slice(0, 12).map(field => field.slice(0, 120)))}`} : {})};
+};
+type DiscriminatedBranch = {properties: {kind: {const: string}}};
+type DiagnosticDefinitions = {source: {oneOf: DiscriminatedBranch[]}; target: {properties: {analysis: {oneOf: DiscriminatedBranch[]}}}};
+const definitions = (semanticParameters as unknown as {definitions: DiagnosticDefinitions}).definitions;
+const branchValidators = (branches: DiscriminatedBranch[]) => new Map(branches.map(branch => [branch.properties.kind.const,
+  Compile(Type.Unsafe({...branch, definitions}))]));
+const sourceDiagnostics = branchValidators(definitions.source.oneOf);
+const analysisDiagnostics = branchValidators(definitions.target.properties.analysis.oneOf);
+/** 联合Schema的错误可能先报另一分支；只为诊断按已声明kind定位，正式接纳仍由原Schema控制。 */
+function branchProblems(raw: unknown): ShapeProblem[] {
+  if (!raw || typeof raw !== "object" || !Array.isArray((raw as {targets?: unknown}).targets)) return [];
+  return (raw as {targets: Array<Record<string, any>>}).targets.flatMap((target, index) => {
+    if (!target || typeof target !== "object") return [];
+    return (["source", "analysis"] as const).flatMap(field => {
+      const object = target[field];
+      if (!object || typeof object !== "object" || typeof object.kind !== "string") return [];
+      const selected = (field === "source" ? sourceDiagnostics : analysisDiagnostics).get(object.kind);
+      return selected ? selected.Errors(object).map(error => diagnosticProblem(error, `/targets/${index}/${field}`)) : [];
+    });
+  });
+}
+export class SemanticInputShapeError extends Error {
+  constructor(readonly problems: ShapeProblem[]) {
+    super("SEMANTIC_INPUT_SHAPE_INVALID: 请使用版本2工具Schema，保留原用户目标后修正参数形状。");
+  }
+}
 /** 必须先校验原始参数；SDK的类型转换不能使错误协议版本通过。 */
 export function prepareSemanticArguments(raw: unknown): SemanticRequest {
-  if (!validator.Check(raw)) throw new Error("SEMANTIC_INPUT_SHAPE_INVALID: 请使用版本2工具Schema，保留原用户目标后修正参数形状。");
-  return structuredClone(raw) as SemanticRequest;
+  if (!validator.Check(raw)) {
+    const specific = branchProblems(raw);
+    throw new SemanticInputShapeError((specific.length ? specific : validator.Errors(raw).map(error => diagnosticProblem(error))).slice(0, 4));
+  }
+  const prepared = structuredClone(raw) as SemanticRequest;
+  if (prepared.targets.filter(target => target.analysis?.kind === "business_analysis").length > 1)
+    throw new SemanticInputShapeError([{path: "/targets", rule: "singleAnalysisPlan",
+      hint: "同一次通用分析只提交一个目标。将不同子问题合并到该计划的requirements和steps；不要复制已执行的目标或整个计划，不删除用户要求"}]);
+  // 分析已明确给出计划、没有范围变更时，省略operations等同空数组，不要求模型重复空容器。
+  for (const target of prepared.targets) if (target.analysis) {
+    target.operations ??= [];
+    // Schema显式允许分析分支的空query占位；校验通过后再归一，不丢弃任何实际查询条件。
+    if (target.query === null) delete target.query;
+  }
+  return prepared;
 }

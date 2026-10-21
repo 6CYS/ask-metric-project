@@ -42,6 +42,7 @@ def config_client(tmp_path):
     PromptConfigRepository(prompt_path).save(PromptRuntimeConfig(prompts={"test": prompt}))
     app = FastAPI()
     app.state.settings = SimpleNamespace(
+        _config_center=None,
         model_config_path=model_path,
         prompt_config_path=prompt_path,
         config_history_dir=tmp_path / "history",

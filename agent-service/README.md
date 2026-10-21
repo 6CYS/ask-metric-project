@@ -12,6 +12,18 @@ pi 是唯一的 Agent 运行与对话控制核心：会话、模型上下文、�
 Agent 的业务取数只调用 FastAPI 后端受治理接口并透传用户 Bearer，目录校验、权限裁剪、
 SQL builder 生成和执行与受控计算全部保留在后端；本服务不生成或执行 SQL；Frame 仅保留字段、结果引用和摘要，结果快照按需读取。
 
+通用分析使用 `analysis_catalog` 发现正式指标，以 `business_analysis` Frame 编排基础查询，
+观察结果后通过 `analysis_report_present` 交付表格与报告。专项主题与 Skill 属于可选增强；
+完整接线、边界和部署要求见 [通用分析底座实施说明](../docs/通用分析底座实施说明.md)。
+
+分析取数成功后，模型发生不可重试的协议错误，或暂时性错误重试耗尽时，服务通过原生工具
+重新核验并交付已有数据，明确标记为部分结果，不把未完成报告当成成功分析。同轮补查应使用
+`source={kind:current}` 或回执签发的 `task_ref/target_ref`；错误引用只返回
+调用纠错信息，保留成功焦点、机构和日期。完整的问候或致谢只允许普通对话，不自动恢复上轮
+未完成业务；“继续分析”等明确续接仍继承原业务条件。
+报告工具只在本轮取得对应执行证据后开放；失败的报告校验回执不算已交付，不阻止随后交付
+已核验的部分结果。“和上个月比呢”等追问表达比较基期，不把当前观测日期改成上个月。
+
 ## 本地运行
 
 ```bash
@@ -32,6 +44,20 @@ npm run dev            # 默认 127.0.0.1:8020
 如改回行内网关，同步调整 `AGENT_MODEL_BASE_URL`、`AGENT_MODEL_NAME` 与
 `AGENT_MODEL_EXTRA_BODY`（官方接口的 thinking 开关与部分网关的 `enable_thinking` 不同）。
 
+行内模型使用 `accessKey` 鉴权时，设置 `AGENT_MODEL_AUTH_HEADER=accessKey`、
+`AGENT_MODEL_AUTH_PREFIX=`；密钥仍由 `AGENT_MODEL_API_KEY` 提供。接入层同时把密钥交给
+原生 SDK 并按配置发送鉴权头，自定义头模式不会额外发送默认的 `Authorization: Bearer`。
+后端合成模型检查通过后，还需验证 Agent 的实际提问；两者使用不同的模型调用实现。
+
+业务工具的通用 JSON 值通过 `anyOf` 分别声明字符串、数字、布尔、空值、对象和数组，
+兼容 Outlines 网关对工具参数的解析；保留原字段描述和服务端业务校验。
+接入验证需携带完整工具定义并覆盖实际使用的 `tool_choice`，简单工具样例不能替代这项验证。
+
+`AGENT_MODEL_TOOL_CHOICE_POLICY=native|auto` 默认 `native`，保留宿主要求的工具选择策略。
+部分兼容服务在 `required` 模式返回错误而 `auto` 可用时，可显式配置 `auto` 并重启 Agent。
+该配置只调整模型请求参数，严格工具 Schema、任务许可、机构权限与答案证据校验仍然生效；
+不能用它绕过工具调用或直接交付无证据的业务答案。
+
 压缩配置只映射原生 `CompactionSettings`（`AGENT_COMPACTION_*`），启动时校验
 `reserveTokens + keepRecentTokens < contextWindow` 且 `maxTokens < contextWindow`，不成立即拒绝启动。
 
@@ -41,8 +67,11 @@ npm run dev            # 默认 127.0.0.1:8020
 分别停止/回查原命令，不交给模型绕过。`observe` 记录资格但仍由Pi回答，`off` 关闭新operation直接交付。
 接纳时冻结策略；版本化答案随真实工具回执持久化，关闭后仍能刷新和恢复已保存交付，不伪造模型消息。
 
-`AGENT_MODEL_CONTEXT_VIEW=compact_v1|raw` 默认 `compact_v1`，仅删除模型发送副本内完全相同的回执表示，
-保留独有事实、绑定、告警、分页及原生记录；`AGENT_SEMANTIC_PROMPT_VARIANT=compact_v1|full` 默认 `compact_v1`，
+`AGENT_MODEL_CONTEXT_VIEW=compact_v1|raw` 默认 `compact_v1`：普通查询仅去除完全重复的表示；
+已识别的成功分析回执采用工具生成的模型正文，完整绑定、计算及恢复明细仍保存在原生记录，
+模型保留证据引用、机构日期、缺口、补查和报告依据。不兼容正文保留完整回执。
+Skill 全文留在首次可见的读取回执，动态业务状态仅放在发送尾部，减少前缀缓存失效；授权校验保持实时。
+`AGENT_SEMANTIC_PROMPT_VARIANT=compact_v1|full` 默认 `compact_v1`，
 合并重复规则，工具集合和严格Schema不变。三项配置非法值拒绝启动，修改后重启服务。
 回退新请求使用 `off/raw/full`，保留新版快照读取器及历史，不把新历史交给不识别快照的旧二进制。
 无需业务数据库结构迁移。验收、完整性与权限边界见[Token优化实施说明](../docs/token-optimization.md)。
@@ -50,8 +79,9 @@ npm run dev            # 默认 127.0.0.1:8020
 模型超时分两个阶段：`AGENT_MODEL_FIRST_RESPONSE_TIMEOUT_MS` 控制发出请求后首次有效输出的等待，
 `AGENT_MODEL_STREAM_IDLE_TIMEOUT_MS` 控制开始输出后相邻有效输出之间的空闲时间，均默认 30000 毫秒。
 非空文本、思考及工具参数增量均刷新空闲计时；响应头、开始事件、空增量不算进展。
-持续输出不会因整次调用达到固定总时长而中断；一直没有首次有效输出时可按模型重试配置重试，
-已经输出后的停滞以 `MODEL_STREAM_IDLE_EXCEEDED` 结束本轮，不自动重放请求。
+持续输出不会因整次调用达到固定总时长而中断；首次响应超时或输出停顿（`MODEL_STREAM_IDLE_EXCEEDED`）
+按既有模型重试配置重试未完成的生成，默认最多一次。截断或中断的工具参数不执行，已完成的工具不重放。
+重试耗尽后重新授权呈现已有部分证据，并明确分析未完成；没有证据时保留失败状态。
 
 旧 `AGENT_MODEL_TIMEOUT_MS` 仅在新空闲变量未设置或为空白时作为空闲时限后备，语义已从总时限改为空闲时限。
 更新后重启 Agent 服务生效，无需数据库或会话迁移。回滚旧版本前核对保留的环境文件：旧版本会重新按总时限
@@ -74,7 +104,7 @@ SSE 事件：`accepted`（含快照）、`snapshot`、`tool_start`、`tool_end`�
 按目标组织结构块，答案随真实回执保存并统一投影到实时、历史和最终快照。宿主不进行数值推理或另建对话运行时。
 已校验的 `READY + execute` 和 `REUSE_RESULT` 必须接续原生执行/回读工具；模型在此处的提前确认响应会转换为该Frame的确定下一动作。
 失败不自动重试。步骤结果可提前展示，不能把中间成功当成整轮完成。
-新用户消息持久化 `businessProtocol=frame_v1`，投影返回 `business_protocol`，历史、重连与实时正文保持一致；旧历史按原协议只读兼容。
+新用户消息持久化 `businessProtocol=semantic_v2`，投影返回 `business_protocol`，历史、重连与实时正文保持一致；旧 fixed/frame 历史只读兼容。
 `run_terminal.timings_ms` 在提问流中记录鉴权、外层模型、工具和总耗时，另有
 `first_visible_ms`（首次发送回答正文）与 `model_first_token_ms`（各次调用首次输出）。
 首字指标在服务端发送 SSE 时记录，不含网络和浏览器渲染耗时；同名字段写入 `agent_request_timing` 日志。
@@ -87,6 +117,7 @@ SSE 事件：`accepted`（含快照）、`snapshot`、`tool_start`、`tool_end`�
 
 模型统一以 semantic_v2 版本2协议调用 `resolve_business_turn`：新查询按 `target.query` 一次提交结构化机构、指标、时间、取数方式及操作；历史继承和局部修改使用 `operations`，排序修改提交结构化 `queryOperation`。程序绑定正式身份与权限并生成既有执行参数，结构化路径不再二次解析排序描述。原生会话和业务 Frame 不改写。
 协议格式见[语义任务协议](../docs/pi-semantic-task/protocol.md)。
+存贷款专项及通用分析在同一入口的衔接见[经营分析扩展](../docs/pi-semantic-task/enhanced-analysis.md)。
 
 提议的字段及类型来自能力契约，值仍由业务服务核验目录、来源和权限；机构集合和下辖范围使用固定范围结构。
 参数纠错须保留同一来源及本轮全部有效变化。已核验的候选确认独立保存；未完成的修改如实保留，不能靠省略字段绕过恢复。正式指标错字的自动纠正、原文审计与排名证据校验见[确认与恢复契约](../docs/business-context-reference-recovery.md)。

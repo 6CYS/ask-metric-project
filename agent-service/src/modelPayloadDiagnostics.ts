@@ -8,6 +8,8 @@ export function modelPayloadDiagnostics(payload: Record<string, unknown>) {
   const tools = Array.isArray(payload.tools) ? payload.tools : [];
   return {
     final_payload_bytes: Buffer.byteLength(JSON.stringify(payload)),
+    output_token_limit: payload.max_tokens ?? payload.max_completion_tokens ?? null,
+    output_token_limit_field: "max_tokens" in payload ? "max_tokens" : "max_completion_tokens" in payload ? "max_completion_tokens" : null,
     system_signature: signature(messages.filter(message => message && typeof message === "object" && ["system", "developer"].includes(String(message.role)))),
     tools_signature: signature(tools), messages_signature: signature(messages),
     tool_names: tools.map(tool => tool?.function?.name ?? tool?.name ?? "unknown"),

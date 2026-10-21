@@ -71,3 +71,14 @@ it("同一根因换引用、改参数或改错误文案都不算进展；正式�
   expect(repeatedToolFailure([...semantic("a", "ref-a", "待定", "先明确日期"), ...semantic("b", "ref-b", "待定", "日期还没确定")])).toBe(true);
   expect(repeatedToolFailure([...semantic("a", "ref-a", "待定", "先明确日期"), ...semantic("b", "ref-b", "2026-06-30", "日期还没确定")])).toBe(false);
 });
+
+it("受控计划校验诊断发生变化继续修正，同一诊断重复才判无进展", () => {
+  const semantic = (id: string, message: string): AgentMessage[] => [
+    {role: "assistant", content: [{type: "toolCall", id, name: "resolve_business_turn", arguments: {}}]} as AgentMessage,
+    {role: "toolResult", toolName: "resolve_business_turn", toolCallId: id, isError: false, content: [],
+      details: {protocol_version: 2, status: "needs_interpretation", issues: [{code: "ANALYSIS_PLAN_INVALID", field: "plan", message}],
+        state: {targets: []}}} as unknown as AgentMessage,
+  ];
+  expect(repeatedToolFailure([...semantic("a", "q2未覆盖"), ...semantic("b", "s1循环依赖")])).toBe(false);
+  expect(repeatedToolFailure([...semantic("a", "q2未覆盖"), ...semantic("b", "q2未覆盖")])).toBe(true);
+});

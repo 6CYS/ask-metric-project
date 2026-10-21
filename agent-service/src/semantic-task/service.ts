@@ -14,6 +14,10 @@ import type {BusinessFrame, FieldCandidate, FieldResolution, ResolvedField} from
 import type {ModelCalendar, SemanticOperation, SemanticRequest, SemanticSource} from "./protocol.js";
 import {bindAnswerInputs} from "./questions.js";
 import {backendIssue} from "./backendIssue.js";
+import {resolveEnhancedAnalysis} from "./enhancedAnalysis.js";
+import {BusinessInputError} from "../business-context/inputError.js";
+import {assertRecoveredQueryConditions, frozenQueryScope} from "./queryRecovery.js";
+import {analysisCandidates} from "../analysis/bindings.js";
 import {semanticRef, type SemanticAnswerApplication, type SemanticAnswerSnapshot, type SemanticIssue,
   type SemanticQuestionIssue, type SemanticTarget, type SemanticTask, type SemanticTurn} from "./store.js";
 
@@ -155,6 +159,9 @@ export class SemanticTaskService {
       throw new SemanticConflict(issue("ANSWER_TARGET_AMBIGUOUS", "objective", "回答不能唯一绑定当前任务。", "pi", "reference"));
     }
     if (input.intent === "reuse") return {task, status: task.target.status === "succeeded" ? "reused" : "needs_user"};
+    if (proposal.operations.some(op => op.field === "_analysis")) {
+      return resolveEnhancedAnalysis(this.request, task, turn, proposal.operations, this.signal);
+    }
     if (task.permit?.consumed && task.permit.operationId === turn.operationId) return {task, status: task.target.status === "succeeded" ? "succeeded" : task.target.status === "failed" ? "failed" : "unknown"};
     if (["executing", "unknown"].includes(task.target.status)) return {task, status: "unknown"};
     const facts = this.request.semanticStep?.facts ?? (typeof this.request.backend.inspectBusinessGoal === "function"
@@ -444,6 +451,12 @@ export class SemanticTaskService {
       }
     }
     this.applyDeclinedAnswers(target, task, answerSnapshots, turn);
+    if (!task.issues.length && !Object.keys(target.pending).length) {
+      try {assertRecoveredQueryConditions(await frozenQueryScope(this.request, task), target.fields);} catch (error) {
+        if (!(error instanceof BusinessInputError)) throw error;
+        task.issues.push(issue(error.code, error.field, error.correction, "pi", "input_shape"));
+      }
+    }
     if (task.issues.length || Object.keys(target.pending).length) target.status = "blocked";
     task = {...task, revision: task.revision + 1, target, status: task.issues.some(item => item.category === "permission") ? "stopped"
       : task.issues.some(item => item.remediation === "user") ? "waiting_input" : "active", completion: "unmet"};
@@ -644,6 +657,12 @@ export class SemanticTaskService {
     await this.store.save(task, (await this.store.index()).version, turn);
     return task;
   }
+  private async requireRecoveryAnalysis() {
+    if (!analysisCandidates(this.request).length) return;
+    const recovery = (await this.store.turn(this.request.semanticStep?.rootOperationId ?? this.request.operationId))?.queryRecovery;
+    if (recovery) throw new SemanticConflict(issue("QUERY_RECOVERY_ANALYSIS_REQUIRED", "metrics",
+      "目录已发现候选，但候选全名不等于用户原始指标含义。请继续同一source，改用target.analysis.kind=business_analysis并引用已签发的k引用完成原目标；不要继续把候选全名塞回query或清空指标后询问用户补指标。净增等比较基期不明时，清楚区分正式比较或只确认缺少的基期，不能擅自默认。", "pi", "catalog"));
+  }
   private async apply(target: SemanticTarget, operation: SemanticOperation, turn: SemanticTurn,
     answerCandidates?: FieldCandidate[], publishedFields?: Set<string>) {
     const field = operation.field;
@@ -724,6 +743,7 @@ export class SemanticTaskService {
         && !(entity === "metric" && this.request.semanticStep?.analysis)
         && !facts.fragments.some(fragment => entity === "organization" ? fragment.organizations.length : fragment.mentions.length)
         && previous?.resolutionStatus !== "resolved") {
+        if (field === "metrics") await this.requireRecoveryAnalysis();
         delete target.fields[field]; delete target.pending[field]; return;
       }
       let response: FieldResolution;
@@ -948,6 +968,9 @@ export class SemanticTaskService {
         const analysisPick = field === "metrics" && this.request.semanticStep?.analysis && !(await metricMentions(this.request)).mentions.length;
         // 零候选的 not_found 是死胡同澄清：必须引导用户改写，不能原样复读模型给出的错名。
         const noHit = entity === "organization" && response.status === "not_found" && !response.candidates?.length;
+        if (entity === "organization" && response.metadata?.reason === "account_organization_unavailable")
+          throw new SemanticConflict(issue("ACCOUNT_ORGANIZATION_UNAVAILABLE", field,
+            "当前账号没有可用的所属机构，请说明‘我行’具体指哪家机构。", "user", "catalog"));
         throw new SemanticConflict(analysisPick ? issue("ANALYSIS_CATALOG_EVIDENCE_REQUIRED", field, "此分析选指标提案尚无正式目录身份，请先catalog检索相关业务类别，核对确定性命中后继续规划；不用让用户填写内部指标。", "pi", "catalog")
           : issue("ENTITY_NOT_DETERMINED", field, noHit
             ? `未找到名为「${raw}」的机构，请换个说法或回复机构全称。`
@@ -970,6 +993,7 @@ export class SemanticTaskService {
             && normalizeInputEvidence(turn.originalMessage).includes(normalizeInputEvidence(metric.value_basis));
         });
         if (unsupported.length && !basisGrounded && !hasInputEvidence(turn.originalMessage, raw)) {
+          await this.requireRecoveryAnalysis();
           if (previous) target.fields[field] = structuredClone(previous); else delete target.fields[field];
           return;
         }
@@ -1163,6 +1187,10 @@ export class SemanticTaskService {
     }
     for (const field of ["organizations", "metrics"] as const) {
       if (!task.target.fields[field]) continue;
+      // 经营分析允许省略机构，由后端按认证账户取默认机构并重新鉴权；不能把缺省占位当空机构清单解析。
+      // 显式机构、解析失败或其他能力的必填字段仍走原许可复核。
+      if (field === "organizations" && ["business_overview", "business_analysis"].includes(task.capability ?? "")
+        && task.target.fields[field].resolutionStatus === "missing") continue;
       const value = entityValue(task.target.fields[field]);
       const checked = await this.request.backend.resolveBusinessField(field === "metrics" ? "metric" : "organization", value.codes, {signal: this.signal});
       if (checked.status !== "resolved" || !checkedEntity(checked.value) || checked.value.codes.length !== value.codes.length

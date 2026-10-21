@@ -5,6 +5,8 @@ import { createDataAvailabilityTool } from "../tools/dataAvailability.js";
 import { createMetricCalculateTool } from "../tools/metricCalculate.js";
 import type { BusinessFrame, QueryOperation, ResolvedOrganizations } from "./types.js";
 import { withOrgResolutionNotices } from "./resolutionNotice.js";
+import { createBusinessOverviewTool } from "../tools/businessOverview.js";
+import {createGeneralAnalysisTool} from "../analysis/tools.js";
 
 type Tool = AgentHarnessTool<AskMetricRequestContext>;
 type Call = Parameters<Tool["execute"]>;
@@ -26,6 +28,14 @@ const value = (frame: BusinessFrame, name: string) => frame.fields[name]?.resolv
 const codes = (frame: BusinessFrame, name: string) => (value(frame, name) as {codes?: string[]} | undefined)?.codes ?? [];
 export function createBusinessTools(): BusinessToolRegistry {
   const registry = new BusinessToolRegistry();
+  registry.register("general_analysis", async (frame, call) => {
+    const tool = createGeneralAnalysisTool(frame);
+    return tool.execute(call[0], {}, call[2], call[3], call[4], call[5]);
+  });
+  registry.register("business_overview", async (frame, call) => {
+    const tool = createBusinessOverviewTool(frame);
+    return tool.execute(call[0], {}, call[2], call[3], call[4], call[5]);
+  });
   registry.register("metric_query_structured", async (frame, [id, , update, request, invocation, context]) => {
     const time = value(frame, "time") as {start: string; end: string; dates?: string[]};
     const tool = createStructuredQueryTool();

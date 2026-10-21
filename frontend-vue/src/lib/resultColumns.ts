@@ -18,6 +18,11 @@ const resultColumnLabels: Record<string, string> = {
   change_rate: "变化率",
   status: "状态",
   method: "计算方式",
+  mom_change: "较上月",
+  yoy_change: "较同期",
+  ytd_change: "较年初",
+  share: "占比",
+  value_role: "数据用途",
 }
 
 /**
@@ -33,9 +38,14 @@ const visibleResultColumnOrder = [
   "last_date",
   "stat_date",
   "metric_value",
+  "value_role",
   "rank",
   "current_date",
   "current_value",
+  "mom_change",
+  "yoy_change",
+  "ytd_change",
+  "share",
   "base_date",
   "base_value",
   "difference",
@@ -134,12 +144,14 @@ export function getResultColumnClass(column: string) {
     return "w-32 min-w-32 max-w-32"
   }
   if (normalized === "status") return "w-52 min-w-52 max-w-52"
+  // 经营报告比较值同时含增量、增幅和来源标识，不能按普通单值列宽展示。
+  if (["mom_change", "yoy_change", "ytd_change"].includes(normalized)) return "w-80 min-w-80 max-w-80"
   if (visibleResultColumns.has(normalized)) return "w-36 min-w-36 max-w-36"
   return "w-40 min-w-40 max-w-40"
 }
 
 export function shouldTruncateResultColumn(column: string) {
-  return ["metric_name", "org_name", "left_org", "right_org", "higher_org", "status"]
+  return ["metric_name", "org_name", "left_org", "right_org", "higher_org", "status", "mom_change", "yoy_change", "ytd_change"]
     .includes(normalizeResultColumn(column))
 }
 

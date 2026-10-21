@@ -85,6 +85,7 @@ function incompleteAnswer(errorMessage: string): string {
   if (errorMessage.startsWith(MODEL_STREAM_IDLE_EXCEEDED)) {
     return "模型输出长时间没有进展，本轮未完成。已确认的查询条件仍保留，无需重复输入。";
   }
+  if (/^402(?:\s|$)/u.test(errorMessage)) return "模型服务拒绝请求（HTTP 402），请检查模型服务额度或授权。已确认的查询条件仍保留。";
   return errorMessage.startsWith(MODEL_FIRST_RESPONSE_TIMEOUT) || errorMessage.startsWith(MODEL_DEADLINE_EXCEEDED)
     ? "模型服务响应超时，请稍后重试。已确认的查询条件仍保留，无需重复输入。"
     : "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。";
@@ -201,6 +202,17 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
           item.details = {...item.details as object, answer_selected: delivered.evidence_refs.includes(`e${index}`)};
         }
         messages.push({role: "assistant", text: delivered.public_answer, tools: [], timestamp, entry_id: `${entry.id}:answer`});
+      } else if (current?.kind === "business_topic_explanation" && current.status === "unsupported") {
+        messages.push({role: "assistant", text: evidenceAnswer(current), tools: [], timestamp,
+          business_protocol: "frame_v1", entry_id: `${entry.id}:answer`});
+        conversationAnswerAt = messages.length - 1;
+      } else if ((current?.kind === "business_overview" && current.answer_policy === "verified_overview_v1"
+        || current?.kind === "business_report" && current.answer_policy === "verified_report_v1")
+        && current.status === "succeeded") {
+        // 概览工具交付经过事实/公式/关系校验的终态正文，避免额外模型往返引入新判断。
+        messages.push({role: "assistant", text: evidenceAnswer(current), tools: [], timestamp,
+          business_protocol: "frame_v1", entry_id: `${entry.id}:answer`});
+        conversationAnswerAt = messages.length - 1;
       } else if (!frameTurn && current && !current.retryable && !["succeeded", "catalog", "reference_mismatch"].includes(current.status.toLowerCase())) {
         messages.push({role: "assistant", text: evidenceAnswer(current), tools: [], timestamp, entry_id: `${entry.id}:answer`});
       }

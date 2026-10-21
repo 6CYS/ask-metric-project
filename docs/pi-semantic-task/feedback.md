@@ -6,6 +6,8 @@
 
 反馈固定为 `protocol_version`、`status`、`state`、`pending_questions`、`answer_receipts`、`issues`、`continuation`。`state` 只投影已保存的可信条件、待解释提案和任务完成状态，内部编译参数及许可不交模型重填。`conditions` 中没有待确认值；未决表达放在 `pending`，不能因为它能显示在页面上就当作已确认条件。
 
+未执行且正式指标零命中，或普通取值匹配到可分别查询的相关正式指标时，可以附加可选 `query_recovery`，接续为 `pi/discover_query`：保留原目标、已确定条件、当前次数和预算，先检索目录再修复查询或提交同目标的小范围分析。`metric_alternatives` 保留完整候选，单组最多十二项；候选只用于发现，执行仍需目录签发引用。余额、增量、增幅及已发布排名等分别查询并按正式全名展示，不让用户从中单选，不将不同口径合并计算。转入有效分析时旧单选题被替代，不记录成用户确认。最多两轮，不能改变机构、日期、排名操作、筛选或权限，也不能将已执行的空结果当作指标未匹配。机构、日期或基础身份不同仍需确定；字段省略时沿用原反馈行为。具体入口与边界见 [增强分析](enhanced-analysis.md)。
+
 `pending_questions` 合并任务级候选题和计划级来源确认题（`SOURCE_CONFIRMATION_REQUIRED`，由计划层首发），选项编号、差异说明、版本和确认对象均来自同一已保存快照。`answer_receipts` 记录 `applied`、`declined`、`not_applied` 或 `already_applied`；`applied` 只表示字段选择已应用，不代表执行许可已签发或查询已经成功。公开受理回执不包含内部编码、真实来源通道或目标绑定，确认明示由宿主生成。
 
 | 状态 | 含义及接续边界 |

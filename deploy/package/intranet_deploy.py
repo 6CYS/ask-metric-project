@@ -99,6 +99,14 @@ def validate_config(args: argparse.Namespace) -> None:
         for line in text.splitlines()
         if line and not line.startswith("#") and "=" in line
     }
+    values = dotenv_values(config_file, interpolate=False)
+    if str(values.get("NACOS_CONFIG_ENABLED", "")).lower() in {"true", "1"}:
+        _load_runtime_environment(config_file)
+        from ask_metric.core.config import get_settings
+
+        get_settings.cache_clear()
+        get_settings()
+        required.update({"APP_DATABASE_URL", "QUERY_DATABASE_URL", "JWT_SECRET"})
     missing = sorted(
         {
             "APP_DATABASE_URL",
@@ -109,7 +117,6 @@ def validate_config(args: argparse.Namespace) -> None:
     )
     if missing:
         raise SystemExit("Missing required configuration keys: " + ", ".join(missing))
-    values = dotenv_values(config_file)
     plaintext = sorted(
         name
         for name in SENSITIVE_CONFIG_KEYS

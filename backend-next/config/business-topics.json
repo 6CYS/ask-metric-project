@@ -1,0 +1,1193 @@
+{
+  "schema_version": 1,
+  "topics": {
+    "loan": {
+      "version": "loan-pilot-v1",
+      "name": "贷款经营概览",
+      "method": "business-overview-v1",
+      "basis": "金额使用正式目录的当日余额，排除日均；各项贷款按绑定指标的人行口径，不良率沿用其正式定义，不能直接用总贷款推算；组成关系仍需业务审核",
+      "comparison_suffixes": {
+        "mom": {
+          "difference": {
+            "suffix": "_CMPRLATMO",
+            "value_basis": "较上月"
+          },
+          "rate": {
+            "suffix": "_CMPRLATMO_INCRRNG",
+            "value_basis": "较上月增幅"
+          }
+        },
+        "yoy": {
+          "difference": {
+            "suffix": "_CMP_SAMEPRD",
+            "value_basis": "较同期"
+          },
+          "rate": {
+            "suffix": "_CMP_SAMEPRD_INCRRNG",
+            "value_basis": "较同期增幅"
+          }
+        },
+        "ytd": {
+          "difference": {
+            "suffix": "_CMPBGNYR",
+            "value_basis": "较年初"
+          },
+          "rate": {
+            "suffix": "_CMPBGNYR_INCRRNG",
+            "value_basis": "较年初增幅"
+          }
+        }
+      },
+      "default_sections": [
+        "scale",
+        "growth",
+        "structure",
+        "quality"
+      ],
+      "display_money_unit": "亿元",
+      "followup_policy": {
+        "goals": [
+          "overview",
+          "growth"
+        ],
+        "root_metric": "total",
+        "note": "总量增长而分类父指标下降时，优先补查该父指标已绑定且符合日期频率的未查子指标，最多三轮取数。"
+      },
+      "comparison_validation": {
+        "rate_tolerance": "0.00005",
+        "note": "按当前余额、正式增量和正式增幅检查数学一致性，容差用于数值舍入，不生成反推基期事实；分母为零暂停该比较分析。"
+      },
+      "metrics": [
+        {
+          "id": "total",
+          "label": "各项贷款",
+          "section": "scale",
+          "names": [
+            "各项贷款余额_人行口径当日数",
+            "各项贷款余额当日数",
+            "各项贷款当日数",
+            "各项贷款"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数"
+        },
+        {
+          "id": "personal",
+          "label": "个人贷款",
+          "section": "structure",
+          "names": [
+            "个人贷款余额当日数",
+            "个人贷款当日数",
+            "个人贷款"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数"
+        },
+        {
+          "id": "company",
+          "label": "对公贷款（剔除贴现）",
+          "section": "structure",
+          "names": [
+            "对公贷款余额_不含贴现及买断式转贴现当日数",
+            "对公贷款（剔除贴现）当日数",
+            "对公贷款（剔除贴现）",
+            "对公贷款(剔除贴现)"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数"
+        },
+        {
+          "id": "discount",
+          "label": "贴现及买断式转贴现",
+          "section": "structure",
+          "names": [
+            "贴现及买断式转贴现余额当日数",
+            "贴现及买断式转贴现当日数",
+            "贴现及买断式转贴现"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数"
+        },
+        {
+          "id": "personal_business",
+          "label": "个人经营性贷款",
+          "section": "structure",
+          "names": [
+            "个人经营性贷款余额当日数",
+            "个人经营性贷款当日数",
+            "个人经营性贷款"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数"
+        },
+        {
+          "id": "consumer",
+          "label": "个人消费贷款",
+          "section": "structure",
+          "names": [
+            "个人消费贷款余额当日数"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数"
+        },
+        {
+          "id": "personal_consumer",
+          "label": "个人一般性消费贷款",
+          "section": "structure",
+          "names": [
+            "个人一般性消费贷款当日数",
+            "个人一般性消费贷款"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数"
+        },
+        {
+          "id": "mortgage",
+          "label": "个人住房按揭贷款",
+          "section": "structure",
+          "names": [
+            "个人住房按揭贷款当日数",
+            "个人住房按揭贷款"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数"
+        },
+        {
+          "id": "credit_card",
+          "label": "个人信用卡透支及分期",
+          "section": "structure",
+          "names": [
+            "个人信用卡透支及分期当日数",
+            "个人信用卡透支及分期"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数"
+        },
+        {
+          "id": "farmer",
+          "label": "农户贷款",
+          "section": "structure",
+          "names": [
+            "农户贷款当日数",
+            "农户贷款"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数",
+          "frequency": "quarterly"
+        },
+        {
+          "id": "npl_balance",
+          "label": "不良贷款余额",
+          "section": "quality",
+          "names": [
+            "不良贷款余额当日数",
+            "不良贷款余额"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数"
+        },
+        {
+          "id": "npl_ratio",
+          "label": "不良贷款率",
+          "section": "quality",
+          "names": [
+            "不良贷款比率当日数",
+            "不良贷款率当日数",
+            "不良贷款率"
+          ],
+          "units": [
+            "%"
+          ],
+          "value_basis": "当日数",
+          "value_encoding": "ratio"
+        }
+      ],
+      "relationships": [
+        {
+          "id": "loan_components",
+          "type": "reconciliation",
+          "parent": "total",
+          "children": [
+            "personal",
+            "company",
+            "discount"
+          ],
+          "tolerance": "0.02",
+          "tolerance_unit": "亿元",
+          "note": "仅这组三项参与总贷款组成核对；对公已剔除贴现。残差必须披露，不能强行配平。"
+        },
+        {
+          "id": "personal_uses",
+          "type": "classification",
+          "parent": "personal",
+          "children": [
+            "personal_business",
+            "consumer",
+            "personal_consumer",
+            "mortgage",
+            "credit_card"
+          ],
+          "note": "按用途展示，逐项比较；消费与一般性消费可能具有不同覆盖范围，不能直接加总。未确认完整可加总口径，不用于宣称完整归因。"
+        },
+        {
+          "id": "personal_subjects",
+          "type": "classification",
+          "parent": "personal",
+          "children": [
+            "farmer"
+          ],
+          "note": "按主体分类与按用途分类交叉，不能跨分类相加。"
+        }
+      ],
+      "formulas": {
+        "difference": "current - base",
+        "growth_rate": "(current - base) / base",
+        "share": "part / total",
+        "percentage_point_change": "current - base",
+        "loan_components_residual": "total - personal - company - discount"
+      },
+      "binding_policy": "只允许正式编码或启用目录中唯一的完整名称/别名匹配。code 可由管理员在相应条目显式配置；多个命中作为冲突返回，不按相似度选取。",
+      "review_status": "试点配置，正式上线前由本行业务人员确认指标绑定、统计口径和关系"
+    },
+    "deposit": {
+      "version": "deposit-pilot-v1",
+      "name": "存款经营分析",
+      "method": "business-overview-v1",
+      "basis": "使用正式启用目录绑定的当日余额及正式比较指标，金额统一展示亿元；不同数据源和不同截至日不混算占比，不将余额变化直接解释为客户流失或存款成本变化",
+      "default_sections": [
+        "scale",
+        "growth",
+        "structure"
+      ],
+      "display_money_unit": "亿元",
+      "comparison_suffixes": {
+        "mom": {
+          "difference": {
+            "suffix": "_CMPRLATMO",
+            "value_basis": "较上月"
+          },
+          "rate": {
+            "suffix": "_CMPRLATMO_INCRRNG",
+            "value_basis": "较上月增幅"
+          }
+        },
+        "yoy": {
+          "difference": {
+            "suffix": "_CMP_SAMEPRD",
+            "value_basis": "较同期"
+          },
+          "rate": {
+            "suffix": "_CMP_SAMEPRD_INCRRNG",
+            "value_basis": "较同期增幅"
+          }
+        },
+        "ytd": {
+          "difference": {
+            "suffix": "_CMPBGNYR",
+            "value_basis": "较年初"
+          },
+          "rate": {
+            "suffix": "_CMPBGNYR_INCRRNG",
+            "value_basis": "较年初增幅"
+          }
+        }
+      },
+      "comparison_validation": {
+        "rate_tolerance": "0.00005",
+        "note": "按当前余额、正式增量和正式增幅检查数学一致性，容差用于数值舍入，不生成反推基期事实；分母为零暂停该比较分析。"
+      },
+      "followup_policy": {
+        "goals": [
+          "overview",
+          "growth",
+          "structure"
+        ],
+        "root_metric": "total",
+        "note": "先依据总量与个人、对公的分化选择明细；同一分析补查固定截至日，不用跨日期明细冒充当期结构。"
+      },
+      "metrics": [
+        {
+          "id": "total",
+          "label": "各项存款",
+          "section": "scale",
+          "code": "ORG_VRS_DEPT_BAL",
+          "names": [
+            "各项存款余额当日数"
+          ],
+          "aliases": [
+            "各项存款",
+            "存款余额",
+            "存款总额",
+            "总存款",
+            "揽储总量"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数",
+          "source": "总账非税",
+          "mapping_row": 2,
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_VRS_DEPT_BAL_CMPRLATMO",
+              "rate": "ORG_VRS_DEPT_BAL_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_VRS_DEPT_BAL_CMP_SAMEPRD",
+              "rate": "ORG_VRS_DEPT_BAL_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_VRS_DEPT_BAL_CMPBGNYR",
+              "rate": "ORG_VRS_DEPT_BAL_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "personal",
+          "label": "个人存款",
+          "section": "structure",
+          "code": "ORG_PSON_DEPT_BAL",
+          "names": [
+            "个人存款余额当日数"
+          ],
+          "aliases": [
+            "个人存款",
+            "储蓄存款",
+            "居民储蓄",
+            "个人存",
+            "储蓄",
+            "老百姓存的钱"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数",
+          "source": "总账非税",
+          "mapping_row": 3,
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_PSON_DEPT_BAL_CMPRLATMO",
+              "rate": "ORG_PSON_DEPT_BAL_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_PSON_DEPT_BAL_CMP_SAMEPRD",
+              "rate": "ORG_PSON_DEPT_BAL_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_PSON_DEPT_BAL_CMPBGNYR",
+              "rate": "ORG_PSON_DEPT_BAL_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "personal_share",
+          "label": "个人存款占比",
+          "section": "structure",
+          "code": "ORG_PSON_DEPT_BAL_PRPR",
+          "names": [
+            "个人存款余额占比当日数"
+          ],
+          "aliases": [
+            "个人存款余额占比",
+            "储蓄存款占比",
+            "个人存占比",
+            "储蓄占比"
+          ],
+          "units": [
+            "%"
+          ],
+          "value_basis": "当日数",
+          "source": "总账非税派生",
+          "mapping_row": 4,
+          "value_encoding": "ratio",
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_PSON_DEPT_BAL_PRPR_CMPRLATMO",
+              "rate": "ORG_PSON_DEPT_BAL_PRPR_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_PSON_DEPT_BAL_PRPR_CMP_SAMEPRD",
+              "rate": "ORG_PSON_DEPT_BAL_PRPR_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_PSON_DEPT_BAL_PRPR_CMPBGNYR",
+              "rate": "ORG_PSON_DEPT_BAL_PRPR_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "personal_current",
+          "label": "个人活期存款",
+          "section": "structure",
+          "code": "ORG_PSON_DEDMDPT_BAL",
+          "names": [
+            "个人活期存款余额当日数"
+          ],
+          "aliases": [
+            "个人活期",
+            "储蓄活期",
+            "个人活期存款",
+            "个人活期账"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数",
+          "source": "总账非税",
+          "mapping_row": 5,
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_PSON_DEDMDPT_BAL_CMPRLATMO",
+              "rate": "ORG_PSON_DEDMDPT_BAL_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_PSON_DEDMDPT_BAL_CMP_SAMEPRD",
+              "rate": "ORG_PSON_DEDMDPT_BAL_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_PSON_DEDMDPT_BAL_CMPBGNYR",
+              "rate": "ORG_PSON_DEDMDPT_BAL_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "personal_current_share",
+          "label": "个人活期存款占个人存款比",
+          "section": "structure",
+          "code": "ORG_PSON_DEDMDPT_BAL_PRPR",
+          "names": [
+            "个人活期存款余额占比当日数"
+          ],
+          "aliases": [
+            "个人活期占比",
+            "储蓄活期比例",
+            "个人活期比",
+            "活期比例"
+          ],
+          "units": [
+            "%"
+          ],
+          "value_basis": "当日数",
+          "source": "总账非税派生",
+          "mapping_row": 6,
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_PSON_DEDMDPT_BAL_PRPR_CMPRLATMO",
+              "rate": "ORG_PSON_DEDMDPT_BAL_PRPR_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_PSON_DEDMDPT_BAL_PRPR_CMP_SAMEPRD",
+              "rate": "ORG_PSON_DEDMDPT_BAL_PRPR_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_PSON_DEDMDPT_BAL_PRPR_CMPBGNYR",
+              "rate": "ORG_PSON_DEDMDPT_BAL_PRPR_CMPBGNYR_INCRRNG"
+            }
+          },
+          "value_encoding": "ratio"
+        },
+        {
+          "id": "personal_fixed",
+          "label": "个人定期存款",
+          "section": "structure",
+          "code": "ORG_PSON_TMDST_BAL",
+          "names": [
+            "个人定期存款余额当日数"
+          ],
+          "aliases": [
+            "个人定期",
+            "储蓄定期",
+            "个人定期存款",
+            "个人定存",
+            "个人死期"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数",
+          "source": "总账非税",
+          "mapping_row": 7,
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_PSON_TMDST_BAL_CMPRLATMO",
+              "rate": "ORG_PSON_TMDST_BAL_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_PSON_TMDST_BAL_CMP_SAMEPRD",
+              "rate": "ORG_PSON_TMDST_BAL_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_PSON_TMDST_BAL_CMPBGNYR",
+              "rate": "ORG_PSON_TMDST_BAL_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "personal_fixed_1y",
+          "label": "个人一年及以下定期存款",
+          "section": "structure",
+          "code": "ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL",
+          "names": [
+            "机构个人一年期及以下整存整取存款余额当日数"
+          ],
+          "aliases": [
+            "—"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数",
+          "source": "总账非税（待换整合表）",
+          "mapping_row": 9,
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL_CMPRLATMO",
+              "rate": "ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL_CMP_SAMEPRD",
+              "rate": "ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL_CMPBGNYR",
+              "rate": "ORG_PSON_ONEYRTER_BLW_FIXDEP_DEPT_BAL_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "personal_fixed_2y",
+          "label": "个人二年期定期存款",
+          "section": "structure",
+          "code": "ORG_PSON_Y2_FIXDEP_DEPT_BAL",
+          "names": [
+            "机构个人两年期整存整取存款余额当日数"
+          ],
+          "aliases": [
+            "个人两年期定存",
+            "个人两年定期",
+            "两年定存",
+            "两年死期"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数",
+          "source": "总账非税",
+          "mapping_row": 11,
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_PSON_Y2_FIXDEP_DEPT_BAL_CMPRLATMO",
+              "rate": "ORG_PSON_Y2_FIXDEP_DEPT_BAL_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_PSON_Y2_FIXDEP_DEPT_BAL_CMP_SAMEPRD",
+              "rate": "ORG_PSON_Y2_FIXDEP_DEPT_BAL_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_PSON_Y2_FIXDEP_DEPT_BAL_CMPBGNYR",
+              "rate": "ORG_PSON_Y2_FIXDEP_DEPT_BAL_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "personal_fixed_3y",
+          "label": "个人三年期定期存款",
+          "section": "structure",
+          "code": "ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL",
+          "names": [
+            "机构个人三年期整存整取存款余额当日数"
+          ],
+          "aliases": [
+            "个人三年期定存",
+            "个人三年定期",
+            "三年定存",
+            "三年死期"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数",
+          "source": "总账非税",
+          "mapping_row": 13,
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL_CMPRLATMO",
+              "rate": "ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL_CMP_SAMEPRD",
+              "rate": "ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL_CMPBGNYR",
+              "rate": "ORG_PSON_THRYRTEM_FIXDEP_DEPT_BAL_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "personal_fixed_5y",
+          "label": "个人五年期定期存款",
+          "section": "structure",
+          "code": "ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL",
+          "names": [
+            "机构个人五年期整存整取存款余额当日数"
+          ],
+          "aliases": [
+            "—"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数",
+          "source": "总账非税",
+          "mapping_row": 15,
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL_CMPRLATMO",
+              "rate": "ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL_CMP_SAMEPRD",
+              "rate": "ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL_CMPBGNYR",
+              "rate": "ORG_PSON_FIVE_PRD_FIXDEP_DEPT_BAL_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "company",
+          "label": "对公存款",
+          "section": "structure",
+          "code": "ORG_CORP_DEPT_BAL",
+          "names": [
+            "对公存款余额当日数"
+          ],
+          "aliases": [
+            "对公存款",
+            "单位存款",
+            "企业存款",
+            "公司存款",
+            "对公存"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数",
+          "source": "总账非税",
+          "mapping_row": 17,
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_CORP_DEPT_BAL_CMPRLATMO",
+              "rate": "ORG_CORP_DEPT_BAL_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_CORP_DEPT_BAL_CMP_SAMEPRD",
+              "rate": "ORG_CORP_DEPT_BAL_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_CORP_DEPT_BAL_CMPBGNYR",
+              "rate": "ORG_CORP_DEPT_BAL_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "company_share",
+          "label": "对公存款占比",
+          "section": "structure",
+          "code": "ORG_CORP_DEPT_BAL_PRPR",
+          "names": [
+            "对公存款余额占比当日数"
+          ],
+          "aliases": [
+            "对公存款占比",
+            "单位存款占比",
+            "对公占比",
+            "企业存款占比"
+          ],
+          "units": [
+            "%"
+          ],
+          "value_basis": "当日数",
+          "source": "总账非税派生",
+          "mapping_row": 18,
+          "value_encoding": "ratio",
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_CORP_DEPT_BAL_PRPR_CMPRLATMO",
+              "rate": "ORG_CORP_DEPT_BAL_PRPR_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_CORP_DEPT_BAL_PRPR_CMP_SAMEPRD",
+              "rate": "ORG_CORP_DEPT_BAL_PRPR_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_CORP_DEPT_BAL_PRPR_CMPBGNYR",
+              "rate": "ORG_CORP_DEPT_BAL_PRPR_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "company_current",
+          "label": "对公活期存款",
+          "section": "structure",
+          "code": "ORG_CORP_DEDMDPT_BAL",
+          "names": [
+            "对公活期存款余额当日数"
+          ],
+          "aliases": [
+            "对公活期",
+            "单位活期",
+            "企业活期"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数",
+          "source": "1104",
+          "mapping_row": 19,
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_CORP_DEDMDPT_BAL_CMPRLATMO",
+              "rate": "ORG_CORP_DEDMDPT_BAL_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_CORP_DEDMDPT_BAL_CMP_SAMEPRD",
+              "rate": "ORG_CORP_DEDMDPT_BAL_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_CORP_DEDMDPT_BAL_CMPBGNYR",
+              "rate": "ORG_CORP_DEDMDPT_BAL_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "company_current_share",
+          "label": "对公活期存款占对公存款比",
+          "section": "structure",
+          "code": "ORG_CORP_DEDMDPT_BAL_PRPR",
+          "names": [
+            "对公活期存款余额占比当日数"
+          ],
+          "aliases": [
+            "对公活期占比",
+            "单位活期比例",
+            "对公活期比",
+            "企业活期比"
+          ],
+          "units": [
+            "%"
+          ],
+          "value_basis": "当日数",
+          "source": "1104派生",
+          "mapping_row": 20,
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_CORP_DEDMDPT_BAL_PRPR_CMPRLATMO",
+              "rate": "ORG_CORP_DEDMDPT_BAL_PRPR_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_CORP_DEDMDPT_BAL_PRPR_CMP_SAMEPRD",
+              "rate": "ORG_CORP_DEDMDPT_BAL_PRPR_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_CORP_DEDMDPT_BAL_PRPR_CMPBGNYR",
+              "rate": "ORG_CORP_DEDMDPT_BAL_PRPR_CMPBGNYR_INCRRNG"
+            }
+          },
+          "value_encoding": "ratio"
+        },
+        {
+          "id": "company_fixed",
+          "label": "对公定期存款",
+          "section": "structure",
+          "code": "ORG_CORP_TMDST_BAL",
+          "names": [
+            "对公定期存款余额当日数"
+          ],
+          "aliases": [
+            "对公定期",
+            "单位定期",
+            "企业定期",
+            "对公定存",
+            "企业死期"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数",
+          "source": "1104",
+          "mapping_row": 21,
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_CORP_TMDST_BAL_CMPRLATMO",
+              "rate": "ORG_CORP_TMDST_BAL_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_CORP_TMDST_BAL_CMP_SAMEPRD",
+              "rate": "ORG_CORP_TMDST_BAL_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_CORP_TMDST_BAL_CMPBGNYR",
+              "rate": "ORG_CORP_TMDST_BAL_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "company_margin",
+          "label": "对公保证金存款",
+          "section": "structure",
+          "code": "ORG_CORP_MRGN_DEPT_BAL",
+          "names": [
+            "对公保证金存款余额当日数"
+          ],
+          "aliases": [
+            "对公保证金",
+            "单位保证金",
+            "承兑保证金",
+            "保证金",
+            "开票押金"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数",
+          "source": "1104",
+          "mapping_row": 23,
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_CORP_MRGN_DEPT_BAL_CMPRLATMO",
+              "rate": "ORG_CORP_MRGN_DEPT_BAL_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_CORP_MRGN_DEPT_BAL_CMP_SAMEPRD",
+              "rate": "ORG_CORP_MRGN_DEPT_BAL_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_CORP_MRGN_DEPT_BAL_CMPBGNYR",
+              "rate": "ORG_CORP_MRGN_DEPT_BAL_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "company_nonbank",
+          "label": "对公非银存款",
+          "section": "structure",
+          "code": "ORG_CUR_DAY_NBNKNIDSTY_ITRBNK_DEPT_BAL",
+          "names": [
+            "机构当日非银行业同业存款余额当日数"
+          ],
+          "aliases": [
+            "—"
+          ],
+          "units": [
+            "元",
+            "万元",
+            "亿元"
+          ],
+          "value_basis": "当日数",
+          "source": "指标跑批",
+          "mapping_row": 25,
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_CUR_DAY_NBNKNIDSTY_ITRBNK_DEPT_BAL_CMPRLATMO",
+              "rate": "ORG_CUR_DAY_NBNKNIDSTY_ITRBNK_DEPT_BAL_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_CUR_DAY_NBNKNIDSTY_ITRBNK_DEPT_BAL_CMP_SAMEPRD",
+              "rate": "ORG_CUR_DAY_NBNKNIDSTY_ITRBNK_DEPT_BAL_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_CUR_DAY_NBNKNIDSTY_ITRBNK_DEPT_BAL_CMPBGNYR",
+              "rate": "ORG_CUR_DAY_NBNKNIDSTY_ITRBNK_DEPT_BAL_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "market_share",
+          "label": "存款市场份额",
+          "section": "structure",
+          "code": "ORG_DEPT_MRKT_SHR_RT",
+          "names": [
+            "存款市场份额比率当日数"
+          ],
+          "aliases": [
+            "存款市场占有率",
+            "存款占有率",
+            "存款市占比例"
+          ],
+          "units": [
+            "%"
+          ],
+          "value_basis": "当日数",
+          "source": "手工导入",
+          "mapping_row": 27,
+          "value_encoding": "ratio",
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_DEPT_MRKT_SHR_RT_CMPRLATMO",
+              "rate": "ORG_DEPT_MRKT_SHR_RT_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_DEPT_MRKT_SHR_RT_CMP_SAMEPRD",
+              "rate": "ORG_DEPT_MRKT_SHR_RT_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_DEPT_MRKT_SHR_RT_CMPBGNYR",
+              "rate": "ORG_DEPT_MRKT_SHR_RT_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "long_fixed_share",
+          "label": "三年期限以上定期存款占比",
+          "section": "structure",
+          "code": "ORG_THRYRTEM_ABV_TMDST_BAL_PRPR",
+          "names": [
+            "三年期限以上定期存款余额占比当日数"
+          ],
+          "aliases": [
+            "三年期以上定存占比",
+            "长期定存占比",
+            "长期定存比"
+          ],
+          "units": [
+            "%"
+          ],
+          "value_basis": "当日数",
+          "source": "1104",
+          "mapping_row": 28,
+          "value_encoding": "ratio",
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_THRYRTEM_ABV_TMDST_BAL_PRPR_CMPRLATMO",
+              "rate": "ORG_THRYRTEM_ABV_TMDST_BAL_PRPR_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_THRYRTEM_ABV_TMDST_BAL_PRPR_CMP_SAMEPRD",
+              "rate": "ORG_THRYRTEM_ABV_TMDST_BAL_PRPR_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_THRYRTEM_ABV_TMDST_BAL_PRPR_CMPBGNYR",
+              "rate": "ORG_THRYRTEM_ABV_TMDST_BAL_PRPR_CMPBGNYR_INCRRNG"
+            }
+          }
+        },
+        {
+          "id": "current_share_excluded",
+          "question_terms": ["不含协定", "活期"],
+          "label": "活期存款占比（不含协定）",
+          "section": "structure",
+          "code": "ORG_DEDMDPT_BAL_PRPR",
+          "names": [
+            "活期存款余额占比当日数"
+          ],
+          "aliases": [
+            "—"
+          ],
+          "units": [
+            "%"
+          ],
+          "value_basis": "当日数",
+          "source": "总账非税派生",
+          "mapping_row": 29,
+          "value_encoding": "ratio",
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_DEDMDPT_BAL_PRPR_CMPRLATMO",
+              "rate": "ORG_DEDMDPT_BAL_PRPR_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_DEDMDPT_BAL_PRPR_CMP_SAMEPRD",
+              "rate": "ORG_DEDMDPT_BAL_PRPR_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_DEDMDPT_BAL_PRPR_CMPBGNYR",
+              "rate": "ORG_DEDMDPT_BAL_PRPR_CMPBGNYR_INCRRNG"
+            }
+          },
+          "disabled_reason": "原映射中含协定与不含协定使用同一编码，口径冲突，待业务确认后启用"
+        },
+        {
+          "id": "current_share_included",
+          "question_terms": ["含协定", "活期"],
+          "label": "活期存款占比（含协定）",
+          "section": "structure",
+          "code": "ORG_DEDMDPT_BAL_PRPR",
+          "names": [
+            "活期存款余额占比当日数"
+          ],
+          "aliases": [
+            "活期存款占比",
+            "活期比例",
+            "活期率",
+            "活期比"
+          ],
+          "units": [
+            "%"
+          ],
+          "value_basis": "当日数",
+          "source": "总账非税派生",
+          "mapping_row": 30,
+          "value_encoding": "ratio",
+          "comparison_codes": {
+            "mom": {
+              "difference": "ORG_DEDMDPT_BAL_PRPR_CMPRLATMO",
+              "rate": "ORG_DEDMDPT_BAL_PRPR_CMPRLATMO_INCRRNG"
+            },
+            "yoy": {
+              "difference": "ORG_DEDMDPT_BAL_PRPR_CMP_SAMEPRD",
+              "rate": "ORG_DEDMDPT_BAL_PRPR_CMP_SAMEPRD_INCRRNG"
+            },
+            "ytd": {
+              "difference": "ORG_DEDMDPT_BAL_PRPR_CMPBGNYR",
+              "rate": "ORG_DEDMDPT_BAL_PRPR_CMPBGNYR_INCRRNG"
+            }
+          },
+          "disabled_reason": "原映射中含协定与不含协定使用同一编码，口径冲突，待业务确认后启用"
+        }
+      ],
+      "relationships": [
+        {
+          "id": "deposit_customers",
+          "type": "classification",
+          "parent": "total",
+          "children": [
+            "personal",
+            "company"
+          ],
+          "note": "客户类别的同日规模与占比；未经完整组成口径确认，不宣称完整贡献归因。"
+        },
+        {
+          "id": "personal_terms",
+          "type": "classification",
+          "parent": "personal",
+          "children": [
+            "personal_current",
+            "personal_fixed"
+          ],
+          "note": "个人存款活定期结构；余额相同日期、单位且分母大于零才计算占比。"
+        },
+        {
+          "id": "personal_fixed_terms",
+          "type": "classification",
+          "parent": "personal_fixed",
+          "children": [
+            "personal_fixed_1y",
+            "personal_fixed_2y",
+            "personal_fixed_3y",
+            "personal_fixed_5y"
+          ],
+          "note": "期限指标尚需正式目录绑定；未绑定不得使用数据源中同名编码绕过目录。"
+        },
+        {
+          "id": "company_terms",
+          "type": "classification",
+          "parent": "company",
+          "children": [
+            "company_current",
+            "company_fixed",
+            "company_margin",
+            "company_nonbank"
+          ],
+          "note": "对公1104分项与总账非税总额来源不同，保证金可能交叉，不能相加当作完整组成；同日比值仅表示据余额计算的参照占比。"
+        }
+      ],
+      "formulas": {
+        "difference": "current - base",
+        "growth_rate": "(current - base) / base",
+        "share": "part / total",
+        "percentage_point_change": "current - base"
+      },
+      "mapping_source": "存款指标完整映射_22维度-完整版(1).xlsx",
+      "data_source_notice": "数值来自项目当前配置的实际指标查询库，经现有基础查询接口读取；Excel仅提供编码、别名和来源映射，不提供本次业务数值。表内总账非税、1104、手工导入等为映射标注的业务来源，尚非已核验的完整上游血缘。",
+      "analysis_guidance": {
+        "overview": [
+          "总量及较上月/同比/较年初变化",
+          "个人与对公变化是否分化",
+          "按问题及证据选择活定期明细或市场份额"
+        ],
+        "structure": [
+          "区分个人与对公、活期与定期、期限及市场份额",
+          "聚焦活定期时优先选择对应分项确定最新日期，不让不相关总量日期挡住可用分项"
+        ],
+        "unsupported": [
+          "缺少客户流水/账户明细，不能证明客户流失或稳定性",
+          "缺少付息率与利息支出，不能认定存款成本升降",
+          "含协定/不含协定占比编码冲突，明确披露并呈现已取得的相关数据"
+        ]
+      },
+      "binding_policy": "只允许正式编码或启用目录中唯一的完整名称/别名匹配。code 可由管理员在相应条目显式配置；多个命中作为冲突返回，不按相似度选取。",
+      "review_status": "试点映射；投产前需业务审核来源、单位、编码冲突和关系完整性"
+    }
+  }
+}

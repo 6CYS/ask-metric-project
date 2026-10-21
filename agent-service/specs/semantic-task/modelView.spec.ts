@@ -1,6 +1,6 @@
 import {expect, it} from "vitest";
 import type {AgentMessage} from "@earendil-works/pi-agent-core";
-import {projectSemanticFeedback, projectSemanticModelMessages} from "../../src/semantic-task/modelView.js";
+import {projectSemanticFeedback, projectSemanticModelMessages, appendSemanticRuntimeContext} from "../../src/semantic-task/modelView.js";
 
 const evidence = () => ({kind: "metric_query_structured", status: "succeeded", task_id: "task-a", result_id: "result-a", frame_id: "frame-a",
   columns: ["org_name", "metric_value"], rows: [{org_name: "合成机构甲", metric_value: "9007199254740993.1200", unit: "元"},
@@ -74,4 +74,71 @@ it("紧凑模型视图完整保留问题版本、选项差异和受理回执", (
   const projected = projectSemanticFeedback({...feedback(evidence()), pending_questions: [question], answer_receipts: [receipt]}) as Record<string, unknown>;
   expect(projected.pending_questions).toEqual([question]);
   expect(projected.answer_receipts).toEqual([receipt]);
+});
+
+const analysisReceipt = (kind: "business_overview" | "analysis_evidence") => {
+  const body = {kind, status: "succeeded", evidence_ref: "e2", evidence_items: [{ref: "e2.v1", display: "9007199254740993.1200元",
+    metric_code: "M1", date: "2025-12-31", unit: "元"}], gaps: ["合成机构乙无记录"], next_action: "按证据交付，保留缺口",
+    org_codes: ["O1", "O2"], complete: false, followup_metrics: [{binding_ref: "k1", name: "合成明细"}],
+    table_rows: [{value: null}], source_notice: "合成来源", coverage_review: {missing: ["结构"]}};
+  return {kind, status: "succeeded", answer_policy: kind === "business_overview" ? "overview_evidence_v2" : "general_analysis_evidence_v1",
+    evidence_items: [{ref: "internal-ref", value: "9007199254740993.1200"}], facts: [{fact_id: "f1"}], rows: [{value: "9007199254740993.1200"}],
+    calculations: [{input_fact_refs: ["f1"]}], binding_map: {k1: "signed-server-binding"}, candidate_map: {k1: {server_only: true}},
+    payloads: [body], custom_provenance: {receipt: "source-a"}, delivery: "analyze"};
+};
+
+it.each(["business_overview", "analysis_evidence"] as const)("%s使用工具正式模型正文，引用和补查能力不丢失，存档不变", kind => {
+  const original = feedback(analysisReceipt(kind)), before = JSON.stringify(original);
+  const projected = projectSemanticFeedback(original) as {state: {evidence: Record<string, unknown>; targets: unknown}};
+  const view = projected.state.evidence;
+  expect(view).toMatchObject(original.state.evidence.payloads[0]!);
+  expect(view).toMatchObject({custom_provenance: {receipt: "source-a"}, delivery: "analyze"});
+  for (const field of ["payloads", "facts", "rows", "calculations", "binding_map", "candidate_map"]) expect(view).not.toHaveProperty(field);
+  expect(projected.state.targets).toEqual(original.state.targets);
+  expect(JSON.stringify(original)).toBe(before);
+});
+
+it.each(["missing_body", "missing_ref", "invalid_ref", "missing_atoms", "missing_gaps", "wrong_kind", "failed", "unknown_policy", "multiple_payloads", "scope_conflict", "gap_conflict"])("分析正文不兼容时保留完整内部事实：%s", variant => {
+  const value: Record<string, any> = analysisReceipt("analysis_evidence");
+  if (variant === "missing_body") value.payloads = [];
+  if (variant === "missing_ref") delete value.payloads[0].evidence_ref;
+  if (variant === "invalid_ref") value.payloads[0].evidence_ref = "bad-ref";
+  if (variant === "missing_atoms") delete value.payloads[0].evidence_items;
+  if (variant === "missing_gaps") delete value.payloads[0].gaps;
+  if (variant === "wrong_kind") value.payloads[0].kind = "unknown";
+  if (variant === "failed") value.status = "failed";
+  if (variant === "unknown_policy") value.answer_policy = "future_v3";
+  if (variant === "multiple_payloads") value.payloads.push({unique: "another-source"});
+  if (variant === "scope_conflict") value.org_codes = ["another-scope"];
+  if (variant === "gap_conflict") value.gaps = ["另一来源的缺口"];
+  const projected = projectSemanticFeedback(feedback(value)) as {state: {evidence: Record<string, unknown>}};
+  expect(projected.state.evidence).toMatchObject({facts: value.facts, rows: value.rows, binding_map: value.binding_map, candidate_map: value.candidate_map});
+});
+
+it("多目标混合回执逐一投影，保留普通查询、空记录和失败目标", () => {
+  const bundle = {kind: "semantic_results", status: "partial", results: [analysisReceipt("business_overview"), evidence(),
+    {kind: "analysis_evidence", status: "failed", error_code: "UPSTREAM_FAILED", gaps: ["目标三未完成"]}]};
+  const projected = projectSemanticFeedback(feedback(bundle)) as {state: {evidence: typeof bundle}};
+  expect(projected.state.evidence.results).toHaveLength(3);
+  expect(projected.state.evidence.results[0]).toHaveProperty("evidence_ref", "e2");
+  expect(projected.state.evidence.results[1]).toHaveProperty("rows", evidence().rows);
+  expect(projected.state.evidence.results[2]).toEqual(bundle.results[2]);
+});
+
+it("动态状态仅追加到发送尾部，历史消息前缀和完整工具配对稳定，原记录及当前授权目录不变", () => {
+  const user = {role: "user", content: "合成机构最近情况", timestamp: 1} as AgentMessage;
+  const call = {role: "assistant", content: [{type: "toolCall", id: "call-a", name: "read", arguments: {}}]} as AgentMessage;
+  const result = {role: "toolResult", toolName: "read", toolCallId: "call-a", isError: false, content: [{type: "text", text: "完整事实"}], timestamp: 2} as AgentMessage;
+  const original = [user, call, result], before = JSON.stringify(original);
+  const first = appendSemanticRuntimeContext(original, "状态甲", "当前有权机构目录", "尾缀");
+  const second = appendSemanticRuntimeContext(original, "状态乙", "当前有权机构目录", "尾缀");
+  expect(first.slice(0, -1)).toEqual(second.slice(0, -1));
+  expect(first[1]).toBe(call); expect(first[2]).toBe(result);
+  expect(first[0]).toMatchObject({content: "合成机构最近情况当前有权机构目录"});
+  expect(first.at(-1)).toMatchObject({role: "user", content: expect.stringContaining("状态甲")});
+  expect(second.at(-1)).toMatchObject({content: expect.stringContaining("状态乙")});
+  expect(JSON.stringify(first.at(-1))).toContain("尾缀");
+  expect(JSON.stringify(original)).toBe(before);
+  // 下一次授权结果不同仍立即生效，不以缓存节约为理由复用旧权限数据。
+  expect(appendSemanticRuntimeContext(original, "状态", "权限已收窄", "")[0]).toMatchObject({content: "合成机构最近情况权限已收窄"});
 });

@@ -106,6 +106,7 @@ def _build_agent_service(target: Path, build_root: Path, *, skip_build: bool) ->
         if npm is None:
             raise RuntimeError("npm is required to build the agent service")
         _copy_tree(agent / "src", work / "src")
+        _copy_tree(agent / "skills", work / "skills")
         for filename in ("package.json", "package-lock.json", "tsconfig.json", "tsconfig.build.json"):
             shutil.copy2(agent / filename, work / filename)
         _run([npm, "ci"], cwd=work)
@@ -381,6 +382,7 @@ def _copy_operations(target: Path, *, payload_only: bool = False) -> None:
     shutil.copy2(PACKAGE_DIR / "intranet_deploy.py", target / "intranet_deploy.py")
     shutil.copy2(PACKAGE_DIR / "constraints.txt", target / "constraints.txt")
     shutil.copy2(PACKAGE_DIR / "site_upgrade.py", target / "site_upgrade.py")
+    shutil.copy2(PACKAGE_DIR / "uat_deploy.py", target / "uat_deploy.py")
 
 
 def build_bundle(args: argparse.Namespace) -> Path:

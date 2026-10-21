@@ -1,13 +1,74 @@
 /**
- * 助手回答的渲染入口：模型写标准 markdown，前端原样渲染，不再做白名单裁剪。
+ * 助手回答的渲染入口：保留标准 Markdown，仅规范异常段落换行和过长的标题、加粗。
  * 安全边界固定为：html:false（原始 HTML 转义为文本）、禁用图片、外链强制新窗口 + noopener；
  * markdown-it 自带链接协议校验（javascript: 等不会生成链接）。
- * 数据正确性由后端证据链与回答核验负责，渲染层不改写内容。
+ * 数据正确性由后端证据链与回答核验负责，渲染层不改写事实或补写结论。
  */
 import MarkdownIt from "markdown-it"
 import type { AssistantBlock, AssistantParagraph, AssistantTableAlign } from "./assistantText"
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+
+// 历史消息也可能包含重复转义的段落；保护代码，避免全局反转义破坏路径和示例。
+export function normalizeAssistantParagraphs(source: string): string {
+  const normalize = (text: string) => text.replace(/(?<!\\)(?:\\r\\n|\\n){2,}/gu,
+    value => "\n".repeat(value.match(/\\r\\n|\\n/gu)!.length))
+  const markers = /`+|^ {0,3}~{3,}/gmu
+  let result = "", cursor = 0, marker: RegExpExecArray | null
+  while ((marker = markers.exec(source))) {
+    const delimiter = marker[0].trimStart()
+    const lineStart = source.lastIndexOf("\n", marker.index - 1) + 1
+    const fenced = delimiter.length >= 3 && /^ {0,3}$/u.test(source.slice(lineStart, marker.index))
+    const closing = fenced
+      ? new RegExp(`^ {0,3}${delimiter[0]}{${delimiter.length},}[ \\t]*\\r?$`, "gmu")
+      : /`+/gu
+    const nextLine = source.indexOf("\n", markers.lastIndex)
+    closing.lastIndex = fenced ? nextLine < 0 ? source.length : nextLine + 1 : markers.lastIndex
+    let end = source.length, match: RegExpExecArray | null
+    while ((match = closing.exec(source))) {
+      if (fenced || match[0].length === delimiter.length) {
+        end = match.index + match[0].length
+        break
+      }
+    }
+    result += normalize(source.slice(cursor, marker.index)) + source.slice(marker.index, end)
+    cursor = end
+    markers.lastIndex = end
+  }
+  return result + normalize(source.slice(cursor))
+}
+
+// 只降级异常格式标记；词句、数字、链接、列表和表格仍由原 Markdown 管线渲染。
+md.core.ruler.after("inline", "assistant_readability", state => {
+  for (let index = 0; index < state.tokens.length; index++) {
+    const token = state.tokens[index]!
+    if (token.type === "heading_open") {
+      const inline = state.tokens[index + 1], close = state.tokens[index + 2]
+      if (inline?.type === "inline" && close?.type === "heading_close" && [...inline.content].length > 100) {
+        token.type = "paragraph_open"
+        token.tag = "p"
+        close.type = "paragraph_close"
+        close.tag = "p"
+      }
+    }
+    if (token.type !== "inline" || !token.children) continue
+    const stack: number[] = []
+    token.children.forEach((child, childIndex, children) => {
+      if (child.type === "strong_open") stack.push(childIndex)
+      if (child.type !== "strong_close") return
+      const start = stack.pop()
+      if (start === undefined) return
+      const length = children.slice(start + 1, childIndex).reduce((sum, item) => sum + [...item.content].length, 0)
+      if (length <= 80) return
+      for (const boundary of [children[start]!, child]) {
+        boundary.type = "text"
+        boundary.tag = ""
+        boundary.nesting = 0
+        boundary.content = ""
+      }
+    })
+  }
+})
 
 // 图片不加载外链资源：输出 alt 文本占位，避免泄露请求或撑破版式
 md.renderer.rules.image = (tokens, index) => md.utils.escapeHtml(tokens[index]?.content ?? "")
@@ -29,7 +90,7 @@ export function stripLegacySavedConditions(source: string): string {
 }
 
 export function renderAssistantHtml(source: string): string {
-  return md.render(stripLegacySavedConditions(source))
+  return md.render(stripLegacySavedConditions(normalizeAssistantParagraphs(source)))
 }
 
 function escapeTableCell(text: string): string {

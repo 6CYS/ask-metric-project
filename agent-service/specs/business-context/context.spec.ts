@@ -55,6 +55,64 @@ async function runTool(...[tool, params, request, context]: Parameters<typeof ex
 }
 
 const cleanup: Array<() => Promise<void>> = [];
+it("同轮分析补查错用历史相对位置时只纠正调用，保留成功焦点和机构日期", async () => {
+  const f = await fixture();
+  const context = {...f.context, originalMessage: "样本机构甲2026年2月28日贷款情况怎么样？"};
+  const plan = {topic: "loan", goal: "overview", sections: ["scale", "growth", "structure", "quality"]};
+  const ready = await f.service.resolve({capabilityHint: "business_overview", baseReference: null, executionMode: "execute",
+    fieldChanges: [{fieldHint: "plan", operation: "set", rawValue: plan},
+      {fieldHint: "organizations", operation: "set", rawValue: "样本机构甲"}]}, f.identity, context);
+  const executing = await f.service.beginExecution(ready.frameId, f.identity);
+  const success = await f.service.finishExecution(executing, {status: "success", resultRef: "snapshot:isolated"});
+  const before = await f.store.state();
+  const count = (await f.store.list()).length;
+  const delta: ContextDelta = {capabilityHint: "business_overview", baseReference: {relativePosition: 0}, executionMode: "execute",
+    fieldChanges: [{fieldHint: "plan", operation: "set", rawValue: {...plan, metric_ids: ["total", "personal"]}}]};
+  await expect(f.service.resolve(delta, f.identity, context)).rejects.toMatchObject({
+    code: "ANALYSIS_REFINEMENT_REFERENCE_INVALID", baseReference: {frameId: success.frameId}});
+  expect(await f.store.state()).toEqual(before);
+  expect(await f.store.list()).toHaveLength(count);
+  const corrected = await f.service.resolve({...delta, baseReference: {frameId: success.frameId}}, f.identity, context);
+  expect(corrected.status).toBe("ready");
+  expect(corrected.fields.organizations?.resolvedValue).toEqual(success.fields.organizations?.resolvedValue);
+  expect(corrected.fields.time?.resolvedValue).toEqual(success.fields.time?.resolvedValue);
+  expect(corrected.parentFrameId).toBe(success.frameId);
+});
+it("相同的冗余执行模式可规范化，冲突模式仍拒绝且不保存", async () => {
+  const f = await fixture();
+  const frame = await f.service.resolve({...f.delta, fieldChanges: [...f.delta.fieldChanges,
+    {fieldHint: "executionMode", operation: "set", rawValue: "execute"}]}, f.identity, f.context);
+  expect(frame.status).toBe("ready");
+  expect(frame.delta.fieldChanges.some(change => change.fieldHint === "executionMode")).toBe(false);
+  for (const change of [{operation: "set" as const, rawValue: "resolve_more"}, {operation: "clear" as const, rawValue: "execute"}]) {
+    await expect(f.service.resolve({...f.delta, fieldChanges: [...f.delta.fieldChanges, {fieldHint: "executionMode", ...change}]},
+      {...f.identity, requestId: change.operation}, f.context)).rejects.toThrow("EXECUTION_MODE_CONFLICT");
+  }
+  expect((await f.store.state()).focusFrameId).toBe(frame.frameId);
+});
+it.each(["存贷款", "存贷", "存 贷款", "存款和贷款", "贷款和存款"])("组合主题不能缩成专项概览，已有贷款焦点也不能绕过：%s", async wording => {
+  const f = await fixture();
+  const delta: ContextDelta = {capabilityHint: "business_overview", baseReference: null, executionMode: "execute",
+    fieldChanges: [{fieldHint: "plan", operation: "set", rawValue: {topic: "loan", goal: "overview", sections: ["scale", "growth", "structure", "quality"]}}]};
+  await expect(f.service.resolve(delta, f.identity, {...f.context, originalMessage: `紫金最近${wording}情况怎么样？`})).rejects.toThrow("ANALYSIS_SCOPE_UNSUPPORTED");
+  expect(await f.store.list()).toHaveLength(0);
+  const first = await f.service.resolve(delta, f.identity, {...f.context, originalMessage: "最近贷款情况"});
+  await expect(f.service.resolve({...delta, baseReference: "current"}, {...f.identity, requestId: "both", turnId: "both"},
+    {...f.context, originalMessage: `最近${wording}情况`, turnId: "both"})).rejects.toThrow("ANALYSIS_SCOPE_UNSUPPORTED");
+  expect((await f.store.state()).focusFrameId).toBe(first.frameId);
+});
+
+it("Schema先拒绝的空步骤和顶层缺口也给出可操作诊断，不保存无效计划", async () => {
+  const f = await fixture();
+  const plan = {objective: "合成经营分析", scope_notice: "隔离样本", requirements: [{id: "q1", question: "规模"}],
+    steps: [{id: "s1", method: "observe", metric_refs: [], answers: ["q1"], rationale: "先查事实"}]};
+  for (const raw of [plan, {...plan, gap_reason: "没有结构指标"}]) {
+    await expect(f.service.resolve({capabilityHint: "business_analysis", baseReference: null, executionMode: "execute",
+      fieldChanges: [{fieldHint: "plan", operation: "set", rawValue: raw}]}, f.identity,
+    {...f.context, originalMessage: "最近经营情况"})).rejects.toMatchObject({code: "FIELD_INPUT_SCHEMA_INVALID", correction: expect.stringContaining("gap_reason")});
+  }
+  expect(await f.store.list()).toHaveLength(0);
+});
 afterEach(async () => {for (const close of cleanup.splice(0)) await close(); vi.restoreAllMocks();});
 async function fixture() {
   vi.spyOn(console, "info").mockImplementation(() => {});
@@ -75,6 +133,100 @@ async function fixture() {
   ]};
   return {path, sessions, session, store, service, identity, context, delta};
 }
+it("概览日期由原文完整解析，忽略查数控制枚举，独立问题可默认日期", async () => {
+  const f = await fixture();
+  const plan = {goal: "overview", sections: ["scale", "growth", "structure", "quality"]};
+  const originalMessage = "紫金农商行今年五月份到十月份期间贷款情况";
+  const dateValues: string[][] = [];
+  const context = {...f.context, originalMessage, resolveCatalog: async (_entity: string, values: string[]) => {
+    dateValues.push(values); return {status: "resolved" as const, value: {start: "2026-05-01", end: "2026-10-31"}};
+  }};
+  const frame = await f.service.resolve({capabilityHint: "business_overview", baseReference: null,
+    executionMode: "execute", fieldChanges: [{fieldHint: "plan", operation: "set", rawValue: plan},
+      {fieldHint: "selection", operation: "set", rawValue: "all_in_range"}]}, f.identity, context);
+  expect(frame.status).toBe("ready");
+  expect(dateValues).toEqual([["今年五月份到十月份"]]);
+  expect(frame.fields.time?.resolvedValue).toEqual({start: "2026-05-01", end: "2026-10-31"});
+  const inherited = await f.service.resolve({capabilityHint: "business_overview", baseReference: "current",
+    executionMode: "execute", fieldChanges: []}, {...f.identity, turnId: "followup", requestId: "followup"},
+    {...context, originalMessage: "这个期间的贷款情况", turnId: "followup"});
+  expect(inherited.status).toBe("ready");
+  expect(inherited.fields.time?.resolvedValue).toEqual(frame.fields.time?.resolvedValue);
+  const fresh = await f.service.resolve({capabilityHint: "business_overview", baseReference: null,
+    executionMode: "execute", fieldChanges: [{fieldHint: "plan", operation: "set", rawValue: plan},
+      {fieldHint: "time", operation: "retain"}]}, {...f.identity, turnId: "fresh", requestId: "fresh"},
+    {...context, originalMessage: "紫金农商行贷款情况", turnId: "fresh"});
+  expect(fresh.status).toBe("ready");
+  expect(fresh.fields.time?.resolutionStatus).toBe("missing");
+});
+
+it("无界最近的查询错误转入实际覆盖规划，不保存无效日期澄清", async () => {
+  const f = await fixture();
+  await expect(f.service.resolve(f.delta, f.identity, {...f.context, originalMessage: "样本机构甲最近样本指标甲表现如何"}))
+    .rejects.toThrow("ANALYSIS_LATEST_PLAN_REQUIRED");
+  expect((await f.store.list()).length).toBe(0);
+  await expect(f.service.resolve(f.delta, f.identity, {...f.context, originalMessage: "最近手续费收入表现，和上个月相比如何"}))
+    .rejects.toThrow("ANALYSIS_LATEST_PLAN_REQUIRED");
+  const exact = await f.service.resolve(f.delta, f.identity, {...f.context, originalMessage: "最近一次讨论后，请查样本机构甲2026年2月28日样本指标甲"});
+  expect(exact.status).toBe("ready");
+});
+
+it("比较基期追问忽略模型误填的目标月份，继承已确认观测日期", async () => {
+  const f = await fixture();
+  const plan = {goal: "overview", sections: ["scale", "growth", "structure", "quality"]};
+  const first = await f.service.resolve({capabilityHint: "business_overview", baseReference: null, executionMode: "execute",
+    fieldChanges: [{fieldHint: "plan", operation: "set", rawValue: plan}]}, f.identity,
+    {...f.context, originalMessage: "2026年2月28日贷款情况"});
+  const resolveCatalog = vi.fn(f.context.resolveCatalog);
+  const followup = await f.service.resolve({capabilityHint: "business_overview", baseReference: "current", executionMode: "execute",
+    fieldChanges: [{fieldHint: "time", operation: "set", rawValue: "上个月"}]},
+    {...f.identity, turnId: "comparison", requestId: "comparison"},
+    {...f.context, turnId: "comparison", originalMessage: "那只看贷款质量，和上个月、去年同期相比怎么样？", resolveCatalog});
+  expect(followup.fields.time?.resolvedValue).toEqual(first.fields.time?.resolvedValue);
+  expect(followup.fields.time?.source).toBe("inherited");
+  expect(resolveCatalog).not.toHaveBeenCalledWith("date", ["上个月"], expect.anything());
+});
+
+it("具备通用底座时基础指标未命中先发现正式目录，旧客户端保留原行为", async () => {
+  const f = await fixture();
+  const context = {...f.context, analysisFallbackAvailable: true,
+    resolveMetricMentions: async () => ({mentions: [{text: "合成盈利", start: 0, end: 4, resolution: {status: "not_found" as const}}]})};
+  const delta: ContextDelta = {...f.delta, fieldChanges: f.delta.fieldChanges.map(change => change.fieldHint === "metrics"
+    ? {...change, rawValue: {fromQuestion: true}} : change)};
+  await expect(f.service.resolve(delta, f.identity, context)).rejects.toThrow("ANALYSIS_METRIC_DISCOVERY_REQUIRED");
+  expect(await f.store.list()).toHaveLength(0);
+});
+it("概览原文中的机构不会因模型漏填或clear而误用默认机构，追问仍继承", async () => {
+  const f = await fixture();
+  const context = {...f.context, originalMessage: "紫金农商行贷款情况", organizationMentions: async () => ["紫金"]};
+  const frame = await f.service.resolve({capabilityHint: "business_overview", baseReference: null,
+    executionMode: "execute", fieldChanges: [{fieldHint: "plan", operation: "set", rawValue: {
+      goal: "overview", sections: ["scale", "growth", "structure", "quality"]}},
+      {fieldHint: "organizations", operation: "clear"}]}, f.identity, context);
+  expect(frame.status).toBe("ready");
+  expect(frame.fields.organizations?.resolvedValue).toEqual({codes: ["organization:紫金"], names: ["紫金"]});
+  const followup = await f.service.resolve({capabilityHint: "business_overview", baseReference: "current",
+    executionMode: "execute", fieldChanges: []}, {...f.identity, turnId: "followup", requestId: "followup"},
+    {...context, originalMessage: "这个期间的贷款情况", turnId: "followup", organizationMentions: async () => []});
+  expect(followup.fields.organizations?.resolvedValue).toEqual(frame.fields.organizations?.resolvedValue);
+  const explicit = await f.service.resolve({capabilityHint: "business_overview", baseReference: null,
+    executionMode: "execute", fieldChanges: [{fieldHint: "plan", operation: "set", rawValue: {
+      goal: "overview", sections: ["scale", "growth", "structure", "quality"]}},
+      {fieldHint: "organizations", operation: "set", rawValue: "江阴"}]},
+    {...f.identity, turnId: "explicit", requestId: "explicit"},
+    {...context, originalMessage: "不要紫金，只看江阴的贷款情况", turnId: "explicit", organizationMentions: async () => ["紫金", "江阴"]});
+  expect(explicit.fields.organizations?.resolvedValue).toEqual({codes: ["organization:江阴"], names: ["江阴"]});
+});
+it("概览请求结果时纠正模型resolve_more；用户明确只规划时不执行", async () => {
+  const f = await fixture();
+  const delta: ContextDelta = {capabilityHint: "business_overview", baseReference: null, executionMode: "resolve_more",
+    fieldChanges: [{fieldHint: "plan", operation: "set", rawValue: {goal: "overview", sections: ["scale", "growth", "structure", "quality"]}}]};
+  const result = await f.service.resolve(delta, f.identity, {...f.context, originalMessage: "这个期间的贷款情况"});
+  expect(result.delta.executionMode).toBe("execute");
+  const planning = await f.service.resolve(delta, {...f.identity, turnId: "plan", requestId: "plan"},
+    {...f.context, originalMessage: "只做贷款分析规划，不用查询", turnId: "plan"});
+  expect(planning.delta.executionMode).toBe("resolve_more");
+});
 it("新查询、缺项澄清、补充、继承、清除、任意历史分支不覆盖旧 Frame", async () => {
   const f = await fixture();
   const first = await f.service.resolve({...f.delta, fieldChanges: f.delta.fieldChanges.filter(c => c.fieldHint !== "time")}, f.identity, f.context);
@@ -1447,5 +1599,51 @@ describe("执行结果丢失后的对账", () => {
     expect((await f.store.list()).some(frame => frame.errorCode === "EXECUTION_INTERRUPTED")).toBe(true);
     expect(next.status).toBe("READY");
   });
+});
+
+it("主题切换重新规划但保留机构日期，不能继承贷款指标当存款", async () => {
+  const f = await fixture();
+  const first = await f.service.resolve({capabilityHint: "business_overview", baseReference: null,
+    executionMode: "execute", fieldChanges: [
+      {fieldHint: "plan", operation: "set", rawValue: {topic: "loan", goal: "overview", sections: ["scale", "growth", "structure", "quality"], metric_ids: ["total", "discount"]}},
+      {fieldHint: "organizations", operation: "set", rawValue: "样本机构甲"},
+      {fieldHint: "time", operation: "set", rawValue: "2026年2月28日"}]}, f.identity,
+    {...f.context, originalMessage: "样本机构甲2026年2月28日贷款情况"});
+  expect(first.status).toBe("ready");
+  const identity = {...f.identity, turnId: "switch", requestId: "switch"};
+  const context = {...f.context, originalMessage: "存款呢？", turnId: "switch"};
+  await expect(f.service.resolve({capabilityHint: "business_overview", baseReference: null, executionMode: "execute", fieldChanges: [
+    {fieldHint: "plan", operation: "set", rawValue: {topic: "deposit", goal: "overview", sections: ["scale", "growth", "structure"], metric_ids: ["total"]}}]}, identity, context)).rejects.toThrow("OVERVIEW_CONTINUATION_REQUIRES_BASE");
+  expect((await f.store.state()).focusFrameId).toBe(first.frameId);
+  await expect(f.service.resolve({baseReference: "current", executionMode: "execute", fieldChanges: []}, identity, context)).rejects.toThrow("ANALYSIS_TOPIC_CHANGED");
+  const next = await f.service.resolve({baseReference: "current", executionMode: "execute", fieldChanges: [
+    {fieldHint: "plan", operation: "set", rawValue: {goal: "overview", sections: ["scale", "growth", "structure"], metric_ids: ["total", "personal"]}}]}, identity, context);
+  expect(next.status).toBe("ready");
+  expect(next.fields.plan?.resolvedValue).toMatchObject({topic: "deposit", metric_ids: ["total", "personal"]});
+  expect(next.fields.time?.resolvedValue).toEqual(first.fields.time?.resolvedValue);
+  expect(next.fields.organizations?.resolvedValue).toEqual(first.fields.organizations?.resolvedValue);
+});
+
+it("补查引用不存在指标在保存前退回纠错，成功焦点保持可继承", async () => {
+  const f = await fixture();
+  const context = {...f.context, originalMessage: "最近存款怎么样？", validateOverviewPlan: async (plan: {metric_ids?: string[]}) => {
+    if (plan.metric_ids?.includes("company_ytd")) {
+      const {BusinessInputError} = await import("../../src/business-context/inputError.js");
+      throw new BusinessInputError("ANALYSIS_METRIC_INVALID", "plan", "不存在的主题指标ID");
+    }
+  }};
+  const plan = {topic: "deposit", goal: "overview", sections: ["scale", "growth", "structure"], metric_ids: ["total", "company"]};
+  const first = await f.service.resolve({capabilityHint: "business_overview", baseReference: null, executionMode: "execute",
+    fieldChanges: [{fieldHint: "plan", operation: "set", rawValue: plan}]}, f.identity, context);
+  const before = await f.store.state();
+  await expect(f.service.resolve({baseReference: "current", executionMode: "execute", fieldChanges: [
+    {fieldHint: "plan", operation: "set", rawValue: {...plan, metric_ids: ["company_ytd"]}}]},
+    {...f.identity, turnId: "followup", requestId: "bad"}, context)).rejects.toThrow("ANALYSIS_METRIC_INVALID");
+  expect((await f.store.state()).focusFrameId).toBe(before.focusFrameId);
+  const corrected = await f.service.resolve({baseReference: "current", executionMode: "execute", fieldChanges: [
+    {fieldHint: "plan", operation: "set", rawValue: {...plan, metric_ids: ["company"]}}]},
+    {...f.identity, turnId: "followup", requestId: "corrected"}, context);
+  expect(corrected.status).toBe("ready");
+  expect(corrected.parentFrameId).toBe(first.frameId);
 });
 });

@@ -192,9 +192,32 @@ export type TimeVariant = {
   start: string
   end: string
 }
+/** 已由服务端校验的报告内容；只负责展示，不在前端重新生成业务结论。 */
+export type AnalysisReportView = {
+  summary: string
+  sections: Array<{ title: string; text: string }>
+  scope: string
+  source_notices: string[]
+  limitations: string[]
+  gaps: string[]
+  partial: boolean
+  body_mode?: "narrative"
+  profile?: "brief" | "snapshot" | "trend" | "diagnostic" | "multi_topic"
+  density?: "compact" | "medium" | "detailed"
+  layout?: Array<"summary" | "data" | "analysis">
+  labels?: {
+    summary?: string
+    data?: string
+    analysis?: string
+    gaps?: string
+    sources?: string
+  }
+}
 
 /** 单次问数的完整响应，既用于最终 SSE 事件，也会原样写入历史消息快照。 */
 export type ChatResponse = {
+  analysis_plan?: string[]
+  analysis_report?: AnalysisReportView
   message_id: string
   conversation_id?: string | null
   intent: string

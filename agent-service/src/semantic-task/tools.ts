@@ -7,7 +7,7 @@ import {BusinessContextService} from "../business-context/service.js";
 import {createCapabilities} from "../business-context/capabilities.js";
 import {createFieldResolvers} from "../business-context/resolvers.js";
 import {BackendApiError} from "../backendClient.js";
-import {semanticParameters, prepareSemanticArguments} from "./protocol.js";
+import {semanticParameters, prepareSemanticArguments, SemanticInputShapeError} from "./protocol.js";
 import {SemanticPlanService} from "./planService.js";
 import {SemanticConflict, SemanticTaskService} from "./service.js";
 import type {SemanticIssue} from "./store.js";
@@ -18,6 +18,7 @@ import {referencedQueryNumbers, requestedHistory} from "./historyReference.js";
 import {completeQuery} from "./querySpec.js";
 import {QuestionAnswerError} from "./questions.js";
 import {backendIssue} from "./backendIssue.js";
+import {recoverUnmatchedQuery, parallelMetricAlternatives, normalizeParallelMetricProposal} from "./queryRecovery.js";
 
 type Tool = AgentHarnessTool<AskMetricRequestContext>;
 const receipt = (feedback: SemanticFeedback, evidence?: AgentToolResult<unknown>): AgentToolResult<SemanticFeedback> => {
@@ -64,13 +65,28 @@ const readFailure = (result: AgentToolResult<unknown>) => {
     message: denied ? "当前权限不足，不能读取历史结果。" : "结果读取未成功，原查询结果仍保留。", remediation: "stop"});
 };
 export function createSemanticResolveTool(): Tool {
-  return {name: "resolve_business_turn", label: "解析业务语义任务", description: "版本2整笔业务提议。新查询用target.query输出完整结构化机构、指标、时间、取数方式与操作，真实缺项写null；排名直接给position/top_n，不写排序描述。继承或局部修改用operations，排序修改使用queryOperation对象。已发布字段问题用顶层answers。程序绑定目录身份、机构权限和日历后执行，不重新猜排序语义。source及引用见轮状态或business_context_read。",
+  return {name: "resolve_business_turn", label: "解析业务语义任务", description: "版本2整笔业务提议。新查询用target.query输出完整结构化机构、指标、时间、取数方式与操作，真实缺项写null；排名直接给position/top_n，不写排序描述。经营分析用intent=analyze、target.analysis完整计划，机构日期写同一target.operations；不混填query。继承或局部修改用operations，排序修改使用queryOperation对象。已发布字段问题用顶层answers。程序绑定目录身份、机构权限和日历后执行，不重新猜排序语义。source及引用见轮状态或business_context_read。",
     parameters: semanticParameters, prepareArguments: prepareSemanticArguments,
     execute: async (_id, args, _update, request, _invocation, context) => {
-      try {const feedback = await new SemanticPlanService(request, context.abortSignal).resolve(prepareSemanticArguments(args));
-        return receipt(feedback);}
-      catch (error) {return receipt(error instanceof Error && error.message.startsWith("SEMANTIC_INPUT_SHAPE_INVALID")
-        ? semanticFeedback(undefined, "invalid_input", [{code: "INPUT_SHAPE_INVALID", category: "input_shape", message: "工具参数不符合唯一版本2协议，请按Schema修正，原始业务目标已保留。", remediation: "pi"}]) : errors(error));}
+      try {const input = await normalizeParallelMetricProposal(request, prepareSemanticArguments(args));
+        const feedback = await new SemanticPlanService(request, context.abortSignal).resolve(input);
+        return receipt(await recoverUnmatchedQuery(request, feedback));}
+      catch (error) {
+        // 拒绝模型同轮自确认仍保留原门禁；已有并列恢复时给出可执行的纠错方向，不能改成确认成功。
+        if (error instanceof QuestionAnswerError && error.code === "QUESTION_NOT_PUBLISHED") {
+          const recovery = (await request.semanticTasks?.turn(request.operationId))?.queryRecovery;
+          const plan = recovery ? await request.semanticTasks?.plan(recovery.planRef) : undefined;
+          if (plan?.owner === request.actor.id && recovery?.scopes.some(scope => parallelMetricAlternatives(scope.fields.metrics, request.originalMessage).length)) {
+            const feedback = await new SemanticPlanService(request, context.abortSignal).feedback(plan, "needs_interpretation");
+            feedback.pending_questions = feedback.pending_questions.filter(question => question.scope.field !== "metrics");
+            feedback.issues = [{code: "QUERY_RECOVERY_ANALYSIS_REQUIRED", field: "metrics", category: "catalog", remediation: "pi",
+              message: "不能替用户确认单选题。当前相关指标应并列查询：继续同一source，提交intent=analyze、analysis.kind=business_analysis及目录k引用的observe计划，不填写answers或普通query。系统会补齐已发现候选读取，保留原机构日期；没有用户确认发生。"}];
+            return receipt(feedback);
+          }
+        }
+        return receipt(error instanceof SemanticInputShapeError
+        ? semanticFeedback(undefined, "invalid_input", error.problems.map(problem => ({code: "INPUT_SHAPE_INVALID", field: problem.path,
+          category: "input_shape", message: `参数位置${problem.path}未通过${problem.rule}校验。${problem.hint ? problem.hint + "。" : ""}请对照版本2 Schema修正该位置的结构，保留其他已正确条件；对象和数组不能写成JSON字符串。`, remediation: "pi"}))) : errors(error));}
     }};
 }
 export function createSemanticContextTool(): Tool {

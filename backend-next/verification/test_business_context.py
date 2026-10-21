@@ -155,6 +155,62 @@ def test_org_catalog_endpoint_enforces_identity_and_permission_filter():
     ]}
 
 
+@pytest.mark.parametrize("raw", ["我行", "本行", "我们行", "我们银行"])
+def test_self_organization_uses_authenticated_membership_without_mutating_catalog(raw):
+    from types import SimpleNamespace
+
+    items = [OrganizationCatalogItem(code="O1", name="合成机构甲"),
+             OrganizationCatalogItem(code="O2", name="合成机构乙")]
+
+    class Uow:
+        organization_catalog = SimpleNamespace(list_enabled=lambda: items)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_uow] = Uow
+    app.dependency_overrides[get_overview_permissions] = lambda: SimpleNamespace(
+        authorize_logical_dsl=lambda **kwargs: {"orgs": ["O1", "O2"]},
+    )
+    app.dependency_overrides[require_actor] = lambda: ActorContext(
+        subject="synthetic", user_id="synthetic", org_id="O1", role_code="USER",
+        authentication_method="local_jwt", trust_level="authenticated",
+    )
+    client = TestClient(app)
+    body = client.post("/api/v1/business-context/resolve-field", json={
+        "entity": "organization", "raw_values": [raw], "source_question": f"上月末{raw}的存款",
+        "suggested": [{"code": "O2", "excerpt": raw}],
+    }).json()
+    # 模型建议不能把账号指代改成其他有权机构。
+    assert body["status"] == "resolved"
+    assert body["value"]["codes"] == ["O1"]
+    assert body["metadata"]["source_codes"] == ["O1"]
+    assert all(item.aliases == [] for item in items)
+
+    # 明确指定的其他机构仍遵循原来的解析，不被账号机构覆盖。
+    explicit = client.post("/api/v1/business-context/resolve-field", json={
+        "entity": "organization", "raw_values": ["合成机构乙"],
+        "source_question": "合成机构乙的存款",
+    }).json()
+    assert explicit["value"]["codes"] == ["O2"]
+    # 所属机构不可用时不能靠近名搜索或默认全省绕过去。
+    app.dependency_overrides[get_overview_permissions] = lambda: SimpleNamespace(
+        authorize_logical_dsl=lambda **kwargs: {"orgs": ["O2"]},
+    )
+    unavailable = client.post("/api/v1/business-context/resolve-field", json={
+        "entity": "organization", "raw_values": [raw],
+    }).json()
+    assert unavailable == {"status": "not_found", "candidates": [], "metadata": {
+        "reason": "account_organization_unavailable", "pendingRawValues": [raw],
+        "candidate_count": 0,
+    }}
+
+
 @pytest.mark.parametrize("raw,start,end", [
     ("2024年2月", "2024-02-01", "2024-02-29"),
     ("2026年2月末", "2026-02-28", "2026-02-28"),
@@ -176,6 +232,29 @@ def test_date_resolver_reuses_existing_calendar_rules(raw, start, end):
     result = resolve_date_field(raw, date(2026, 9, 21))
     assert result["status"] == "resolved"
     assert result["value"] == {"start": start, "end": end}
+
+
+@pytest.mark.parametrize("raw,today,expected", [
+    ("上月末", (2026, 10, 20), "2026-09-30"),
+    ("上个月底", (2026, 1, 1), "2025-12-31"),
+    ("上个月末", (2024, 3, 20), "2024-02-29"),
+    ("上月底", (2023, 3, 1), "2023-02-28"),
+])
+def test_previous_month_end_is_a_trusted_single_day(raw, today, expected):
+    from datetime import date
+
+    from ask_metric.application.field_resolution import (
+        resolve_date_field,
+        source_calendar_constraints,
+    )
+
+    day = date(*today)
+    result = resolve_date_field(raw, day)
+    assert result["status"] == "resolved"
+    assert result["value"] == {"start": expected, "end": expected}
+    assert result["metadata"]["resolution_source"] == "deterministic"
+    source = source_calendar_constraints(f"{raw}，我行各项存款净增", day)
+    assert source == {"ranges": [{"start": expected, "end": expected}], "unresolved": []}
 
 
 @pytest.mark.parametrize("raw,start,end", [

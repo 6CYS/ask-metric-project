@@ -20,6 +20,20 @@ const input = (value: StructuredQuery) => prepareSemanticArguments({protocol_ver
   targets: [{source: {kind: "new"}, query: value}]});
 async function setup() {const f = await fixture(); clean.push(f.close); return f;}
 
+it("机构层级配置409停止解析重试并公开可处理的原因，不执行SQL", async () => {
+  const f = await setup();
+  Object.assign(f.backend, {resolveOrganizationScope: vi.fn(async () => {throw new BackendApiError(409,
+    "机构层级配置不完整或不一致，暂时无法确定查询范围", "CONFIGURATION_ERROR");})});
+  const result = await new SemanticPlanService(f.request("scope-config", "查各家农商行2025年末合成指标甲前3名")).resolve(input(query({
+    organizations: {kind: "authorized_cohort", cohort: "rural_commercial_banks", source_text: "各家农商行"},
+    operation: {kind: "ranking", position: "top", top_n: 3},
+  })));
+  expect(result.status).toBe("failed");
+  expect(result.issues).toContainEqual(expect.objectContaining({code: "CONFIGURATION_ERROR", category: "infrastructure", remediation: "stop"}));
+  expect(semanticPublicAnswer(result)).toContain("机构层级");
+  expect(f.backend.basicQueries).not.toHaveBeenCalled();
+});
+
 it("结构化查询的objective进入步骤标签和字段状态，供计算来源引用", async () => {
   const f = await setup(), request = f.request("label", "查合成机构甲和合成机构乙2025年末的合成指标甲");
   const result = await new SemanticPlanService(request).resolve(input(query({objective: "本期"})));
@@ -105,7 +119,9 @@ it("后端422保留真实拒绝码交模型修正，服务诊断与用户提示�
   expect(result.status).toBe("needs_interpretation");
   expect(result.issues).toContainEqual({code, field: "organizations", category: "input_shape", remediation: "pi", message: "范围参数不匹配"});
   expect(f.backend.basicQueries).not.toHaveBeenCalled();
-  expect(semanticPublicAnswer({...result, status: "failed"})).toBe("没能完成这次查询。");
+  const answer = semanticPublicAnswer({...result, status: "failed"});
+  expect(answer).toContain("查询条件的内部校验尚未通过");
+  expect(answer).not.toContain("范围参数不匹配");
   expect(backendIssue(new BackendApiError(503, "内部连接错误"))).toMatchObject({category: "infrastructure", remediation: "stop"});
   expect(backendIssue(new BackendApiError(403, "权限不足"))).toMatchObject({category: "permission", remediation: "stop"});
 });

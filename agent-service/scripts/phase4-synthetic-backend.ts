@@ -2,14 +2,14 @@
 import {execFileSync} from 'node:child_process';
 import {join,resolve} from 'node:path';
 import {BackendApiError,type BackendClient} from '../src/backendClient.js';
-const pythonPath = resolve('../backend-next/.venv/bin/python');
+const pythonPath = resolve('../backend-next/.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
 const cache = new Map<string, unknown>();
 function python(payload: Record<string, unknown>): any {
   const input = JSON.stringify(payload);
   if (payload.action !== 'query' && cache.has(input)) return structuredClone(cache.get(input));
   const response = JSON.parse(execFileSync(pythonPath, [join(import.meta.dirname, 'semantic-task-fixture.py')], {
     input, encoding: 'utf8', timeout: 30000, maxBuffer: 4 * 1024 * 1024,
-    env: {PATH: '/usr/bin:/bin:/opt/homebrew/bin'},
+    env: {...process.env, PYTHONUTF8: '1'},
   }));
   if (!response.ok) throw new BackendApiError(422, response.message, response.error);
   if (payload.action !== 'query') cache.set(input, response.value);

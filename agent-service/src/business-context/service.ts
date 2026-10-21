@@ -6,6 +6,7 @@ import { BusinessInputError } from "./inputError.js";
 import {withFieldClarification} from "./fieldClarification.js";
 import {clarificationOptions, selectOptions} from "./clarificationOptions.js";
 import {hasInputEvidence} from "./inputEvidence.js";
+import {assertOverviewMonthSource, comparisonPeriodsOnly, multipleOverviewTopics, overviewContinuesCurrent, overviewTimeExpression, overviewTopicExpression, recentOverviewExpression} from "./overviewPolicy.js";
 
 /** 旧排名契约用 asc/desc 表达数值方向，名次类指标会取反；这类 Frame 须在新回合按新契约重建。 */
 function legacyRankingOrder(operation: unknown): boolean {
@@ -18,6 +19,7 @@ function canonical(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 export const businessKey = (value: unknown) => createHash("sha256").update(canonical(value)).digest("hex");
+const isAnalysisCapability = (capability?: string) => capability === "business_overview" || capability === "business_analysis";
 export interface TurnIdentity { sessionId: string; turnId: string; requestId: string }
 export class BusinessContextService {
   constructor(readonly store: FrameStore, readonly capabilities: CapabilityRegistry, readonly resolvers: FieldResolverRegistry) {}
@@ -53,6 +55,25 @@ export class BusinessContextService {
     const declaredSchema = this.capabilities.list().find(schema => schema.capability === delta.capabilityHint);
     await this.preflightRecovery(delta, identity, context);
     if (declaredSchema) validateFieldIntents(declaredSchema, delta, context);
+    const misplacedMode = delta.fieldChanges.filter(change => change.fieldHint === "executionMode");
+    if (misplacedMode.length) {
+      // 只消除与顶层完全一致的冗余控制字段；冲突不能猜测优先级或改变执行意图。
+      if (misplacedMode.some(change => change.operation !== "set" || change.rawValue !== delta.executionMode))
+        throw new BusinessInputError("EXECUTION_MODE_CONFLICT", "executionMode", "executionMode只在顶层提交；fieldChanges中的值与顶层冲突或操作无效，请明确修正执行方式，原焦点未改变。");
+      delta = {...delta, fieldChanges: delta.fieldChanges.filter(change => change.fieldHint !== "executionMode")};
+    }
+    if (isAnalysisCapability(delta.capabilityHint)) {
+      const planningOnly = /(?:只|仅|先|暂时)(?:做|看|给|说明)?(?:分析)?(?:计划|规划|方案|思路|方法)|(?:不要|不用|不需要|无需|暂不|先不|别)(?:再|重新)?(?:查询|取数|执行)/u.test(context.originalMessage);
+      // 日期方式由概览适配器确定；普通查数的控制枚举不影响概览条件。
+      // 可选字段在独立问题中 retain 等价于未提供，采用已声明的机构/日期默认值。
+      delta = {...delta,
+        // 概览默认交付结果；不能因模型误选“仅保存条件”而停在计划或复述旧聊天。
+        ...(delta.executionMode === "resolve_more" && !planningOnly ? {executionMode: "execute" as const} : {}),
+        fieldChanges: delta.fieldChanges.filter(change =>
+        !["selection", "operation"].includes(change.fieldHint)
+        && !(delta.baseReference === null && change.operation === "retain"
+          && ["time", "organizations"].includes(change.fieldHint)))};
+    }
     // 先收敛上一轮遗留的执行中 Frame（会写入新快照并推进版本），再读取本轮解析所用的状态。
     await this.settleStaleExecution(delta, identity, context);
     let key = businessKey({phase: "resolve", ...identity, delta: {...delta, fieldChanges: [...delta.fieldChanges].sort((a, b) => a.fieldHint.localeCompare(b.fieldHint))}});
@@ -67,6 +88,11 @@ export class BusinessContextService {
       key = businessKey({phase: "scope-refresh", previousKey: key, failedFrameId: completed.frameId});
     }
     const state = await this.store.state();
+    if (isAnalysisCapability(delta.capabilityHint) && delta.baseReference === null
+      && state.focusFrameId && overviewContinuesCurrent(context.originalMessage)) {
+      throw new BusinessInputError("OVERVIEW_CONTINUATION_REQUIRES_BASE", "baseReference",
+        "用户使用明确延续问法，请改用 baseReference=current，继承未变化的机构与日期并按新主题重新规划；不要用账户默认机构替代上一轮机构，原焦点未改变。");
+    }
     if (delta.baseReference === "current" && !state.focusFrameId) {
       throw new BusinessInputError("CURRENT_FOCUS_MISSING", "baseReference", "当前没有可继承焦点；独立新问题用 null，明确历史引用用选择对象，不要编造来源。");
     }
@@ -84,7 +110,18 @@ export class BusinessContextService {
     if (delta.baseReference && delta.baseReference !== "current") {
       const resolution = resolveFrame(delta.baseReference, state, await this.store.list(), identity.turnId);
       if (resolution.status === "resolved") base = await this.store.get(resolution.frameId!);
-      else { referenceIssue = resolution.status; candidates = resolution.candidates; }
+      else {
+        const focus = state.focusFrameId ? await this.store.get(state.focusFrameId) : undefined;
+        if (resolution.status === "not_found" && isAnalysisCapability(delta.capabilityHint)
+          && focus?.turnId === identity.turnId && focus.capability === delta.capabilityHint
+          && focus.status === "success" && focus.resultRef
+          && delta.fieldChanges.every(change => change.fieldHint === "plan" || change.operation === "retain")) {
+          // 本轮补查的内部引用错误不能制造用户澄清、冲掉已成功焦点；由调用方显式使用准确引用重试。
+          throw new BusinessInputError("ANALYSIS_REFINEMENT_REFERENCE_INVALID", "baseReference",
+            "同轮补查不能用历史相对位置指向本轮结果；历史序号仅计算本轮之前的业务。请保留retry_reference的frameId重新提交补查计划，机构日期不变，无需向用户澄清。", {frameId: focus.frameId});
+        }
+        referenceIssue = resolution.status; candidates = resolution.candidates;
+      }
     } else if (delta.baseReference !== null && state.focusFrameId) {
       const focus = await this.store.get(state.focusFrameId);
       const latest = focus ? await this.store.get(state.operations[focus.operationFrameId] ?? focus.frameId) : undefined;
@@ -130,6 +167,10 @@ export class BusinessContextService {
       }
     }
     const capability = delta.capabilityHint ?? base?.capability ?? "";
+    if (capability === "metric_query" && recentOverviewExpression(context.originalMessage)
+      && recentOverviewExpression(overviewTimeExpression(context.originalMessage) ?? "")) {
+      throw new BusinessInputError("ANALYSIS_LATEST_PLAN_REQUIRED", "time", "用户表达的是按最新可用数据了解现状，不是日期缺失。请analysis_catalog发现正式指标，用business_analysis规划并把最近按原文提交；服务端回查实际日期，无需请用户选择月份或内部比较口径。明确单日仍使用基础查询。");
+    }
     let schema;
     try { schema = this.capabilities.get(capability); } catch {
       throw new BusinessInputError("CAPABILITY_REQUIRED", "$capability", "无可继承能力时必须提供 capabilityHint，使用 business_context_read 中的能力名称；不要向用户询问内部能力名称。原焦点未改变。");
@@ -171,14 +212,53 @@ export class BusinessContextService {
       if (!base?.resultRef || base.status !== "success" || capability !== base.capability) frame.issues.push({field: "$result", reason: "invalid"});
       if (!frame.issues.length) {
         frame.fields = structuredClone(base!.fields);
+        if (isAnalysisCapability(capability)) assertOverviewMonthSource(context.originalMessage, frame.fields);
         frame.status = "success";
         frame.resultRef = base!.resultRef!;
         if (base!.resultSummary) frame.resultSummary = structuredClone(base!.resultSummary);
       }
     } else if (schema && !referenceIssue) {
       try {
-        const merged = await mergeFields(schema, base, delta, this.resolvers, context);
-        if (merged.issues.length) throw new BusinessInputError("FIELD_CHANGES_INVALID", "$fields", "fieldChanges 含未声明或重复字段。请按目标能力 Schema 修正字段，不要切换业务目标来绕过错误；原焦点未改变。");
+        if (capability === "business_overview") {
+          const topic = overviewTopicExpression(context.originalMessage);
+          const planChange = delta.fieldChanges.find(change => change.fieldHint === "plan" && change.operation === "set");
+          const inherited = base?.fields.plan?.resolvedValue as import("../tools/businessOverview.js").OverviewPlan | undefined;
+          if (multipleOverviewTopics(context.originalMessage) || !topic && (!base || base.capability !== "business_overview")) {
+            throw new BusinessInputError("ANALYSIS_SCOPE_UNSUPPORTED", "plan",
+              "本轮没有限定为单一存款或贷款主题，不能默认缩成loan。请并行analysis_catalog跨方面发现正式指标与business_skill_read(name=general-analysis)读取分析方法，再用business_analysis规划原始目标；整体经营还需探索收益等方面，不能只查存贷款。沿用已有机构日期，不要求用户选主题。领域概览只适用于原文明示或可信历史继承的单一主题。");
+          }
+          if (planChange && planChange.rawValue && typeof planChange.rawValue === "object") {
+            const plan = planChange.rawValue as import("../tools/businessOverview.js").OverviewPlan;
+            if (topic && plan.topic && plan.topic !== topic) throw new BusinessInputError("ANALYSIS_TOPIC_INVALID", "plan", "计划主题与用户本轮明确主题不同，请读取正确主题并重新规划，不向用户重复询问。");
+            planChange.rawValue = {...plan, topic: plan.topic ?? topic ?? inherited?.topic ?? "loan"};
+          } else if (topic && inherited && topic !== (inherited.topic ?? "loan")) {
+            throw new BusinessInputError("ANALYSIS_TOPIC_CHANGED", "plan", "用户已切换主题，请读取新主题并提交完整plan；机构日期可以继承，不能沿用旧主题指标。");
+          }
+        }
+        const requestedTime = isAnalysisCapability(capability) ? overviewTimeExpression(context.originalMessage) : undefined;
+        const comparisonOnly = isAnalysisCapability(capability) && comparisonPeriodsOnly(context.originalMessage);
+        const organizations = isAnalysisCapability(capability) && context.organizationMentions
+          && !delta.fieldChanges.some(change => change.fieldHint === "organizations" && change.operation === "set")
+          ? await context.organizationMentions() : [];
+        // 已明确的日期无需模型逐字再抄一次；缺省与追问继承仍沿用 Frame 语义。
+        const mergeDelta = {...delta, fieldChanges: [
+          ...delta.fieldChanges.filter(change => !((requestedTime || comparisonOnly) && change.fieldHint === "time")
+            && !(organizations.length && change.fieldHint === "organizations")),
+          ...(requestedTime ? [{fieldHint: "time", operation: "set" as const, rawValue: requestedTime}] : []),
+          ...(organizations.length ? [{fieldHint: "organizations", operation: "set" as const, rawValue: organizations}] : []),
+        ]};
+        frame.delta = structuredClone(mergeDelta);
+        const mergeBase = isAnalysisCapability(capability) && !requestedTime
+          && base?.fields.time?.resolutionStatus === "invalid"
+          && typeof base.fields.time.rawValue === "string" && overviewTimeExpression(base.fields.time.rawValue)
+          ? {...base, fields: {...base.fields, time: {...base.fields.time,
+            metadata: {...base.fields.time.metadata, refreshOnInherit: true}}}} : base;
+        const merged = await mergeFields(schema, mergeBase, mergeDelta, this.resolvers, context);
+        if (merged.issues.length) {
+          const invalidFields = [...new Set(merged.issues.map(issue => issue.field))];
+          throw new BusinessInputError("FIELD_CHANGES_INVALID", invalidFields.join(","),
+            `${capability} 的 fieldChanges 含未声明或重复字段：${invalidFields.join("、")}。允许的字段仅为：${Object.keys(schema.fields).join("、")}。移除未声明项或重复项，保留其他有效字段及用户条件后重试；不要切换业务目标来绕过错误，原焦点未改变。`);
+        }
         frame.fields = merged.fields;
         let constrained = delta;
         for (const saved of base?.recovery?.pendingChanges ?? []) {
@@ -193,6 +273,13 @@ export class BusinessContextService {
             mode: intent?.mode ?? "inherit", sourceText: intent?.sourceText ?? null, expectedCount: saved.expectedCount}}};
         }
         applyFieldIntentConstraints(schema, merged.fields, constrained, base);
+        if (capability === "metric_query" && context.analysisFallbackAvailable
+          && ["not_found", "ambiguous", "needs_confirmation"].includes(merged.fields.metrics?.resolutionStatus ?? "")
+          && delta.fieldChanges.some(change => change.fieldHint === "metrics" && change.operation === "set"
+            && change.rawValue && typeof change.rawValue === "object" && "fromQuestion" in change.rawValue)) {
+          throw new BusinessInputError("ANALYSIS_METRIC_DISCOVERY_REQUIRED", "metrics", "基础精确匹配未能唯一确定指标，这不证明正式目录不存在。先analysis_catalog按完整业务名发现指标，再用business_analysis选择与目标相符的正式指标并披露范围；现状选当日数，明确日期原样保留。不向用户罗列内部比较口径，也不虚构其他会计口径。确有不可替代的业务歧义才说明限制。");
+        }
+        if (isAnalysisCapability(capability)) assertOverviewMonthSource(context.originalMessage, merged.fields);
         const validation = validateFrame(schema, merged.fields, merged.issues);
         const businessMissing = validation.issues.some(issue => issue.reason === "missing"
           && schema.fields[issue.field]?.required && !schema.fields[issue.field]?.missingIsArgumentError);

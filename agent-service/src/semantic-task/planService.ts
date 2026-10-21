@@ -14,6 +14,8 @@ import {parseFormula} from "./calculation.js";
 import {bindFieldOperations, bindGroupOperations, inspectTurn, resolveTurnField} from "./actionBinding.js";
 import {pendingCompletionSource, explicitContextReset, sourceSelection} from "./sourceGuard.js";
 import {compileQueryRequest} from "./structuredQuery.js";
+import {inheritAnalysisState} from "../analysis/bindings.js";
+import {overviewContinuesCurrent} from "../business-context/overviewPolicy.js";
 
 type Goal = Awaited<ReturnType<AskMetricRequestContext["backend"]["inspectBusinessGoal"]>>;
 const problem = (code: string, message: string, remediation: SemanticIssue["remediation"] = "pi", category = "semantic"): SemanticIssue => ({code, message, remediation, category});
@@ -136,6 +138,11 @@ export class SemanticPlanService {
     const index = await this.store.planIndex();
     let plan = index.operations[this.request.operationId] ? await this.store.plan(index.operations[this.request.operationId]!) : undefined;
     let focus = plan ?? (turn.context ? turn.context.plan : index.focus ? await this.store.plan(index.focus) : undefined);
+    const enhancedAnalysis = input.targets.some(target => target.operations.some(op => op.field === "_analysis"));
+    // 在新计划写入焦点前拒绝错误来源，让模型可用current修正，不能先丢失上一轮的机构日期。
+    if (!plan && focus && enhancedAnalysis && overviewContinuesCurrent(this.request.originalMessage)
+      && input.targets.some(target => target.source.kind === "new")) fail("ANALYSIS_CONTINUATION_SOURCE_REQUIRED",
+      "这是当前分析的延续，请将同一target.source改为{kind:current}，只提交变化的分析计划；机构日期未变化时不要重填历史名称。尚未创建新焦点。", "reference");
     if (!focus && input.targets.some(target => target.source.kind === "current")) {
       const legacyRef = (await this.store.index()).focus, legacy = legacyRef ? await this.store.get(legacyRef) : undefined;
       if (legacy && !legacy.parentPlan) focus = await this.adopt(legacy);
@@ -179,7 +186,7 @@ export class SemanticPlanService {
       const coverageTransition = base?.steps.every(step => step.kind === "availability") && ["query", "analyze"].includes(input.intent);
       const pendingContinuation = base?.status === "waiting_input";
       const referenceTransition = input.targets.some(target => target.source.kind === "reference");
-      const completedTransition = !!base && ["query", "prepare"].includes(input.intent) && base.operationId !== this.request.operationId;
+      const completedTransition = !!base && (["query", "prepare"].includes(input.intent) || enhancedAnalysis) && base.operationId !== this.request.operationId;
       plan = base ? {...structuredClone(base), ...(base.ref !== focus?.ref || coverageTransition || completedTransition || input.intent === "reuse" || referenceTransition ? {ref: semanticRef(), revision: 0} : {})} : {ref: semanticRef(), owner: this.request.actor.id, revision: 0, operationId: this.request.operationId,
         goalOperationId: this.request.operationId, intent: input.intent, originalMessage: semanticMessage, status: "active", completion: "unmet", issues: [], steps: []};
       if (plan.owner !== this.request.actor.id) fail("REFERENCE_INVALID", "当前任务不可读取。", "reference");
@@ -212,7 +219,7 @@ export class SemanticPlanService {
     const analysis = input.intent === "analyze" || plan.intent === "analyze";
     const isNewGoal = !plan.steps.length;
     const ownedDraft = plan.goalOperationId === this.request.operationId || plan.proposalOperationId === this.request.operationId
-      && ["query", "prepare"].includes(input.intent);
+      && (["query", "prepare"].includes(input.intent) || enhancedAnalysis);
     // 已签发执行许可（permit）的步骤不能再被新提案重组；同轮重放保留原步骤绑定。
     const permitIssued = (await Promise.all(plan.steps.map(step => step.taskRef ? this.store.get(step.taskRef) : undefined)))
       .some(task => task?.permit && plan.steps.some(step => step.operationId === task.permit!.operationId));
@@ -247,7 +254,12 @@ export class SemanticPlanService {
           && item.source.task_ref === saved!.planRef && item.source.target_ref === saved!.step.targetRef));
         step = eligible.find(item => JSON.stringify(item.operations) === JSON.stringify(target.operations))
           ?? eligible.find(item => text(item.operations, "time") && text(item.operations, "time") === text(target.operations, "time")) ?? eligible[0];
-        if (!step) {step = {...structuredClone(saved!.step), id: semanticRef()}; plan.steps.push(step);}
+        if (!step) {
+          // 同轮从同一来源派生多个目标时，不能继承来源的执行编号；否则子turn绑定同一task，
+          // 后一个计划会覆盖前一个许可，并留下无法唯一定位的重复targetRef。
+          step = {...structuredClone(saved!.step), id: semanticRef(), operationId: ""};
+          plan.steps.push(step);
+        }
       } else if (target.source.kind === "current") {
         const bound = plan.steps.filter(item => item.source.kind === "current" && !proposed.includes(item));
         if (bound.length === 1) step = bound[0];
@@ -354,8 +366,10 @@ export class SemanticPlanService {
       : plan.issues.some(issue => issue.category === "capability" && issue.remediation === "stop") ? "unsupported"
       : plan.issues.some(issue => issue.category === "infrastructure") ? "failed"
       : plan.issues.length || blocking ? plan.issues.some(issue => issue.remediation === "pi") ? "needs_interpretation" : plan.issues.some(issue => issue.remediation === "user") ? "needs_user" : "needs_interpretation"
-      : input.intent === "prepare" ? "prepared" : input.intent === "reuse" ? "reused" : "ready";
-    plan.status = status === "needs_user" ? "waiting_input" : ["denied", "unsupported", "failed"].includes(status) ? "stopped" : "active";
+      : input.intent === "prepare" ? "prepared" : input.intent === "reuse" ? "reused"
+      : enhancedAnalysis && plan.steps.length > 0 && plan.steps.every(step => step.status === "succeeded") ? "succeeded" : "ready";
+    plan.status = status === "succeeded" ? "completed" : status === "needs_user" ? "waiting_input" : ["denied", "unsupported", "failed"].includes(status) ? "stopped" : "active";
+    if (status === "succeeded") plan.completion = "full";
     for (const application of sourceAnswers) {
       const stepId = [...answerTargets].find(([, snapshots]) => snapshots.some(snapshot =>
         snapshot.answer.question_id === application.snapshot.answer.question_id))?.[0];
@@ -593,8 +607,11 @@ export class SemanticPlanService {
     return matches[0]!.question;
   }
   private child(plan: SemanticPlan, step: SemanticPlanStep): AskMetricRequestContext {
-    return {...this.request, operationId: step.operationId, originalMessage: step.sourceQuestion,
+    const child = {...this.request, operationId: step.operationId, originalMessage: step.sourceQuestion,
       semanticStep: {planRef: plan.ref, rootOperationId: plan.operationId, revision: plan.revision, kind: step.kind, analysis: plan.intent === "analyze", multipleTargets: plan.steps.filter(item => item.kind === "query").length > 1, ...(plan.referenceYear ? {referenceYear: plan.referenceYear} : /(?<!\d)(\d{4})年/u.exec(plan.originalMessage)?.[1] ? {referenceYear: Number(/(?<!\d)(\d{4})年/u.exec(plan.originalMessage)![1])} : {})}};
+    // 子任务沿用本轮正式目录签发的短引用，不能把请求对象变化误判为未发现指标。
+    inheritAnalysisState(this.request, child);
+    return child;
   }
   async locate(taskRef: string, targetRef: string) {
     const plan = await this.store.plan(taskRef), step = plan?.steps.find(item => item.targetRef === targetRef);

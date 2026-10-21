@@ -63,7 +63,7 @@ invalid("unknown_field", request => {request.targets[0].operations = [{action: "
 const feedbackSchema = await read("feedback.schema.json");
 const feedbackExamples = (await read("feedback-examples.json")).examples;
 const validateFeedback = Compile(feedbackSchema);
-assert.deepEqual(Object.keys(feedbackSchema.properties).sort(), ["answer_receipts", "continuation", "issues", "pending_questions", "protocol_version", "state", "status"]);
+assert.deepEqual(Object.keys(feedbackSchema.properties).sort(), ["answer_receipts", "continuation", "issues", "pending_questions", "protocol_version", "query_recovery", "state", "status"]);
 assert.deepEqual(feedbackSchema.definitions.field.enum, schema.definitions.field.enum, "输入与反馈必须使用同一业务槽位");
 for (const {id, feedback} of feedbackExamples) {
   assert(validateFeedback.Check(feedback), `${id}: 反馈结构错误`);
@@ -80,6 +80,20 @@ for (const {id, feedback} of feedbackExamples) {
   if (expectedContinuation) assert.deepEqual(feedback.continuation, expectedContinuation);
   result.feedback.push({id, schema: "passed", sample_state_consistency: "passed", runtime_tested: false});
 }
+const recoveryFeedback = structuredClone(feedbackExamples[0].feedback);
+recoveryFeedback.status = "needs_interpretation";
+recoveryFeedback.continuation = {actor: "pi", action: "discover_query"};
+recoveryFeedback.query_recovery = {attempt: 1, max_attempts: 2, original_goal: "合成指标恢复查询",
+  unresolved_metrics: ["合成未匹配指标"], retained_conditions: structuredClone(recoveryFeedback.state.targets),
+  fallback_answer: "请确认合成指标口径。"};
+assert(validateFeedback.Check(recoveryFeedback), "有界目录发现反馈应符合公开契约");
+recoveryFeedback.query_recovery.metric_alternatives = [{target_ref: "synthetic-target", metric: "合成指标信息",
+  candidates: [{code: "SYNTHETIC_BAL", name: "合成指标余额"}, {code: "SYNTHETIC_GROWTH", name: "合成指标增量"}]}];
+assert(validateFeedback.Check(recoveryFeedback), "可并列指标清单应符合反馈契约");
+const invalidRecovery = structuredClone(recoveryFeedback);
+delete invalidRecovery.query_recovery.retained_conditions;
+assert.equal(validateFeedback.Check(invalidRecovery), false, "恢复反馈不能省略原范围");
+result.feedback.push({id: "query_recovery", schema: "passed", sample_state_consistency: "passed", runtime_tested: false});
 const invalidFeedback = (id, mutate) => {
   const feedback = structuredClone(feedbackExamples[0].feedback);
   mutate(feedback);

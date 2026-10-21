@@ -90,14 +90,37 @@ def parse_time_expression(
         if result.start is None or result.end is None:
             raise SemanticValidationError(["time"], "Latest data date requires a calendar range")
         return result
+    # 期间限定不改变日历含义；相对年份由服务端确定，不要求模型改写为年份数字。
+    value = re.sub(r"(?:期间|之间)$", "", value).strip()
+    relative_range = re.fullmatch(
+        rf"(今年|本年|去年|上年|前年)?({_CALENDAR_MONTH_TOKEN})月(?:末)?\s*"
+        rf"(?:至|到|~|～|-)\s*({_CALENDAR_MONTH_TOKEN})月(?:末)?",
+        value,
+    )
+    if relative_range:
+        relative, first_month, last_month = relative_range.groups()
+        year = (today.year if relative else reference_year or today.year) - {
+            "去年": 1,
+            "上年": 1,
+            "前年": 2,
+        }.get(relative, 0)
+        start = date(year, _parse_calendar_month(first_month), 1)
+        end_month = _parse_calendar_month(last_month)
+        end = date(year, end_month, calendar.monthrange(year, end_month)[1])
+        if start > end:
+            raise SemanticValidationError(["time"], "Time range start is after end")
+        return LogicalTimeRange(start=start, end=end)
+    value = re.sub(r"^(?:最近|过去)(?=[\d一二两三四五六七八九十])", "近", value)
     if value in {"latest", "最新", "最近", "最新一期", "最近一期", "当前最新"}:
         return LogicalTimeRange(preset="latest")
     year_boundary = re.fullmatch(r"(?:(\d{4})年|(今年|本年|去年|上年|前年)|年)(末|底|初)", value)
     if year_boundary:
         explicit_year, relative, boundary = year_boundary.groups()
         # 年初/年末是单日；明确相对年份不继承历史年份。
-        year = int(explicit_year) if explicit_year else (
-            today.year if relative else reference_year or today.year
+        year = (
+            int(explicit_year)
+            if explicit_year
+            else (today.year if relative else reference_year or today.year)
         )
         year -= {"去年": 1, "上年": 1, "前年": 2}.get(relative, 0)
         target = date(year, 1, 1) if boundary == "初" else date(year, 12, 31)
@@ -111,9 +134,7 @@ def parse_time_expression(
         years = int(years_ago_match.group(1))
         month = _parse_calendar_month(years_ago_match.group(2))
         return _month_range(today.year - years, month, month_end=bool(years_ago_match.group(3)))
-    two_years_ago_month_match = re.fullmatch(
-        rf"前年({_CALENDAR_MONTH_TOKEN})月(末)?", value
-    )
+    two_years_ago_month_match = re.fullmatch(rf"前年({_CALENDAR_MONTH_TOKEN})月(末)?", value)
     if two_years_ago_month_match:
         month = _parse_calendar_month(two_years_ago_month_match.group(1))
         return _month_range(
@@ -142,9 +163,7 @@ def parse_time_expression(
     if value == "昨天":
         target = today - timedelta(days=1)
         return LogicalTimeRange(start=target, end=target)
-    fixed_holiday_match = re.fullmatch(
-        r"(?:(\d{4})年)?(双十一|双十二|元旦|国庆)", value
-    )
+    fixed_holiday_match = re.fullmatch(r"(?:(\d{4})年)?(双十一|双十二|元旦|国庆)", value)
     if fixed_holiday_match:
         year_text, holiday = fixed_holiday_match.groups()
         year = int(year_text or today.year)
@@ -158,6 +177,10 @@ def parse_time_expression(
         return LogicalTimeRange(start=target, end=target)
     if value == "本月":
         return LogicalTimeRange(start=today.replace(day=1), end=today)
+    if re.fullmatch(r"上个?月(?:末|底)", value):
+        # 月末是单日，不能降为整月；自然日算法同时覆盖跨年和闰年。
+        target = today.replace(day=1) - timedelta(days=1)
+        return LogicalTimeRange(start=target, end=target)
     if value in {"上个月", "上月"}:
         end = today.replace(day=1) - timedelta(days=1)
         return LogicalTimeRange(start=end.replace(day=1), end=end)
@@ -185,8 +208,7 @@ def parse_time_expression(
             span = 3
             number = token.removeprefix("第").removesuffix("季度")
             index = (
-                int(number) if number.isdigit()
-                else {"一": 1, "二": 2, "三": 3, "四": 4}[number]
+                int(number) if number.isdigit() else {"一": 1, "二": 2, "三": 3, "四": 4}[number]
             )
         start_month = (index - 1) * span + 1
         end_month = start_month + span - 1

@@ -2,6 +2,8 @@ import { CapabilityRegistry } from "./core.js";
 import type { FieldInputCorrection, FieldSchema, QueryOperation, ValidationIssue } from "./types.js";
 import {historyFieldReferenceSchema} from "./historyReferences.js";
 import {resolveRankingEvidence} from "./rankingEvidence.js";
+import {analysisPlanSchema} from "../analysis/contracts.js";
+import {analysisInquirySchema} from "../analysis/inquiry.js";
 
 const field = (label: string, resolver: string, required = true): FieldSchema => ({label, resolver, required,
   inheritable: true, clearable: true});
@@ -11,6 +13,26 @@ const integer = (label: string, min: number, max: number): FieldSchema => ({...f
 export const FIELD_CONFIRMATION_DESCRIPTION = "确认契约：本轮以名称或编号明确选择已保存候选时可传{confirm:true}，保留该选择原文。模型理解用户对本字段每个已保存待确认项均唯一的提案作语义接受时，包括同句修改其它条件，必须传{confirm:true,evidence:{decision:'accept',sourceText:本轮完整同意原文}}，不能只传裸confirm。fieldIntents只声明意图，不能替代字段值中的evidence。完整同意原文保留否定与转折，不复制未出现在本轮的候选标签。唯一性按服务端待确认项分组判断，不按整个字段的候选总数；同一项有多个候选时须用户明确选择，不能用accept任选。候选归属、来源及各项唯一性由服务端核验，无已保存候选不能凭口头同意补事实。";
 export function createCapabilities(): CapabilityRegistry {
   const registry = new CapabilityRegistry();
+  registry.register({capability: "business_analysis", tool: "general_analysis", fields: {
+    plan: {...field("通用分析计划", "analysis_plan"), missingIsArgumentError: true,
+      description: "适用于任意业务主题和跨主题经营分析。先analysis_catalog发现正式binding_ref，再规划objective、scope_notice、requirements和steps。每个子问题有执行节点或缺口；步骤使用observe/compare/trend/ranking/structure并声明answers、依赖和理由。结构需要审核relation_id，不自行编公式。可按实际证据补查，最终analysis_report_present。", inputSchema: analysisPlanSchema},
+    organizations: {...field("机构", "organization", false), description: "明确机构按本轮原文；沿用时继承。独立问题未指定机构时由后端使用认证账户所属机构并披露，不扩大范围。集合使用与基础查询相同的受控机构范围对象。"},
+    time: {...field("分析日期或期间", "overview_date", false), description: "明确日期和范围按完整原文set；最近按原文set；独立问题没有日期则省略，由实际覆盖确定截至日。追问继承未变日期，不要求用户选择内部取数方式。"},
+  }});
+  registry.register({capability: "business_overview", tool: "business_overview", fields: {
+    plan: {...field("概览分析计划", "overview_plan"), missingIsArgumentError: true,
+      description: "读取主题后规划贷款或存款分析（plan.topic=loan/deposit）。除 goal/sections，还应提交 objective、questions（具体子问题）、metric_ids（主题逻辑ID）、comparisons（mom/yoy/ytd）和 rationale（查询理由）。只查解决问题所需指标；观察回执可修改计划补查，最多三轮，然后 business_report_present 交付表格和报告。编码、公式、权限由服务端确定。",
+      inputSchema: {type: "object", required: ["goal", "sections"], additionalProperties: false, properties: {
+        topic: {enum: ["loan", "deposit"]}, topic_version: {type: "string", minLength: 1}, goal: {enum: ["overview", "growth", "structure", "quality"]},
+        sections: {type: "array", minItems: 1, maxItems: 4, uniqueItems: true, items: {enum: ["scale", "growth", "structure", "quality"]}},
+        inquiry: analysisInquirySchema, objective: {type: "string", maxLength: 300}, rationale: {type: "string", maxLength: 500},
+        questions: {type: "array", maxItems: 6, items: {type: "string", maxLength: 200}},
+        metric_ids: {type: "array", minItems: 1, maxItems: 16, uniqueItems: true, items: {type: "string", minLength: 1}},
+        comparisons: {type: "array", maxItems: 3, uniqueItems: true, items: {enum: ["mom", "yoy", "ytd"]}},
+      }}},
+    organizations: {...field("机构", "organization", false), description: "明确机构传本轮原文；沿用时继承；独立问题未指定机构时使用后端认证账户所属机构并说明，不扩大范围。"},
+    time: {...field("分析日期或期间", "overview_date", false), description: "明确日期、月份或连续期间按原文set，如今年五月份到十月份；服务端解析并按每月实际最新记录分析，缺数月份披露，不追问内部取数方式。最近/近期按原文set；独立问题无日期省略time，选择最新实际记录。沿用日期时省略或retain；单日严格查询，明确范围不换成其他期间。"},
+  }});
   registry.register({capability: "metric_query", tool: "metric_query_structured", fields: {
     metrics: field("指标", "metric"), organizations: field("机构", "organization"), time: field("日期范围", "date"),
     comparison_organizations: field("位次比较总体", "organization", false),
@@ -181,6 +203,10 @@ export function createCapabilities(): CapabilityRegistry {
   availability.page!.description = "覆盖结果分页页码，分页只改变页码，继承原机构、指标筛选和完整日期范围。";
   availability.page_size!.description = "每页返回条数，按 validation 限制。样例页不代表完整覆盖；判断完整性须使用回执的总数、截断和后续页标记。";
   // 只有这些同义字段允许在覆盖与取值能力之间继承，其他字段保持隔离。
+  for (const capability of ["business_analysis", "business_overview"]) {
+    for (const name of ["organizations", "time"]) registry.get(capability).fields[name]!.allowedSourceCapabilities =
+      ["business_analysis", "business_overview", "metric_query", "data_availability"].filter(item => item !== capability);
+  }
   for (const capability of ["metric_query", "data_availability"]) {
     for (const name of ["metrics", "organizations", "time"]) registry.get(capability).fields[name]!.allowedSourceCapabilities =
       [capability === "metric_query" ? "data_availability" : "metric_query"];

@@ -8,7 +8,7 @@
 
 ## 当前链路与改造链路
 
-当前版本 2 链路为原始用户消息 → Pi 原生 Session 和工具循环 → `resolve_business_turn` 的 `source + operations` → 宿主统一入口绑定并更新版本化工作状态 → Frame 与任务级执行许可（`task.permit`）→ 后端规范化 `BasicQuerySpec` 受治理接口 → 同一 Pi 继续规划或回答 → 页面及历史投影。旧版本 1 会话仍由绑定的旧协议处理。
+当前版本 2 链路为原始用户消息 → Pi 原生 Session 和工具循环 → `resolve_business_turn` 的 `query` 或 `source + operations`（经营分析另带 `analysis` 计划）→ 宿主统一入口绑定并更新版本化工作状态 → Frame 与任务级执行许可（`task.permit`）→ 后端受治理查询与计算 → 同一 Pi 继续规划或回答 → 页面及历史投影。旧版本 1 会话保留历史只读。经营分析的接线、配置与兼容边界见[衔接说明](enhanced-analysis.md)。
 
 新链路在同一循环中加入语义任务、完整目标义务及步骤执行许可。明确完整查询可以一次提交语义提议，宿主完成绑定和许可校验后直接执行；分析请求可以按证据增加步骤。目录探索、Skill 读取和可用性查询由 Pi 按需选择，不成为每次查询的固定前置流程。
 

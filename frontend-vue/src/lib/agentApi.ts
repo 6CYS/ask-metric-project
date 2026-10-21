@@ -137,7 +137,7 @@ export interface AgentSessionDetail {
 
 /** metric_ask / 结构化查询工具结束时附带的结构化结果引用；完整明细经后端 result 接口分页读取。 */
 export interface MetricAskDetails {
-  kind: "metric_ask" | "metric_query_structured" | "metric_read"
+  kind: "metric_ask" | "metric_query_structured" | "metric_read" | "business_report"
   task_id?: string
   version?: number
   result_id?: string
@@ -156,6 +156,22 @@ export interface MetricAskDetails {
   public_answer_blocks?: AssistantBlock[] | null
   /** 备选时间口径，与 clarification 同层下发；前端渲染切换 chips，点选后以 time_override 重查。 */
   time_variants?: TimeVariant[]
+  partial_analysis?: boolean
+  gaps?: string[]
+  report?: {
+    summary?: string
+    sections?: Array<{ title: string; text: string }>
+    presentation?: {
+        body_mode?: "narrative"
+      version: number; scope: string; source_notices: string[]; limitations: string[]
+      profile?: "brief" | "snapshot" | "trend" | "diagnostic" | "multi_topic"
+      density?: "compact" | "medium" | "detailed"
+      variant?: number
+      layout?: Array<"summary" | "data" | "analysis">
+      labels?: { summary?: string; data?: string; analysis?: string; gaps?: string; sources?: string }
+    }
+    plans: Array<{ objective?: string; questions?: string[]; rationale?: string } | undefined>
+  }
 }
 
 /** 提问输入（协议 V3）：request_id 由浏览器每次确认发送生成，网络重试不变 */

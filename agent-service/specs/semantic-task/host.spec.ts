@@ -297,6 +297,13 @@ it("发送副本的精简入口真实生效，正式查询和落盘回执一致�
     const {frame_id: _frame, payloads: _payloads, ...evidence} = value as Record<string, unknown>; return evidence;
   };
   expect(formal(receipts[1]?.[0]?.state.evidence)).toEqual(formal(receipts[0]?.[0]?.state.evidence));
+  const contexts = compact.model.contexts as Array<{messages: unknown[]; systemPrompt: string}>;
+  expect(contexts[0]!.systemPrompt).toBe(contexts[1]!.systemPrompt);
+  expect(contexts[0]!.messages[0]).toEqual(contexts[1]!.messages[0]);
+  expect(JSON.stringify(contexts[1]!.messages.at(-1))).toContain("本轮状态快照");
+  const entries = await compact.session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
+  expect(entries.filter(entry => entry.type === "message" && entry.message.role === "user")).toHaveLength(1);
+  expect(JSON.stringify(entries)).not.toContain("本轮状态快照");
 });
 
 it("普通缺项问数的catalog成功不能冒充完成，必须保存已知指标并澄清，次轮补条件继承成功", async () => {
@@ -325,6 +332,81 @@ it("普通缺项问数的catalog成功不能冒充完成，必须保存已知指
   expect(next, JSON.stringify(nextReceipts)).toMatchObject({status: "succeeded"});
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
   expect(f.backend.basicQueries.mock.calls[0]?.[0]).toMatchObject({metric_codes: ["M1"], org_codes: ["O1"], time: {start: "2025-12-31", end: "2025-12-31"}});
+});
+
+it("分析目录引用缺失时允许模型返回目录补依据，不强制重复无效计划", async () => {
+  const bad = {protocol_version: 2, intent: "analyze", targets: [{source: {kind: "new"},
+    operations: [{action: "set", field: "organizations", value: "合成机构甲"}],
+    analysis: {kind: "business_analysis", plan: {objective: "盈利表现", scope_notice: "隔离合成测试",
+      requirements: [{id: "profit", question: "盈利表现如何"}], steps: [{id: "first", method: "observe",
+        metric_refs: ["k999"], answers: ["profit"], rationale: "读取盈利事实"}]}}}]};
+  const f = await setup([[{name: "resolve_business_turn", args: bad}],
+    [{name: "analysis_catalog", args: {keywords: ["合成利润"]}}],
+    [{name: "resolve_business_turn", args: proposal(complete())}], "查询完成"]);
+  const discover = vi.fn(async () => ({items: [], methods: [], relations: []}));
+  Object.assign(f.backend, {analysisCatalog: discover, analysisMethods: vi.fn(async () => ({methods: [], relations: []})),
+    analysisValidate: vi.fn(async () => ({valid: true}))});
+  await f.run("catalog-recovery", "合成机构甲最近盈利表现如何？");
+  const entries = await f.session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
+  const first = entries.flatMap(entry => entry.type === "message" && entry.message.role === "toolResult" ? [entry.message.details] : [])[0];
+  expect(JSON.stringify(first)).toContain("ANALYSIS_BINDING_INVALID");
+  expect(f.model.payloads[1]).not.toMatchObject({tool_choice: {type: "function", function: {name: "resolve_business_turn"}}});
+  expect(discover).toHaveBeenCalledTimes(1);
+});
+
+it("基础指标零命中不提前交付澄清，宿主引导目录发现后重提同一问题并只执行一次", async () => {
+  const missing = proposal(complete().map(op => op.field === "metrics" ? {...op, value: "存款记录"} : op));
+  const f = await setup([[{name: "resolve_business_turn", args: missing}],
+    [{name: "analysis_catalog", args: {keywords: ["存款"]}}],
+    [{name: "resolve_business_turn", args: missing}], "不应额外调用总结"], "on");
+  const originalResolve = f.backend.resolveBusinessField.getMockImplementation()!;
+  let discovered = false;
+  f.backend.resolveBusinessField.mockImplementation(async (...args) => args[0] === "metric" && discovered
+    ? {status: "resolved", value: {codes: ["M1"], names: ["合成指标甲"]}}
+    : originalResolve(...args));
+  const discover = vi.fn(async () => {discovered = true; return {items: [{code: "M1", name: "合成指标甲", binding_ref: "signed-synthetic"}]};});
+  Object.assign(f.backend, {analysisCatalog: discover, analysisMethods: vi.fn(async () => ({methods: [], relations: []}))});
+  await f.run("query-discovery", "查询合成机构甲2025年末的存款记录");
+  // 带目录旁支的回合沿用原有Pi总结规则；只有原本的完整基础查询走一轮直出。
+  expect(f.model.calls()).toBe(4);
+  expect(discover).toHaveBeenCalledTimes(1);
+  expect(f.model.payloads[1]).toMatchObject({tool_choice: {type: "function", function: {name: "analysis_catalog"}}});
+  expect(f.model.payloads[2]).toMatchObject({tool_choice: {type: "function", function: {name: "resolve_business_turn"}}});
+  expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
+  expect(f.backend.basicQueries.mock.calls[0]?.[0]).toMatchObject({org_codes: ["O1"], metric_codes: ["M1"], time: {start: "2025-12-31", end: "2025-12-31"}});
+  const entries = await f.session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
+  const results = entries.flatMap(entry => entry.type === "message" && entry.message.role === "toolResult" ? [entry.message] : []);
+  expect(results[0]?.details).toMatchObject({status: "needs_interpretation", query_recovery: {attempt: 1}});
+  expect(results.at(-1)?.details).toMatchObject({status: "succeeded"});
+});
+
+it("目录恢复耗尽后一次说明缺项，原生宿主不会持续搜索或执行猜测查询", async () => {
+  const missing = proposal(complete().map(op => op.field === "metrics" ? {...op, value: "存款记录"} : op));
+  const f = await setup([[{name: "resolve_business_turn", args: missing}],
+    [{name: "analysis_catalog", args: {keywords: ["存款"]}}],
+    [{name: "resolve_business_turn", args: missing}],
+    [{name: "analysis_catalog", args: {keywords: ["存款"]}}],
+    [{name: "resolve_business_turn", args: missing}], "不能无止境重试"]);
+  const discover = vi.fn(async () => ({items: []}));
+  Object.assign(f.backend, {analysisCatalog: discover, analysisMethods: vi.fn(async () => ({methods: [], relations: []}))});
+  await f.run("query-discovery-exhausted", "查询合成机构甲2025年末的存款记录");
+  expect(f.model.calls()).toBe(5); expect(discover).toHaveBeenCalledTimes(2);
+  expect(f.backend.basicQueries).not.toHaveBeenCalled();
+  const entries = await f.session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
+  const answer = projectEntries(entries).flatMap(message => message.role === "assistant" && message.text ? [message.text] : []).at(-1);
+  expect(answer).toContain("指标"); expect(answer).not.toContain("不能无止境重试");
+});
+
+it("网关忽略指定工具而反复目录搜索时，宿主不执行越阶段调用并有限收束", async () => {
+  const missing = proposal(complete().map(op => op.field === "metrics" ? {...op, value: "存款记录"} : op));
+  const catalog = [{name: "analysis_catalog", args: {keywords: ["存款"]}}];
+  const f = await setup([[{name: "resolve_business_turn", args: missing}], catalog, catalog]);
+  const discover = vi.fn(async () => ({items: []}));
+  Object.assign(f.backend, {analysisCatalog: discover, analysisMethods: vi.fn(async () => ({methods: [], relations: []}))});
+  await f.run("query-discovery-ignored-choice", "查询合成机构甲2025年末的存款记录");
+  expect(discover).toHaveBeenCalledTimes(1);
+  expect(f.model.calls()).toBe(5);
+  expect(f.backend.basicQueries).not.toHaveBeenCalled();
 });
 
 it.each(["合成指标甲的口径是什么", "搜索合成指标甲", "查看合成指标甲的目录说明", "合成指标甲有吗"])("合法目录/说明目的不因catalog成功而被强迫查询：%s", async question => {

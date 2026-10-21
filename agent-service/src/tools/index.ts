@@ -18,6 +18,10 @@ import {
   createSemanticClarifyTool,
   semanticCapabilityTool,
 } from "../semantic-task/tools.js";
+import { createBusinessTopicReadTool } from "./businessOverview.js";
+import { createBusinessReportTool } from "./businessReport.js";
+import {createAnalysisCatalogTool, createAnalysisReportTool} from "../analysis/tools.js";
+import {createPartialAnalysisTool} from "./partialAnalysis.js";
 
 export { createMetricCatalogSearchTool } from "./metricCatalogSearch.js";
 export { createOrgCatalogSearchTool } from "./orgCatalogSearch.js";
@@ -34,6 +38,11 @@ export function createAskMetricTools(): AgentHarnessTool<AskMetricRequestContext
     createSemanticExecuteTool(),
     createSemanticReadTool(),
     createReadTool(),
+    createBusinessTopicReadTool(),
+    createBusinessReportTool(),
+    createAnalysisCatalogTool(),
+    createAnalysisReportTool(),
+    createPartialAnalysisTool(),
     deliverable(createCatalogTool()),
     createConversationReplyTool(),
     createActionRequiredTool(),

@@ -8,13 +8,17 @@ const html = computed(() => renderAssistantHtml(props.source))
 </script>
 
 <template>
-  <!-- 渲染输出经 markdown-it html:false 转义，不含原始 HTML；样式只收敛排版，不改写内容 -->
+  <!-- 渲染前规范异常 Markdown 排版；html:false 保持原始 HTML 转义，正文事实不变。 -->
   <div class="chat-markdown min-w-0 break-words leading-7" v-html="html" />
 </template>
 
 <style scoped>
+.chat-markdown {
+  font-weight: 400;
+}
+
 .chat-markdown :deep(> * + *) {
-  margin-top: 0.375rem;
+  margin-top: 0.75rem;
 }
 
 .chat-markdown :deep(h1),
@@ -30,6 +34,19 @@ const html = computed(() => renderAssistantHtml(props.source))
 .chat-markdown :deep(h1),
 .chat-markdown :deep(h2) {
   font-size: 1.05rem;
+}
+
+.chat-markdown :deep(> h1:not(:first-child)),
+.chat-markdown :deep(> h2:not(:first-child)),
+.chat-markdown :deep(> h3:not(:first-child)),
+.chat-markdown :deep(> h4:not(:first-child)),
+.chat-markdown :deep(> h5:not(:first-child)),
+.chat-markdown :deep(> h6:not(:first-child)) {
+  margin-top: 1.125rem;
+}
+
+.chat-markdown :deep(strong) {
+  font-weight: 600;
 }
 
 .chat-markdown :deep(ul) {

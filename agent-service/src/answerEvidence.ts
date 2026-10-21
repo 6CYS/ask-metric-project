@@ -13,6 +13,7 @@ export interface BusinessEvidence {
   result_id?: string | undefined;
   row_count?: number | undefined;
   public_answer?: string | undefined;
+  answer_policy?: "verified_overview_v1" | "overview_evidence_v2" | "verified_report_v1" | "general_analysis_evidence_v1";
   /** 结构化回答正文（后端渲染块），原样透传给前端；缺省时前端解析 public_answer */
   public_answer_blocks?: unknown;
   error_code?: string | undefined;
@@ -28,7 +29,8 @@ export function businessEvidence(details: unknown): BusinessEvidence | undefined
   if (value.kind === "metric_read" && !value.result_id && !["error", "failed"].includes(value.status.toLowerCase())) return undefined;
   if (value.delivery === "business_evidence_v1") return value;
   // 兼容已持久化的旧会话回执；新工具在注册处声明交付契约。
-  return ["metric_ask", "metric_read", "metric_query_structured", "metric_catalog_overview", "data_availability", "metric_calculate"].includes(value.kind) ? value : undefined;
+  return ["metric_ask", "metric_read", "metric_query_structured", "metric_catalog_overview", "data_availability", "metric_calculate",
+    "business_overview", "business_report", "analysis_evidence", "business_topic_explanation"].includes(value.kind) ? value : undefined;
 }
 
 /** 复合步骤证据保留各自身份，不能只取批次最后一项。 */

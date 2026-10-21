@@ -7,7 +7,6 @@ const capabilities = {
   anomaly_diagnosis: "业务异常诊断",
   forecast: "未来指标预测",
   lineage: "数据血缘分析",
-  comprehensive_analysis: "综合分析报告",
 } as const;
 const parameters = Type.Object({
   capability: StringEnum(Object.keys(capabilities) as Array<keyof typeof capabilities>),

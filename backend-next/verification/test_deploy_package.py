@@ -55,14 +55,20 @@ def test_dockerfile_copy_sources_exist():
 
 @pytest.fixture
 def release_root(tmp_path):
+    if os.name != "posix":
+        pytest.skip("Shell migration fixtures run on native Linux; use container verification")
     if shutil.which("bash") is None:
         pytest.skip("bash is required")
     release = tmp_path / "release"
     (release / "ops").mkdir(parents=True)
     (release / "venv" / "bin").mkdir(parents=True)
-    (release / "venv" / "bin" / "python").symlink_to(sys.executable)
+    # 裸 symlink 位于假 venv 时会丢失原解释器的 site-packages；执行原路径保留 dotenv。
+    launcher = release / "venv" / "bin" / "python"
+    launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
+    launcher.chmod(0o755)
     # python -m 优先从当前目录导入，假模块遮蔽真实 alembic。
     (release / "backend" / "alembic").mkdir(parents=True)
+    (release / "backend" / "alembic" / "__init__.py").write_text("", encoding="utf-8")
     (release / "backend" / "alembic" / "__main__.py").write_text(FAKE_ALEMBIC, encoding="utf-8")
     shutil.copy2(PACKAGE_DIR / "runtime" / "migrate.sh", release / "ops" / "migrate.sh")
     return release

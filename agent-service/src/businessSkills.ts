@@ -46,10 +46,11 @@ export function visibleBusinessSkills(messages: readonly AgentMessage[], skills:
 }
 
 /** 已读取的当前版本知识可组合使用；投影只去重正文，不选择方法或改变工具集。 */
-export function projectBusinessSkillContext(messages: readonly AgentMessage[], skills: readonly Skill[]) {
+export function projectBusinessSkillContext(messages: readonly AgentMessage[], skills: readonly Skill[], placement: "system" | "tool" = "system") {
   const visible = visibleBusinessSkills(messages, skills);
+  const retained = new Set<string>();
   return {
-    instructions: skills.filter(skill => visible.has(skill.name)).map(skill =>
+    instructions: placement === "tool" ? "" : skills.filter(skill => visible.has(skill.name)).map(skill =>
       `\n业务知识 ${skill.name}（仅在相关业务场景适用）：\n${skill.content}`,
     ).join("\n"),
     messages: messages.map(message => {
@@ -58,9 +59,15 @@ export function projectBusinessSkillContext(messages: readonly AgentMessage[], s
       const skill = skills.find(item => item.name === details?.name);
       if (!skill || message.isError || details?.status !== "ok") return message;
       const current = message.content.some(block => block.type === "text" && block.text === skill.content);
+      // 紧凑视图让正文留在首次成功读取的位置，避免改变系统前缀、破坏模型缓存。
+      // 历史裁剪后重新确定首次可见正文，不能只留下“已读取”却没有实际方法。
+      if (placement === "tool" && current && !retained.has(skill.name)) {
+        retained.add(skill.name);
+        return message;
+      }
       // 旧会话仅变更发送副本，避免旧版路由说明继续影响升级后的工具选择。
       return {...message, content: [{type: "text" as const, text: current
-        ? `业务知识 ${skill.name} 已读取，正文见本次系统提供的业务知识。`
+        ? `业务知识 ${skill.name} 已读取，正文见${placement === "tool" ? "前面的同名工具回执" : "本次系统提供的业务知识"}。`
         : `业务知识 ${skill.name} 的旧版本正文已失效，需要相关口径时可重新查阅。`} ]};
     }),
   };

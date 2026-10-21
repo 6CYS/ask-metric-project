@@ -326,6 +326,34 @@ export class BackendClient {
     return this.request<BackendUser>("/api/v1/auth/me", {}, options);
   }
 
+  businessTopic(topic: string, knowledge = false, options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request(`/api/v1/business-topics/${encodeURIComponent(topic)}${knowledge ? "/knowledge" : ""}`, {}, options);
+  }
+
+  businessOverview(payload: Record<string, unknown>, key: string, options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request("/api/v1/business-overviews", {method: "POST", body: JSON.stringify(payload)}, {...options, idempotencyKey: key});
+  }
+
+  analysisCatalog(keyword: string, page: number, pageSize: number, options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request(`/api/v1/analysis/catalog?keyword=${encodeURIComponent(keyword)}&page=${page}&page_size=${pageSize}`, {}, options);
+  }
+  analysisMethods(options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request("/api/v1/analysis/methods", {}, options);
+  }
+  analysisValidate(plan: import("./analysis/contracts.js").AnalysisPlan, question: string, options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request("/api/v1/analysis/validate", {method: "POST", body: JSON.stringify({plan, question})}, options);
+  }
+  analysisExecute(payload: Record<string, unknown>, key: string, options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request("/api/v1/analysis/execute", {method: "POST", body: JSON.stringify(payload)}, {...options, idempotencyKey: key});
+  }
+  analysisReport(payload: Record<string, unknown>, options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request("/api/v1/analysis/report", {method: "POST", body: JSON.stringify(payload)}, options);
+  }
+
+  analysisStatus(key: string, conversationId: string, options?: CallOptions): Promise<{status: string; evidence?: Record<string, unknown>}> {
+    return this.request(`/api/v1/analysis/runs/${encodeURIComponent(key)}?conversation_id=${encodeURIComponent(conversationId)}`, {}, options);
+  }
+
   resolveBusinessField(entity: string, rawValues: string[], options?: CallOptions, referenceYear?: number,
     semanticSource?: {business_date: string; source_question: string},
     modelValue?: import("./business-context/types.js").DateModelValue | null): Promise<import("./business-context/types.js").FieldResolution> {

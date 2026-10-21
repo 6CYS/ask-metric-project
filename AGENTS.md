@@ -17,6 +17,7 @@
 - `agent-service/`：Node / TypeScript；使用其 `package.json` 中实际存在的脚本。
 - `frontend-vue/`：Vue / TypeScript；使用其 `package.json` 中实际存在的脚本。
 - `deploy/package/`：构建、部署、升级与回退工具。
+- `docs/行内UAT部署交接与打包说明.md`：现有两机行内环境的打包、配置保留、升级和回退入口；相关任务先核对该文档与现场当前状态。
 - `docs/`、`backend-next/docs/`：按任务阅读直接相关的设计与操作说明，不将全部文档无差别加载。
 
 ## 编码与接口

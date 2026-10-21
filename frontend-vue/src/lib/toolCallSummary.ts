@@ -6,6 +6,10 @@ export type ToolCallSummary = {
 
 const toolLabels: Record<string, string> = {
   business_skill_read: "确认查询方法",
+  business_topic_read: "读取业务主题与指标关系",
+  business_report_present: "生成经营分析报告",
+  analysis_catalog: "发现指标与分析方法",
+  analysis_report_present: "生成分析报告",
   business_capability_explain: "说明当前能力",
   answer_evidence_check: "核验回答依据",
   answer_present: "交付回答",
@@ -40,6 +44,11 @@ type Details = {
   issues?: unknown
   delivery?: unknown
   display_conditions?: unknown
+  org_name?: unknown
+  analysis_date?: unknown
+  requested_date?: unknown
+  table_rows?: unknown
+  plan?: { objective?: unknown }
 }
 
 function asDetails(value: unknown): Details {
@@ -48,6 +57,8 @@ function asDetails(value: unknown): Details {
 
 /** 解析条件后宿主会就地执行查询，此时同一步骤的回执已是查询结果。 */
 export function toolCallLabel(tool: string, details?: unknown) {
+  if (asDetails(details).kind === "analysis_evidence") return "规划并执行分析步骤"
+  if (asDetails(details).kind === "business_overview") return "规划并查询经营指标"
   if (tool === "resolve_business_turn" && metricResultKinds.has(String(asDetails(details).kind))) return "解析条件并执行查询"
   return toolLabels[tool] ?? "执行查询步骤"
 }
@@ -95,9 +106,21 @@ function businessContextNote(details: Details) {
 export function toolCallSummary(details: unknown, isError = false): ToolCallSummary | undefined {
   const value = asDetails(details)
   const kind = String(value.kind ?? "")
-  const conditions = conditionsOf(value)
+  let conditions = conditionsOf(value)
   let note: string | undefined
   if (metricResultKinds.has(kind)) note = resultNote(value)
+  else if (["business_overview", "business_report", "analysis_evidence"].includes(kind)) {
+    const date = value.analysis_date ?? value.requested_date
+    conditions = [
+      ...(typeof value.org_name === "string" ? [{ label: "机构", value: value.org_name }] : []),
+      ...(typeof date === "string" ? [{ label: "日期", value: date }] : []),
+      ...(typeof value.plan?.objective === "string" ? [{ label: "分析目标", value: value.plan.objective }] : []),
+    ]
+    note = value.status === "succeeded" ? kind === "business_report" ? "报告和数据表已生成"
+      : value.analysis_date === null ? "目标日期没有记录，正在整理数据覆盖说明"
+        : `已取得 ${Array.isArray(value.table_rows) ? value.table_rows.length : 0} 项指标证据，继续分析`
+      : "分析步骤需调整，正在核验"
+  }
   else if (kind === "business_context") note = businessContextNote(value)
   else if (kind === "data_availability") note = value.status === "succeeded" ? "已查看数据覆盖范围" : "数据覆盖查询未完成"
   else if (kind === "metric_calculate") note = value.status === "succeeded" ? "计算完成" : "计算未成功"

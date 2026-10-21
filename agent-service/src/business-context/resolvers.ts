@@ -4,6 +4,8 @@ import type { MetricMention } from "./metricMentions.js";
 import { BusinessInputError } from "./inputError.js";
 import { hasInputEvidence } from "./inputEvidence.js";
 import {resolveRankingEvidence} from "./rankingEvidence.js";
+import {recentOverviewExpression, overviewTimeExpression} from "./overviewPolicy.js";
+import {analysisPlanProblem} from "../analysis/contracts.js";
 
 const invalid = (): FieldResolution => ({status: "invalid"});
 const resolved = (value: unknown): FieldResolution => ({status: "resolved", value});
@@ -363,8 +365,12 @@ export function createFieldResolvers(): FieldResolverRegistry {
             questionText: source.originalMessage, mentionResolutions: mentions.map(mentionSnapshot)}};
       }
       const values = typeof raw === "string" ? [raw] : raw;
+      // 语义入口可能已把规范名称归一为正式编码；必须完整匹配本轮绑定，随后仍走目录与权限复核。
+      const bound = entity === "organization" ? context.boundOrganizationCodes : undefined;
+      const boundInput = !!bound?.length && Array.isArray(values) && values.length === bound.length
+        && new Set(values).size === bound.length && values.every(value => typeof value === "string" && bound.includes(value));
       if (!Array.isArray(values) || !values.length || values.length > 100
-        || !values.every(item => typeof item === "string" && item.trim() && item.length <= 200 && fromCurrentInput(item, context))) {
+        || !values.every(item => typeof item === "string" && item.trim() && item.length <= 200 && (boundInput || fromCurrentInput(item, context)))) {
         throw currentInputError(entity, context);
       }
       // 只传原文；正式编码由当前授权目录的精确/别名匹配返回。
@@ -395,6 +401,28 @@ export function createFieldResolvers(): FieldResolverRegistry {
       throw new BusinessInputError("FIELD_ENUM_INVALID", schema.label,
         `rawValue 必须使用 Schema 枚举 ${JSON.stringify(values)}。${schema.description ?? ""}请根据用户语义修正调用，不要求用户填写内部枚举；保留完整业务名称，不能把名称中的限定词移作控制参数。原焦点未改变。`);
     }});
+  registry.register({name: "overview_date", supports: schema => schema.resolver === "overview_date",
+    async resolve(raw, _schema, context) {
+      if (typeof raw !== "string") throw new BusinessInputError("FIELD_INPUT_NOT_CURRENT", "time", "分析月份请使用用户原文。");
+      const requested = overviewTimeExpression(context.originalMessage);
+      // 可确定的日期表达由服务端抽取；模型改写或只截取区间端点时仍以真实原文为准。
+      const source = requested ?? (raw.endsWith("月末") && !fromCurrentInput(raw, context) ? raw.slice(0, -1) : raw);
+      const trustedInherited = context.inputSource === "inherited" && context.previous?.rawValue === raw;
+      if (!trustedInherited && !fromCurrentInput(source, context)) throw new BusinessInputError("FIELD_INPUT_NOT_CURRENT", "time", "日期请使用本轮表达；独立问题没有日期时省略 time，服务端选择最新数据。历史日期未变化时省略或 retain。");
+      if (recentOverviewExpression(source) === source) {
+        if (recentOverviewExpression(context.originalMessage) !== source) {
+          throw new BusinessInputError("OVERVIEW_DATE_SOURCE_MISMATCH", "time",
+            "本轮包含有界期间，不能仅截取‘最近’改成一个截至日。请保留用户完整期间按现有日期解析；当前方法不支持连续期间时说明数据或方法限制，不偷换问题。");
+        }
+        return {...resolved({date_selection: "latest_snapshot"}), metadata: {sourceExpression: source}};
+      }
+      const canonical = ["这个月", "当月", "当前月"].includes(source) ? "本月" : source;
+      const previous = context.previous?.resolvedValue as {start?: string; end?: string} | undefined;
+      const year = previous?.start?.slice(0, 4);
+      const result = await context.resolveCatalog("date", [canonical], year && year === previous?.end?.slice(0, 4) ? Number(year) : undefined);
+      return {...result, metadata: {...result.metadata, sourceExpression: source,
+        ...(result.status === "invalid" ? {userInputIssue: true, refreshOnInherit: true} : {})}};
+    }});
   registry.register({name: "query_operation", supports: schema => schema.resolver === "query_operation",
     async resolve(raw, schema, context) {
       const value = raw as import("./types.js").QueryOperation | undefined;
@@ -403,6 +431,41 @@ export function createFieldResolvers(): FieldResolverRegistry {
       if (value?.kind === "ranking" && ["top", "bottom"].includes(value.position) && Number.isInteger(value.top_n)
         && value.top_n >= 1 && value.top_n <= 100 && Object.keys(value).every(key => ["kind", "position", "top_n"].includes(key))) return resolveRankingEvidence(value, schema, context);
       throw new BusinessInputError("QUERY_OPERATION_INVALID", "operation", "按 operation 判别联合提交 value 普通取值、ranking 前后 N 名榜单，或 rank_position 关注对象在比较总体中的位次；位次不接收 TopN 参数。不能丢弃用户的排名目标。原焦点未改变。");
+    }});
+  registry.register({name: "overview_plan", supports: schema => schema.resolver === "overview_plan",
+    async resolve(raw, _schema, context) {
+      const plan = raw as import("../tools/businessOverview.js").OverviewPlan | undefined;
+      const allowed = ["scale", "growth", "structure", "quality"];
+      const required = plan?.topic === "deposit" ? allowed.filter(section => section !== "quality") : allowed;
+      if (!plan || plan.topic !== undefined && !["loan", "deposit"].includes(plan.topic) || plan.topic_version !== undefined && (typeof plan.topic_version !== "string" || !plan.topic_version)
+        || !["overview", "growth", "structure", "quality"].includes(plan.goal)
+        || !Array.isArray(plan.sections) || !plan.sections.length || plan.sections.some(section => !allowed.includes(section))
+        || new Set(plan.sections).size !== plan.sections.length
+        || (plan.goal === "overview" ? required.some(section => !plan.sections.includes(section as typeof plan.sections[number])) : !plan.sections.includes(plan.goal))) {
+        throw new BusinessInputError("ANALYSIS_PLAN_INCOMPLETE", "plan", "分析计划需覆盖目标：overview 包含主题的 default_sections（存款 scale/growth/structure，贷款再含 quality）；聚焦目标至少包含相应 section。修正计划，不向用户询问内部字段。");
+      }
+      if (plan.metric_ids !== undefined && (!Array.isArray(plan.metric_ids) || !plan.metric_ids.length
+        || plan.metric_ids.length > 16 || plan.metric_ids.some(id => typeof id !== "string" || !id)
+        || new Set(plan.metric_ids).size !== plan.metric_ids.length)
+        || plan.comparisons !== undefined && (!Array.isArray(plan.comparisons)
+          || plan.comparisons.length > 3 || plan.comparisons.some(item => !["mom", "yoy", "ytd"].includes(item))
+          || new Set(plan.comparisons).size !== plan.comparisons.length)
+        || plan.questions !== undefined && (!Array.isArray(plan.questions) || plan.questions.length > 6
+          || plan.questions.some(item => typeof item !== "string" || !item.trim() || item.length > 200))
+        || plan.objective !== undefined && (typeof plan.objective !== "string" || plan.objective.length > 300)
+        || plan.rationale !== undefined && (typeof plan.rationale !== "string" || plan.rationale.length > 500)) {
+        throw new BusinessInputError("ANALYSIS_PLAN_INVALID", "plan", "按 Schema 提交主题指标ID、子问题和比较方式，不猜测编码或公式。");
+      }
+      await context.validateOverviewPlan?.(plan);
+      return resolved(plan);
+    }});
+  registry.register({name: "analysis_plan", supports: schema => schema.resolver === "analysis_plan",
+    inputProblem: analysisPlanProblem,
+    async resolve(raw, _schema, context) {
+      const problem = analysisPlanProblem(raw);
+      if (problem) throw new BusinessInputError("ANALYSIS_PLAN_INVALID", "plan", problem + "修正内部计划，不向用户询问枚举。");
+      const canonical = await context.validateAnalysisPlan?.(raw as import("../analysis/contracts.js").AnalysisPlan);
+      return resolved(canonical ?? raw);
     }});
   registry.register({name: "integer", supports: schema => schema.resolver === "integer",
     async resolve(raw, schema) {

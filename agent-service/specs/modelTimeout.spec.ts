@@ -6,6 +6,7 @@ import {
   type Model,
   type ProviderStreams,
   type StreamOptions,
+  isRetryableAssistantError,
 } from "@earendil-works/pi-ai";
 import * as openAICompletions from "@earendil-works/pi-ai/api/openai-completions";
 import {MODEL_FIRST_RESPONSE_TIMEOUT, MODEL_STREAM_IDLE_EXCEEDED, wrapStreamsWithAuthorization} from "../src/models.js";
@@ -119,7 +120,7 @@ it("开始输出后按最后一次进展检测停顿，保留失败快照且迟�
   const result = await h.output.result();
   expect(result).toMatchObject({stopReason: "error", errorMessage: expect.stringContaining(MODEL_STREAM_IDLE_EXCEEDED),
     content: [{text: "已输出的部分"}]});
-  expect(result.errorMessage?.toLowerCase()).not.toContain("timeout");
+  expect(isRetryableAssistantError(result)).toBe(true);
   await h.text("迟到的内容");
   await h.push({type: "done", reason: "stop", message: h.partial});
   expect(await h.output.result()).toBe(result);

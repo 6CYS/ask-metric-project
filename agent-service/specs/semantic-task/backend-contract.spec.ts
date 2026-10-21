@@ -13,11 +13,14 @@ import {fixture, proposal} from "./fixtures.js";
 const clean: Array<() => Promise<void>> = [];
 afterEach(async () => {for (const close of clean.splice(0)) await close();});
 const cache = new Map<string, any>();
+// 本套件反复启动真实 Python 契约进程；Windows 启动成本单独计入测试预算，不改变运行时超时。
+const contractTimeout = (ms: number) => process.platform === "win32" ? Math.max(ms, 150_000) : ms;
 function python(payload: unknown, script = "semantic-task-fixture.py"): any {
   const input = JSON.stringify(payload), key = script + input;
   if (cache.has(key)) return structuredClone(cache.get(key));
-  const output = JSON.parse(execFileSync(resolve("../backend-next/.venv/bin/python"), [resolve("scripts", script)],
-    {input, encoding: "utf8", timeout: 30000, env: {PATH: "/usr/bin:/bin:/opt/homebrew/bin"}}));
+  const executable = process.platform === "win32" ? "Scripts/python.exe" : "bin/python";
+  const output = JSON.parse(execFileSync(resolve("../backend-next/.venv", executable), [resolve("scripts", script)],
+    {input, encoding: "utf8", timeout: 30000, env: {...process.env, PYTHONUTF8: "1"}}));
   if (!output.ok) throw new BackendApiError(422, output.message, output.error);
   cache.set(key, output.value); return output.value;
 }
@@ -50,7 +53,7 @@ it("不同历史字段按签发来源复制，保留接收目标机构日期且�
  expect(task!.target.fields.time!.resolvedValue).toEqual({start:"2026-06-30",end:"2026-06-30"});
  expect(task!.target.fields.metrics!.metadata?.fieldSource).toMatchObject({field: "metrics"});
  expect(f.backend.basicQueries).not.toHaveBeenCalled();
-},30000);
+}, contractTimeout(30000));
 it("合成后端不能把不存在的任务或结果当成功",async()=>{
  const b=createSyntheticBackend();
  await expect(b.client.getTask("unobserved")).rejects.toMatchObject({status:404});
@@ -78,7 +81,7 @@ it("真实目录下缺项续补直接绑定唯一来源，保留已确认口径�
   expect(python({action: "query", spec: f.backend.basicQueries.mock.calls[0]?.[0]}).rows).toHaveLength(1);
   expect(await request.semanticTasks!.plan(previous.ref)).toEqual(previous);
   expect(await request.semanticTasks!.get(previousTask.ref)).toEqual(previousTask);
-}, 30000);
+}, contractTimeout(30000));
 it("真实Python把非机构名纠正为正式机构时，来源守卫仍保守拒绝推断续补", async () => {
   const f = await setup(), initial = f.request("negative-source-initial", "帮我查经营收益金额当日数");
   const first = await new SemanticPlanService(initial).resolve(proposal([{action: "set", field: "metrics", value: "经营收益金额当日数"}]));
@@ -97,20 +100,20 @@ it("真实Python把非机构名纠正为正式机构时，来源守卫仍保守�
   expect((await request.semanticTasks!.planIndex()).operations[request.operationId]).toBeUndefined();
   expect(await request.semanticTasks!.plan(previous.ref)).toEqual(previous);
   expect(f.backend.basicQueries).not.toHaveBeenCalled();
-}, 15000);
+}, contractTimeout(15000));
 it("真实目录解析补全模型遗漏的已明确指标口径，编译请求通过后端来源校验和SQL", async () => {
   const f = await setup(), request = f.request("exact", "查询合成机构甲2026年5月31日的经营收益金额当日数");
   const result = await new SemanticTaskService(request).resolve(proposal(base.map(operation => operation.field === "metrics" ? {...operation, value: "经营收益金额"} : operation)));
   expect(result.status).toBe("ready");
   await runTool(createSemanticExecuteTool(), {task_ref: result.task!.ref, target_ref: result.task!.target.ref}, request);
   expect(python({action: "query", spec: f.backend.basicQueries.mock.calls[0]![0]}).rows).toHaveLength(1);
-}, 15000);
+}, contractTimeout(15000));
 it("多成员名称通过一对一目录身份对齐，保留原句完整口径且不新增指标", async () => {
   const f = await setup(), request = f.request("multiple-basis", "查询合成机构甲2026年5月31日的经营收益金额当日数和经营收益金额较同期");
   const result = await new SemanticTaskService(request).resolve(proposal(base.map(op => op.field === "metrics" ? {...op, value: "经营收益金额，经营收益金额较同期"} : op)));
   expect({status:result.status,issues:result.task?.issues}).toEqual({status:"ready",issues:[]});
   expect(result.task!.target.fields.metrics!.resolvedValue).toMatchObject({codes:["SYNTH_M:D","SYNTH_M:Y"]});
-}, 15000);
+}, contractTimeout(15000));
 it("唯一待补任务由Pi明确选择current续补日期，沿用正式指标身份", async () => {
   const f = await setup(), source = f.request("without-date", "查询合成机构甲的经营收益金额当日数");
   const first = await new SemanticPlanService(source).resolve(proposal(base.filter(op=>op.field!=="time")));
@@ -132,7 +135,7 @@ it("唯一待补任务由Pi明确选择current续补日期，沿用正式指标�
   const spec = f.backend.basicQueries.mock.calls[0]![0];
   expect(spec).toMatchObject({metric_codes: ["SYNTH_M:D"], org_codes: ["SYNTH_O1"], time: {start: "2026-05-31", end: "2026-05-31"}});
   expect(f.invoke({action: "query", spec}).rows).toHaveLength(1);
-}, 20000);
+}, contractTimeout(20000));
 it("真实目录的连续current续补保留已确认指标口径，机构日期齐备后执行", async () => {
   const f = await setup(), initial = f.request("metric-only", "查询经营收益金额当日数");
   const first = await new SemanticPlanService(initial).resolve(proposal([
@@ -163,7 +166,7 @@ it("真实目录的连续current续补保留已确认指标口径，机构日期
   const spec = f.backend.basicQueries.mock.calls[0]![0];
   expect(spec).toMatchObject({metric_codes: ["SYNTH_M:D"], org_codes: ["SYNTH_O1"], time: {start: "2026-05-31"}});
   expect(python({action: "query", spec}).rows).toHaveLength(1);
-}, 30000);
+}, contractTimeout(30000));
 it.each(["prepared", "succeeded"])("旧目标%s时，Pi明确引用同一来源派生两个新指标，旧计划和Frame保留", async previousStatus => {
   const f = await setup("missing-conditions-fixture.py"), original = f.request("previous-metric", "查询合成机构乙2026年6月30日的经营收益金额当日数");
   const previous = await new SemanticPlanService(original).resolve(proposal(base.map(op => op.field === "organizations" ? {...op, value: "合成机构乙"}
@@ -189,7 +192,7 @@ it.each(["prepared", "succeeded"])("旧目标%s时，Pi明确引用同一来源�
   }
   expect(await request.semanticTasks!.plan(previous.state.task_ref!)).toEqual(before);
   expect(await Promise.all(frames.frameOrder.map(id => request.frames!.get(id)))).toEqual(snapshots);
-}, 40000);
+}, contractTimeout(40000));
 // 统一入口对照本轮原句并拦截义务遗漏或错绑。
 it("原句两项指标而提案一项时构造完整状态，不产生修复轮次", async () => {
   const f = await setup("missing-conditions-fixture.py"), original = f.request("context-start", "准备合成机构乙2026年6月30日的经营收益金额当日数查询条件");
@@ -199,7 +202,7 @@ it("原句两项指标而提案一项时构造完整状态，不产生修复轮�
   const request = f.request("repair-half", "分别查询对公协定存款余额当日数和经营收益金额较同期"), service = new SemanticPlanService(request);
   const incomplete = await service.resolve(proposal([{action: "set", field: "metrics", value: "对公协定存款余额当日数"}], source));
   expect(incomplete.status).toBe("ready"); expect(incomplete.issues).toEqual([]); expect(f.backend.basicQueries).not.toHaveBeenCalled();
-}, 30000);
+}, contractTimeout(30000));
 it("同轮修复始终使用Pi明确引用的起始来源，焦点移动不能补隐式默认值", async () => {
   const f = await setup("missing-conditions-fixture.py"), original = f.request("context-start", "准备合成机构乙2026年6月30日的经营收益金额当日数查询条件");
   const previous = await new SemanticPlanService(original).resolve(proposal(base.map(op => op.field === "organizations" ? {...op, value: "合成机构乙"}
@@ -219,7 +222,7 @@ it("同轮修复始终使用Pi明确引用的起始来源，焦点移动不能�
   for (const target of next.state.targets) await runTool(createSemanticExecuteTool(), {task_ref: next.state.task_ref, target_ref: target.target_ref}, request);
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(2);
   for (const [spec] of f.backend.basicQueries.mock.calls) {expect(spec).toMatchObject({org_codes: ["SYNTH_O2"], time: {start: "2026-06-30"}}); f.invoke({action: "query", spec});}
-}, 40000);
+}, contractTimeout(40000));
 // 统一入口对照本轮原句并拦截义务遗漏或错绑。
 it("原句明确新机构日期时，空提案自动应用本轮条件", async () => {
   const f = await setup(), previousRequest = f.request("old-succeeded-scope", "查询合成机构甲2026年5月31日的经营收益金额当日数");
@@ -230,7 +233,7 @@ it("原句明确新机构日期时，空提案自动应用本轮条件", async (
   const request = f.request("changed-scope", "查询合成机构乙2026年6月30日的经营收益金额当日数"), service = new SemanticPlanService(request);
   const incomplete = await service.resolve(proposal([], source));
   expect(incomplete.status).toBe("ready"); expect(incomplete.issues).toEqual([]); expect(f.backend.basicQueries).not.toHaveBeenCalled();
-}, 30000);
+}, contractTimeout(30000));
 it("同指标旧成功目标按本轮机构日期修正提案后执行新范围，旧计划不变", async () => {
   const f = await setup(), previousRequest = f.request("old-succeeded-scope", "查询合成机构甲2026年5月31日的经营收益金额当日数");
   const previous = await new SemanticPlanService(previousRequest).resolve(proposal([...base]));
@@ -249,7 +252,7 @@ it("同指标旧成功目标按本轮机构日期修正提案后执行新范围�
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
   expect(f.backend.basicQueries.mock.calls[0]![0]).toMatchObject({metric_codes: ["SYNTH_M:D"], org_codes: ["SYNTH_O2"], time: {start: "2026-06-30"}});
   f.invoke({action: "query", spec: f.backend.basicQueries.mock.calls[0]![0]});
-}, 30000);
+}, contractTimeout(30000));
 it("真实目录允许Pi为不同目标明确选择current与new，新目标自行提供完整条件且不污染旧查询", async () => {
   const f = await setup("missing-conditions-fixture.py"), original = f.request("before-current-new", "准备合成机构乙2026年6月30日的经营收益金额当日数查询条件");
   const previous = await new SemanticPlanService(original).resolve(proposal(base.map(op => op.field === "organizations" ? {...op, value: "合成机构乙"}
@@ -269,7 +272,7 @@ it("真实目录允许Pi为不同目标明确选择current与new，新目标自�
   expect(f.backend.basicQueries.mock.calls.map(call => (call[0] as {metric_codes: string[]}).metric_codes)).toEqual([["SYNTH_DEPOSIT:D"], ["SYNTH_M:Y"]]);
   for (const [spec] of f.backend.basicQueries.mock.calls) {expect(spec).toMatchObject({org_codes: ["SYNTH_O2"], time: {start: "2026-06-30"}}); f.invoke({action: "query", spec});}
   expect(await request.semanticTasks!.plan(previous.state.task_ref!)).toEqual(before);
-}, 40000);
+}, contractTimeout(40000));
 // 统一入口对照本轮原句并拦截义务遗漏或错绑。
 it("current空操作自动绑定本轮明确的新指标，历史条件保持不变", async () => {
   const f = await setup("missing-conditions-fixture.py"), original = f.request("before-missing-metric", "准备合成机构甲2026年5月31日的经营收益金额当日数查询条件");
@@ -284,7 +287,7 @@ it("current空操作自动绑定本轮明确的新指标，历史条件保持不
   expect((await request.semanticTasks!.get(after.steps[0]!.taskRef!))!.target.fields.metrics!.resolvedValue).toMatchObject({codes: ["SYNTH_M:D"]});
   expect(await Promise.all(frameState.frameOrder.map(id => request.frames!.get(id)))).toEqual(frames);
   expect(after.steps).toHaveLength(before!.steps.length);
-}, 20000);
+}, contractTimeout(20000));
 it("真实目录按既有高置信纠错确定身份并编译正式查询条件", async () => {
   const f = await setup();
   const first = await new SemanticTaskService(f.request("typo", "查询合成机构甲2026年5月31日的经营收益金融当日数")).resolve(proposal(base.map(operation =>
@@ -297,7 +300,7 @@ it("真实目录按既有高置信纠错确定身份并编译正式查询条件"
   expect(resolvedDefault.task!.target.fields.metrics!.resolvedValue).toMatchObject({codes: ["SYNTH_M:D"]});
   await runTool(createSemanticExecuteTool(), {task_ref: resolvedDefault.task!.ref, target_ref: resolvedDefault.task!.target.ref}, request);
   expect(python({action: "query", spec: f.backend.basicQueries.mock.calls[0]![0]}).rows).toHaveLength(1);
-}, 15000);
+}, contractTimeout(15000));
 it("真实相对年遵循当前默认滚动口径，保留完整年度备选及全部数据点方式", async () => {
   const f = await setup();
   const first = await new SemanticTaskService(f.request("years", "查询合成机构甲近5年的经营收益金额当日数全部数据")).resolve(proposal([
@@ -308,7 +311,7 @@ it("真实相对年遵循当前默认滚动口径，保留完整年度备选及�
   expect(first.task!.target.fields.time!.resolvedValue).toEqual({start:`${Number(businessDate.slice(0,4))-5}${businessDate.slice(4)}`,end:businessDate});
   expect(first.task!.target.fields.time!.metadata?.timeAlternative).toEqual({label:"最近5个完整年度",start:"2021-01-01",end:"2025-12-31"});
   expect(first.task!.target.fields.selection!.resolvedValue).toBe("all_in_range");
-}, 15000);
+}, contractTimeout(15000));
 it("指标片段误填日期直接澄清真正缺少的日期，不进入日期修复循环", async () => {
   const f = await setup();
   const first = await new SemanticTaskService(f.request("missing", "查询合成机构甲的经营收益金额当日数")).resolve(proposal(base.map(operation =>
@@ -317,7 +320,7 @@ it("指标片段误填日期直接澄清真正缺少的日期，不进入日期�
   expect(first.task!.issues.map(issue => issue.code)).toEqual(["FIELD_REQUIRED"]);
   expect(first.task!.target.fields.metrics!.resolvedValue).toMatchObject({codes: ["SYNTH_M:D"]});
   expect(f.backend.basicQueries).not.toHaveBeenCalled();
-}, 15000);
+}, contractTimeout(15000));
 
 it("待修提案改为双查询时按步骤类型绑定，保留两笔日期及算式", async () => {
   const f = await setup(), request = f.request("split-repair", "查询合成机构甲2026年5月31日与2026年6月30日的经营收益金额当日数，计算六月减五月的差额");
@@ -336,7 +339,7 @@ it("待修提案改为双查询时按步骤类型绑定，保留两笔日期及�
   for (const target of ready.state.targets.filter(target => target.kind === "query")) await runTool(createSemanticExecuteTool(), {task_ref: ready.state.task_ref, target_ref: target.target_ref}, request);
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(2);
   for (const [spec] of f.backend.basicQueries.mock.calls) expect(python({action: "query", spec}).rows).toHaveLength(1);
-}, 25000);
+}, contractTimeout(25000));
 it("历史来源可派生两个独立日期目标，原任务不被覆盖", async () => {
   const f = await setup(), original = f.request("history-base", "查询合成机构甲2026年5月31日的经营收益金额当日数");
   const first = await new SemanticPlanService(original).resolve(proposal([...base], {kind: "new"}, "prepare"));
@@ -349,7 +352,7 @@ it("历史来源可派生两个独立日期目标，原任务不被覆盖", asyn
   expect({status: result.status, issues: result.issues}).toEqual({status: "ready", issues: []});
   expect(new Set((await request.semanticTasks!.plan(result.state.task_ref!))!.steps.map(step => step.id)).size).toBe(2);
   expect((await request.semanticTasks!.plan(first.state.task_ref!))!.steps[0]!.targetRef).toBe(source.target_ref);
-}, 25000);
+}, contractTimeout(25000));
 it("年份省略的历史追问沿用已绑定来源年份", async () => {
   const f = await setup(), request = f.request("year-base", "查询合成机构甲2025年5月31日的经营收益金额当日数");
   const first = await new SemanticPlanService(request).resolve(proposal(base.map(op => op.field === "time" ? {...op, value: "2025年5月31日"} : op), {kind: "new"}, "prepare"));
@@ -359,7 +362,7 @@ it("年份省略的历史追问沿用已绑定来源年份", async () => {
   expect({status: result.status, issues: result.issues}).toEqual({status: "ready", issues: []});
   const plan = (await followup.semanticTasks!.plan(result.state.task_ref!))!, task = (await followup.semanticTasks!.get(plan.steps[0]!.taskRef!))!;
   expect(task.target.fields.time!.resolvedValue).toEqual({start: "2025-06-30", end: "2025-06-30"});
-}, 15000);
+}, contractTimeout(15000));
 it("指标口径缩写误放selection时由同一目录解析器重建身份，不能向用户追问已明确口径", async () => {
   const f = await setup(), request = f.request("basis-placement", "分析合成机构甲2026年5月31日的经营收益金额当日数与经营收益金额较同期，先查询当日数，拿到结果后继续较同期");
   const input = proposal(base.map(op => op.field === "metrics" ? {...op, value: "经营收益金额"} : op), {kind: "new"}, "analyze");
@@ -368,7 +371,7 @@ it("指标口径缩写误放selection时由同一目录解析器重建身份，�
   expect({status: result.status, issues: result.issues}).toEqual({status: "ready", issues: []});
   const plan = (await request.semanticTasks!.plan(result.state.task_ref!))!, task = (await request.semanticTasks!.get(plan.steps[0]!.taskRef!))!;
   expect(task.target.fields.metrics!.resolvedValue).toMatchObject({codes: ["SYNTH_M:D"]});
-}, 15000);
+}, contractTimeout(15000));
 
 
 // 排名总体校验：拆分同一榜单为逐机构目标的提案被拦截，未执行的草案可被完整新提案重组。
@@ -387,7 +390,7 @@ it("模型拆错同一榜单可重组未执行草案，旧草案保留且不可�
   await runTool(createSemanticExecuteTool(), {task_ref: plan.ref, target_ref: merged.state.targets[0]!.target_ref}, request);
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
   expect(f.backend.basicQueries.mock.calls[0]![0]).toMatchObject({org_codes: ["SYNTH_O1", "SYNTH_O2"], operation: {kind: "ranking", top_n: 1}});
-}, 20000);
+}, contractTimeout(20000));
 
 it("离散日期的分析按各步骤执行结果完成，不要求单个来源包含全部日期", async () => {
   const f = await setup(), request = f.request("analysis-dates", "分析合成机构甲2026年5月31日与2026年6月30日的经营收益金额当日数");
@@ -401,7 +404,7 @@ it("离散日期的分析按各步骤执行结果完成，不要求单个来源�
   await runTool(createSemanticExecuteTool(), {task_ref: ready.state.task_ref, target_ref: ready.state.targets[1]!.target_ref}, request);
   const full = (await request.semanticTasks!.plan(ready.state.task_ref!))!;
   expect(full.completion).toBe("full"); expect(full.issues).toEqual([]);
-}, 20000);
+}, contractTimeout(20000));
 
 it("完整原句已经确定机构身份，模型缩写不制造新的用户确认", async () => {
   const f=await setup(),request=f.request("org-abbreviation","查询合成机构丙2026年5月30日的经营收益金额当日数");
@@ -411,7 +414,7 @@ it("完整原句已经确定机构身份，模型缩写不制造新的用户确�
   await runTool(createSemanticExecuteTool(),{task_ref:ready.state.task_ref,target_ref:ready.state.targets[0]!.target_ref},request);
   expect(f.backend.basicQueries.mock.calls[0]![0]).toMatchObject({org_codes:["SYNTH_O3"]});
   expect(python({action:"query",spec:f.backend.basicQueries.mock.calls[0]![0]}).rows[0].metric_value).toBe(40);
-},15000);
+}, contractTimeout(15000));
 
 it("仅修改日期时，模型重复陈述相同的已绑定机构不会要求用户重述机构", async () => {
   const f=await setup(),firstRequest=f.request("same-org-base","查询合成机构甲2026年5月31日的经营收益金额当日数");
@@ -419,7 +422,7 @@ it("仅修改日期时，模型重复陈述相同的已绑定机构不会要求�
   const request=f.request("same-org-date","日期改成2026年6月30日，其他条件不变");
   const ready=await new SemanticPlanService(request).resolve(proposal([{action:"set",field:"organizations",value:"合成机构甲"},{action:"set",field:"time",value:"2026年6月30日"}],{kind:"current"}));
   expect({status:ready.status,issues:ready.issues}).toEqual({status:"ready",issues:[]});
-},15000);
+}, contractTimeout(15000));
 
 
 it("跨机构计算分别绑定标量来源，最终结果使用两笔正式查询事实",async()=>{
@@ -431,7 +434,7 @@ it("跨机构计算分别绑定标量来源，最终结果使用两笔正式查�
  let final:any;for(const target of ready.state.targets)final=await runTool(createSemanticExecuteTool(),{task_ref:ready.state.task_ref,target_ref:target.target_ref},request);
  expect(b.queries).toHaveLength(2);expect(final.details.status).toBe("succeeded");
  expect(final.details.state.evidence.results[0].value).toBe("10");
-},25000);
+}, contractTimeout(25000));
 it("多目标签发的正式来源跨轮计算仍有效且不重查",async()=>{
  const f=await setup(),b=createSyntheticBackend(),request={...f.request("signed-queries","分别查询合成机构甲2026年5月31日与合成机构丙2026年6月30日的经营收益金额当日数"),backend:b.client};
  const input=proposal([...base]);
@@ -449,7 +452,7 @@ it("多目标签发的正式来源跨轮计算仍有效且不重查",async()=>{
  const oldSource={kind:"reference" as const,task_ref:ready.state.task_ref!,target_ref:ready.state.targets[0]!.target_ref};
  const again=await new SemanticPlanService({...f.request("original-ref-reuse","重显合成机构甲的原始结果"),backend:b.client}).resolve(proposal([],oldSource,"reuse"));
  expect(again.status).toBe("reused");expect(b.queries).toHaveLength(2);
-},40000);
+}, contractTimeout(40000));
 
 it("真实Python贯通集合增删改及机构日期续问，每轮执行范围正确且历史Frame和结果不变", async () => {
   const f = await setup("missing-conditions-fixture.py");
@@ -500,7 +503,7 @@ it("真实Python贯通集合增删改及机构日期续问，每轮执行范围�
     expect((await request.semanticTasks!.planContext()).tasks.map(item => item.task_ref)).toEqual(expect.arrayContaining([...plans.keys()]));
   }
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(6);
-}, 60000);
+}, contractTimeout(60000));
 
 it("明确改查时直接续接已确认范围，原计划不被改写", async () => {
   const f = await setup("missing-conditions-fixture.py"), original = f.request("unbound-new-base", "准备合成机构甲2026年5月31日的经营收益金额当日数查询条件");
@@ -521,7 +524,7 @@ it("明确改查时直接续接已确认范围，原计划不被改写", async (
   expect(spec).toMatchObject({metric_codes: ["SYNTH_DEPOSIT:D"], org_codes: ["SYNTH_O1"], time: {start: "2026-05-31", end: "2026-05-31"}});
   expect(f.invoke({action: "query", spec}).rows).toHaveLength(1);
   expect(await request.semanticTasks!.plan(previous.state.task_ref!)).toEqual(previousPlan);
-}, 30000);
+}, contractTimeout(30000));
 
 it("无候选confirm由Pi修正且不污染focus，修正后完整双指标及历史Frame仍有效", async () => {
   const f = await setup("missing-conditions-fixture.py"), original = f.request("confirm-without-options-base", "查询合成机构甲2026年5月31日的经营收益金额当日数和对公协定存款余额当日数");
@@ -550,7 +553,7 @@ it("无候选confirm由Pi修正且不污染focus，修正后完整双指标及�
   expect(f.invoke({action: "query", spec}).rows).toHaveLength(2);
   expect(await request.semanticTasks!.plan(previous.state.task_ref!)).toEqual(previousPlan);
   expect(await Promise.all(state.frameOrder.map(id => request.frames!.get(id)))).toEqual(snapshots);
-}, 40000);
+}, contractTimeout(40000));
 
 it("连续机构追加的未决确认经真实Python解析保留已定成员与完整集合",async()=>{
  const f=await setup(),first=f.request('org-ledger-origin','查询合成机构甲2026年5月31日的经营收益金额当日数');
@@ -571,7 +574,7 @@ it("连续机构追加的未决确认经真实Python解析保留已定成员与�
  await runTool(createSemanticExecuteTool(),{task_ref:plan.ref,target_ref:plan.steps[0]!.targetRef},request);
  expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
  expect(python({action:'query',spec:f.backend.basicQueries.mock.calls[0]![0]}).rows).toHaveLength(3);
-},30000);
+}, contractTimeout(30000));
 
 it("首问多机构部分未决，确认后保留已定机构与完整结果",async()=>{
  const f=await setup();
@@ -584,7 +587,7 @@ it("首问多机构部分未决，确认后保留已定机构与完整结果",as
  expect((task.target.fields.organizations!.resolvedValue as {codes:string[]}).codes).toEqual(['SYNTH_O1','SYNTH_O2']);
  await runTool(createSemanticExecuteTool(),{task_ref:plan.ref,target_ref:plan.steps[0]!.targetRef},request);
  expect(python({action:'query',spec:f.backend.basicQueries.mock.calls[0]![0]}).rows).toHaveLength(2);
-},30000);
+}, contractTimeout(30000));
 
 // reference 续接派生新计划后，未重新解析的步骤仍引用 parentPlan 为源计划的 task；
 // locate()/consume() 按步骤配对（taskRef+targetRef）与 permit digest 认可这种派生绑定。
@@ -602,7 +605,7 @@ it("多目标中只确认未决机构仍保留未执行的正确目标，整批�
  for(const step of plan.steps)await runTool(createSemanticExecuteTool(),{task_ref:plan.ref,target_ref:step.targetRef},request);
  expect(f.backend.basicQueries).toHaveBeenCalledTimes(2);
  expect(f.backend.basicQueries.mock.calls.map(call=>(call[0] as {org_codes:string[]}).org_codes)).toEqual([['SYNTH_O1'],['SYNTH_O2']]);
-},30000);
+}, contractTimeout(30000));
 
 it("模型只抄到区间起点时直接使用已绑定的完整日历，不缩短范围也不打回重提", async () => {
   const f = await setup(), request = f.request("range-prefix", "查询合成机构甲2026-05-01至2026-05-31的经营收益金额当日数全部已有记录");
@@ -615,7 +618,7 @@ it("模型只抄到区间起点时直接使用已绑定的完整日历，不缩�
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
   expect(f.backend.basicQueries.mock.calls[0]![0]).toMatchObject({metric_codes: ["SYNTH_M:D"], org_codes: ["SYNTH_O1"],
     time: {start: "2026-05-01", end: "2026-05-31"}, selection: "all_in_range"});
-}, 15000);
+}, contractTimeout(15000));
 
 it("尚未换算的完整区间不能缩为端点，沿用模型日历通道补齐后只执行完整范围", async () => {
   const f = await setup(), expression = "2026年5月1日至2026年5月31日";
@@ -633,7 +636,7 @@ it("尚未换算的完整区间不能缩为端点，沿用模型日历通道补�
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
   expect(f.backend.basicQueries.mock.calls[0]![0]).toMatchObject({metric_codes: ["SYNTH_M:D"], org_codes: ["SYNTH_O1"],
     time: {start: "2026-05-01", end: "2026-05-31"}, selection: "all_in_range"});
-}, 20000);
+}, contractTimeout(20000));
 
 it("结构化日期误取指标中的当日口径时保留真实缺项，补齐后继承时间，明确换日期则重新待补", async () => {
   const f = await setup(), initialRequest = f.request("structured-missing-time", "查询合成机构甲的经营收益金额当日数");
@@ -667,4 +670,4 @@ it("结构化日期误取指标中的当日口径时保留真实缺项，补齐�
   expect(changed.status).toBe("needs_user");
   expect(changed.issues.map(issue => issue.field)).toEqual(["time"]);
   expect(f.backend.basicQueries).toHaveBeenCalledTimes(2);
-}, 30000);
+}, contractTimeout(30000));

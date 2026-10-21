@@ -226,9 +226,14 @@ def search_metric_catalog(
     embedding 未启用时降级为纯词法结果。
     """
     settings = request.app.state.settings
-    matching = SemanticConfigRepository(
-        resolve_config_path(PROJECT_DIR, settings.semantic_config_path)
-    ).load().metric_matching
+    matching = (
+        SemanticConfigRepository(
+            resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
+            store=settings._config_center,
+        )
+        .load()
+        .metric_matching
+    )
     with uow:
         items = uow.metric_catalog.list_enabled()
     model_service = get_model_service(request)
@@ -242,15 +247,11 @@ def search_metric_catalog(
         batch_size=matching.embedding_batch_size,
         wait_seconds=matching.embedding_cache_wait_seconds,
     )
-    result = rank_metric_catalog(
-        keyword, items, embedding_scores=embedding_scores, limit=limit
-    )
+    result = rank_metric_catalog(keyword, items, embedding_scores=embedding_scores, limit=limit)
     return {
         "total": result.total,
         "items": [_metric_hit_payload(hit) for hit in result.items],
-        "semantic_suggestions": [
-            _metric_hit_payload(hit) for hit in result.semantic_suggestions
-        ],
+        "semantic_suggestions": [_metric_hit_payload(hit) for hit in result.semantic_suggestions],
     }
 
 

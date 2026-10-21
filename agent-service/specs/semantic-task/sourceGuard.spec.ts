@@ -103,13 +103,14 @@ it.each([
 
 it("指标未定的待补任务可由“指标是…”续接，已确定的机构日期来源保留（A4）", async () => {
   const f = await fixture(); cleanup.push(f.close);
-  // 首轮：指标未命中且无候选，机构与日期已确定，计划等待补指标。
+  // 首轮零命中先允许同轮目录恢复，持久化计划仍保留待补指标和已定机构日期。
   const first = await runTool(createSemanticResolveTool(), proposal([
     {action: "set", field: "organizations", value: "合成机构甲"},
     {action: "set", field: "metrics", value: "大聪明"},
     {action: "set", field: "time", value: "2025年末"},
   ]), f.request("a4-initial", "查合成机构甲2025年末的大聪明"));
-  expect(first.details.status, JSON.stringify(first.details.issues)).toBe("needs_user");
+  expect(first.details.status, JSON.stringify(first.details.issues)).toBe("needs_interpretation");
+  expect(first.details).toHaveProperty("query_recovery");
   const plan = (await f.request().semanticTasks!.plan(first.details.state.task_ref))!;
   expect(plan.status).toBe("waiting_input");
   // 模型误用 new 重建：直接绑定唯一待补来源，保留旧机构与日期。

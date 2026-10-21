@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Annotated
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -33,6 +33,10 @@ DEFAULT_QUERY_DATABASE_URL = _local_database_url("metric_readonly", "business_me
 
 
 class Settings(BaseSettings):
+    _config_center: object | None = PrivateAttr(default=None)
+    nacos_config_enabled: bool = False
+    nacos_config_group: str = "ASK_METRIC_CONFIG"
+    nacos_prompt_data_id: str = "sznsznws_backend_prompts.json"
     app_name: str = "Ask Metric Backend Next"
     app_env: str = "development"
     log_level: str = "INFO"
@@ -421,4 +425,6 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()
+    from ask_metric.infrastructure.config_center.bootstrap import load_settings
+
+    return load_settings()

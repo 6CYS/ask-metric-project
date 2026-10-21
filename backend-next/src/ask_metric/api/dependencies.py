@@ -62,17 +62,25 @@ def initialize_query_catalog(request: Request) -> None:
     if not model.is_enabled("embedding"):
         return
     settings = request.app.state.settings
-    config = SemanticConfigRepository(
-        resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
-    ).load().metric_matching
+    config = (
+        SemanticConfigRepository(
+            resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
+            store=settings._config_center,
+        )
+        .load()
+        .metric_matching
+    )
     corpus = catalog_embedding_texts(items)
     # 后面的分批模型请求不占用数据库连接。
     if not corpus:
         raise ValueError("Enabled metric catalog is empty")
     request.app.state.catalog_vector_cache.warmup(
         # 传入绑定方法作为回调，缓存每完成一批便调用它更新公共初始化状态。
-        model, corpus, batch_size=config.embedding_batch_size,
-        wait_seconds=config.embedding_cache_wait_seconds, progress=initialization.progress,
+        model,
+        corpus,
+        batch_size=config.embedding_batch_size,
+        wait_seconds=config.embedding_cache_wait_seconds,
+        progress=initialization.progress,
     )
 
 
@@ -140,7 +148,8 @@ def get_query_task_service(request: Request) -> QueryTaskApplicationService:
     return QueryTaskApplicationService(
         running_stale_after=_running_stale_after(settings),
         semantic_config_repository=SemanticConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.semantic_config_path)
+            resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
+            store=settings._config_center,
         ),
         # 追问来源的权限复核与执行链使用同一机构边界
         permission_service=ScopedOrganizationPermissionService(
@@ -155,13 +164,16 @@ def get_model_service(request: Request) -> ConfigurableModelService:
     settings: Settings = request.app.state.settings
     return ConfigurableModelService(
         model_config_repository=ModelConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.model_config_path)
+            resolve_config_path(PROJECT_DIR, settings.model_config_path),
+            store=settings._config_center,
         ),
         prompt_config_repository=PromptConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.prompt_config_path)
+            resolve_config_path(PROJECT_DIR, settings.prompt_config_path),
+            store=settings._config_center,
         ),
         credential_resolver=credential_resolver_from_env_file(
-            resolve_config_path(PROJECT_DIR, settings.model_secret_env_path)
+            resolve_config_path(PROJECT_DIR, settings.model_secret_env_path),
+            store=settings._config_center,
         ),
         client=request.app.state.model_http_client,
         max_concurrency=settings.model_max_concurrency,

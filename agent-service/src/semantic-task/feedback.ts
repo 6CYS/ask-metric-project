@@ -7,6 +7,7 @@ export interface SemanticFeedback {
   protocol_version: 2; status: string;
   /** 真实工具最终化时持久化；展示与恢复共用严格版本解析器。 */
   direct_answer?: import("./directDelivery.js").DirectAnswerSnapshot;
+  query_recovery?: import("./queryRecovery.js").QueryRecoveryFeedback;
   state: {task_ref?: string; task_status: string; completion: string; raw_message_retained: boolean; proposals_retained: boolean;
     evidence?: Record<string, unknown>;
     targets: Array<{kind?: "query" | "availability" | "calculation"; label?: string; aliases?: string[]; target_ref: string; status: string; conditions: Array<{field: string; display: string; origin: string}>; pending: string[]}>};
@@ -51,7 +52,9 @@ export function semanticPublicAnswer(details: unknown): string | undefined {
   const visibleIssues = details.issues.filter(issue => issue.remediation === "user" || issue.category === "permission" || issue.category === "capability");
   const problems = [...new Set([...notices, ...visibleIssues.map(issue => issue.message)])];
   if (details.status === "failed" && details.issues.some(issue => issue.category !== "capability" && issue.category !== "permission")) {
-    return "没能完成这次查询。";
+    if (details.issues.some(issue => issue.code === "CONFIGURATION_ERROR" && issue.category === "infrastructure"))
+      return "系统目录或查询范围配置不完整，本次查询未能执行。请管理员核对机构层级和目录同步；重复提交同一问题无法修复此配置。";
+    return semanticFailureAnswer(details);
   }
   if (!problems.length && details.status === "failed") {
     const evidence = details.state.evidence;
@@ -60,7 +63,7 @@ export function semanticPublicAnswer(details: unknown): string | undefined {
       const receipt = value as {status?: string; public_answer?: unknown};
       if (receipt.status !== "succeeded" && typeof receipt.public_answer === "string") problems.push(receipt.public_answer);
     }
-    if (!problems.length) problems.push("没能完成这次查询。");
+    if (!problems.length) problems.push(semanticFailureAnswer(details));
   }
   if (details.status === "prepared") return [...notices, "查询条件已整理并保存，尚未执行查询。"].join("\n");
   if (details.status === "unknown") return "查询结果尚未确认，已保留条件和原执行关联，请稍后核对结果。";
@@ -68,4 +71,30 @@ export function semanticPublicAnswer(details: unknown): string | undefined {
   // 已保存条件不出现在回答正文：结构化条件已随回执投影到页面/任务状态，
   // 追问时再拼接“已保存条件”只会重复冗长信息。
   return [...problems, ...candidates].join("\n");
+}
+
+/** 失败不能只剩一句空状态；仅投影正式条件与受控原因，不向页面透出内部异常或猜测数据。 */
+function semanticFailureAnswer(details: SemanticFeedback): string {
+  if (details.issues.some(issue => issue.category === "permission")) return "当前身份无权继续此查询，请核对登录状态或数据访问权限后再查询。";
+  const conditions = [...new Set(details.state.targets.flatMap(target => target.conditions
+    .filter(condition => ["organizations", "time"].includes(condition.field)).map(condition => condition.display)))];
+  const known = conditions.length ? `已识别查询范围：${conditions.join("；")}。` : "原问题及已识别的条件已保留。";
+  const evidence = details.state.evidence;
+  const receipts = evidence?.kind === "semantic_results" && Array.isArray(evidence.results)
+    ? evidence.results : evidence ? [evidence] : [];
+  const delivered = receipts.flatMap(value => {
+    const item = value as {status?: string; public_answer?: unknown} | null;
+    return item?.status === "succeeded" && typeof item.public_answer === "string" && item.public_answer.trim()
+      ? [item.public_answer.trim()] : [];
+  });
+  const cause = details.issues.some(issue => issue.category === "infrastructure")
+    ? "查询服务暂时异常，尚未取得可用于回答的新结果。"
+    : details.issues.some(issue => issue.category === "calendar")
+      ? "时间条件的解析遇到问题，尚未取得该时间范围的指标结果。"
+      : details.issues.some(issue => issue.field === "metrics" || issue.category === "catalog")
+        ? "指标名称与正式目录的对应关系尚未确定，不能据此判断指标数值或变化。"
+        : "查询条件的内部校验尚未通过，尚未取得可用于回答的新结果。";
+  const candidates = details.state.targets.flatMap(target => target.pending).filter(text => text.includes("\n1. "));
+  return [...new Set([...delivered, known, cause, ...candidates,
+    "可以继续说明希望查看的范围或重试当前问题，已确认的条件无需重复输入。"])].join("\n\n");
 }

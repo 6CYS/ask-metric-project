@@ -2,6 +2,11 @@ import {expect, it} from "vitest";
 import {loadConfig} from "../src/config.js";
 
 const model = {AGENT_MODEL_API_KEY: "synthetic", AGENT_MODEL_BASE_URL: "http://model.test/v1", AGENT_MODEL_NAME: "synthetic"};
+it("模型工具选择兼容策略默认native，仅接受显式auto", () => {
+  expect(loadConfig(model).modelToolChoicePolicy).toBe("native");
+  expect(loadConfig({...model, AGENT_MODEL_TOOL_CHOICE_POLICY: "auto"}).modelToolChoicePolicy).toBe("auto");
+  expect(() => loadConfig({...model, AGENT_MODEL_TOOL_CHOICE_POLICY: "invalid"})).toThrow("AGENT_MODEL_TOOL_CHOICE_POLICY");
+});
 it("直接交付与上下文精简配置有明确默认、观察和回退值，非法值拒绝启动", () => {
   expect(loadConfig(model)).toMatchObject({directQueryDelivery: "on", modelContextView: "compact_v1", semanticPromptVariant: "compact_v1"});
   expect(loadConfig({...model, AGENT_DIRECT_QUERY_DELIVERY: "off", AGENT_MODEL_CONTEXT_VIEW: "raw", AGENT_SEMANTIC_PROMPT_VARIANT: "full"}))
