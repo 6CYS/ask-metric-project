@@ -12,6 +12,7 @@ import { createReadTool } from "./readTools.js";
 import { createConversationReplyTool, createActionRequiredTool } from "./turnContract.js";
 import {
   createSemanticResolveTool,
+  createAnalysisRepairTool,
   createSemanticContextTool,
   createSemanticExecuteTool,
   createSemanticReadTool,
@@ -35,6 +36,7 @@ export function createAskMetricTools(): AgentHarnessTool<AskMetricRequestContext
   const tools = [
     semanticCapabilityTool(deliverable(createBusinessCapabilityTool())),
     createSemanticResolveTool(),
+    createAnalysisRepairTool(),
     createSemanticContextTool(),
     createSemanticExecuteTool(),
     createSemanticReadTool(),

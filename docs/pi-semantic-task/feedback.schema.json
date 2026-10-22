@@ -41,26 +41,81 @@
       "type": "object",
       "additionalProperties": false,
       "description": "未执行且指标零命中时的有界目录发现；宿主签发，不代表查询已成功。",
-      "required": ["attempt", "max_attempts", "original_goal", "unresolved_metrics", "retained_conditions", "fallback_answer"],
+      "required": [
+        "attempt",
+        "max_attempts",
+        "original_goal",
+        "unresolved_metrics",
+        "retained_conditions",
+        "fallback_answer"
+      ],
       "properties": {
-        "attempt": {"type": "integer", "minimum": 1},
-        "max_attempts": {"type": "integer", "minimum": 1},
-        "original_goal": {"$ref": "#/definitions/text"},
-        "unresolved_metrics": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/text"}},
-        "retained_conditions": {"$ref": "#/properties/state/properties/targets"},
-        "metric_alternatives": {
-          "type": "array", "minItems": 1,
-          "items": {"type": "object", "additionalProperties": false,
-            "required": ["target_ref", "metric", "candidates"],
-            "properties": {
-              "target_ref": {"$ref": "#/definitions/reference"},
-              "metric": {"$ref": "#/definitions/text"},
-              "candidates": {"type": "array", "minItems": 2, "maxItems": 12,
-                "items": {"type": "object", "additionalProperties": false, "required": ["code", "name"],
-                  "properties": {"code": {"$ref": "#/definitions/text"}, "name": {"$ref": "#/definitions/text"}}}}
-            }}
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
         },
-        "fallback_answer": {"$ref": "#/definitions/text"}
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "original_goal": {
+          "$ref": "#/definitions/text"
+        },
+        "unresolved_metrics": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/text"
+          }
+        },
+        "retained_conditions": {
+          "$ref": "#/properties/state/properties/targets"
+        },
+        "metric_alternatives": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "target_ref",
+              "metric",
+              "candidates"
+            ],
+            "properties": {
+              "target_ref": {
+                "$ref": "#/definitions/reference"
+              },
+              "metric": {
+                "$ref": "#/definitions/text"
+              },
+              "candidates": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 12,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "code",
+                    "name"
+                  ],
+                  "properties": {
+                    "code": {
+                      "$ref": "#/definitions/text"
+                    },
+                    "name": {
+                      "$ref": "#/definitions/text"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "fallback_answer": {
+          "$ref": "#/definitions/text"
+        }
       }
     },
     "state": {
@@ -175,11 +230,15 @@
     },
     "pending_questions": {
       "type": "array",
-      "items": {"$ref": "#/definitions/pendingQuestion"}
+      "items": {
+        "$ref": "#/definitions/pendingQuestion"
+      }
     },
     "answer_receipts": {
       "type": "array",
-      "items": {"$ref": "#/definitions/answerReceipt"}
+      "items": {
+        "$ref": "#/definitions/answerReceipt"
+      }
     },
     "issues": {
       "type": "array",
@@ -215,7 +274,14 @@
             "$ref": "#/definitions/reference"
           },
           "field": {
-            "$ref": "#/definitions/field"
+            "anyOf": [
+              {
+                "$ref": "#/definitions/field"
+              },
+              {
+                "const": "plan"
+              }
+            ]
           },
           "message": {
             "$ref": "#/definitions/text"
@@ -256,6 +322,7 @@
             "read_context",
             "explore_catalog",
             "discover_query",
+            "repair_analysis_plan",
             "ask_user",
             "execute_permitted_step",
             "reconcile_execution",
@@ -266,58 +333,311 @@
           ]
         }
       }
+    },
+    "analysis_recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_ref",
+        "target_ref",
+        "revision",
+        "attempt",
+        "max_attempts",
+        "diagnostics",
+        "requirements",
+        "retained_step_ids",
+        "next_action"
+      ],
+      "properties": {
+        "task_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "max_attempts": {
+          "const": 2
+        },
+        "diagnostics": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "requirement_ids",
+              "step_ids",
+              "next_action"
+            ],
+            "properties": {
+              "code": {
+                "enum": [
+                  "REQUIREMENT_UNCOVERED",
+                  "STEP_INVALID",
+                  "BINDING_INVALID"
+                ]
+              },
+              "requirement_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "step_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "next_action": {
+                "enum": [
+                  "discover_metrics",
+                  "repair_steps"
+                ]
+              }
+            }
+          }
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "question"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "question": {
+                "type": "string"
+              },
+              "gap_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "retained_step_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "next_action": {
+          "enum": [
+            "discover_metrics",
+            "repair_steps"
+          ]
+        }
+      }
+    },
+    "analysis_recovery_partial": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unresolved_requirement_ids"
+      ],
+      "properties": {
+        "unresolved_requirement_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
     }
   },
   "definitions": {
     "questionOption": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["option_id", "no", "label"],
+      "required": [
+        "option_id",
+        "no",
+        "label"
+      ],
       "properties": {
-        "option_id": {"type": "string", "minLength": 1, "maxLength": 512},
-        "no": {"type": "integer", "minimum": 1},
-        "label": {"type": "string", "minLength": 1},
-        "description": {"type": "string", "minLength": 1}
+        "option_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "no": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "pendingQuestion": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["question_id", "version", "scope", "prompt", "selection_mode", "options", "status", "issued_operation_id", "kind"],
+      "required": [
+        "question_id",
+        "version",
+        "scope",
+        "prompt",
+        "selection_mode",
+        "options",
+        "status",
+        "issued_operation_id",
+        "kind"
+      ],
       "properties": {
-        "question_id": {"type": "string", "minLength": 1, "maxLength": 512},
-        "version": {"type": "integer", "minimum": 1},
+        "question_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
         "scope": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["task_ref", "target_ref", "field", "item_ref"],
+          "required": [
+            "task_ref",
+            "target_ref",
+            "field",
+            "item_ref"
+          ],
           "properties": {
-            "task_ref": {"$ref": "#/definitions/reference"},
-            "target_ref": {"$ref": "#/definitions/reference"},
-            "field": {"type": "string", "enum": ["organizations", "comparison_organizations", "metrics"]},
-            "item_ref": {"type": "string", "minLength": 1, "maxLength": 512}
+            "task_ref": {
+              "$ref": "#/definitions/reference"
+            },
+            "target_ref": {
+              "$ref": "#/definitions/reference"
+            },
+            "field": {
+              "type": "string",
+              "enum": [
+                "organizations",
+                "comparison_organizations",
+                "metrics"
+              ]
+            },
+            "item_ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
           }
         },
-        "prompt": {"type": "string", "minLength": 1},
-        "selection_mode": {"type": "string", "enum": ["single", "multiple"]},
-        "options": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/questionOption"}},
-        "status": {"type": "string", "enum": ["open", "answered", "rejected", "superseded", "abandoned"]},
-        "issued_operation_id": {"type": "string", "minLength": 1, "maxLength": 512},
-        "kind": {"type": "string", "enum": ["choice", "confirm"]},
-        "confirmation_option_id": {"type": "string", "minLength": 1, "maxLength": 512}
+        "prompt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "selection_mode": {
+          "type": "string",
+          "enum": [
+            "single",
+            "multiple"
+          ]
+        },
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/questionOption"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "answered",
+            "rejected",
+            "superseded",
+            "abandoned"
+          ]
+        },
+        "issued_operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "choice",
+            "confirm"
+          ]
+        },
+        "confirmation_option_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
       }
     },
     "answerReceipt": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["question_id", "version", "outcome", "notice"],
+      "required": [
+        "question_id",
+        "version",
+        "outcome",
+        "notice"
+      ],
       "properties": {
-        "question_id": {"type": "string", "minLength": 1, "maxLength": 512},
-        "version": {"type": "integer", "minimum": 1},
-        "outcome": {"type": "string", "enum": ["applied", "declined", "not_applied", "already_applied"]},
-        "selected_options": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/questionOption"}},
-        "notice": {"type": "string", "minLength": 1},
-        "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]+$"}
+        "question_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "applied",
+            "declined",
+            "not_applied",
+            "already_applied"
+          ]
+        },
+        "selected_options": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/questionOption"
+          }
+        },
+        "notice": {
+          "type": "string",
+          "minLength": 1
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]+$"
+        }
       }
     },
     "text": {

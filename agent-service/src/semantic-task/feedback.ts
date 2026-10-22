@@ -8,6 +8,8 @@ export interface SemanticFeedback {
   /** 真实工具最终化时持久化；展示与恢复共用严格版本解析器。 */
   direct_answer?: import("./directDelivery.js").DirectAnswerSnapshot;
   query_recovery?: import("./queryRecovery.js").QueryRecoveryFeedback;
+  analysis_recovery?: import("./analysisRecovery.js").AnalysisRecoveryFeedback;
+  analysis_recovery_partial?: {unresolved_requirement_ids: string[]};
   state: {task_ref?: string; task_status: string; completion: string; raw_message_retained: boolean; proposals_retained: boolean;
     evidence?: Record<string, unknown>;
     targets: Array<{kind?: "query" | "availability" | "calculation"; label?: string; aliases?: string[]; target_ref: string; status: string; conditions: Array<{field: string; display: string; origin: string}>; pending: string[]}>};
@@ -77,7 +79,10 @@ export function semanticPublicAnswer(details: unknown): string | undefined {
 function semanticFailureAnswer(details: SemanticFeedback): string {
   if (details.issues.some(issue => issue.category === "permission")) return "当前身份无权继续此查询，请核对登录状态或数据访问权限后再查询。";
   const conditions = [...new Set(details.state.targets.flatMap(target => target.conditions
-    .filter(condition => ["organizations", "time"].includes(condition.field)).map(condition => condition.display)))];
+    .filter(condition => ["organizations", "time"].includes(condition.field)).map(condition => {
+      const members = condition.field === "organizations" ? [...new Set(condition.display.split("、").filter(Boolean))] : [];
+      return members.length > 5 ? `${members.length}家机构` : condition.display;
+    })))];
   const known = conditions.length ? `已识别查询范围：${conditions.join("；")}。` : "原问题及已识别的条件已保留。";
   const evidence = details.state.evidence;
   const receipts = evidence?.kind === "semantic_results" && Array.isArray(evidence.results)
@@ -93,8 +98,12 @@ function semanticFailureAnswer(details: SemanticFeedback): string {
       ? "时间条件的解析遇到问题，尚未取得该时间范围的指标结果。"
       : details.issues.some(issue => issue.field === "metrics" || issue.category === "catalog")
         ? "指标名称与正式目录的对应关系尚未确定，不能据此判断指标数值或变化。"
-        : "查询条件的内部校验尚未通过，尚未取得可用于回答的新结果。";
+        : details.issues.some(issue => issue.code.startsWith("ANALYSIS_REPAIR_"))
+          ? "分析查询计划未能自动修复，本次尚未取得该部分的新结果。"
+          : "查询条件的内部校验尚未通过，尚未取得可用于回答的新结果。";
   const candidates = details.state.targets.flatMap(target => target.pending).filter(text => text.includes("\n1. "));
-  return [...new Set([...delivered, known, cause, ...candidates,
-    "可以继续说明希望查看的范围或重试当前问题，已确认的条件无需重复输入。"])].join("\n\n");
+  const continuation = details.issues.some(issue => issue.code.startsWith("ANALYSIS_REPAIR_"))
+    ? "原问题和查询范围已保留，可重试继续查询，无需补充相同条件。"
+    : "可以继续说明希望查看的范围或重试当前问题，已确认的条件无需重复输入。";
+  return [...new Set([...delivered, known, cause, ...candidates, continuation])].join("\n\n");
 }

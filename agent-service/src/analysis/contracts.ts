@@ -11,6 +11,32 @@ export interface AnalysisPlan {
     rationale: string; position?: "top" | "bottom"; top_n?: number; relation_id?: string | null}>;
 }
 
+export interface AnalysisPlanDiagnostic {
+  code: "REQUIREMENT_UNCOVERED" | "STEP_INVALID" | "BINDING_INVALID";
+  requirement_ids: string[];
+  step_ids: string[];
+  next_action: "discover_metrics" | "repair_steps";
+}
+
+/** 恢复只使用结构化事实，不解析中文错误文案；未知形状仍交给原严格校验。 */
+export function analysisPlanDiagnostics(plan: AnalysisPlan): AnalysisPlanDiagnostic[] {
+  const ids = new Set(plan.requirements.map(item => item.id));
+  const answered = new Set(plan.steps.flatMap(step => step.answers));
+  const uncovered = plan.requirements.filter(item => !answered.has(item.id) && !item.gap_reason?.trim());
+  const result: AnalysisPlanDiagnostic[] = uncovered.length ? [{code: "REQUIREMENT_UNCOVERED",
+    requirement_ids: uncovered.map(item => item.id), step_ids: [], next_action: "discover_metrics"}] : [];
+  const seen = new Set<string>();
+  for (const step of plan.steps) {
+    if (seen.has(step.id) || !step.metric_refs.length || step.answers.some(id => !ids.has(id))
+      || step.method === "compare" && !step.comparisons?.length || step.method === "structure" && !step.relation_id
+      || step.depends_on?.some(id => !seen.has(id))) result.push({code: "STEP_INVALID", requirement_ids: step.answers.some(id => ids.has(id))
+        ? step.answers.filter(id => ids.has(id)) : [...ids],
+        step_ids: [step.id], next_action: "repair_steps"});
+    seen.add(step.id);
+  }
+  return result;
+}
+
 export const analysisPlanSchema = {type: "object", required: ["objective", "scope_notice", "requirements", "steps"], additionalProperties: false,
   properties: {
     inquiry: analysisInquirySchema,

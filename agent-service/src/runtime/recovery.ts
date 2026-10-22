@@ -1,6 +1,7 @@
 import type {AgentMessage} from "@earendil-works/pi-agent-core";
 import {repeatedToolFailure} from "../toolRecovery.js";
 import {isSemanticFeedback} from "../semantic-task/feedback.js";
+import {ANALYSIS_REPAIR, analysisRecoveryPhase} from "../semantic-task/analysisRecovery.js";
 
 /** 全局上限只由宿主掌握；模型、重开会话与改写参数不能重置预算。模型网络重试仍归 Pi 的 retry policy。 */
 export const RUNTIME_LIMITS = {toolCalls: 24, actionRepairs: 2, outputRepairs: 1, recoveryReminders: 2, repeatedContextReads: 2} as const;
@@ -12,7 +13,7 @@ export interface RecoveryDecision {kind: RecoveryKind; canRetry: boolean; preser
 export function recoveryDecision(messages: readonly AgentMessage[]): RecoveryDecision {
   const result = (kind: RecoveryKind, canRetry = false): RecoveryDecision => ({kind, canRetry, preserveEvidence: true, changeScope: false});
   const receipts = messages.filter(message => message.role === "toolResult");
-  const last = [...receipts].reverse().find(message => message.toolName === "resolve_business_turn" || message.toolName === "execute_business_frame"
+  const last = [...receipts].reverse().find(message => ["resolve_business_turn", ANALYSIS_REPAIR].includes(message.toolName) || message.toolName === "execute_business_frame"
     || message.toolName === "read_business_result");
   if (last && isSemanticFeedback(last.details)) {
     const feedback = last.details;
@@ -20,6 +21,8 @@ export function recoveryDecision(messages: readonly AgentMessage[]): RecoveryDec
     if (["unknown", "executing"].includes(feedback.status)) return result("reconcile_execution");
     if (feedback.status === "unsupported") return result("stop_capability");
     if (feedback.status === "needs_user") return result("await_user");
+    const repair = analysisRecoveryPhase(messages);
+    if (repair) return result(repair.tool === "analysis_catalog" ? "discover_catalog" : "repair_arguments", true);
     if (feedback.query_recovery) {
       const discovered = receipts.slice(receipts.indexOf(last) + 1).some(message => message.toolName === "analysis_catalog"
         && !message.isError && (message.details as {status?: string})?.status === "succeeded");

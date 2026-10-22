@@ -15,6 +15,7 @@ const toolLabels: Record<string, string> = {
   answer_evidence_check: "核验回答依据",
   answer_present: "交付回答",
   resolve_business_turn: "解析查询条件",
+  analysis_plan_repair: "补齐分析查询步骤",
   business_context_read: "读取查询历史",
   execute_business_frame: "执行指标查询",
   read_business_result: "读取历史结果",

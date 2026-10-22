@@ -58,7 +58,7 @@ it.each([401, 403])("鉴权失败 %s 整体传播，不作为普通检索失败�
 it("入口注册普通回答与内部协议纠错，概览仍生成可交付回执", async () => {
   const tools = [...createAskMetricTools(), createBusinessSkillReadTool([])];
   expect(tools.map(tool => tool.name)).toEqual([
-    "business_capability_explain", "resolve_business_turn", "business_context_read", "execute_business_frame",
+    "business_capability_explain", "resolve_business_turn", "analysis_plan_repair", "business_context_read", "execute_business_frame",
     "read_business_result", "read", "business_topic_read", "business_report_present", "analysis_catalog", "analysis_report_present", "analysis_partial_present", "runtime_finalize_turn", "catalog", "respond_without_business_action", "business_action_required", "clarify_business_turn", "business_skill_read",
   ]);
   const result = await runTool(tools.find(tool => tool.name === "catalog")!, {action: "overview"}, request({

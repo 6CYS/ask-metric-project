@@ -27,7 +27,7 @@ export function repeatedToolFailure(messages: readonly AgentMessage[]): boolean 
       if (context?.references?.length || context?.tasks?.some(task => task.task_ref)) contextEvidence = businessKey(context);
     }
     const details = message.details as {protocol_version?: number; status?: string; retryable?: boolean; issues?: unknown} | undefined;
-    const businessResolved = message.toolName === "resolve_business_turn"
+    const businessResolved = ["resolve_business_turn", "analysis_plan_repair"].includes(message.toolName)
       && ["READY", "REUSE_RESULT", "NEEDS_CLARIFICATION", "ready", "needs_user", "prepared", "succeeded", "reused", "failed"].includes(details?.status ?? "");
     const businessExecuted = message.toolName === "execute_business_frame"
       && ["succeeded", "failed"].includes(details?.status ?? "");

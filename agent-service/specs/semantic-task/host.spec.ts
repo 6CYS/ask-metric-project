@@ -74,6 +74,64 @@ async function setup(script: Reply[], directQueryDelivery: NonNullable<AgentServ
   return {dir, model, backend, store, host, session, run, admit, deps};
 }
 
+it.each(["complete", "partial", "malformed", "denied"])("漏分析子问题后原样重交也会切换局部修复，%s交付不重复查数", async mode => {
+  const read = (id: string, ref: string, answer: string) => ({id, method: "observe", metric_refs: [ref], answers: [answer], rationale: "正式目录取证"});
+  const analysis = {objective: "合成经营分析", scope_notice: "隔离合成环境",
+    requirements: [{id: "q1", question: "合成指标甲水平如何"}, {id: "q2", question: "合成指标乙水平如何"}],
+    steps: [read("s1", "k1", "q1")]};
+  const broken = {protocol_version: 2, intent: "analyze", targets: [{source: {kind: "new"},
+    operations: [{action: "set", field: "organizations", value: "合成机构甲"}, {action: "set", field: "time", value: "2025年末"}],
+    analysis: {kind: "business_analysis", plan: analysis}}]};
+  const patch = {task_ref: "pending", target_ref: "pending", revision: 0, steps: [read("s2", "k2", "q2")]};
+  const f = await setup([
+    [{name: "analysis_catalog", args: {keywords: ["合成指标甲", "合成指标乙"]}}],
+    [{name: "resolve_business_turn", args: broken}],
+    [{name: "resolve_business_turn", args: broken}],
+    mode === "complete" ? [{name: "analysis_plan_repair", args: patch}] : mode === "malformed"
+      ? [{name: "analysis_plan_repair", args: {steps: "错误结构"}}] : [{name: "resolve_business_turn", args: broken}],
+    mode === "complete" ? [{name: "analysis_report_present", args: {evidence_refs: ["e1"], body: "当前经营表现需要结合规模、盈利与质量综合判断。{{e1.v1}}体现的是本次取得的指标观测值；本次结果属于指定时点的证据，不能单凭某一项数值推断业务原因。"}}] : [{name: "resolve_business_turn", args: broken}],
+  ]);
+  const tasks = new NativeSemanticTaskStore(f.session.session);
+  let catalogs = 0;
+  const execute = vi.fn(async (payload: Record<string, unknown>) => ({kind: "analysis_evidence", status: "succeeded", run_ref: "synthetic-run",
+    scope_id: "synthetic-scope", org_codes: ["O1"], analysis_date: "2025-12-31", actual_dates: ["2025-12-31"], tasks: [], rows: [], gaps: [],
+    plan: payload.plan, metric_descriptors: [], evidence_items: [{ref: "synthetic.f1", type: "fact", metric_code: "M1", value: "100", display: "100元"}]}));
+  Object.assign(f.backend, {analysisMethods: vi.fn(async () => ({methods: [], relations: []})),
+    analysisCatalog: vi.fn(async () => {
+      if (++catalogs > 2) {
+        const plan = (await tasks.plan((await tasks.planIndex()).order.at(-1)!))!;
+        const recovery = (await tasks.turn(plan.operationId))!.analysisRecovery!;
+        Object.assign(patch, {task_ref: recovery.planRef, target_ref: recovery.targetRef, revision: recovery.revision});
+      }
+      return {items: [{code: "M1", name: "合成指标甲", binding_ref: "signed-1"}, {code: "M2", name: "合成指标乙", binding_ref: "signed-2"}]};
+    }), analysisValidate: vi.fn(async () => ({valid: true})), analysisExecute: execute,
+    analysisReport: vi.fn(async () => {
+      if (mode === "denied") throw new BackendApiError(403, "PERMISSION_DENIED", "合成交付时撤权");
+      return {kind: "business_report", status: "succeeded", delivery: "business_evidence_v1", answer_policy: "verified_report_v1",
+      public_answer: mode === "complete" ? "合成经营分析已完成。" : "合成指标甲为100元。合成指标乙尚未完成查询，不能据此评价整体经营。",
+      org_codes: ["O1"], rows: [], columns: [], tasks: [], gaps: []};})});
+  const result = await f.run("analysis-repair-host", "合成机构甲2025年末经营情况如何");
+  expect(result.ok).toBe(true);
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(execute.mock.calls[0]![0]).toMatchObject({org_codes: ["O1"], start: "2025-12-31", end: "2025-12-31",
+    plan: {steps: mode === "complete" ? [{id: "s1", answers: ["q1"]}, {id: "s2", answers: ["q2"]}] : [{id: "s1", answers: ["q1"]}]}});
+  const entries = await f.session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
+  const receipts = entries.flatMap(entry => entry.type === "message" && entry.message.role === "toolResult" ? [entry.message] : []);
+  expect(receipts.filter(item => item.toolName === "resolve_business_turn")).toHaveLength(1);
+  expect(receipts.some(item => item.toolName === "analysis_plan_repair" && (item.details as {status: string}).status === (mode === "denied" ? "denied" : "succeeded"))).toBe(true);
+  expect(JSON.stringify(receipts)).not.toContain("SEMANTIC_NO_PROGRESS");
+  const visible = projectEntries(entries).flatMap(message => message.role === "assistant" && message.text ? [message.text] : []).at(-1);
+  expect(visible).toContain(mode === "complete" ? "合成经营分析已完成" : mode === "denied" ? "当前权限已变化" : "合成指标甲为100元");
+  if (mode === "denied") expect(visible).not.toContain("100元");
+  if (["partial", "malformed"].includes(mode)) {
+    const plan = (await tasks.plan((await tasks.planIndex()).order.at(-1)!))!;
+    expect(plan.completion).toBe("partial");
+    expect((await tasks.turn(plan.operationId))?.runtime).toMatchObject({execution_complete: false, delivery_complete: true});
+  }
+  expect(f.model.calls()).toBe(5);
+  expect((f.model.payloads[3] as {tool_choice: unknown}).tool_choice).toEqual({type: "function", function: {name: "analysis_plan_repair"}});
+});
+
 it("目录成功后模型反复输出内部规划，宿主有限纠错且刷新不泄露原文", async () => {
   const leak = "用户提出四项指标，我应该先回答待确认问题。让我构造resolve_business_turn，top_n=null。";
   const f = await setup([[{name: "analysis_catalog", args: {keywords: ["存款"]}}], leak]);

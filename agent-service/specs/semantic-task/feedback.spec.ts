@@ -28,3 +28,13 @@ it("权限失效时不展示范围和已取得数据，内部连接信息不外�
   expect(semanticPublicAnswer(feedback)).toContain("无权");
   expect(semanticPublicAnswer(feedback)).not.toMatch(/合成机构甲|旧值|secret/);
 });
+
+it("大量机构的失败说明只概括家数，完整成员仍留在结构化条件", () => {
+  const feedback = failed();
+  const names = Array.from({length: 60}, (_, index) => `合成机构${index + 1}`).join("、");
+  feedback.state.targets[0]!.conditions[0]!.display = names;
+  const answer = semanticPublicAnswer(feedback)!;
+  expect(answer).toContain("60家机构");
+  expect(answer).not.toContain("合成机构1");
+  expect(feedback.state.targets[0]!.conditions[0]!.display).toBe(names);
+});

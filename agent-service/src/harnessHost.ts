@@ -62,6 +62,8 @@ import {semanticRuntimeAdapter, semanticPublicToolDefinitions} from "./semantic-
 import {analysisFollowupToolView} from "./semantic-task/analysisToolView.js";
 import {isSemanticFeedback, semanticPublicAnswer, type SemanticFeedback} from "./semantic-task/feedback.js";
 import {queryRecoveryPhase} from "./semantic-task/queryRecovery.js";
+import {ANALYSIS_REPAIR, analysisRecoveryPhase, markPartialAnalysis} from "./semantic-task/analysisRecovery.js";
+import {SemanticPlanService} from "./semantic-task/planService.js";
 import {buildCompactSemanticSystemPrompt, buildSemanticSystemPrompt, semanticBusinessSkills} from "./semantic-task/prompt.js";
 import {projectSemanticModelMessages, appendSemanticRuntimeContext} from "./semantic-task/modelView.js";
 import {workingMessages, safeWorkingHistory, permissionFilteredContext, permissionFilteredAdmission} from "./semantic-task/contextMemory.js";
@@ -520,6 +522,18 @@ export class HarnessHost {
           payload = {...payload, tools: payload.tools.filter(raw =>
             (raw as {function?: {name?: string}}).function?.name !== CONVERSATION_REPLY)};
         }
+        const planRecovery = analysisRecoveryPhase(current);
+        if (Array.isArray(payload.tools)) payload = {...payload, tools: payload.tools.filter(raw => {
+          const definition = raw as {name?: string; function?: {name?: string}};
+          return (definition.function?.name ?? definition.name) !== ANALYSIS_REPAIR || planRecovery?.tool === ANALYSIS_REPAIR;
+        })};
+        if (planRecovery && Array.isArray(payload.tools) && payload.tools.some(raw => {
+          const definition = raw as {name?: string; function?: {name?: string}};
+          return (definition.function?.name ?? definition.name) === planRecovery.tool;
+        })) {
+          setStreamMode("none");
+          return {payload: {...payload, tool_choice: {type: "function", function: {name: planRecovery.tool}}}};
+        }
         const queryRecovery = queryRecoveryPhase(current);
         if (queryRecovery && Array.isArray(payload.tools) && payload.tools.some(raw => {
           const definition = raw as {name?: string; function?: {name?: string}};
@@ -658,8 +672,9 @@ export class HarnessHost {
         }
         if (isSemanticFeedback(event.details)) {
           let feedback: SemanticFeedback = event.details;
+          const partialRecovery = feedback.analysis_recovery_partial;
           let content = event.content;
-          if (event.toolName === "resolve_business_turn" && ["ready", "reused"].includes(feedback.status)) {
+          if (["resolve_business_turn", ANALYSIS_REPAIR].includes(event.toolName) && ["ready", "reused"].includes(feedback.status)) {
             const taskRef = feedback.state.task_ref;
             const tool = sessionTools.find(item => item.name === (feedback.status === "ready" ? "execute_business_frame" : "read_business_result"));
             if (tool && taskRef) {
@@ -681,11 +696,32 @@ export class HarnessHost {
                 public_answer: results.map(item => item.public_answer).filter(item => typeof item === "string").join("\n\n")};
             }
           }
+          if (partialRecovery) {
+            feedback = await markPartialAnalysis(request, feedback);
+            if (feedback.status === "failed" && feedback.state.completion === "partial") {
+              // 正确子计划已执行后直接复用既有事实交付器，无需再请求模型决定是否收口。
+              const presenter = sessionTools.find(tool => tool.name === PARTIAL_ANALYSIS);
+              if (presenter) {
+                // 当前工具尚未落盘；发送同一份受治理回执供交付器读取，后端仍逐个run重新授权。
+                const evidence = currentTurnEvidence([...currentTurnMessages(await currentLaneMessages(lane, context)),
+                  {role: "toolResult", details: feedback}]);
+                try {
+                  const report = await presenter.execute(event.toolCallId, {reason: "corrections_exhausted"}, () => {}, {...request, answerEvidence: async () => evidence},
+                    invocationOf(event.toolCallId, request), context);
+                  return {details: report.details as JsonValue, content: report.content, terminate: true};
+                } catch (error) {
+                  if (context.abortSignal?.aborted) throw error;
+                  // 嵌套调用不经过工具异常适配器，撤权必须显式转为无正文证据的拒绝回执。
+                  feedback = await new SemanticPlanService(request, context.abortSignal).rejected(feedback.state.task_ref!, error);
+                }
+              }
+            }
+          }
           content = [{type: "text", text: JSON.stringify(feedback)}];
           const messages = currentTurnMessages(await currentLaneMessages(lane, context));
           const withCurrent = [...messages, {role: "toolResult" as const, toolName: event.toolName, toolCallId: event.toolCallId,
             content, details: feedback, isError: event.isError, timestamp: Date.now()}];
-          if (!feedback.query_recovery && repeatedToolFailure(withCurrent)) feedback = {...feedback, status: "failed",
+          if (!feedback.query_recovery && !feedback.analysis_recovery && repeatedToolFailure(withCurrent)) feedback = {...feedback, status: "failed",
             issues: [...feedback.issues.map(issue => ({...issue, remediation: "stop" as const})),
               {code: "SEMANTIC_NO_PROGRESS", category: "semantic", message: "相同提案未取得进展，已停止重复尝试；以上为实际拒绝原因，原始要求及待修修改均保留。", remediation: "stop"}],
             continuation: {actor: "none", action: "stop"}};
@@ -706,7 +742,8 @@ export class HarnessHost {
           const snapshot = readDirectAnswerSnapshot(feedback);
           const answer = snapshot?.public_answer ?? semanticPublicAnswer(feedback);
           // 补查失败不撤销此前成功取数；交给内部恢复动作重新授权后呈现，不能在此直接终止并丢失表格。
-          const recoverAnalysis = feedback.status === "failed" && currentTurnEvidence(messages).some(item =>
+          const recoverAnalysis = feedback.status === "failed" && currentTurnEvidence([...messages,
+            {role: "toolResult", details: feedback}]).some(item =>
             ["business_overview", "analysis_evidence"].includes(item.evidence.kind) && item.evidence.status === "succeeded")
             && !messages.some(item => item.role === "toolResult" && item.toolName === PARTIAL_ANALYSIS);
           return {details: feedback as unknown as JsonValue, content: snapshot ? content : answer ? [{type: "text" as const, text: answer}] : content,
@@ -783,6 +820,33 @@ export class HarnessHost {
         const receipts = current.filter(message => message.role === "toolResult");
         const catalogExplanation = receipts.some(message => ["catalog", "analysis_catalog", "metric_catalog_overview"].includes(message.toolName) && !message.isError)
           && receipts.every(message => isPreparationTool(message.toolName)) && isCatalogExplanationQuestion(request.originalMessage);
+        const recoveringPlan = analysisRecoveryPhase(current);
+        if (recoveringPlan) {
+          const calls = event.message.content.filter(block => block.type === "toolCall");
+          if (recoveringPlan.tool === "analysis_catalog" && (calls.length !== 1 || calls[0]?.name !== "analysis_catalog"))
+            return {message: {...event.message, content: [{type: "toolCall" as const,
+              id: `analysis-discovery-${request.operationId}-${receipts.length}`, name: "analysis_catalog", arguments: recoveringPlan.discovery}], stopReason: "toolUse" as const}};
+          let invalidRepair = false;
+          if (recoveringPlan.tool === ANALYSIS_REPAIR && calls.length === 1 && calls[0]?.name === ANALYSIS_REPAIR) {
+            const definition = runtimeTools.find(tool => tool.name === ANALYSIS_REPAIR);
+            try {if (definition) validateToolArguments(definition, calls[0]); else invalidRepair = true;}
+            catch {invalidRepair = true;}
+          }
+          if (recoveringPlan.tool === ANALYSIS_REPAIR && (invalidRepair || calls.length !== 1 || calls[0]?.name !== ANALYSIS_REPAIR)) {
+            // 网关忽略强制工具时，仅抽取待修步骤；不采用重提中的机构、日期或其他改写。
+            const proposed = calls.find(call => call.name === "resolve_business_turn")?.arguments as {targets?: Array<{analysis?: {plan?: {steps?: unknown[]}}}>} | undefined;
+            const candidates = proposed?.targets?.[0]?.analysis?.plan?.steps;
+            const ids = new Set(recoveringPlan.recovery.diagnostics.flatMap(item => item.requirement_ids));
+            const steps = Array.isArray(candidates) ? candidates.filter(raw => {
+              const step = raw as {answers?: string[]};
+              return Array.isArray(step?.answers) && step.answers.length > 0 && step.answers.every(id => ids.has(id));
+            }) : [];
+            return {message: {...event.message, content: [{type: "toolCall" as const,
+              id: `analysis-repair-${request.operationId}-${receipts.length}`, name: ANALYSIS_REPAIR,
+              arguments: {task_ref: recoveringPlan.recovery.task_ref, target_ref: recoveringPlan.recovery.target_ref,
+                revision: recoveringPlan.recovery.revision, steps}}], stopReason: "toolUse" as const}};
+          }
+        }
         const recoveringQuery = queryRecoveryPhase(current);
         const recoveryCalls = event.message.content.filter(block => block.type === "toolCall");
         if (recoveringQuery && (recoveryCalls.length !== 1 || recoveryCalls[0]?.name !== recoveringQuery.tool)) {
@@ -796,7 +860,7 @@ export class HarnessHost {
           // 网关忽略 none 或旧批次尚有非终止回执时，也只交付原正式回执的正文。
           return {message: {...event.message, content: [{type: "text" as const, text: semanticAnswer}], stopReason: "stop" as const}};
         }
-        const pendingSemantic = [...receipts].reverse().find(message => message.toolName === "resolve_business_turn");
+        const pendingSemantic = [...receipts].reverse().find(message => ["resolve_business_turn", ANALYSIS_REPAIR].includes(message.toolName));
         const proposalRequired = pendingSemantic && isSemanticFeedback(pendingSemantic.details)
           && requiresSemanticProposal(pendingSemantic.details);
         if (!event.message.content.some(block => block.type === "toolCall")
@@ -841,7 +905,7 @@ export class HarnessHost {
           // 同批被拦截的调用不是新的参数失败，不能让预算提示覆盖真实的业务限制说明。
           return undefined;
         }
-        if (!recoveringQuery && recoveryDecision(current).kind === "stop_no_progress") {
+        if (!recoveringQuery && !recoveringPlan && recoveryDecision(current).kind === "stop_no_progress") {
           if (available && !delivered) return partial("corrections_exhausted");
           return {message: {...event.message, content: [{type: "text" as const,
             text: "本轮工具调用未通过校验或执行；相同参数重复提交后仍得到相同失败，已停止重复尝试。原查询条件仍保留，未完成的查询或计算不作为成功结果。"}], stopReason: "stop" as const}};

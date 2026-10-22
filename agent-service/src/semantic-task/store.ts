@@ -112,6 +112,9 @@ export interface SemanticTurn {
   /** 基础指标未命中后的有限恢复；范围在首次恢复时冻结，重启和重提不能重置预算。 */
   queryRecovery?: {planRef: string; attempts: number; scopes: Array<{taskRef: string; targetRef: string;
     fields: Record<string, ResolvedField>}>};
+  /** 仅引用原计划中的失败提案，不复制业务计划；次数在同一原生事务中累积。 */
+  analysisRecovery?: {planRef: string; targetRef: string; revision: number; attempts: number;
+    active: boolean};
   /** 在原生Session事务中冻结入场来源；本轮重提、工具执行或焦点移动不能改变它。 */
   context?: {plan?: SemanticPlan; tasks: SemanticTask[]; clarification?: SemanticClarification};
   contextAction?: "resume" | "defer" | "abandon"; source?: SemanticSource; baseline?: SemanticTarget; operations: Record<string, SemanticOperation[]>;
@@ -652,6 +655,18 @@ export class NativeSemanticTaskStore {
         scopes: structuredClone(previous?.scopes ?? scopes)};
       await tx.commit([setValue(address, {...turn, queryRecovery: recovery})], context);
       return recovery;
+    }, BACKGROUND_CONTEXT);
+  }
+  async updateAnalysisRecovery(operationId: string, update: (previous: SemanticTurn["analysisRecovery"]) => SemanticTurn["analysisRecovery"]) {
+    return this.session.mutate(async (tx, context) => {
+      const address = turnAddress(operationId), turn = (await tx.getValue(address, context))?.value;
+      if (!turn) throw new Error("SEMANTIC_TURN_NOT_ADMITTED");
+      const recovery = update(structuredClone(turn.analysisRecovery));
+      const next = {...turn};
+      if (recovery) next.analysisRecovery = recovery;
+      else delete next.analysisRecovery;
+      await tx.commit([setValue(address, next)], context);
+      return structuredClone(recovery);
     }, BACKGROUND_CONTEXT);
   }
   async bindReadDelivery(operationId: string, binding: NonNullable<SemanticTurn["readDelivery"]>) {
