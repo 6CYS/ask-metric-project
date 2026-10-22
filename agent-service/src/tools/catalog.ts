@@ -50,7 +50,13 @@ export function createCatalogTool(): AgentHarnessTool<AskMetricRequestContext, t
         : results.every(item => item.status === "error") ? "error" : "partial";
       return {content: [{type: "text", text: JSON.stringify({status, results,
         usage_hint: "仅确定性命中可确认编码，须核对完整名称；semantic_suggestions 不可锁定。has_more 时不能认定候选齐全，缺项或失败不能省略后执行部分取数。"})}],
-        details: {kind: "catalog", action: "search", status}};
+        details: {kind: "catalog", action: "search", status, catalog_answer: results.map(result => {
+          if (result.status === "error") return `「${result.keyword}」的目录检索暂时失败，请稍后重试。`;
+          const items = (result as {items?: Array<{metric_name?: string; org_name?: string; name?: string}>}).items ?? [];
+          const names = items.map(item => item.metric_name ?? item.org_name ?? item.name).filter(Boolean);
+          return names.length ? `「${result.keyword}」的目录匹配项：${names.join("、")}。`
+            : `「${result.keyword}」本次检索未返回目录匹配项，可以换用完整名称继续检索。`;
+        }).join("\n")}};
     },
   };
 }

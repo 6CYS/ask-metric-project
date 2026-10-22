@@ -70,10 +70,13 @@ import {requestedHistory} from "./semantic-task/historyReference.js";
 import {modelPayloadDiagnostics} from "./modelPayloadDiagnostics.js";
 import {ordinaryQueryNeedsResolution, prepareDirectQueryDelivery, readDirectAnswerSnapshot} from "./semantic-task/directDelivery.js";
 import {createBusinessSkillReadTool} from "./businessSkills.js";
+import {isCatalogExplanationQuestion, lastReceiptDelivery, RUNTIME_FINALIZE} from "./runtime/delivery.js";
+import {recoveryDecision, RUNTIME_LIMITS} from "./runtime/recovery.js";
+import {isPreparationTool, runtimeToolAdmission} from "./runtime/control.js";
 
 /** 原生应用 values 的命名空间；此命名空间只存归属与请求关联；业务状态使用独立 business 命名空间 */
 const NS = "askmetric";
-const MAX_TOOL_CALLS_PER_OPERATION = 24;
+const MAX_TOOL_CALLS_PER_OPERATION = RUNTIME_LIMITS.toolCalls;
 
 // 轮状态块（当前焦点/历史索引/本轮指标匹配）随请求变化，放在发送副本末尾，
 // 不落盘、页面不展示；基座提示词中的锚点说明向模型解释该块的来源与效力。
@@ -459,7 +462,7 @@ export class HarnessHost {
           payload = {...payload, tools: payload.tools.filter(raw => {
             const definition = raw as {name?: string; function?: {name?: string}};
             const name = definition.function?.name ?? definition.name;
-            if (name === ACTION_REQUIRED || name === EVIDENCE_REPAIR_TOOL || name === "answer_present") return false;
+            if (name === ACTION_REQUIRED || name === RUNTIME_FINALIZE || name === EVIDENCE_REPAIR_TOOL || name === "answer_present") return false;
             if (name === CONVERSATION_REPLY && request.trustedAnswers?.length) return false;
             // 已持久化的旧操作沿用原活跃集恢复；新请求在接纳前切换为合并入口。
             if (["metric_read", "session_history_read"].includes(name ?? "")) return !activeNames.includes("read");
@@ -469,6 +472,7 @@ export class HarnessHost {
         }
         const messages = await currentLaneMessages(lane, context);
         const current = currentTurnMessages(messages);
+        await request.semanticTasks?.reconcileRuntime(request.operationId, current);
         const evidence = currentTurnEvidence(messages);
         restoreAnalysisDiscovery(request, [...current.filter(item => item.role === "toolResult").map(item => item.details),
           ...evidence.map(item => item.evidence)]);
@@ -489,7 +493,7 @@ export class HarnessHost {
         }
         const frameTurn = ([...messages].reverse().find(message => message.role === "user") as {businessProtocol?: string} | undefined)?.businessProtocol === "frame_v1";
         const setStreamMode = (mode: "none" | "text" | "reply") => {
-          request.answerStream = {callSeq, mode: frameTurn ? mode : "none"};
+          request.answerStream = {callSeq, mode: frameTurn && !turnContract ? mode : "none"};
         };
         const contractActive = turnContract && (await lane.getActiveTools(context)).includes(CONVERSATION_REPLY);
         const semanticAnswer = terminalSemanticAnswer(current);
@@ -608,15 +612,12 @@ export class HarnessHost {
       const decide = async () => {
         // 从原生记录统计本轮预算，恢复后不重置；业务状态仍由后端管理。
         const budgetMessages = await currentLaneMessages(lane, context);
+        if (event.toolName === RUNTIME_FINALIZE && event.toolCallId !== `runtime-finalize-${request.operationId}`)
+          return {block: {reason: "内部交付工具只由宿主按正式回执调用，请使用当前公开业务工具。", terminate: false}};
         if (!request.trustedAnswers?.length && standaloneConversationReply(request.originalMessage) !== undefined && event.toolName !== CONVERSATION_REPLY)
           return {block: {reason: "本轮仅为独立问候或致谢，请用普通回答工具回应，不继续上一轮业务。", terminate: false}};
-        const requiredEvidence = event.toolName === "business_report_present" ? "business_overview" : event.toolName === "analysis_report_present" ? "analysis_evidence" : undefined;
-        if (requiredEvidence && !currentTurnEvidence(budgetMessages).some(item => item.evidence.kind === requiredEvidence && item.evidence.status === "succeeded"))
-          return {block: {reason: "请先取得本轮成功的分析取数证据，再交付对应报告；目录或历史数据不能替代本轮取数。", terminate: false}};
-        const semanticAnswer = terminalSemanticAnswer(currentTurnMessages(budgetMessages));
-        const failedAnalysisRecovery = event.toolName === PARTIAL_ANALYSIS && currentTurnMessages(budgetMessages).some(item =>
-          item.role === "toolResult" && isSemanticFeedback(item.details) && item.details.status === "failed");
-        if (semanticAnswer !== undefined && !failedAnalysisRecovery) return {block: {reason: "当前业务状态已结束本轮处理，不能继续调用工具代替用户补充或改写已保存的交付。", terminate: true}};
+        const stageBlock = runtimeToolAdmission(currentTurnMessages(budgetMessages), event.toolName);
+        if (stageBlock) return {block: stageBlock};
         const terminalFailure = terminalResolutionFailure(currentTurnMessages(budgetMessages));
         // 同批尚未执行的调用也须拦住；保留一次正文交付，不以隐藏的工具错误结束页面回答。
         if (terminalFailure) return {block: {reason: terminalFailure.message}};
@@ -634,9 +635,9 @@ export class HarnessHost {
         const toolCount = budgetMessages.slice(turnStart + 1).filter(message => message.role === "toolResult").length;
         if (event.toolName === "business_context_read") {
           const reads = repeatedContextRead(budgetMessages.slice(turnStart + 1), event.args);
-          if (reads >= 2) return {block: {reason: "同一参数的历史读取已经返回，未新增来源。请使用已签发引用继续提案，或改变query_number/task_ref/topic_ref/cursor读取真正缺少的来源；不要再次读取相同页。", terminate: reads >= 3}};
+          if (reads >= RUNTIME_LIMITS.repeatedContextReads) return {block: {reason: "同一参数的历史读取已经返回，未新增来源。请使用已签发引用继续提案，或改变query_number/task_ref/topic_ref/cursor读取真正缺少的来源；不要再次读取相同页。", terminate: reads > RUNTIME_LIMITS.repeatedContextReads}};
         }
-        if (toolCount >= MAX_TOOL_CALLS_PER_OPERATION && event.toolName !== PARTIAL_ANALYSIS) return {block: {reason: TOOL_LIMIT_ANSWER, terminate: true}};
+        if (toolCount >= MAX_TOOL_CALLS_PER_OPERATION && ![PARTIAL_ANALYSIS, RUNTIME_FINALIZE].includes(event.toolName)) return {block: {reason: TOOL_LIMIT_ANSWER, terminate: true}};
         if (["metric_ask", "metric_query_structured", "data_availability", "metric_calculate", "answer_present", EVIDENCE_REPAIR_TOOL].includes(event.toolName)) {
           return {block: {reason: "查询入口已升级：请使用 resolve_business_turn 解析并校验字段，再执行 READY Frame。", terminate: false}};
         }
@@ -648,256 +649,282 @@ export class HarnessHost {
     });
     harness.hooks.on("after_tool", async (event, context) => {
       const request = requireRequestContext(context);
-      const timings = request.timings;
-      const started = timings?.toolStartedAt?.[event.toolCallId];
-      if (timings && started !== undefined) {
-        timings.tool_ms.push(Math.round(performance.now() - started));
-        delete timings.toolStartedAt?.[event.toolCallId];
-      }
-      if (isSemanticFeedback(event.details)) {
-        let feedback: SemanticFeedback = event.details;
-        let content = event.content;
-        if (event.toolName === "resolve_business_turn" && ["ready", "reused"].includes(feedback.status)) {
-          const taskRef = feedback.state.task_ref;
-          const tool = sessionTools.find(item => item.name === (feedback.status === "ready" ? "execute_business_frame" : "read_business_result"));
-          if (tool && taskRef) {
-            const results: Record<string, unknown>[] = [], blocks: typeof content = [];
-            const targets = [...feedback.state.targets].sort((a,b) => Number(a.kind === "calculation") - Number(b.kind === "calculation"));
-            for (const target of targets) {
-              if (!["ready", "waiting_dependency", "succeeded"].includes(target.status)) continue;
-              const result = await tool.execute(event.toolCallId, {task_ref: taskRef, target_ref: target.target_ref}, () => {}, request, invocationOf(event.toolCallId, request), context);
-              if (isSemanticFeedback(result.details)) {
-                feedback = result.details; blocks.push(...result.content);
-                if (feedback.state.evidence) results.push(feedback.state.evidence);
-                if (["unknown", "failed", "conflict", "denied", "needs_user", "needs_interpretation"].includes(feedback.status)) break;
+      const decision = await (async () => {
+        const timings = request.timings;
+        const started = timings?.toolStartedAt?.[event.toolCallId];
+        if (timings && started !== undefined) {
+          timings.tool_ms.push(Math.round(performance.now() - started));
+          delete timings.toolStartedAt?.[event.toolCallId];
+        }
+        if (isSemanticFeedback(event.details)) {
+          let feedback: SemanticFeedback = event.details;
+          let content = event.content;
+          if (event.toolName === "resolve_business_turn" && ["ready", "reused"].includes(feedback.status)) {
+            const taskRef = feedback.state.task_ref;
+            const tool = sessionTools.find(item => item.name === (feedback.status === "ready" ? "execute_business_frame" : "read_business_result"));
+            if (tool && taskRef) {
+              const results: Record<string, unknown>[] = [], blocks: typeof content = [];
+              const targets = [...feedback.state.targets].sort((a,b) => Number(a.kind === "calculation") - Number(b.kind === "calculation"));
+              for (const target of targets) {
+                if (!["ready", "waiting_dependency", "succeeded"].includes(target.status)) continue;
+                const result = await tool.execute(event.toolCallId, {task_ref: taskRef, target_ref: target.target_ref}, () => {}, request, invocationOf(event.toolCallId, request), context);
+                if (isSemanticFeedback(result.details)) {
+                  feedback = result.details; blocks.push(...result.content);
+                  if (feedback.state.evidence) results.push(feedback.state.evidence);
+                  if (["unknown", "failed", "conflict", "denied", "needs_user", "needs_interpretation"].includes(feedback.status)) break;
+                }
               }
+              content = blocks.length ? blocks : content;
+              if (results.length === 1) feedback.state.evidence = results[0]!;
+              if (results.length > 1) feedback.state.evidence = {kind: "semantic_results", delivery: "business_evidence_v1",
+                status: feedback.status === "succeeded" ? "succeeded" : "partial", results,
+                public_answer: results.map(item => item.public_answer).filter(item => typeof item === "string").join("\n\n")};
             }
-            content = blocks.length ? blocks : content;
-            if (results.length === 1) feedback.state.evidence = results[0]!;
-            if (results.length > 1) feedback.state.evidence = {kind: "semantic_results", delivery: "business_evidence_v1",
-              status: feedback.status === "succeeded" ? "succeeded" : "partial", results,
-              public_answer: results.map(item => item.public_answer).filter(item => typeof item === "string").join("\n\n")};
+          }
+          content = [{type: "text", text: JSON.stringify(feedback)}];
+          const messages = currentTurnMessages(await currentLaneMessages(lane, context));
+          const withCurrent = [...messages, {role: "toolResult" as const, toolName: event.toolName, toolCallId: event.toolCallId,
+            content, details: feedback, isError: event.isError, timestamp: Date.now()}];
+          if (!feedback.query_recovery && repeatedToolFailure(withCurrent)) feedback = {...feedback, status: "failed",
+            issues: [...feedback.issues.map(issue => ({...issue, remediation: "stop" as const})),
+              {code: "SEMANTIC_NO_PROGRESS", category: "semantic", message: "相同提案未取得进展，已停止重复尝试；以上为实际拒绝原因，原始要求及待修修改均保留。", remediation: "stop"}],
+            continuation: {actor: "none", action: "stop"}};
+          const deliveryMode = (await request.semanticTasks?.turn(request.operationId))?.directQueryDelivery ?? "off";
+          if (!event.isError && deliveryMode !== "off") {
+            const decision = await prepareDirectQueryDelivery(request, feedback, {toolName: event.toolName, toolCallId: event.toolCallId,
+              messages, signal: context.abortSignal}).catch(() => ({eligible: false, reason: "delivery_validation_unavailable"}));
+            console.info(JSON.stringify({event: "direct_query_delivery", request_id: request.requestId, operation_id: request.operationId,
+              mode: deliveryMode, eligible: decision.eligible, reason: decision.reason,
+              delivery_path: deliveryMode === "on" && decision.eligible ? "direct_query" : "pi_answer"}));
+            if ("terminalFeedback" in decision && decision.terminalFeedback) feedback = decision.terminalFeedback;
+            else if (deliveryMode === "on" && "snapshot" in decision && decision.snapshot) {
+              // patch 随同真实 toolResult 由 SDK finalizeToolCall 一次落盘，恢复不依赖伪造 assistant。
+              feedback = {...feedback, continuation: {actor: "none", action: "deliver_saved_answer"}, direct_answer: decision.snapshot};
+            }
+          }
+          content = [{type: "text", text: JSON.stringify(feedback)}];
+          const snapshot = readDirectAnswerSnapshot(feedback);
+          const answer = snapshot?.public_answer ?? semanticPublicAnswer(feedback);
+          // 补查失败不撤销此前成功取数；交给内部恢复动作重新授权后呈现，不能在此直接终止并丢失表格。
+          const recoverAnalysis = feedback.status === "failed" && currentTurnEvidence(messages).some(item =>
+            ["business_overview", "analysis_evidence"].includes(item.evidence.kind) && item.evidence.status === "succeeded")
+            && !messages.some(item => item.role === "toolResult" && item.toolName === PARTIAL_ANALYSIS);
+          return {details: feedback as unknown as JsonValue, content: snapshot ? content : answer ? [{type: "text" as const, text: answer}] : content,
+            ...(answer && !recoverAnalysis ? {terminate: true} : {})};
+        }
+        if (!event.isError && event.toolName !== "resolve_business_turn") {
+          const messages = await currentLaneMessages(lane, context);
+          const batch = [...messages].reverse().find(message => message.role === "assistant");
+          if (batch?.role === "assistant" && batch.content.some(block => block.type === "toolCall" && block.name === "resolve_business_turn")) {
+            // Pi 仅在整批回执都 terminate 时结束。先行读取不决定结束；READY/参数错误仍以非终止解析回执继续循环。
+            return {terminate: true};
           }
         }
-        content = [{type: "text", text: JSON.stringify(feedback)}];
-        const messages = currentTurnMessages(await currentLaneMessages(lane, context));
-        const withCurrent = [...messages, {role: "toolResult" as const, toolName: event.toolName, toolCallId: event.toolCallId,
-          content, details: feedback, isError: event.isError, timestamp: Date.now()}];
-        if (!feedback.query_recovery && repeatedToolFailure(withCurrent)) feedback = {...feedback, status: "failed",
-          issues: [...feedback.issues.map(issue => ({...issue, remediation: "stop" as const})),
-            {code: "SEMANTIC_NO_PROGRESS", category: "semantic", message: "相同提案未取得进展，已停止重复尝试；以上为实际拒绝原因，原始要求及待修修改均保留。", remediation: "stop"}],
-          continuation: {actor: "none", action: "stop"}};
-        const deliveryMode = (await request.semanticTasks?.turn(request.operationId))?.directQueryDelivery ?? "off";
-        if (!event.isError && deliveryMode !== "off") {
-          const decision = await prepareDirectQueryDelivery(request, feedback, {toolName: event.toolName, toolCallId: event.toolCallId,
-            messages, signal: context.abortSignal}).catch(() => ({eligible: false, reason: "delivery_validation_unavailable"}));
-          console.info(JSON.stringify({event: "direct_query_delivery", request_id: request.requestId, operation_id: request.operationId,
-            mode: deliveryMode, eligible: decision.eligible, reason: decision.reason,
-            delivery_path: deliveryMode === "on" && decision.eligible ? "direct_query" : "pi_answer"}));
-          if ("terminalFeedback" in decision && decision.terminalFeedback) feedback = decision.terminalFeedback;
-          else if (deliveryMode === "on" && "snapshot" in decision && decision.snapshot) {
-            // patch 随同真实 toolResult 由 SDK finalizeToolCall 一次落盘，恢复不依赖伪造 assistant。
-            feedback = {...feedback, continuation: {actor: "none", action: "deliver_saved_answer"}, direct_answer: decision.snapshot};
-          }
-        }
-        content = [{type: "text", text: JSON.stringify(feedback)}];
-        const snapshot = readDirectAnswerSnapshot(feedback);
-        const answer = snapshot?.public_answer ?? semanticPublicAnswer(feedback);
-        // 补查失败不撤销此前成功取数；交给内部恢复动作重新授权后呈现，不能在此直接终止并丢失表格。
-        const recoverAnalysis = feedback.status === "failed" && currentTurnEvidence(messages).some(item =>
-          ["business_overview", "analysis_evidence"].includes(item.evidence.kind) && item.evidence.status === "succeeded")
-          && !messages.some(item => item.role === "toolResult" && item.toolName === PARTIAL_ANALYSIS);
-        return {details: feedback as unknown as JsonValue, content: snapshot ? content : answer ? [{type: "text" as const, text: answer}] : content,
-          ...(answer && !recoverAnalysis ? {terminate: true} : {})};
-      }
-      if (!event.isError && event.toolName !== "resolve_business_turn") {
-        const messages = await currentLaneMessages(lane, context);
-        const batch = [...messages].reverse().find(message => message.role === "assistant");
-        if (batch?.role === "assistant" && batch.content.some(block => block.type === "toolCall" && block.name === "resolve_business_turn")) {
-          // Pi 仅在整批回执都 terminate 时结束。先行读取不决定结束；READY/参数错误仍以非终止解析回执继续循环。
-          return {terminate: true};
-        }
-      }
-      return undefined;
+        return undefined;
+      })();
+      const messages = currentTurnMessages(await currentLaneMessages(lane, context));
+      const currentReceipt = {role: "toolResult" as const, toolName: event.toolName, toolCallId: event.toolCallId,
+        content: decision && "content" in decision ? decision.content : event.content,
+        details: decision && "details" in decision ? decision.details : event.details,
+        isError: event.isError, timestamp: Date.now()};
+      await request.semanticTasks?.reconcileRuntime(request.operationId,
+        [...messages.filter(message => message.role !== "toolResult" || message.toolCallId !== event.toolCallId), currentReceipt]);
+      return decision;
     });
     harness.hooks.on("after_response", async (event, context) => {
       const request = requireRequestContext(context);
       // 原生压缩与分支摘要不是业务回答，不能被数字过滤、工具强制或回执替换改写。
       if (request.modelCall?.step === "compaction" || request.modelCall?.step === "branch_summary") return undefined;
-      for (const block of event.message.content) {
-        if (block.type === "toolCall") auditToolCall(request, block.id,
-          registeredNames.has(block.name) ? block.name : "unknown", "proposed", block.arguments);
-      }
-      const timings = request.timings;
-      if (timings?.modelStartedAt !== undefined) timings.model_ms.push(Math.round(performance.now() - timings.modelStartedAt));
-      const saved = await currentLaneMessages(lane, context);
-      const available = currentTurnEvidence(saved).some(item => ["business_overview", "analysis_evidence"].includes(item.evidence.kind) && item.evidence.status === "succeeded");
-      const currentSaved = currentTurnMessages(saved);
-      const delivered = currentSaved.some(item => item.role === "toolResult" && (item.details as {kind?: string; status?: string})?.kind === "business_report"
-        && (item.details as {status?: string}).status === "succeeded");
-      const partial = (reason: "model_failure" | "tool_budget" | "action_incomplete" | "corrections_exhausted") => ({message: {...event.message, content: [{type: "toolCall" as const,
-        id: `analysis-recovery-${request.operationId}`, name: PARTIAL_ANALYSIS, arguments: {reason}}], stopReason: "toolUse" as const}});
-      const failedSemantic = currentSaved.some(item => item.role === "toolResult" && isSemanticFeedback(item.details) && item.details.status === "failed");
-      if (event.message.stopReason !== "aborted" && available && !delivered && failedSemantic
-        && !currentSaved.some(item => item.role === "toolResult" && item.toolName === PARTIAL_ANALYSIS))
-        return partial("corrections_exhausted");
-      if (["error", "aborted"].includes(event.message.stopReason)) {
-        const retry = this.options.retry ?? this.config.modelRetry;
-        const terminal = !isRetryableAssistantError(event.message) || !retry?.enabled || (request.modelCall?.attempt ?? 1) > (retry.maxRetries ?? 0);
-        if (event.message.stopReason === "error" && terminal && !isContextOverflow(event.message)
-          && available && !delivered && !currentSaved.some(item => item.role === "toolResult" && item.toolName === PARTIAL_ANALYSIS)) return partial("model_failure");
-        return undefined;
-      }
-      if (event.message.stopReason === "length") {
-        // 截断参数不能执行或由程序猜补。给模型一次紧凑重发机会，次数从原生记录恢复。
-        const repaired = currentSaved.some(item => item.role === "toolResult"
-          && (item.details as {status?: string})?.status === "MODEL_OUTPUT_LIMIT");
-        if (!repaired && registeredNames.has(ACTION_REQUIRED)) return {message: {...event.message,
-          content: [{type: "toolCall" as const, id: `output-limit-repair-${request.operationId}`, name: ACTION_REQUIRED,
-            arguments: {reason: "output_limit"}}], stopReason: "toolUse" as const}};
-        if (available && !delivered) return partial("corrections_exhausted");
-        return {message: {...event.message, content: [{type: "text" as const,
-          text: "模型连续未能生成完整的调用参数，本次查询未完成。已确认的条件仍保留，截断的调用没有执行。"}], stopReason: "stop" as const}};
-      }
-      const greeting = !request.trustedAnswers?.length && registeredNames.has(CONVERSATION_REPLY)
-        && (await lane.getActiveTools(context)).includes(CONVERSATION_REPLY) && standaloneConversationReply(request.originalMessage);
-      if (greeting && !event.message.content.some(block => block.type === "toolCall" && block.name === CONVERSATION_REPLY)) return {message: {...event.message,
-        content: [{type: "toolCall" as const, id: `conversation-${request.operationId}`, name: CONVERSATION_REPLY, arguments: {answer: greeting}}], stopReason: "toolUse" as const}};
-      // 只读取原生当前分支，不维护第二份会话记忆；重启后仍遵守相同交付规则。
-      const messages = await currentLaneMessages(lane, context);
-      let start = messages.length - 1;
-      while (start >= 0 && messages[start]?.role !== "user") start -= 1;
-      const current = messages.slice(start + 1);
-      const receipts = current.filter(message => message.role === "toolResult");
-      const recoveringQuery = queryRecoveryPhase(current);
-      const recoveryCalls = event.message.content.filter(block => block.type === "toolCall");
-      if (recoveringQuery && (recoveryCalls.length !== 1 || recoveryCalls[0]?.name !== recoveringQuery.tool)) {
-        const reminders = receipts.filter(message => message.toolCallId.startsWith("query-recovery-required-")).length;
-        if (reminders < 2 && receipts.length < MAX_TOOL_CALLS_PER_OPERATION) return {message: {...event.message,
-          content: [{type: "toolCall" as const, id: `query-recovery-required-${reminders + 1}`, name: ACTION_REQUIRED, arguments: {}}], stopReason: "toolUse" as const}};
-        return {message: {...event.message, content: [{type: "text" as const, text: recoveringQuery.recovery.fallback_answer}], stopReason: "stop" as const}};
-      }
-      const semanticAnswer = terminalSemanticAnswer(current);
-      if (semanticAnswer !== undefined) {
-        // 网关忽略 none 或旧批次尚有非终止回执时，也只交付原正式回执的正文。
-        return {message: {...event.message, content: [{type: "text" as const, text: semanticAnswer}], stopReason: "stop" as const}};
-      }
-      const pendingSemantic = [...receipts].reverse().find(message => message.toolName === "resolve_business_turn");
-      const proposalRequired = pendingSemantic && isSemanticFeedback(pendingSemantic.details)
-        && requiresSemanticProposal(pendingSemantic.details);
-      if (!event.message.content.some(block => block.type === "toolCall")
-        || proposalRequired && !event.message.content.some(block => block.type === "toolCall" && block.name === "resolve_business_turn")) {
-        const taskIndex = await request.semanticTasks?.planIndex();
-        const task = taskIndex?.focus ? await request.semanticTasks?.plan(taskIndex.focus) : undefined;
-        const contextOnly = receipts.length > 0 && receipts.every(message => ["business_context_read", "business_skill_read", ACTION_REQUIRED].includes(message.toolName));
-        const supportingOnly = receipts.length > 0 && receipts.every(message => ["business_context_read", "business_skill_read", "catalog",
-          "metric_catalog_search", "org_catalog_search", "metric_catalog_overview", ACTION_REQUIRED].includes(message.toolName));
-        if (supportingOnly && request.originalMessage && task?.operationId !== request.operationId) {
-          const facts = await inspectTurn(request, request.originalMessage, (await request.semanticTasks!.turn(request.operationId))!.businessDate, undefined, context.abortSignal);
-          // 机构和日期缺失正是正式任务应澄清的情况，不能以缺项为由允许只读计划完成。
-          const needsAction = contextOnly ? facts.requires_calculation || facts.fragments.some(fragment => fragment.mentions.length)
-            : await ordinaryQueryNeedsResolution(request, facts, context.abortSignal).catch(() => false);
-          if (needsAction) {
-            const attempts = receipts.filter(message => message.toolName === ACTION_REQUIRED).length;
-            if (attempts < MAX_ACTION_REPAIRS) return {message: {...event.message, content: [{type: "toolCall" as const,
-              id: `semantic-action-required-${attempts + 1}`, name: ACTION_REQUIRED, arguments: {}}], stopReason: "toolUse" as const}};
-            return {message: {...event.message, content: [{type: "text" as const, text: "本轮仅完成辅助读取，业务目标尚未保存为正式任务，未执行新的查询。请重试本轮请求。"}], stopReason: "stop" as const}};
-          }
+      const decision = await (async () => {
+        for (const block of event.message.content) {
+          if (block.type === "toolCall") auditToolCall(request, block.id,
+            registeredNames.has(block.name) ? block.name : "unknown", "proposed", block.arguments);
         }
-        if (task?.operationId === request.operationId && task.issues.some(issue => issue.code === "ANALYSIS_EVIDENCE_PENDING")) {
-          const attempts = current.filter(message => message.role === "toolResult" && message.toolCallId.startsWith("semantic-analysis-pending-")).length;
-          if (attempts < MAX_ACTION_REPAIRS && receipts.length < MAX_TOOL_CALLS_PER_OPERATION) {
-            return {message: {...event.message, content: [{type: "toolCall" as const, id: `semantic-analysis-pending-${attempts + 1}`,
-              name: "business_context_read", arguments: {limit: 20}}], stopReason: "toolUse" as const}};
-          }
-          return {message: {...event.message, content: [{type: "text" as const, text: "已取得部分分析结果，用户明确要求的依据尚未全部取证，本次分析尚未完成。已有结果仍可查看。"}], stopReason: "stop" as const}};
+        const timings = request.timings;
+        if (timings?.modelStartedAt !== undefined) timings.model_ms.push(Math.round(performance.now() - timings.modelStartedAt));
+        const saved = await currentLaneMessages(lane, context);
+        const available = currentTurnEvidence(saved).some(item => ["business_overview", "analysis_evidence"].includes(item.evidence.kind) && item.evidence.status === "succeeded");
+        const currentSaved = currentTurnMessages(saved);
+        const delivered = currentSaved.some(item => item.role === "toolResult" && (item.details as {kind?: string; status?: string})?.kind === "business_report"
+          && (item.details as {status?: string}).status === "succeeded");
+        const partial = (reason: "model_failure" | "tool_budget" | "action_incomplete" | "corrections_exhausted") => ({message: {...event.message, content: [{type: "toolCall" as const,
+          id: `analysis-recovery-${request.operationId}`, name: PARTIAL_ANALYSIS, arguments: {reason}}], stopReason: "toolUse" as const}});
+        const failedSemantic = currentSaved.some(item => item.role === "toolResult" && isSemanticFeedback(item.details) && item.details.status === "failed");
+        if (event.message.stopReason !== "aborted" && available && !delivered && failedSemantic
+          && !currentSaved.some(item => item.role === "toolResult" && item.toolName === PARTIAL_ANALYSIS))
+          return partial("corrections_exhausted");
+        if (["error", "aborted"].includes(event.message.stopReason)) {
+          const retry = this.options.retry ?? this.config.modelRetry;
+          const terminal = !isRetryableAssistantError(event.message) || !retry?.enabled || (request.modelCall?.attempt ?? 1) > (retry.maxRetries ?? 0);
+          if (event.message.stopReason === "error" && terminal && !isContextOverflow(event.message)
+            && available && !delivered && !currentSaved.some(item => item.role === "toolResult" && item.toolName === PARTIAL_ANALYSIS)) return partial("model_failure");
+          return undefined;
         }
-      }
-      const plainAnswer = turnContract ? conversationAnswer(current) : undefined;
-      if (!request.trustedAnswers?.length && plainAnswer !== undefined) {
-        // 普通回答选择没有业务副作用；网关忽略 none 也不能在其后插入取数或改焦点。
-        // 新操作在普通回答回执处即结束（terminate），此处兜底升级前已在途操作的续跑。
-        return {message: {...event.message, content: [{type: "text" as const, text: plainAnswer}], stopReason: "stop" as const}};
-      }
-      const terminalFailure = terminalResolutionFailure(current);
-      if (terminalFailure) {
-        // 网关忽略 tool_choice=none 时兜住额外动作；正文只采用已确认错误的公开说明。
-        if (event.message.content.some(block => block.type === "toolCall")) {
-          return {message: {...event.message, content: [{type: "text" as const, text: terminalFailure.message}], stopReason: "stop" as const}};
-        }
-        // 同批被拦截的调用不是新的参数失败，不能让预算提示覆盖真实的业务限制说明。
-        return undefined;
-      }
-      if (!recoveringQuery && repeatedToolFailure(current)) {
-        if (available && !delivered) return partial("corrections_exhausted");
-        return {message: {...event.message, content: [{type: "text" as const,
-          text: "本轮工具调用未通过校验或执行；相同参数重复提交后仍得到相同失败，已停止重复尝试。原查询条件仍保留，未完成的查询或计算不作为成功结果。"}], stopReason: "stop" as const}};
-      }
-      // 后续工具调用保留，不能用中间回执替换 Pi 尚未完成的业务步骤。
-      const hasCalls = event.message.content.some(block => block.type === "toolCall");
-      if (!hasCalls && available && !delivered) {
-        const attempts = receipts.filter(receipt => receipt.toolName === ACTION_REQUIRED).length;
-        if (registeredNames.has(ACTION_REQUIRED) && attempts < MAX_ACTION_REPAIRS && receipts.length < MAX_TOOL_CALLS_PER_OPERATION)
-          return {message: {...event.message, content: [{type: "toolCall" as const,
-            id: `analysis-report-required-${attempts + 1}`, name: ACTION_REQUIRED, arguments: {}}], stopReason: "toolUse" as const}};
-        return partial("action_incomplete");
-      }
-      const calls = event.message.content.filter(block => block.type === "toolCall");
-      if (calls.filter(call => call.name === "resolve_business_turn").length > 1) {
-        return {message: {...event.message, content: [{type: "text" as const, text: "本轮提案需要统一提交完整目标，未执行新的查询，原始目标已保留。"}],
-          stopReason: "error" as const, errorMessage: "BUSINESS_BATCH_ARGUMENTS_INVALID"}};
-      }
-      const activeTools = new Set(await lane.getActiveTools(context));
-      const preparedCalls = calls.map(call => {
-        const tool = runtimeTools.find(candidate => candidate.name === call.name && activeTools.has(candidate.name));
-        if (!tool) return {call, valid: false};
-        try {
-          // 与 Pi 使用同一确定性准备和 Schema 校验，只检测可执行性；原调用和业务参数保持原样。
-          const raw = structuredClone(call.arguments);
-          const args = tool.prepareArguments ? tool.prepareArguments(raw) : raw;
-          validateToolArguments(tool, {...call, arguments: args as typeof call.arguments});
-          return {call, valid: true};
-        } catch { return {call, valid: false}; }
-      });
-      const resolutions = preparedCalls.filter(item => item.call.name === "resolve_business_turn");
-      if (resolutions.length > 1 && resolutions.some(item => !item.valid)) {
-        // 非法提案可能包含另一目标，不能丢掉它后执行同批合法的半份业务变更。
-        for (const call of calls) auditToolCall(request, call.id,
-          registeredNames.has(call.name) ? call.name : "unknown", "blocked", call.arguments);
-        return {message: {...event.message, content: [{type: "text" as const,
-          text: "本轮业务参数批次未通过校验，原条件已保留，未执行新的查询。请重试本轮请求。"}],
-          stopReason: "error" as const, errorMessage: "BUSINESS_BATCH_ARGUMENTS_INVALID"}};
-      }
-      const invalidSiblings = resolutions.some(item => item.valid)
-        ? new Set(preparedCalls.filter(item => !item.valid).map(item => item.call.id)) : new Set<string>();
-      for (const item of preparedCalls.filter(item => invalidSiblings.has(item.call.id))) {
-        // Pi 的 prepare 错误跳过工具 Hook 且不终止；裁去不可执行的旁支，避免已保存澄清被迫再请求模型。
-        auditToolCall(request, item.call.id, registeredNames.has(item.call.name) ? item.call.name : "unknown", "blocked", item.call.arguments);
-      }
-      const executableCalls = calls.filter(call => !invalidSiblings.has(call.id));
-      const conflictingAnswer = executableCalls.length > 1 && executableCalls.some(call => call.name === CONVERSATION_REPLY);
-      if (turnContract && (!hasCalls || conflictingAnswer) && !turnHasAction(current)
-        && activeTools.has(CONVERSATION_REPLY)) {
-        const attempts = receipts.filter(receipt => receipt.toolName === ACTION_REQUIRED).length;
-        if (attempts >= MAX_ACTION_REPAIRS) {
+        if (event.message.stopReason === "length") {
+          // 截断参数不能执行或由程序猜补。给模型一次紧凑重发机会，次数从原生记录恢复。
+          const repaired = currentSaved.filter(item => item.role === "toolResult"
+            && (item.details as {status?: string})?.status === "MODEL_OUTPUT_LIMIT").length >= RUNTIME_LIMITS.outputRepairs;
+          if (!repaired && registeredNames.has(ACTION_REQUIRED)) return {message: {...event.message,
+            content: [{type: "toolCall" as const, id: `output-limit-repair-${request.operationId}`, name: ACTION_REQUIRED,
+              arguments: {reason: "output_limit"}}], stopReason: "toolUse" as const}};
+          if (available && !delivered) return partial("corrections_exhausted");
           return {message: {...event.message, content: [{type: "text" as const,
-            text: "本轮未能发起所需操作，原业务条件保持不变，未执行新的查询。请重试本轮请求。"}],
-            stopReason: "error" as const, errorMessage: "BUSINESS_ACTION_NOT_STARTED"}};
+            text: "模型连续未能生成完整的调用参数，本次查询未完成。已确认的条件仍保留，截断的调用没有执行。"}], stopReason: "stop" as const}};
         }
-        // 网关忽略 required 时仅补协议纠错，不从文字猜工具参数；次数来自原生记录，恢复不归零。
-        const call = {type: "toolCall" as const, id: `action-required-${attempts + 1}`, name: ACTION_REQUIRED, arguments: {}};
-        auditToolCall(request, call.id, call.name, "proposed", call.arguments);
-        return {message: {...event.message, content: [call], stopReason: "toolUse" as const}};
+        const greeting = !request.trustedAnswers?.length && registeredNames.has(CONVERSATION_REPLY)
+          && (await lane.getActiveTools(context)).includes(CONVERSATION_REPLY) && standaloneConversationReply(request.originalMessage);
+        if (greeting && !event.message.content.some(block => block.type === "toolCall" && block.name === CONVERSATION_REPLY)) return {message: {...event.message,
+          content: [{type: "toolCall" as const, id: `conversation-${request.operationId}`, name: CONVERSATION_REPLY, arguments: {answer: greeting}}], stopReason: "toolUse" as const}};
+        // 只读取原生当前分支，不维护第二份会话记忆；重启后仍遵守相同交付规则。
+        const messages = await currentLaneMessages(lane, context);
+        let start = messages.length - 1;
+        while (start >= 0 && messages[start]?.role !== "user") start -= 1;
+        const current = messages.slice(start + 1);
+        const receipts = current.filter(message => message.role === "toolResult");
+        const catalogExplanation = receipts.some(message => ["catalog", "analysis_catalog", "metric_catalog_overview"].includes(message.toolName) && !message.isError)
+          && receipts.every(message => isPreparationTool(message.toolName)) && isCatalogExplanationQuestion(request.originalMessage);
+        const recoveringQuery = queryRecoveryPhase(current);
+        const recoveryCalls = event.message.content.filter(block => block.type === "toolCall");
+        if (recoveringQuery && (recoveryCalls.length !== 1 || recoveryCalls[0]?.name !== recoveringQuery.tool)) {
+          const reminders = receipts.filter(message => message.toolCallId.startsWith("query-recovery-required-")).length;
+          if (reminders < RUNTIME_LIMITS.recoveryReminders && receipts.length < MAX_TOOL_CALLS_PER_OPERATION) return {message: {...event.message,
+            content: [{type: "toolCall" as const, id: `query-recovery-required-${reminders + 1}`, name: ACTION_REQUIRED, arguments: {}}], stopReason: "toolUse" as const}};
+          return {message: {...event.message, content: [{type: "text" as const, text: recoveringQuery.recovery.fallback_answer}], stopReason: "stop" as const}};
+        }
+        const semanticAnswer = terminalSemanticAnswer(current);
+        if (semanticAnswer !== undefined) {
+          // 网关忽略 none 或旧批次尚有非终止回执时，也只交付原正式回执的正文。
+          return {message: {...event.message, content: [{type: "text" as const, text: semanticAnswer}], stopReason: "stop" as const}};
+        }
+        const pendingSemantic = [...receipts].reverse().find(message => message.toolName === "resolve_business_turn");
+        const proposalRequired = pendingSemantic && isSemanticFeedback(pendingSemantic.details)
+          && requiresSemanticProposal(pendingSemantic.details);
+        if (!event.message.content.some(block => block.type === "toolCall")
+          || proposalRequired && !event.message.content.some(block => block.type === "toolCall" && block.name === "resolve_business_turn")) {
+          const taskIndex = await request.semanticTasks?.planIndex();
+          const task = taskIndex?.focus ? await request.semanticTasks?.plan(taskIndex.focus) : undefined;
+          const contextOnly = receipts.length > 0 && receipts.every(message => ["business_context_read", "business_skill_read", ACTION_REQUIRED].includes(message.toolName));
+          const supportingOnly = receipts.length > 0 && receipts.every(message => isPreparationTool(message.toolName));
+          if (supportingOnly && request.originalMessage && task?.operationId !== request.operationId) {
+            const facts = await inspectTurn(request, request.originalMessage, (await request.semanticTasks!.turn(request.operationId))!.businessDate, undefined, context.abortSignal);
+            // 机构和日期缺失正是正式任务应澄清的情况，不能以缺项为由允许只读计划完成。
+            const needsAction = contextOnly ? facts.requires_calculation || facts.fragments.some(fragment => fragment.mentions.length)
+              : await ordinaryQueryNeedsResolution(request, facts, context.abortSignal).catch(() => false);
+            if (needsAction) {
+              const attempts = receipts.filter(message => message.toolName === ACTION_REQUIRED).length;
+              if (attempts < MAX_ACTION_REPAIRS) return {message: {...event.message, content: [{type: "toolCall" as const,
+                id: `semantic-action-required-${attempts + 1}`, name: ACTION_REQUIRED, arguments: {}}], stopReason: "toolUse" as const}};
+              return {message: {...event.message, content: [{type: "text" as const, text: "本轮仅完成辅助读取，业务目标尚未保存为正式任务，未执行新的查询。请重试本轮请求。"}], stopReason: "stop" as const}};
+            }
+          }
+          if (task?.operationId === request.operationId && task.issues.some(issue => issue.code === "ANALYSIS_EVIDENCE_PENDING")) {
+            const attempts = current.filter(message => message.role === "toolResult" && message.toolCallId.startsWith("semantic-analysis-pending-")).length;
+            if (attempts < MAX_ACTION_REPAIRS && receipts.length < MAX_TOOL_CALLS_PER_OPERATION) {
+              return {message: {...event.message, content: [{type: "toolCall" as const, id: `semantic-analysis-pending-${attempts + 1}`,
+                name: "business_context_read", arguments: {limit: 20}}], stopReason: "toolUse" as const}};
+            }
+            return {message: {...event.message, content: [{type: "text" as const, text: "已取得部分分析结果，用户明确要求的依据尚未全部取证，本次分析尚未完成。已有结果仍可查看。"}], stopReason: "stop" as const}};
+          }
+        }
+        const plainAnswer = turnContract ? conversationAnswer(current) : undefined;
+        if (!request.trustedAnswers?.length && plainAnswer !== undefined) {
+          // 普通回答选择没有业务副作用；网关忽略 none 也不能在其后插入取数或改焦点。
+          // 新操作在普通回答回执处即结束（terminate），此处兜底升级前已在途操作的续跑。
+          return {message: {...event.message, content: [{type: "text" as const, text: plainAnswer}], stopReason: "stop" as const}};
+        }
+        const terminalFailure = terminalResolutionFailure(current);
+        if (terminalFailure) {
+          // 网关忽略 tool_choice=none 时兜住额外动作；正文只采用已确认错误的公开说明。
+          if (event.message.content.some(block => block.type === "toolCall")) {
+            return {message: {...event.message, content: [{type: "text" as const, text: terminalFailure.message}], stopReason: "stop" as const}};
+          }
+          // 同批被拦截的调用不是新的参数失败，不能让预算提示覆盖真实的业务限制说明。
+          return undefined;
+        }
+        if (!recoveringQuery && recoveryDecision(current).kind === "stop_no_progress") {
+          if (available && !delivered) return partial("corrections_exhausted");
+          return {message: {...event.message, content: [{type: "text" as const,
+            text: "本轮工具调用未通过校验或执行；相同参数重复提交后仍得到相同失败，已停止重复尝试。原查询条件仍保留，未完成的查询或计算不作为成功结果。"}], stopReason: "stop" as const}};
+        }
+        // 后续工具调用保留，不能用中间回执替换 Pi 尚未完成的业务步骤。
+        const hasCalls = event.message.content.some(block => block.type === "toolCall");
+        if (!hasCalls && available && !delivered) {
+          const attempts = receipts.filter(receipt => receipt.toolName === ACTION_REQUIRED).length;
+          if (registeredNames.has(ACTION_REQUIRED) && attempts < MAX_ACTION_REPAIRS && receipts.length < MAX_TOOL_CALLS_PER_OPERATION)
+            return {message: {...event.message, content: [{type: "toolCall" as const,
+              id: `analysis-report-required-${attempts + 1}`, name: ACTION_REQUIRED, arguments: {}}], stopReason: "toolUse" as const}};
+          return partial("action_incomplete");
+        }
+        const calls = event.message.content.filter(block => block.type === "toolCall");
+        if (calls.filter(call => call.name === "resolve_business_turn").length > 1) {
+          return {message: {...event.message, content: [{type: "text" as const, text: "本轮提案需要统一提交完整目标，未执行新的查询，原始目标已保留。"}],
+            stopReason: "error" as const, errorMessage: "BUSINESS_BATCH_ARGUMENTS_INVALID"}};
+        }
+        const activeTools = new Set(await lane.getActiveTools(context));
+        const preparedCalls = calls.map(call => {
+          const tool = runtimeTools.find(candidate => candidate.name === call.name && activeTools.has(candidate.name));
+          if (!tool) return {call, valid: false};
+          try {
+            // 与 Pi 使用同一确定性准备和 Schema 校验，只检测可执行性；原调用和业务参数保持原样。
+            const raw = structuredClone(call.arguments);
+            const args = tool.prepareArguments ? tool.prepareArguments(raw) : raw;
+            validateToolArguments(tool, {...call, arguments: args as typeof call.arguments});
+            return {call, valid: true};
+          } catch { return {call, valid: false}; }
+        });
+        const resolutions = preparedCalls.filter(item => item.call.name === "resolve_business_turn");
+        if (resolutions.length > 1 && resolutions.some(item => !item.valid)) {
+          // 非法提案可能包含另一目标，不能丢掉它后执行同批合法的半份业务变更。
+          for (const call of calls) auditToolCall(request, call.id,
+            registeredNames.has(call.name) ? call.name : "unknown", "blocked", call.arguments);
+          return {message: {...event.message, content: [{type: "text" as const,
+            text: "本轮业务参数批次未通过校验，原条件已保留，未执行新的查询。请重试本轮请求。"}],
+            stopReason: "error" as const, errorMessage: "BUSINESS_BATCH_ARGUMENTS_INVALID"}};
+        }
+        const invalidSiblings = resolutions.some(item => item.valid)
+          ? new Set(preparedCalls.filter(item => !item.valid).map(item => item.call.id)) : new Set<string>();
+        for (const item of preparedCalls.filter(item => invalidSiblings.has(item.call.id))) {
+          // Pi 的 prepare 错误跳过工具 Hook 且不终止；裁去不可执行的旁支，避免已保存澄清被迫再请求模型。
+          auditToolCall(request, item.call.id, registeredNames.has(item.call.name) ? item.call.name : "unknown", "blocked", item.call.arguments);
+        }
+        const executableCalls = calls.filter(call => !invalidSiblings.has(call.id));
+        const conflictingAnswer = executableCalls.length > 1 && executableCalls.some(call => call.name === CONVERSATION_REPLY);
+        if (turnContract && (!hasCalls || conflictingAnswer) && !turnHasAction(current) && !catalogExplanation
+          && activeTools.has(CONVERSATION_REPLY)) {
+          const attempts = receipts.filter(receipt => receipt.toolName === ACTION_REQUIRED).length;
+          if (attempts >= MAX_ACTION_REPAIRS) {
+            return {message: {...event.message, content: [{type: "text" as const,
+              text: "本轮未能发起所需操作，原业务条件保持不变，未执行新的查询。请重试本轮请求。"}],
+              stopReason: "error" as const, errorMessage: "BUSINESS_ACTION_NOT_STARTED"}};
+          }
+          // 网关忽略 required 时仅补协议纠错，不从文字猜工具参数；次数来自原生记录，恢复不归零。
+          const call = {type: "toolCall" as const, id: `action-required-${attempts + 1}`, name: ACTION_REQUIRED, arguments: {}};
+          auditToolCall(request, call.id, call.name, "proposed", call.arguments);
+          return {message: {...event.message, content: [call], stopReason: "toolUse" as const}};
+        }
+        // 正常回合在预算边界交付未完成正文；before_tool 同时兜住同一批并行调用。
+        if (hasCalls && receipts.length >= MAX_TOOL_CALLS_PER_OPERATION) {
+          if (available && !delivered) return partial("tool_budget");
+          return {message: {...event.message, content: [{type: "text" as const, text: TOOL_LIMIT_ANSWER}], stopReason: "stop" as const}};
+        }
+        if (hasCalls) return { message: { ...event.message, content: event.message.content.filter(block => block.type !== "text"
+          && (block.type !== "toolCall" || !invalidSiblings.has(block.id))) } };
+        // 原始模型正文交由下方统一出口处理；分析仍需对应报告回执，不在此接受自由文本。
+        return undefined;
+      })();
+      const output = decision?.message ?? event.message;
+      if (["error", "aborted"].includes(output.stopReason)) await request.semanticTasks?.reconcileRuntime(request.operationId,
+        [...currentTurnMessages(await currentLaneMessages(lane, context)), output]);
+      if (turnContract && !["error", "aborted"].includes(output.stopReason) && !output.content.some(block => block.type === "toolCall")) {
+        // 不接受任意模型正文：内部工具只取真实回执，既不转存这段文字，也不增加模型调用。
+        const current = currentTurnMessages(await currentLaneMessages(lane, context));
+        const catalog = isCatalogExplanationQuestion(request.originalMessage);
+        if (lastReceiptDelivery(current) !== undefined) return {message: {...output,
+          content: [{type: "text" as const, text: lastReceiptDelivery(current)!}], stopReason: "stop" as const}};
+        return {message: {...output, content: [{type: "toolCall" as const, id: `runtime-finalize-${request.operationId}`,
+          name: RUNTIME_FINALIZE, arguments: {mode: catalog ? "catalog" : "receipt"}}], stopReason: "toolUse" as const}};
       }
-      // 正常回合在预算边界交付未完成正文；before_tool 同时兜住同一批并行调用。
-      if (hasCalls && receipts.length >= MAX_TOOL_CALLS_PER_OPERATION) {
-        if (available && !delivered) return partial("tool_budget");
-        return {message: {...event.message, content: [{type: "text" as const, text: TOOL_LIMIT_ANSWER}], stopReason: "stop" as const}};
-      }
-      if (hasCalls) return { message: { ...event.message, content: event.message.content.filter(block => block.type !== "text"
-        && (block.type !== "toolCall" || !invalidSiblings.has(block.id))) } };
-      // Pi 根据工具事实组织回答；宿主不注入补救工具、不选择证据、不拼接业务正文。
-      return undefined;
+      return decision;
     });
     const suffix = this.config.model.userMessageSuffix;
     harness.hooks.on("transform_context", async (event, context) => {
@@ -916,8 +943,13 @@ export class HarnessHost {
         organizationScopes: await resolveHistoryOrganizationScopes(replySources, request.semanticTasks, () => {throw new Error("HISTORY_SCOPE_UNAVAILABLE");})};
       const messages = this.config.modelContextView === "compact_v1" ? projectSemanticModelMessages(history) : history;
       const runtime = await permissionFilteredContext(request, await request.semanticTasks!.runtimeContext());
+      const control = (await request.semanticTasks!.turn(request.operationId))?.runtime;
       const referenced = await requestedHistory(request);
       const taskContext = {...runtime,
+        ...(control && ["recover", "verify", "waiting", "stopped"].includes(control.phase) ? {runtime_control: {
+          phase: control.phase, next: control.next, execution_complete: control.execution_complete,
+          delivery_complete: control.delivery_complete, required: control.required, completed: control.completed,
+          tools_left: control.budget.tools_left, scope_changes_allowed: false}} : {}),
         requested_history: referenced.slice(0, 12), requested_history_has_more: referenced.length > 12,
         admitted_context: await permissionFilteredAdmission(request)};
       // 机构清单随轮状态注入本轮用户消息副本，系统提示词保持逐字稳定。
@@ -1022,6 +1054,7 @@ export class HarnessHost {
       businessResults: new NativeBusinessResultStore(hosted.session),
       history: createHistoryBridge(hosted, () => requestContext),
       answerEvidence: async () => currentTurnEvidence(await currentLaneMessages(hosted.lane, BACKGROUND_CONTEXT)),
+      turnMessages: async () => currentLaneMessages(hosted.lane, BACKGROUND_CONTEXT),
       questionPublicationProof: createQuestionPublicationProof(hosted, operationId),
       timings: { startedAt: performance.now(), modelFirstTokenMs: [], model_ms: [], tool_ms: [] },
       ...(trustedAnswers.length ? {trustedAnswers: structuredClone(trustedAnswers)} : {}),
@@ -1232,6 +1265,7 @@ export class HarnessHost {
         businessResults: new NativeBusinessResultStore(hosted.session),
         history: createHistoryBridge(hosted, () => requestContext),
         answerEvidence: async () => currentTurnEvidence(await currentLaneMessages(hosted.lane, BACKGROUND_CONTEXT)),
+        turnMessages: async () => currentLaneMessages(hosted.lane, BACKGROUND_CONTEXT),
         timings: { startedAt: performance.now(), modelFirstTokenMs: [], model_ms: [], tool_ms: [] },
       };
       try {
@@ -1462,11 +1496,7 @@ function terminalResolutionFailure(messages: import("@earendil-works/pi-agent-co
 
 /** 业务回执先于旁支工具决定终态；只在本轮记录内恢复，不另存会话状态。 */
 function terminalSemanticAnswer(messages: import("@earendil-works/pi-agent-core").AgentMessage[]): string | undefined {
-  for (const message of [...messages].reverse()) {
-    if (message.role !== "toolResult" || !isSemanticFeedback(message.details)) continue;
-    const answer = readDirectAnswerSnapshot(message.details)?.public_answer ?? semanticPublicAnswer(message.details);
-    if (answer !== undefined) return answer;
-  }
+  return lastReceiptDelivery(messages);
 }
 
 /** 修复语义与寻找尚无证据的来源分开：后者仍由 Pi 自主查目录或分页历史。 */

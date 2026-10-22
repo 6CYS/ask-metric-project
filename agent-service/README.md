@@ -177,6 +177,8 @@ Frame 使用 Pi 原生事务 values 持久化，支持历史分支、独立焦�
 内部目标声明、历史字段引用、确认及恢复契约见 [历史字段引用、确认与恢复](../docs/business-context-reference-recovery.md)。
 配套升级后端、Agent、前端，先排空活动回合；不增加依赖或数据库迁移。
 
+运行阶段、计划版本、交付完成条件及恢复预算统一接入现有语义任务账本，详见[运行控制](../docs/pi-semantic-task/runtime-control.md)。业务正文从正式回执交付；目录/Skill 成功不能替代查询完成。旧会话回放沿用相同正文检查，不批量改写原记录。
+
 结构化查询验收（当前真实模型、真实 Python 绑定与内存合成 SQL）：
 
 ```bash

@@ -63,8 +63,8 @@ describe("普通对话回答的页面投影", () => {
   it("下一轮用户消息后重新计数，不跨轮替换上一轮回答", () => {
     const next = "请问要查询哪个机构？";
     const projected = projectEntries([user("你好"), replyCall(answer), replyReceipt(answer),
-      user("查一下余额"), finalText(next)]);
-    expect(answers([user("你好"), replyCall(answer), replyReceipt(answer), user("查一下余额"), finalText(next)]))
+      user("查一下余额"), replyReceipt(next), finalText(next)]);
+    expect(answers([user("你好"), replyCall(answer), replyReceipt(answer), user("查一下余额"), replyReceipt(next), finalText(next)]))
       .toEqual([answer, next]);
     expect(projected.filter(message => message.role === "user")).toHaveLength(2);
   });

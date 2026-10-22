@@ -12,6 +12,7 @@ import {analysisCoverageReview, analysisPlanningReview} from "./coverage.js";
 import {analysisInterpretationBrief} from "./interpretation.js";
 import {analysisFollowupSource, inquiryReview} from "./inquiry.js";
 import {normalizeReportNarrative, reviewNarrativeDensity} from "./narrative.js";
+import {publicTextProblem} from "../runtime/delivery.js";
 import {analysisEvidenceAliases, verifiedFindingsView, type VerifiedFindings} from "./verifiedFindings.js";
 
 export interface AnalysisEvidence extends BusinessEvidence {
@@ -56,7 +57,12 @@ export function createAnalysisCatalogTool(): AgentHarnessTool<AskMetricRequestCo
         return {content: [{type: "text", text: JSON.stringify({methods, results: view, discovery_rounds_remaining: analysisBudget(request).discovery - count,
           ...(planning.length ? {planning_review: planning} : {}),
           next_action: "根据用户目标选择binding_ref短引用（如k1），提交intent=analyze、target.analysis.kind=business_analysis计划。目录预算按已发现主题和子问题分配，有可用指标就先查；找不到的项目写gap_reason，不反复搜索追求完整目录。requirements用id关联，steps.answers填这些id。规模/水平选当日数等当前水平指标，不能用较上月/较同期差额代替。正式比较指标用observe；compare用于同指标跨日期。没有已审核关系用observe并列读取。不退回metric_query要求用户挑内部口径。"})}],
-          details: {kind: "analysis_catalog", status: "succeeded", keywords: input.keywords, binding_map: catalogBindingState(request), candidate_map: analysisCandidates(request)}};
+          details: {kind: "analysis_catalog", status: "succeeded", keywords: input.keywords, binding_map: catalogBindingState(request), candidate_map: analysisCandidates(request),
+            catalog_answer: results.flatMap(result => Array.isArray(result.items) ? result.items : []).flatMap(raw => {
+              const item = raw as {name?: unknown; description?: unknown; unit?: unknown};
+              if (typeof item.name !== "string") return [];
+              return [`${item.name}${typeof item.unit === "string" && item.unit ? `（单位：${item.unit}）` : ""}：${typeof item.description === "string" && item.description.trim() ? item.description : "目录暂未提供完整业务定义。"}`];
+            }).join("\n") || "本次目录检索未返回可说明的指标定义，可以换用完整指标名称继续检索。"}};
       } catch (error) {
         if (context.abortSignal?.aborted || error instanceof BackendApiError && [401, 403].includes(error.status)) throw error;
         return {content: [{type: "text", text: "指标发现服务未完成，请重试；检索失败不能视为没有相关指标。"}],
@@ -148,6 +154,10 @@ export function createAnalysisReportTool(): AgentHarnessTool<AskMetricRequestCon
     execute: async (_id, rawInput, _update, request, _invocation, context) => {
       try {
         let input = {...rawInput, ...normalizeReportNarrative(rawInput)};
+        for (const text of [input.summary, ...input.sections.flatMap(section => [section.title, section.text])]) {
+          const problem = publicTextProblem(text);
+          if (problem) throw new Error(`${problem}；请直接呈现已取证的业务判断，不输出工具编排过程。`);
+        }
         const evidence = await request.answerEvidence?.() ?? [];
         const allSources = successfulAnalyses(evidence);
         if (new Set(input.evidence_refs).size !== input.evidence_refs.length) throw new Error("请选择非重复的本轮分析回执。");

@@ -10,6 +10,7 @@ const toolLabels: Record<string, string> = {
   business_report_present: "生成经营分析报告",
   analysis_catalog: "发现指标与分析方法",
   analysis_report_present: "生成分析报告",
+  runtime_finalize_turn: "整理查询结果",
   business_capability_explain: "说明当前能力",
   answer_evidence_check: "核验回答依据",
   answer_present: "交付回答",
@@ -126,6 +127,7 @@ export function toolCallSummary(details: unknown, isError = false): ToolCallSumm
   else if (kind === "metric_calculate") note = value.status === "succeeded" ? "计算完成" : "计算未成功"
   else if (kind === "catalog_overview") note = "已读取目录概览"
   else if (kind === "answer_present" && value.status === "delivered") note = "回答已生成"
+  else if (kind === "runtime_delivery" && value.status === "delivered") note = "已整理正式回执"
   if (isError && !note) note = "执行失败"
   return conditions || note ? { ...(conditions ? { conditions } : {}), ...(note ? { note } : {}) } : undefined
 }

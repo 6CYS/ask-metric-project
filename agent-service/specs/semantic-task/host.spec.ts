@@ -73,6 +73,55 @@ async function setup(script: Reply[], directQueryDelivery: NonNullable<AgentServ
     {protocol_version: 3, request_id: id, message, ...(answers === undefined ? {} : {answers})}, deps);
   return {dir, model, backend, store, host, session, run, admit, deps};
 }
+
+it("目录成功后模型反复输出内部规划，宿主有限纠错且刷新不泄露原文", async () => {
+  const leak = "用户提出四项指标，我应该先回答待确认问题。让我构造resolve_business_turn，top_n=null。";
+  const f = await setup([[{name: "analysis_catalog", args: {keywords: ["存款"]}}], leak]);
+  Object.assign(f.backend, {analysisCatalog: vi.fn(async () => ({items: [], methods: [], relations: []})),
+    analysisMethods: vi.fn(async () => ({methods: [], relations: []}))});
+  const result = await f.run("catalog-leak", "合成机构甲最近存款表现怎么样？");
+  expect(f.model.calls()).toBe(4); expect(f.backend.basicQueries).not.toHaveBeenCalled();
+  const entries = await f.session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
+  const visible = projectEntries(entries);
+  expect(JSON.stringify(visible)).not.toContain(leak);
+  expect(visible.filter(message => message.role === "assistant" && message.text).at(-1)).toMatchObject({role: "assistant", error: expect.any(String)});
+  const store = new NativeSemanticTaskStore(f.session.session);
+  if (!result.ok) throw new Error(result.code);
+  expect((await store.turn(result.operationId))?.runtime).toMatchObject({phase: "stopped", execution_complete: false,
+    delivery_complete: false, budget: {action_repairs: 2}});
+  expect(JSON.stringify(f.model.payloads)).not.toContain('"name":"runtime_finalize_turn"');
+});
+
+it("普通查询后的内部规划被正式结果替换，控制状态持久化且不多调模型", async () => {
+  const leak = "让我构造resolve_business_turn，operation=value。";
+  const f = await setup([[{name: "resolve_business_turn", args: proposal(complete())}], leak]);
+  await f.run("query-leak", "查询合成机构甲2025年末的合成指标甲");
+  expect(f.model.calls()).toBe(2); expect(f.backend.basicQueries).toHaveBeenCalledTimes(1);
+  const entries = await f.session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
+  const answers = projectEntries(entries).filter(message => message.role === "assistant" && message.text);
+  expect(answers).toHaveLength(1); expect(JSON.stringify(answers)).not.toContain(leak);
+  const store = new NativeSemanticTaskStore(f.session.session), plan = (await store.plan((await store.planIndex()).focus!))!;
+  const before = (await store.turn(plan.operationId))!.runtime!;
+  expect(before).toMatchObject({phase: "deliver", execution_complete: true, delivery_complete: true, required: 1, completed: 1,
+    plan: {ref: plan.ref, revision: plan.revision}});
+  await f.host.close(); await f.store.close();
+  const reopenedStore = new NativeSessionStore(f.dir), host = new HarnessHost(config(f.dir), () => f.model, reopenedStore, createAskMetricTools());
+  cleanup.push(async () => {await host.close(); await reopenedStore.close();});
+  const reopened = (await host.openSession(TEST_ACTOR, f.session.sessionId))!;
+  expect((await new NativeSemanticTaskStore(reopened.session).turn(plan.operationId))!.runtime).toEqual(before);
+  expect(f.model.calls()).toBe(2);
+});
+
+it("指标定义可以直接交付正式目录说明，分析目录不强迫额外查询", async () => {
+  const f = await setup([[{name: "analysis_catalog", args: {keywords: ["合成指标甲"]}}], "让我构造resolve_business_turn。"]);
+  Object.assign(f.backend, {analysisCatalog: vi.fn(async () => ({items: [{code: "M1", name: "合成指标甲", unit: "元", description: "合成业务定义。", binding_ref: "synthetic-binding"}]})),
+    analysisMethods: vi.fn(async () => ({methods: [], relations: []}))});
+  await f.run("catalog-definition", "合成指标甲的定义是什么？");
+  expect(f.model.calls()).toBe(2); expect(f.backend.basicQueries).not.toHaveBeenCalled();
+  const entries = await f.session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
+  expect(projectEntries(entries).filter(message => message.role === "assistant" && message.text).at(-1))
+    .toMatchObject({text: "合成指标甲（单位：元）：合成业务定义。"});
+});
 it("百轮后经原生压缩与重开恢复仍精确读早期业务来源，压缩不额外调用模型",async()=>{
  const script:Reply[]=[[{name:"resolve_business_turn",args:proposal(complete())}]];
  const f=await setup(script,"on",{compaction:{enabled:true,reserveTokens:1000,keepRecentTokens:1000}});
@@ -103,7 +152,8 @@ it("真实Pi宿主自动消费许可、交付正文和表格；发送只暴露�
   expect(payload).not.toContain("mentionIndexes"); expect(payload).not.toContain("fieldIntents");
   const entries = await f.session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
   const projected = projectEntries(entries);
-  expect(projected.some(message => message.role === "assistant" && message.text === "已完成查询，请查看结果。")).toBe(true);
+  expect(projected.some(message => message.role === "assistant" && message.text === "查询完成，无匹配数据。")).toBe(true);
+  expect(projected.some(message => message.role === "assistant" && message.text === "已完成查询，请查看结果。")).toBe(false);
   expect(projected.some(message => message.role === "tool" && (message.details as {kind?: string}).kind === "metric_query_structured")).toBe(true);
 });
 
@@ -377,7 +427,7 @@ it("基础指标零命中不提前交付澄清，宿主引导目录发现后重�
   const entries = await f.session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
   const results = entries.flatMap(entry => entry.type === "message" && entry.message.role === "toolResult" ? [entry.message] : []);
   expect(results[0]?.details).toMatchObject({status: "needs_interpretation", query_recovery: {attempt: 1}});
-  expect(results.at(-1)?.details).toMatchObject({status: "succeeded"});
+  expect(results.find(item => item.toolName === "resolve_business_turn" && (item.details as {status?: string}).status === "succeeded")?.details).toMatchObject({status: "succeeded"});
 });
 
 it("目录恢复耗尽后一次说明缺项，原生宿主不会持续搜索或执行猜测查询", async () => {
@@ -416,8 +466,8 @@ it.each(["合成指标甲的口径是什么", "搜索合成指标甲", "查看�
   expect(f.model.calls()).toBe(2); expect(f.backend.basicQueries).not.toHaveBeenCalled();
   expect((await new NativeSemanticTaskStore(f.session.session).planIndex()).order).toEqual([]);
   const entries = await f.session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
-  expect(entries.flatMap(entry => entry.type === "message" && entry.message.role === "toolResult" ? [entry.message.toolName] : [])).toEqual(["catalog"]);
-  expect(projectEntries(entries).flatMap(message => message.role === "assistant" && message.text ? [message.text] : []).at(-1)).toBe("这是目录说明。");
+  expect(entries.flatMap(entry => entry.type === "message" && entry.message.role === "toolResult" ? [entry.message.toolName] : [])).toEqual(["catalog", "runtime_finalize_turn"]);
+  expect(projectEntries(entries).flatMap(message => message.role === "assistant" && message.text ? [message.text] : []).at(-1)).toBe("「合成指标甲」的目录匹配项：合成指标甲。");
 });
 
 it("唯一待补来源由宿主直接绑定，首问和补齐各一次模型调用即可交付", async () => {

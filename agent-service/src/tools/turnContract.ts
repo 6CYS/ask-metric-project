@@ -3,10 +3,13 @@ import type {AgentHarnessTool, AgentMessage} from "@earendil-works/pi-agent-core
 import type {AskMetricRequestContext} from "../requestContext.js";
 import {analysisDiscoveryStarted} from "../analysis/bindings.js";
 import {metricMentions} from "../business-context/metricMentions.js";
+import {publicTextProblem} from "../runtime/delivery.js";
+import {receiptRole} from "../runtime/control.js";
+import {RUNTIME_LIMITS} from "../runtime/recovery.js";
 
 export const CONVERSATION_REPLY = "respond_without_business_action";
 export const ACTION_REQUIRED = "business_action_required";
-export const MAX_ACTION_REPAIRS = 2;
+export const MAX_ACTION_REPAIRS = RUNTIME_LIMITS.actionRepairs;
 
 /** 只识别完整的寒暄句；“好的”“继续”等可能是业务确认，带业务目标的问候也不能在此截断。 */
 export function standaloneConversationReply(message: string): string | undefined {
@@ -53,9 +56,14 @@ export function createConversationReplyTool(): AgentHarnessTool<AskMetricRequest
   return {name: CONVERSATION_REPLY, label: "普通对话回答",
     description: "用于问候、致谢、通用解释或尚未表达业务目标时的询问；也可解释本轮business_context_read已读取的任务状态、失败原因和错误回执，不重新执行或修改原任务。需要选择/切换业务焦点、变更条件、读取数值结果、查询/计算/目录或补充业务澄清时必须使用对应业务工具，不能用此工具叙述调用计划、承诺稍后执行或声称已经完成。",
     parameters: replyParameters,
-    execute: async (_id, params, _update, request) => ({content: [{type: "text", text: params.answer as string}],
+    execute: async (_id, params, _update, request) => {
+      const problem = publicTextProblem(params.answer);
+      if (problem) return {content: [{type: "text", text: `${problem}。请直接回答用户，业务目标使用对应工具执行。`}],
+        details: {kind: "conversation_reply", status: "ARGUMENT_ERROR", retryable: true}};
+      return {content: [{type: "text", text: params.answer as string}],
       details: {kind: "conversation_reply", status: "answered", answer: params.answer as string,
-        history_sources: request.replyHistorySources ?? {tasks: [], organizationScopes: []}}, terminate: true}),
+        history_sources: request.replyHistorySources ?? {tasks: [], organizationScopes: []}}, terminate: true};
+    },
   };
 }
 
@@ -89,9 +97,7 @@ export function currentTurnMessages(messages: AgentMessage[]): AgentMessage[] {
 
 export function hasTurnAction(messages: AgentMessage[]): boolean {
   if (topicExplanationAnswer(messages) !== undefined) return true;
-  return messages.some(message => message.role === "toolResult" && !message.isError
-    && ![ACTION_REQUIRED, "business_skill_read", "business_topic_read"].includes(message.toolName)
-    && (message.details as {status?: string} | undefined)?.status !== "ARGUMENT_ERROR");
+  return messages.some(message => message.role === "toolResult" && ["execution", "delivery"].includes(receiptRole(message)));
 }
 
 /** 正式主题映射的确定缺口可以交付，不把普通主题读取当作业务完成。 */

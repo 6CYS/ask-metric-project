@@ -106,6 +106,8 @@ export interface AskMetricRequestContext {
   history: HistoryBridge;
   /** 当前原生回合的证据只读投影；用于 pi 选择最终交付内容。 */
   answerEvidence?: () => Promise<EvidenceReference[]>;
+  /** 宿主绑定的当前原生回合，仅供内部交付和运行控制读取；模型不能传入另一轮记录。 */
+  turnMessages?: () => Promise<import("@earendil-works/pi-agent-core").AgentMessage[]>;
   /** 原生模型步骤，仅用于诊断及隔离摘要请求，不保存业务状态。 */
   modelCall?: { model: string; step: "assistant" | "deferred" | "compaction" | "branch_summary"; attempt: number; startedAt: number; payloadBytes?: number; finalPayloadBytes?: number };
   /** 仅本次驱动的诊断耗时，不承载业务状态或模型记忆。 */

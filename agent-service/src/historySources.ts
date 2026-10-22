@@ -83,7 +83,8 @@ export function historySources(values: unknown[], unavailable: () => never): His
       }
       return;
     }
-    if (kind === "session_history_read" && node.status === "ok" || kind === "conversation_reply" && node.status === "answered") {
+    if (kind === "session_history_read" && node.status === "ok" || kind === "conversation_reply" && node.status === "answered"
+      || kind === "runtime_delivery" && node.status === "delivered") {
       // 原生回读正文也可能含旧数值，必须携带被读取回合的来源；旧无来源回执不能成为权限旁路。
       const sources = object(node.history_sources);
       if (!sources || !Array.isArray(sources.tasks) || !Array.isArray(sources.organizationScopes)) unavailable();

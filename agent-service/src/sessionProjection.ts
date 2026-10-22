@@ -8,11 +8,11 @@ import { businessEvidence, businessEvidences, combinedEvidenceAnswer, evidenceAn
 import { EVIDENCE_BLOCKED_ANSWER, TOOL_LIMIT_ANSWER, mayDeliverWithoutEvidence } from "./replyGuard.js";
 import { MODEL_DEADLINE_EXCEEDED, MODEL_FIRST_RESPONSE_TIMEOUT, MODEL_STREAM_IDLE_EXCEEDED } from "./models.js";
 import type { MetricAskDetails } from "./tools/shared.js";
-import { CONVERSATION_REPLY } from "./tools/turnContract.js";
-import {isSemanticFeedback, semanticPublicAnswer} from "./semantic-task/feedback.js";
+import {isSemanticFeedback} from "./semantic-task/feedback.js";
 import {readDirectAnswerSnapshot} from "./semantic-task/directDelivery.js";
 import type {NativeSemanticTaskStore} from "./semantic-task/store.js";
 import type {QuestionStatus} from "./semantic-task/questions.js";
+import {factualReceiptAnswer, lastReceiptDelivery, receiptDelivery, RUNTIME_INCOMPLETE} from "./runtime/delivery.js";
 
 /** 同一正式回执同时投影任务状态和结果表；不从模型正文重建业务结果。 */
 function browserToolDetails(details: unknown): unknown {
@@ -101,6 +101,7 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
   let question = "";
   let contextClarification = false;
   let frameTurn = false;
+  let turnReceipts: Array<{role: "toolResult"; toolName?: string; isError?: boolean; details?: unknown}> = [];
   /** 由终止回执投影出的助手回答位置；同轮随后若有真实助手正文（旧会话或兜底路径）则以其替换。 */
   let conversationAnswerAt: number | undefined;
   let directTurnAnswerId: string | undefined;
@@ -123,6 +124,7 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
     const timestamp = message.timestamp ?? entry.timestamp ?? null;
     if (message.role === "user") {
       evidence = [];
+      turnReceipts = [];
       contextClarification = false;
       conversationAnswerAt = undefined;
       directTurnAnswerId = undefined;
@@ -145,7 +147,7 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
         role: "assistant",
         text: message.stopReason === "aborted" ? "已停止生成。" : toolCallNames(message.content).length ? "" : frameTurn && message.errorMessage
           ? incompleteAnswer(message.errorMessage)
-          : frameTurn ? visibleText(message.content) : visibleText(message.content) === EVIDENCE_BLOCKED_ANSWER
+          : frameTurn ? lastReceiptDelivery(turnReceipts) ?? factualReceiptAnswer(turnReceipts) ?? RUNTIME_INCOMPLETE : visibleText(message.content) === EVIDENCE_BLOCKED_ANSWER
           ? EVIDENCE_BLOCKED_ANSWER : visibleText(message.content) === TOOL_LIMIT_ANSWER
           ? [combinedEvidenceAnswer(evidence), TOOL_LIMIT_ANSWER].filter(Boolean).join("\n\n") : evidence.length
           ? combinedEvidenceAnswer(evidence) + (message.errorMessage ? "\n\n本轮处理未完成，以上仅为已取得的结果。" : "")
@@ -160,6 +162,7 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
         entry_id: entry.id,
       });
     } else if (message.role === "toolResult") {
+      turnReceipts.push({role: "toolResult", toolName: message.toolName ?? "", isError: !!message.isError, details: message.details});
       // 新协议保存 Pi 正文；旧历史继续按其原交付契约回放。
       if (["resolve_business_turn", "business_context_read", "execute_business_frame", "read_business_result"].includes(message.toolName ?? "")) frameTurn = true;
       // 校验/拦截只记入执行过程，不伪造成业务证据覆盖宿主最终说明。
@@ -175,7 +178,7 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
         timestamp,
         entry_id: entry.id,
       });
-      const reply = conversationReply(message) ?? frameClarificationReply(message) ?? semanticPublicAnswer(message.details);
+      const reply = receiptDelivery(message);
       const savedAnswer = !message.isError ? directAnswer(message.details, timestamp) : undefined;
       if (savedAnswer) {
         directTurnAnswerId = savedAnswer.entry_id;
@@ -201,18 +204,6 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
           index += 1;
           item.details = {...item.details as object, answer_selected: delivered.evidence_refs.includes(`e${index}`)};
         }
-        messages.push({role: "assistant", text: delivered.public_answer, tools: [], timestamp, entry_id: `${entry.id}:answer`});
-      } else if (current?.kind === "business_topic_explanation" && current.status === "unsupported") {
-        messages.push({role: "assistant", text: evidenceAnswer(current), tools: [], timestamp,
-          business_protocol: "frame_v1", entry_id: `${entry.id}:answer`});
-        conversationAnswerAt = messages.length - 1;
-      } else if ((current?.kind === "business_overview" && current.answer_policy === "verified_overview_v1"
-        || current?.kind === "business_report" && current.answer_policy === "verified_report_v1")
-        && current.status === "succeeded") {
-        // 概览工具交付经过事实/公式/关系校验的终态正文，避免额外模型往返引入新判断。
-        messages.push({role: "assistant", text: evidenceAnswer(current), tools: [], timestamp,
-          business_protocol: "frame_v1", entry_id: `${entry.id}:answer`});
-        conversationAnswerAt = messages.length - 1;
       } else if (!frameTurn && current && !current.retryable && !["succeeded", "catalog", "reference_mismatch"].includes(current.status.toLowerCase())) {
         messages.push({role: "assistant", text: evidenceAnswer(current), tools: [], timestamp, entry_id: `${entry.id}:answer`});
       }
@@ -225,20 +216,6 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
     }
   }
   return messages;
-}
-
-function conversationReply(message: {toolName?: string; isError?: boolean; details?: unknown}): string | undefined {
-  if (message.toolName !== CONVERSATION_REPLY || message.isError) return undefined;
-  const details = message.details as {kind?: unknown; status?: unknown; answer?: unknown} | undefined;
-  return details?.kind === "conversation_reply" && details.status === "answered" && typeof details.answer === "string"
-    ? details.answer : undefined;
-}
-
-function frameClarificationReply(message: {toolName?: string; isError?: boolean; details?: unknown}): string | undefined {
-  if (message.toolName !== "resolve_business_turn" || message.isError) return undefined;
-  const details = message.details as {kind?: unknown; status?: unknown; delivery?: unknown; public_answer?: unknown} | undefined;
-  return details?.kind === "business_context" && details.status === "NEEDS_CLARIFICATION"
-    && details.delivery === "frame_clarification_v1" && typeof details.public_answer === "string" ? details.public_answer : undefined;
 }
 
 /** 快照投影：重连与进入会话时使用的完整状态 */

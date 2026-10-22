@@ -201,14 +201,32 @@ it("只有正文而无可信结果引用的旧JSON仅降级展示，不改写原
   expect(JSON.parse(readFileSync(join(f.path, "s.json"), "utf8"))).toEqual(legacy);
 });
 
-it("原生Pi没有业务结果的问候和澄清仍原样显示", async () => {
+it("原生Pi没有业务结果的问候和澄清从正式普通回答回执显示", async () => {
   const f = fixture();
   f.entries.splice(1, 2, {id: "hello", type: "message", message: {
-    role: "assistant", content: [{type: "text", text: "你好，请提供日期。"}], timestamp: 3,
+    role: "toolResult", toolName: "respond_without_business_action", toolCallId: "hello-call",
+    content: [{type: "text", text: "你好，请提供日期。"}], timestamp: 3,
+    details: {kind: "conversation_reply", status: "answered", answer: "你好，请提供日期。", history_sources: {tasks: [], organizationScopes: []}},
   }});
   const response = await f.app.request("/sessions/s", {headers});
   expect(response.status).toBe(200); expect(await response.text()).toContain("你好，请提供日期。");
   expect(f.calls.filter(url => url.endsWith("query-tasks/t"))).toHaveLength(0);
+});
+
+it.each([false, true])("运行交付回执独立携带权限来源，刷新和SSE均重新授权，撤权=%s", async revoked => {
+  const f = fixture({revoked});
+  f.entries.splice(1, 2, {id: "runtime-answer", type: "message", message: {role: "toolResult", toolName: "runtime_finalize_turn",
+    toolCallId: "runtime-call", timestamp: 3, content: [{type: "text", text: SECRET}], details: {kind: "runtime_delivery", version: 1,
+      operation_id: "synthetic-operation", status: "delivered", outcome: "result", source_call_ids: ["call"], public_answer: SECRET,
+      history_sources: {tasks: [{task_id: "t", result_id: "result:t"}], organizationScopes: []}}}});
+  for (const suffix of ["", "/stream"]) {
+    const response = await f.app.request(`/sessions/s${suffix}`, {headers});
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    if (revoked) {expect(body).not.toContain(SECRET); expect(body).toContain("HISTORY_PERMISSION_DENIED");}
+    else expect(body).toContain(SECRET);
+  }
+  expect(f.calls.filter(url => url.endsWith("query-tasks/t"))).toHaveLength(2);
 });
 
 const query = (task_id: string, extra: Record<string, unknown> = {}) => ({kind: "metric_query_structured", status: "succeeded",

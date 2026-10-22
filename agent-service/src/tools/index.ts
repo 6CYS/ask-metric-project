@@ -22,6 +22,7 @@ import { createBusinessTopicReadTool } from "./businessOverview.js";
 import { createBusinessReportTool } from "./businessReport.js";
 import {createAnalysisCatalogTool, createAnalysisReportTool} from "../analysis/tools.js";
 import {createPartialAnalysisTool} from "./partialAnalysis.js";
+import {createRuntimeFinalizeTool} from "../runtime/finalizeTool.js";
 
 export { createMetricCatalogSearchTool } from "./metricCatalogSearch.js";
 export { createOrgCatalogSearchTool } from "./orgCatalogSearch.js";
@@ -43,6 +44,7 @@ export function createAskMetricTools(): AgentHarnessTool<AskMetricRequestContext
     createAnalysisCatalogTool(),
     createAnalysisReportTool(),
     createPartialAnalysisTool(),
+    createRuntimeFinalizeTool(),
     deliverable(createCatalogTool()),
     createConversationReplyTool(),
     createActionRequiredTool(),

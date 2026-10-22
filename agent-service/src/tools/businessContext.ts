@@ -448,9 +448,10 @@ async function readResult(frame: BusinessFrame, id: string, update: Parameters<A
     const evidenceRef = `e${(await request.answerEvidence?.() ?? []).length + 1}`;
     return {...result, content: result.content.map(block => {
       if (block.type !== "text") return block;
-      try { return {...block, text: JSON.stringify({...JSON.parse(block.text), evidence_ref: evidenceRef})}; }
+      try { return {...block, text: JSON.stringify({...JSON.parse(block.text), evidence_ref: evidenceRef,
+        ...(frame.capability === "business_analysis" ? {next_action: `已重新鉴权读取历史分析。若本次只聚焦其中部分指标，直接用analysis_report_present成文，body以真实{{${evidenceRef}.v1}}或{{${evidenceRef}.v1|cite}}引用选择相关指标，不复述上一轮其他主题。缺少本次所需证据或用户要求刷新时才规划新取数。日期在共同范围中说明一次，不逐行重复。`} : {})})}; }
       catch { return {...block, text: JSON.stringify({evidence_ref: evidenceRef, ...details})}; }
-    }), details: {...details, frame_id: frame.frameId, delivery: "business_evidence_v1"}};
+    }), details: {...details, result_reused: true, frame_id: frame.frameId, delivery: "business_evidence_v1"}};
   }
   if (frame.capability === "metric_calculate") {
     const inputs = details.inputs as Record<string, {task_id?: string}> | undefined;

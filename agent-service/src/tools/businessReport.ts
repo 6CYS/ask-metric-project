@@ -6,6 +6,7 @@ import type {BusinessEvidence} from "../answerEvidence.js";
 import {BackendApiError} from "../backendClient.js";
 import {narrativeEvidenceRefs, narrativeParagraphEvidence, normalizeReportNarrative, reviewNarrativeDensity} from "../analysis/narrative.js";
 import {expandFindingRefs} from "../analysis/verifiedFindings.js";
+import {publicTextProblem} from "../runtime/delivery.js";
 
 interface EvidenceItem {ref: string; display: string; label: string; type?: string; value?: string; ranked_increases?: string[]; judgment_kind?: string; input_refs?: string[]}
 export interface OverviewEvidence extends BusinessEvidence {
@@ -142,6 +143,10 @@ export function pendingOverviewFollowup(sources: OverviewEvidence[]) {
 
 /** 模型撰写文本，数字通过证据占位符引用；表格由回执构造，历史保留原任务授权边界。 */
 export function composeBusinessReport(sources: OverviewEvidence[], input: ReportInput, incompleteNotice?: string) {
+  for (const text of [input.summary, ...input.sections.flatMap(section => [section.title, section.text])]) {
+    const problem = publicTextProblem(text);
+    if (problem) throw new Error(`summary ${problem}；请仅保留对用户有用的业务判断及证据。`);
+  }
   const first = sources[0];
   if (!first || sources.some(source => source.status !== "succeeded"
     || JSON.stringify(source.org_codes) !== JSON.stringify(first.org_codes)
