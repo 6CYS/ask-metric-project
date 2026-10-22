@@ -1,11 +1,30 @@
 import type {AskMetricRequestContext} from "../requestContext.js";
 import type {FieldResolution, ResolvedField} from "../business-context/types.js";
-import {hasInputEvidence} from "../business-context/inputEvidence.js";
+import {hasInputEvidence, organizationInputMembers} from "../business-context/inputEvidence.js";
 import type {ModelCalendar, SemanticOperation} from "./protocol.js";
 
 export type TurnFacts = Awaited<ReturnType<AskMetricRequestContext["backend"]["inspectBusinessGoal"]>>;
 /** 集合范围已由动作或限定子句表达时，词法提及不能再变成正向全集。 */
 export const hasCollectionIntent = (question: string) => /排除|去掉|剔除|不要|不(?:查|看)|只(?:看|查|要)|仅(?:看|查)|换成|换为|改成|改为|替换/u.test(question);
+
+/** 新目标的同一机构清单可被模型分成多次set；仅合并全有原文依据的正向成员，不改历史或集合动作。 */
+export function coalesceOrganizationAssignments(operations: SemanticOperation[], question: string): SemanticOperation[] {
+  const organizations = operations.filter(operation => operation.field === "organizations");
+  if (organizations.length < 2 || hasCollectionIntent(question)) return operations;
+  const members: string[] = [];
+  for (const operation of organizations) {
+    if (operation.action !== "set" || operation.structured || operation.values || operation.organizationScope) return operations;
+    const values = organizationInputMembers(operation.value);
+    if (!values.every(member => hasInputEvidence(question, member))) return operations;
+    members.push(...values);
+  }
+  const names = [...new Set(members)];
+  if (names.length > 100) return operations;
+  // 单条suggestion不能代表整个集合；完整清单重新交授权目录解析，不采信模型提供的编码。
+  const merged: SemanticOperation = {action: "set", field: "organizations", value: names.join("、")};
+  return operations.flatMap(operation => operation.field !== "organizations" ? [operation]
+    : operation === organizations[0] ? [merged] : []);
+}
 export type EntityValue = {codes: string[]; names: string[]};
 type ResolveArguments = Parameters<AskMetricRequestContext["backend"]["resolveBusinessField"]>;
 
@@ -117,7 +136,7 @@ export function bindFieldOperations(operations: SemanticOperation[], facts: Turn
     if (existing.length) {
       const index = bound.indexOf(existing[0]!);
       // 原文完整槽位可能含待定成员；不能用词法只识别出的那一部分替换整个槽位。
-      if (field === "organizations" && "value" in existing[0]! && existing[0]!.value.split(/[、，,]/u).every(member => hasInputEvidence(facts.question, member))) continue;
+      if (field === "organizations" && "value" in existing[0]! && organizationInputMembers(existing[0]!.value).every(member => hasInputEvidence(facts.question, member))) continue;
       // 原文机构槽位已明确时，用正式身份绑定；错字建议通道仍按原值和 suggestion 解析。
       if (field === "organizations" && existing[0] && "suggestion" in existing[0] && existing[0].suggestion) continue;
       bound[index] = normalized;

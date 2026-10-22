@@ -7,6 +7,22 @@ type Position = "top" | "bottom";
 interface VerifiedRanking {position?: Position; top_n?: number}
 const NUMBER = "(?:[0-9]+|[零〇一二两三四五六七八九十百]+)";
 
+/** “哪家/哪个最高或最差”明确寻找单个极值对象；不把“哪些/哪几家”默认为一名。 */
+function singleExtremum(text: string): {position?: Position} | undefined {
+  const matches = text.split(/[，。；！？,;!?]/u).flatMap(clause => {
+    const subjects = [...clause.matchAll(/哪(?:一)?(?:家|个|所)|谁/gu)];
+    const extrema = [...clause.matchAll(/最高|最低|最多|最少|最大|最小|最好|最差|最强|最弱/gu)];
+    if (subjects.length !== 1 || extrema.length !== 1 || /哪些|哪几|几家|多个|多家|并列/u.test(clause)
+      || negated(clause, subjects[0]!.index!, subjects[0]!.index! + subjects[0]![0].length)
+      || negated(clause, extrema[0]!.index!, extrema[0]!.index! + extrema[0]![0].length)) return [];
+    const word = extrema[0]![0];
+    // 好坏强弱的排序方向仍由模型按指标含义提出；这里只证明对象数量。
+    return [{...(/最高|最多|最大/u.test(word) ? {position: "top" as const}
+      : /最低|最少|最小/u.test(word) ? {position: "bottom" as const} : {})}];
+  });
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 /** 只识别榜单条数的数值表达；日期和机构集合数量不在这里推断为TopN。 */
 function integer(text: string): number | undefined {
   if (/^\d+$/.test(text)) return Number(text);
@@ -72,10 +88,25 @@ function anchors(original: string) {
     if (count !== undefined && count >= 1 && count <= 100) counts.add(count);
     else invalidCount = true;
   }
+  const single = singleExtremum(text);
+  if (single && !counts.size && !invalidCount) {
+    counts.add(1);
+    if (single.position) positions.add(single.position);
+  }
   const cancel = /取消(?:排名|排序|榜单)|(?:不要|不用|无需|不再|不)(?:排名|排序|榜单)|只(?:查|看|要)(?:数值|取值)|改(?:为|成)(?:普通)?取值/u.test(text);
   const positionRequest = /(?:排(?:在)?第?几|第几名|位次|名次(?:是|为|多少)|排名(?:是|为)?(?:多少|第?几))/u.test(text);
   const rankingRequest = positions.size > 0 || counts.size > 0 || invalidCount || excludedRanking || /排名|排序|榜单|名次|位次|排第几/u.test(text);
   return {positions, counts, cancel, positionRequest, rankingRequest, unclearReplacement, invalidCount, excludedRanking};
+}
+
+/** 结构化空槽可由同一份原文证据补齐；不覆盖模型已给值，不以集合家数填榜单条数。 */
+export async function completeRankingOperation(operation: {kind: "ranking"; position: Position | null; top_n: number | null}, context: ResolverContext) {
+  const proof = anchors(await operationText(context, []));
+  if (proof.positions.size > 1 || proof.counts.size > 1 || proof.invalidCount || proof.excludedRanking
+    || proof.unclearReplacement || proof.cancel || proof.positionRequest) return operation;
+  return {...operation,
+    position: operation.position ?? (proof.positions.size === 1 ? [...proof.positions][0]! : null),
+    top_n: operation.top_n ?? (proof.counts.size === 1 ? [...proof.counts][0]! : null)};
 }
 
 async function operationText(context: ResolverContext, metricTerms: string[]): Promise<string> {

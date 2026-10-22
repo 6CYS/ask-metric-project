@@ -2,7 +2,7 @@ import { FieldResolverRegistry } from "./core.js";
 import type { FieldCandidate, FieldResolution, MentionResolution, ResolverContext, OrganizationScopeInput, HistoryFieldReferenceInput, FieldTurnIntent } from "./types.js";
 import type { MetricMention } from "./metricMentions.js";
 import { BusinessInputError } from "./inputError.js";
-import { hasInputEvidence } from "./inputEvidence.js";
+import { hasInputEvidence, organizationInputMembers } from "./inputEvidence.js";
 import {resolveRankingEvidence} from "./rankingEvidence.js";
 import {recentOverviewExpression, overviewTimeExpression} from "./overviewPolicy.js";
 import {analysisPlanProblem} from "../analysis/contracts.js";
@@ -364,7 +364,8 @@ export function createFieldResolvers(): FieldResolverRegistry {
           metadata: {extractedRawValues: rawValues, referenceValues: [...merged.codes, ...merged.names],
             questionText: source.originalMessage, mentionResolutions: mentions.map(mentionSnapshot)}};
       }
-      const values = typeof raw === "string" ? [raw] : raw;
+      // 模型可能把原文“甲和乙”序列化为“甲,乙”；机构逐成员核对原文，再由目录逐一绑定。
+      const values = typeof raw === "string" ? entity === "organization" ? organizationInputMembers(raw) : [raw] : raw;
       // 语义入口可能已把规范名称归一为正式编码；必须完整匹配本轮绑定，随后仍走目录与权限复核。
       const bound = entity === "organization" ? context.boundOrganizationCodes : undefined;
       const boundInput = !!bound?.length && Array.isArray(values) && values.length === bound.length
@@ -420,7 +421,9 @@ export function createFieldResolvers(): FieldResolverRegistry {
       const previous = context.previous?.resolvedValue as {start?: string; end?: string} | undefined;
       const year = previous?.start?.slice(0, 4);
       const result = await context.resolveCatalog("date", [canonical], year && year === previous?.end?.slice(0, 4) ? Number(year) : undefined);
-      return {...result, metadata: {...result.metadata, sourceExpression: source,
+      const allRecords = /全部(?:已有)?记录|所有(?:已有)?记录|整个(?:月|月份|季度|期间|年份)|整(?:月|季|年)|逐日|每日/u.test(context.originalMessage);
+      return {...result, ...(result.status === "resolved" && allRecords
+        ? {value: {...result.value as object, record_selection: "all_in_range"}} : {}), metadata: {...result.metadata, sourceExpression: source,
         ...(result.status === "invalid" ? {userInputIssue: true, refreshOnInherit: true} : {})}};
     }});
   registry.register({name: "query_operation", supports: schema => schema.resolver === "query_operation",

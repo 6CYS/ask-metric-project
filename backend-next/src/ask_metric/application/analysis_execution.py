@@ -2,6 +2,7 @@
 
 import calendar
 import json
+import re
 import time
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal, localcontext
@@ -33,7 +34,8 @@ class AnalysisRequest(BaseModel):
     organization_scope: OrganizationScopeSpec | None = None
     scope_fingerprint: str | None = None
     date_selection: str = Field(
-        default="latest_snapshot", pattern=r"^(latest_snapshot|exact|available_in_range)$"
+        default="latest_snapshot",
+        pattern=r"^(latest_snapshot|exact|available_in_range|all_in_range|latest_in_range)$",
     )
     start: date | None = None
     end: date | None = None
@@ -291,8 +293,10 @@ class GeneralAnalysisService:
                 actor=actor,
                 organizations=organizations,
                 permissions=self.execution.permission_service,
-                hierarchy=self.execution.organization_scope_provider
-                or self.execution.org_hierarchy_provider,
+                # 权限范围提供器不一定提供正式层级；与基础查询使用同一可信快照。
+                hierarchy=(self.execution.organization_scope_provider
+                           if hasattr(self.execution.organization_scope_provider, "strict_snapshot")
+                           else self.execution.org_hierarchy_provider),
             )
             if resolved["scope_fingerprint"] != payload.scope_fingerprint or payload.org_codes:
                 raise ApplicationError(
@@ -435,6 +439,35 @@ class GeneralAnalysisService:
         self._save(context["run_id"], context["lease"], state)
         return result
 
+    def _range_dates(self, context, metric, start, end, result):
+        """分页读取真实覆盖日；全区间不能退化成每月最后一天或日历补零。"""
+        signature = digest({"all_dates": metric["code"], "orgs": context["org_codes"],
+                            "start": start, "end": end})
+        cached = context["state"]["coverage"].get(signature)
+        if cached is not None:
+            result["gaps"].extend(cached["gaps"])
+            return [date.fromisoformat(day) for day in cached["dates"]]
+        days, gaps = set(), []
+        for page in range(1, 41):
+            if time.monotonic() >= context["deadline"]:
+                gaps.append("区间记录的覆盖检查达到时间预算，仅分析已取得的日期。")
+                break
+            coverage = execute_availability(
+                AvailabilityRequest(metric_codes=[metric["code"]], org_codes=context["org_codes"],
+                                    start=start, end=end, page=page, page_size=50),
+                context["actor"], self.execution, self.execution.planner.dialect,
+                {metric["code"]: metric["name"]}, context["org_names"],
+            )["groups"][0]
+            days.update(coverage["dates"])
+            if not coverage["has_more"]:
+                break
+        else:
+            gaps.append("区间记录的覆盖检查达到分页预算，仅分析已取得的日期。")
+        context["state"]["coverage"][signature] = {"dates": sorted(days), "gaps": gaps}
+        self._save(context["run_id"], context["lease"], context["state"])
+        result["gaps"].extend(gaps)
+        return [date.fromisoformat(day) for day in sorted(days)]
+
     def _calculate(self, context, metric, current, base, label, *, share=False):
         if (
             not metric.get("unit")
@@ -542,6 +575,11 @@ class GeneralAnalysisService:
                 latest = self._latest_valid_date(context, metric, None, end, result)
             if payload.date_selection == "exact":
                 dates = payload.dates or [payload.end]
+            elif payload.date_selection == "all_in_range":
+                dates = self._range_dates(context, metric, start, end, result)
+            elif payload.date_selection == "latest_in_range":
+                last = self._latest_valid_date(context, metric, start, end, result)
+                dates = [last] if last else []
             elif step.method == "trend" or payload.date_selection == "available_in_range":
                 if not start:
                     end = latest or end
@@ -581,7 +619,15 @@ class GeneralAnalysisService:
                         )
                         comparison_dates[(current, comparison)] = base
                         query_dates.add(base)
-            query = self._query(context, metric, sorted(query_dates))
+            # 根据机构数量分批，避免大集合乘多个日期后被基础查询行数上限截断。
+            batch_size = max(
+                1, min(36, self.execution.planner.max_limit // len(context["org_codes"]))
+            )
+            ordered = sorted(query_dates)
+            batches = [self._query(context, metric, ordered[index:index + batch_size])
+                       for index in range(0, len(ordered), batch_size)]
+            query = {name: [item for batch in batches for item in batch[name]]
+                     for name in ("tasks", "gaps", "facts")}
             result["tasks"].extend(query["tasks"])
             result["gaps"].extend(query["gaps"])
             result["facts"].extend(
@@ -628,9 +674,10 @@ class GeneralAnalysisService:
                     reverse = step.position == "top"
                     if metric["unit"] == "名":
                         reverse = not reverse
+                    # 同值始终按机构编码升序；不随榜单方向反转，保证重复查询稳定。
                     ranked = sorted(
-                        rows,
-                        key=lambda fact: (Decimal(fact["value"]), fact["org_code"]),
+                        sorted(rows, key=lambda fact: fact["org_code"]),
+                        key=lambda fact: Decimal(fact["value"]),
                         reverse=reverse,
                     )[: step.top_n]
                     for index, fact in enumerate(ranked, 1):
@@ -639,11 +686,15 @@ class GeneralAnalysisService:
                                 "type": "ranking",
                                 "metric": metric["code"],
                                 "fact_refs": [fact["fact_id"]],
+                                "comparison_fact_refs": [row["fact_id"] for row in rows],
+                                "date": str(day), "org_code": fact["org_code"],
                                 "text": (
                                     f"{day}，本次有数据的机构集合内"
                                     f"{'前' if step.position == 'top' else '后'}序第{index}位："
                                     f"{fact['org_name']}，取值"
-                                    f"{display_number(fact['value'], metric)}；不代表业务好坏。"
+                                    f"{display_number(fact['value'], metric)}；"
+                                    f"本期参与{len(rows)}家，目标范围{len(context['org_codes'])}家，"
+                                    "同值按机构编码排序；指标值排序不等于综合经营评价。"
                                 ),
                             }
                         )
@@ -815,7 +866,14 @@ class GeneralAnalysisService:
             for observation in step["observations"]:
                 ref = f"{prefix}.o{len(observations) + 1}"
                 observations.append({**observation, "ref": ref, "step_id": step["step_id"]})
-                atoms.append({"ref": ref, "type": "observation", "display": observation["text"]})
+                atom = {"ref": ref, "type": "observation", "display": observation["text"]}
+                if observation["type"] == "ranking":
+                    compared = set(observation["comparison_fact_refs"])
+                    inputs = [item["ref"] for item in atoms
+                              if item.get("fact_id") in compared]
+                    atom.update(judgment_kind="ranking", input_refs=inputs,
+                                date=observation["date"], org_code=observation["org_code"])
+                atoms.append(atom)
         dispositions = []
         for requirement in payload.plan.requirements:
             related = [
@@ -849,6 +907,18 @@ class GeneralAnalysisService:
             dict.fromkeys(note for metric in metrics for note in metric["limitations"])
         )
         actual_dates = sorted({row["stat_date"] for row in rows if row["value_role"] == "分析时点"})
+        count = re.search(
+            r"(?<!\d)(\d+)\s*家(?:机构|农商行|银行)", payload.calculation_context.user_question
+        )
+        scope_notices = []
+        if payload.organization_scope and count and int(count[1]) != len(context["org_codes"]):
+            scope_notices.append(
+                f"用户提及{int(count[1])}家机构，当前正式目录及授权集合实际为"
+                f"{len(context['org_codes'])}家；本次覆盖该实际集合，未纳入集合外机构或省级汇总。"
+            )
+        for index, notice in enumerate(scope_notices, 1):
+            # 范围家数来自服务端目录及授权解析，进入证据而非仅留在提示文案中。
+            atoms.append({"ref": f"{prefix}.scope{index}", "type": "scope", "display": notice})
         return {
             "kind": "analysis_evidence",
             "status": "succeeded",
@@ -871,7 +941,7 @@ class GeneralAnalysisService:
                 if not payload.org_codes and not payload.organization_scope
                 else []
             )
-            + list(
+            + scope_notices + list(
                 dict.fromkeys(
                     notice
                     for step in state["completed_steps"].values()

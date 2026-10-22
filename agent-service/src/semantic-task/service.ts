@@ -8,7 +8,7 @@ import {hasInputEvidence, normalizeInputEvidence} from "../business-context/inpu
 import {type TurnFacts, bindFieldOperations, hasCollectionIntent, entityIsGrounded, inspectTurn, resolveTurnField, updateCollection} from "./actionBinding.js";
 import {isCalendarDate} from "../tools/shared.js";
 import {validateFrame} from "../business-context/core.js";
-import {normalizeQueryOperation} from "../business-context/rankingEvidence.js";
+import {completeRankingOperation, normalizeQueryOperation} from "../business-context/rankingEvidence.js";
 import {createCapabilities} from "../business-context/capabilities.js";
 import type {BusinessFrame, FieldCandidate, FieldResolution, ResolvedField} from "../business-context/types.js";
 import type {ModelCalendar, SemanticOperation, SemanticRequest, SemanticSource} from "./protocol.js";
@@ -17,6 +17,7 @@ import {backendIssue} from "./backendIssue.js";
 import {resolveEnhancedAnalysis} from "./enhancedAnalysis.js";
 import {BusinessInputError} from "../business-context/inputError.js";
 import {assertRecoveredQueryConditions, frozenQueryScope} from "./queryRecovery.js";
+import {operationLabel} from "./structuredQuery.js";
 import {analysisCandidates} from "../analysis/bindings.js";
 import {semanticRef, type SemanticAnswerApplication, type SemanticAnswerSnapshot, type SemanticIssue,
   type SemanticQuestionIssue, type SemanticTarget, type SemanticTask, type SemanticTurn} from "./store.js";
@@ -435,10 +436,11 @@ export class SemanticTaskService {
       task.issues.push(issue("OPERATION_NOT_ENABLED", "operation", "原始问题包含当前阶段未接入的操作，不能降级成普通取值。", "stop", "capability"));
     }
     if (!availability && (operationKind === "ranking" || operationKind === "rank_position") && (selection === "all_in_range" || time?.dates)) {
-      target.pending.selection = "当前后端尚不支持逐日或离散日期排名";
-      task.issues.push(issue("QUERY_COMBINATION_UNSUPPORTED", "selection", target.pending.selection, "stop", "capability"));
+      target.pending.selection = "保留原日期及排名操作，转通用分析逐期排名";
+      task.issues.push(issue("QUERY_RANGE_ANALYSIS_REQUIRED", "selection", target.pending.selection,
+        operationKind === "ranking" ? "pi" : "stop", "capability"));
     }
-    if (this.request.semanticStep) {
+    if (this.request.semanticStep && !task.issues.some(item => item.code === "QUERY_RANGE_ANALYSIS_REQUIRED")) {
       const schema = createCapabilities().get(task.capability ?? "metric_query");
       for (const validation of validateFrame(schema, target.fields).issues) {
         // 取数方式依赖日历；日期尚未确定时不制造“缺少selection”的模型错误或重复追问。
@@ -717,9 +719,14 @@ export class SemanticTaskService {
     }
     if (field === "operation" && "value" in operation) {
       if ("queryOperation" in operation && operation.queryOperation) {
-        const value = operation.queryOperation;
-        target.fields.operation = {...resolved(operation.value, value, "query_operation"),
-          metadata: {structuredQuery: true, modelOperation: structuredClone(value)}};
+        const submitted = operation.queryOperation;
+        const value = submitted.kind === "ranking" && (submitted.position === null || submitted.top_n === null)
+          ? await completeRankingOperation(submitted, {originalMessage: turn.originalMessage, currentDate: turn.businessDate,
+            turnId: turn.operationId, resolveCatalog: async () => ({status: "invalid"}),
+            resolveMetricMentions: question => metricMentions(this.request, question)}) : submitted;
+        target.fields.operation = {...resolved(operationLabel(value), value, "query_operation"),
+          metadata: {structuredQuery: true, modelOperation: structuredClone(value),
+            ...(value !== submitted ? {submittedOperation: structuredClone(submitted), sourceEvidence: "original_question"} : {})}};
         if (value.kind === "sort" || value.kind === "ranking" && (value.position === null || value.top_n === null)) {
           target.fields.operation.resolutionStatus = "ambiguous";
         }
@@ -1129,7 +1136,7 @@ export class SemanticTaskService {
       if (!meaning) throw new SemanticConflict(issue("SELECTION_NOT_INTERPRETED", field, SELECTION_PENDING_QUESTION, "user"));
       const source = normalizeInputEvidence(turn.originalMessage);
       const anchor = meaning === "latest_in_range" ? /最新|最后|最近一期|末次/u.test(source)
-        : meaning === "all_in_range" ? /所有|全部|完整|逐日|每日|各期|序列|趋势|变化/u.test(source) : true;
+        : meaning === "all_in_range" ? /所有|全部|完整|整个(?:月|月份|季度|期间|年份)|整(?:月|季|年)|逐日|每日|各期|序列|趋势|变化/u.test(source) : true;
       // 原句没有对应锚词（“记录”不等于全量）时不默认任何取数方式，只向用户追问。
       if (!anchor && !("structured" in operation && operation.structured) && !this.request.semanticStep?.analysis) throw new SemanticConflict(issue("SELECTION_SOURCE_NOT_ESTABLISHED", field,
         `原始问题尚未明确区间取数方式，不能默认最新一期或完整序列。${SELECTION_PENDING_QUESTION}`, "user"));

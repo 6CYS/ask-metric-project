@@ -259,6 +259,24 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
         # 不接受仅因数字相同就通过的裸数字，也不让本段借用未引用的其他段落数值。
         selected_atoms = [atoms[ref] for ref in references] if references else list(atoms.values())
 
+        def list_owner(prefix):
+            # 单一机构开头的列表项明确归属该机构；多机构比较、普通段落不据词序猜归属。
+            line = prefix.rsplit("\n", 1)[-1]
+            marker = re.match(r"^[ \t]{0,3}(?:[1-9][0-9]?|100)[.)][ \t]+", line)
+            if not marker:
+                return None
+            content = line[marker.end():].replace("**", "").replace("__", "")
+            named = {
+                atom["org_name"]: atom.get("org_code")
+                for atom in atoms.values()
+                if atom["type"] == "fact" and atom.get("org_code")
+                and atom.get("org_name") and atom["org_name"] in content
+            }
+            if len(named) != 1:
+                return None
+            name, code = next(iter(named.items()))
+            return code if content.startswith(name) else None
+
         # 仅核验明确比较量的数学正负，不据此推导业务好坏或未知指标公式。
         def check_direction(prefix, atom):
             clause = re.split(r"[，。；;!?\n]", prefix)[-1][-35:].replace("**", "").replace("__", "")
@@ -301,12 +319,22 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
 
         for match in re.finditer(r"\{\{([^{}]+?)(\|cite)?\}\}", text):
             if not match[2]:
-                check_direction(text[: match.start()], atoms[match[1]])
+                atom = atoms[match[1]]
+                owner = list_owner(text[: match.start()])
+                if owner and atom["type"] == "fact" and atom.get("org_code") != owner:
+                    raise ApplicationError(
+                        "ANALYSIS_REPORT_REFERENCE",
+                        f"{location}将其他机构的事实引用用于当前机构："
+                        f"{atom.get('org_name', '')}，{atom['display']}。"
+                        "请按机构核对引用，不交换数值。",
+                        status_code=422,
+                    )
+                check_direction(text[: match.start()], atom)
         exact_values = {
             value
             for atom in selected_atoms
             for value in re.findall(
-                r"[+-]?\d+(?:\.\d+)?(?:亿元|万元|元|个百分点|%|名|户|笔|倍)",
+                r"[+-]?\d+(?:\.\d+)?(?:亿元|万元|元|个百分点|%|名|户|笔|倍|家|位)",
                 atom["display"],
             )
         }
@@ -328,6 +356,12 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
                 for atom in selected_atoms
                 if atom["type"] in {"fact", "calculation"} and value in atom["display"]
             ]
+            owner = list_owner(checked[: match.start()])
+            if owner and matches and not any(
+                atom.get("org_code") == owner or atom["type"] == "calculation"
+                for atom in matches
+            ):
+                return value
             if value in exact_values:
                 if len(matches) == 1:
                     check_direction(checked[: match.start()], matches[0])
@@ -340,7 +374,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             return value
 
         checked = re.sub(
-            r"[+-]?\d+(?:\.\d+)?(?:亿元|万元|元|个百分点|%|名|户|笔|倍)", literal_value, checked
+            r"[+-]?\d+(?:\.\d+)?(?:亿元|万元|元|个百分点|%|名|户|笔|倍|家|位)", literal_value, checked
         )
         raw_values = {
             Decimal(atom["value"])
@@ -367,6 +401,14 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             r"(?:[1-9]|1[0-2])[）)])\s*(?!(?:亿元|万元|元|个百分点|%))"
             r"(?=[\u4e00-\u9fffA-Za-z])",
             r"\1",
+            checked,
+        )
+        # Markdown 有序列表的行首编号是排版，支持加粗/强调开头；金额及小数仍逐项核验。
+        checked = re.sub(
+            r"(?m)^[ \t]{0,3}(?:[1-9][0-9]?|100)[.)][ \t]+"
+            r"(?!(?:\*\*|__)?(?:亿元|万元|元|个百分点|%|名|户|笔|倍|家|位))"
+            r"(?=(?:\*\*|__)?[\u4e00-\u9fffA-Za-z])",
+            "",
             checked,
         )
         numeric_error = None

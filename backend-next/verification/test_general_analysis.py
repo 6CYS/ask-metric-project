@@ -830,6 +830,23 @@ def test_report_enumeration_is_not_a_business_value(general_environment):
         assert failure.value.code == "ANALYSIS_REPORT_NUMBER"
 
 
+@pytest.mark.parametrize("marker", ["1. ", "2) ", "20. ", "100. "])
+@pytest.mark.parametrize("emphasis", ["", "**", "__"])
+def test_markdown_list_markers_preserve_verified_values(general_environment, marker, emphasis):
+    service, actor, _, _ = general_environment
+    result = service.execute(request(plan(binding(service, actor, "营业收入金额当日数"))), actor, "markdown-list")
+    atom = next(item for item in result["evidence_items"] if item["type"] == "fact")
+    text = marker + emphasis + "合成机构" + emphasis + "，观测值{{" + atom["ref"] + "}}。"
+    payload = AnalysisReportRequest(run_refs=[result["run_ref"]], summary=text)
+    assert compose_analysis_report(service, actor, payload)["report"]["summary"] == text.replace(
+        "{{" + atom["ref"] + "}}", atom["display"]
+    )
+    for invalid in [marker + emphasis + "亿元" + emphasis, marker + "净利润999亿元。", "利润1.23亿元。"]:
+        with pytest.raises(ApplicationError) as failure:
+            compose_analysis_report(service, actor, payload.model_copy(update={"summary": invalid}))
+        assert failure.value.code == "ANALYSIS_REPORT_NUMBER"
+
+
 def test_report_does_not_merge_distinct_comparison_baselines(general_environment):
     service, actor, _, _ = general_environment
     result = service.execute(request(plan(binding(service, actor, "营业收入金额当日数"))), actor, "baseline-labels")

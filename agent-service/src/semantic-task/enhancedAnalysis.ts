@@ -42,11 +42,12 @@ export async function resolveEnhancedAnalysis(request: AskMetricRequestContext, 
         "ANALYSIS_SCOPE_OPERATION_UNSUPPORTED", op.field, "分析范围使用机构或日期的set/clear；选择可信source后只提交变化字段，指标和方法写入analysis.plan。");
       changes.push({fieldHint: op.field, operation: op.action as "set" | "clear", ...("value" in op ? {rawValue: op.value} : {})});
     }
-    const recoveryScope = await retainedQueryScope(request, task, changes);
+    const recoveryScope = await retainedQueryScope(request, task, changes, input.kind === "business_analysis" ? input.plan : undefined);
     if (recoveryScope && input.kind !== "business_analysis") throw new BusinessInputError(
       "QUERY_RECOVERY_PLAN_REQUIRED", "plan", "基础查询恢复请用同目标的business_analysis小范围计划，不升级为整套专项经营概览。");
     if (input.kind === "business_analysis") {
-      completeRecoveryMetricAlternatives(request, recoveryScope, input.plan);
+      if ((recoveryScope?.operation?.resolvedValue as {kind?: string} | undefined)?.kind !== "ranking")
+        completeRecoveryMetricAlternatives(request, recoveryScope, input.plan);
       assertRecoveryComparisonBasis(request, recoveryScope, input.plan);
     }
     const baseId = turn.baseline?.frameId ?? turn.baseline?.baseFrameId;
@@ -60,12 +61,25 @@ export async function resolveEnhancedAnalysis(request: AskMetricRequestContext, 
         "原文已明确机构，请在同一target.operations中set本轮原文机构名称。只写scope_notice不是范围条件，不能省略后改用账号默认机构；保留原分析计划修正，不向用户重复追问。");
     const resolutionContext = resolverContext(request, signal);
     const frozenTime = recoveryScope?.time;
+    const frozenOrganizations = recoveryScope?.organizations;
+    if (recoveryScope) {
+      // 跨轮回复只有“全部记录”时，范围依据仍是已冻结账本；仅供字段来源核验，
+      // 不改写用户消息、不传给模型。下方仍核对冻结范围，执行时再次鉴权。
+      resolutionContext.originalMessage = [resolutionContext.originalMessage,
+        ...[frozenOrganizations, frozenTime].flatMap(field => field?.resolutionStatus === "resolved"
+          ? Array.isArray(field.rawValue) ? field.rawValue.map(String) : [String(field.rawValue)] : [])].join("\n");
+    }
     // 基础查询已经核验的日历直接复用，避免“上月末”升级后被重新解析为整个月或最近记录。
-    if (frozenTime?.resolutionStatus === "resolved") {
+    if (frozenTime?.resolutionStatus === "resolved" || frozenOrganizations?.resolutionStatus === "resolved") {
       const resolveCatalog = resolutionContext.resolveCatalog;
-      resolutionContext.resolveCatalog = (entity, raw, referenceYear) => entity === "date"
-        ? Promise.resolve({status: "resolved", value: structuredClone(frozenTime.resolvedValue), metadata: structuredClone(frozenTime.metadata ?? {})})
-        : resolveCatalog(entity, raw, referenceYear);
+      resolutionContext.resolveCatalog = (entity, raw, referenceYear) => {
+        const frozen = entity === "date" ? frozenTime : entity === "organization" ? frozenOrganizations : undefined;
+        // 集合编码及指纹来自已授权解析；执行入口仍按当前权限和目录重新核对指纹。
+        const sameRaw = (Array.isArray(frozen?.rawValue) ? frozen.rawValue.join("、") : String(frozen?.rawValue)) === raw.join("、");
+        return frozen?.resolutionStatus === "resolved" && sameRaw
+          ? Promise.resolve({status: "resolved", value: structuredClone(frozen.resolvedValue), metadata: structuredClone(frozen.metadata ?? {})})
+          : resolveCatalog(entity, raw, referenceYear);
+      };
     }
     const frame = await contextService(request).resolve({capabilityHint: input.kind,
       baseReference: baseId ? {frameId: baseId} : null, executionMode: "execute", fieldChanges: changes},

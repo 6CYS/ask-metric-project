@@ -11,7 +11,7 @@ import {bindAnswerInputs} from "./questions.js";
 import {semanticFeedback, type SemanticFeedback} from "./feedback.js";
 import {semanticDisplay} from "./display.js";
 import {parseFormula} from "./calculation.js";
-import {bindFieldOperations, bindGroupOperations, inspectTurn, resolveTurnField} from "./actionBinding.js";
+import {bindFieldOperations, bindGroupOperations, coalesceOrganizationAssignments, inspectTurn, resolveTurnField} from "./actionBinding.js";
 import {pendingCompletionSource, explicitContextReset, sourceSelection} from "./sourceGuard.js";
 import {compileQueryRequest} from "./structuredQuery.js";
 import {inheritAnalysisState} from "../analysis/bindings.js";
@@ -86,6 +86,7 @@ export class SemanticPlanService {
     const answersOnly = !this.request.originalMessage && boundAnswers.answers.length > 0;
     if (!this.request.originalMessage && !boundAnswers.answers.length) fail("ANSWER_INPUT_SHAPE_INVALID", "空文本必须伴随可信点击回答。", "input_shape");
     for (const target of input.targets) {
+      if (target.source.kind === "new") target.operations = coalesceOrganizationAssignments(target.operations, this.request.originalMessage);
       const assigned = target.operations.filter(operation => operation.action === "set").map(operation => operation.field);
       if (new Set(assigned).size !== assigned.length) fail("FIELD_MULTIPLE_ASSIGNMENTS", "同一目标同一字段只能set一次；多机构或多指标写入这一次set的value完整清单，不连续set。不同条件分别建targets；历史组共享operations，需要分别命名时拆为独立reference目标。", "input_shape");
     }

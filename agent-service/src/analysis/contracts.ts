@@ -11,6 +11,19 @@ export interface AnalysisPlan {
     rationale: string; position?: "top" | "bottom"; top_n?: number; relation_id?: string | null}>;
 }
 
+/** 两个协议中的同一排名只绑定一次；允许补空槽，显式冲突不得覆盖或择一执行。 */
+export function completeRankingSteps(plan: AnalysisPlan | undefined,
+  operation: {kind?: string; position?: string | null; top_n?: number | null} | undefined): boolean {
+  const position = operation?.position, top_n = operation?.top_n;
+  const rankings = plan?.steps.filter(step => step.method === "ranking") ?? [];
+  if (operation?.kind !== "ranking" || (position !== "top" && position !== "bottom")
+    || typeof top_n !== "number" || !Number.isInteger(top_n) || top_n < 1 || top_n > 100 || !rankings.length
+    || rankings.some(step => step.position !== undefined && step.position !== position
+      || step.top_n !== undefined && step.top_n !== top_n)) return false;
+  for (const step of rankings) {step.position ??= position; step.top_n ??= top_n;}
+  return true;
+}
+
 export interface AnalysisPlanDiagnostic {
   code: "REQUIREMENT_UNCOVERED" | "STEP_INVALID" | "BINDING_INVALID";
   requirement_ids: string[];

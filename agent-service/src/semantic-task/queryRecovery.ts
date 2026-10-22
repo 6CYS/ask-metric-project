@@ -7,7 +7,7 @@ import type {ContextDelta} from "../business-context/types.js";
 import {isSemanticFeedback, semanticPublicAnswer, type SemanticFeedback} from "./feedback.js";
 import type {SemanticTask} from "./store.js";
 import {analysisCandidates} from "../analysis/bindings.js";
-import type {AnalysisPlan} from "../analysis/contracts.js";
+import {completeRankingSteps, type AnalysisPlan} from "../analysis/contracts.js";
 import type {SemanticRequest} from "./protocol.js";
 import {overviewTimeExpression, recentOverviewExpression} from "../business-context/overviewPolicy.js";
 
@@ -66,11 +66,13 @@ export async function recoverUnmatchedQuery(request: AskMetricRequestContext, fe
   const recent = requestedTime && recentOverviewExpression(requestedTime) === requestedTime ? requestedTime : undefined;
   const recoverableTime = (item: SemanticFeedback["issues"][number]) => !!recent
     && item.field === "time" && item.code === "TIME_EXPRESSION_UNSUPPORTED";
+  const recoverableRange = (item: SemanticFeedback["issues"][number]) => item.code === "QUERY_RANGE_ANALYSIS_REQUIRED";
+  const needsStrategy = feedback.issues.some(item => recoverableTime(item) || recoverableRange(item));
   const missingMetric = feedback.issues.some(item => item.field === "metrics"
     && ["ENTITY_NOT_DETERMINED", "FIELD_REQUIRED"].includes(item.code));
   if (!["needs_user", "needs_interpretation"].includes(feedback.status)
-    || !missingMetric && !feedback.issues.some(recoverableTime)
-    || feedback.issues.some(item => item.field !== "metrics" && !recoverableTime(item) && (["pi", "user"].includes(item.remediation)
+    || !missingMetric && !needsStrategy
+    || feedback.issues.some(item => item.field !== "metrics" && !recoverableTime(item) && !recoverableRange(item) && (["pi", "user"].includes(item.remediation)
       || item.code === "ACCOUNT_ORGANIZATION_UNAVAILABLE"))
     || feedback.issues.some(item => item.remediation === "stop" || item.remediation === "retry"
       || ["permission", "infrastructure"].includes(item.category))) return feedback;
@@ -93,8 +95,7 @@ export async function recoverUnmatchedQuery(request: AskMetricRequestContext, fe
   const unboundMetric = feedback.issues.some(item => item.field === "metrics" && item.code === "FIELD_REQUIRED")
     && plan.steps.some(step => step.operations.some(operation => operation.field === "metrics"
       && ["set", "add", "replace"].includes(operation.action)));
-  if (!unmatched.length && !alternatives.length && (unboundMetric
-    || feedback.issues.some(recoverableTime) && tasks.every(task => task?.target.fields.metrics?.resolutionStatus === "resolved")))
+  if (!unmatched.length && !alternatives.length && (unboundMetric || needsStrategy))
     unmatched.push(plan.originalMessage);
   if (!unmatched.length && !alternatives.length) return feedback;
   const scopes = tasks.flatMap(task => task ? [{taskRef: task.ref, targetRef: task.target.ref,
@@ -115,7 +116,9 @@ export async function recoverUnmatchedQuery(request: AskMetricRequestContext, fe
       original_goal: plan.originalMessage, unresolved_metrics: [...unmatched, ...alternatives.map(item => item.metric)], retained_conditions: feedback.state.targets,
       ...(alternatives.length ? {metric_alternatives: alternatives} : {}),
       fallback_answer: semanticPublicAnswer({...feedback, status: "needs_user"}) ?? "请补充希望查询的指标含义或比较基期。"},
-    issues: feedback.issues.map(item => recoverableTime(item)
+    issues: feedback.issues.map(item => recoverableRange(item)
+      ? {...item, remediation: "pi", message: "保留原机构、完整区间与排名方向及条数，改用同一目标的business_analysis、ranking方法。all_in_range按区间内全部已有记录逐期排名；不把快照相加、不缩成最新一期，也不要求用户修改取数方式。"}
+      : recoverableTime(item)
       ? {...item, code: "QUERY_RECENT_COVERAGE_REQUIRED", remediation: "pi", message:
         "用户仅说最近/近期，没有指定日历范围。改用同一目标的business_analysis，由服务端按真实覆盖选择最新观测；time保留该原文，不填写猜测日期或伪造calendar，不要求用户补日期。"}
       : item.field === "metrics" && ["ENTITY_NOT_DETERMINED", "FIELD_REQUIRED"].includes(item.code)
@@ -148,15 +151,25 @@ export async function frozenQueryScope(request: AskMetricRequestContext, task: S
 }
 
 /** 升级能力时从可信账本补齐原范围，模型仍只负责业务指标与分析计划。 */
-export async function retainedQueryScope(request: AskMetricRequestContext, task: SemanticTask, changes: ContextDelta["fieldChanges"]) {
+export async function retainedQueryScope(request: AskMetricRequestContext, task: SemanticTask, changes: ContextDelta["fieldChanges"], plan?: AnalysisPlan) {
   const fields = await frozenQueryScope(request, task);
   if (!fields) return undefined;
-  const operation = fields.operation?.resolvedValue as {kind?: string} | undefined;
-  if (operation?.kind && operation.kind !== "value" || fields.comparison_organizations?.resolutionStatus === "resolved"
-    || fields.selection?.resolvedValue && fields.selection.resolvedValue !== "exact"
-      && !(fields.selection.resolvedValue === "latest_in_range"
-        && (fields.time?.resolvedValue as {date_selection?: string} | undefined)?.date_selection === "latest_snapshot"))
-    throw new BusinessInputError("QUERY_RECOVERY_OPERATION_REQUIRED", "operation", "原问题包含排名、比较总体或区间取数方式，须检索后修复原query；不能升级为普通观察而丢失操作。");
+  const operation = fields.operation?.resolvedValue as {kind?: string; position?: string; top_n?: number} | undefined;
+  // 升级后的省略不表示改变目标；仅从已解析账本补空槽，显式冲突仍由下方拒绝。
+  const preservesRanking = fields.operation?.resolutionStatus === "resolved" && completeRankingSteps(plan, operation);
+  if (operation?.kind && operation.kind !== "value" && !preservesRanking
+    || fields.comparison_organizations?.resolutionStatus === "resolved")
+    throw new BusinessInputError("QUERY_RECOVERY_OPERATION_REQUIRED", "operation", operation?.kind === "ranking"
+      ? `原查询的排名条件为${JSON.stringify(operation)}。在同一business_analysis计划使用ranking步骤并保留该方向及条数；不在范围operations中重复operation，不退回不支持近期覆盖的基础query。`
+      : "原问题包含比较总体或特殊操作，须检索后修复原query；不能升级为普通观察而丢失操作。");
+  // 取数选择属于目标，不是模型可省略的表达偏好；传入分析执行链并核对整个范围。
+  if (fields.time?.resolutionStatus === "resolved" && fields.time.resolvedValue
+    && fields.selection?.resolvedValue !== "exact"
+    && (fields.time.resolvedValue as {date_selection?: string}).date_selection !== "latest_snapshot") {
+    const selection = fields.selection?.resolvedValue;
+    if (["all_in_range", "latest_in_range"].includes(String(selection))) fields.time = {...fields.time,
+      resolvedValue: {...fields.time.resolvedValue as object, record_selection: selection}};
+  }
   for (const name of ["organizations", "time"] as const) {
     const frozen = fields[name];
     if (!frozen?.rawValue) continue;

@@ -11,6 +11,7 @@ import {createResolveTurnShim as createResolveBusinessTurnTool} from "./resolveT
 import {MemoryCommandBridge, receiptJson, runTool, testRequestContext} from "../../src/tools/testUtils.js";
 import type {BackendClient} from "../../src/backendClient.js";
 import type {ContextDelta, FieldResolution, ResolvedField, ResolverContext} from "../../src/business-context/types.js";
+import {completeRankingOperation} from "../../src/business-context/rankingEvidence.js";
 
 const schema = createCapabilities().get("metric_query").fields.operation!;
 const resolver = createFieldResolvers().getResolver(schema);
@@ -19,6 +20,32 @@ const previous = (value: unknown): ResolvedField => ({source: "resolved", resolu
 const resolve = (raw: unknown, originalMessage: string, prior?: ResolvedField, extra: Partial<ResolverContext> = {}): Promise<FieldResolution> =>
   resolver.resolve(raw, schema, {originalMessage, currentDate: "2026-10-14", turnId: "current", inputSource: "explicit",
     resolveCatalog: async () => ({status: "not_found"}), ...(prior ? {previous: prior} : {}), ...extra});
+
+it.each([
+  ["各家农商行哪个近期净利润收入最差", "bottom"],
+  ["61家机构近期净利润最低的是哪家？", "bottom"],
+  ["哪一家机构净利润最高？", "top"],
+  ["谁的净利润最多？", "top"],
+] as const)("结构化遗漏条数按单个极值对象补齐：%s", async (originalMessage, position) => {
+  const result = await completeRankingOperation({kind: "ranking", position, top_n: null},
+    {originalMessage, currentDate: "2026-10-22", turnId: "singular", resolveCatalog: async () => ({status: "not_found"})});
+  expect(result).toEqual({kind: "ranking", position, top_n: 1});
+});
+
+it.each(["净利润最差的是哪些机构？", "哪几家机构净利润最低？", "这些机构净利润前几名？",
+  "61家机构的净利润排名", "不要看哪家最低", "哪家净利润最高、哪家最低？", "哪家利润比较差？"])("不能从未明确的数量或竞争目标猜一名：%s", async originalMessage => {
+  const result = await completeRankingOperation({kind: "ranking", position: "bottom", top_n: null},
+    {originalMessage, currentDate: "2026-10-22", turnId: "ambiguous", resolveCatalog: async () => ({status: "not_found"})});
+  expect(result.top_n).toBeNull();
+});
+
+it("空方向只在原文有明确数值方向时补齐，好坏评价不由程序猜方向", async () => {
+  const context = {currentDate: "2026-10-22", turnId: "direction", resolveCatalog: async () => ({status: "not_found" as const})};
+  expect(await completeRankingOperation({kind: "ranking", position: null, top_n: null}, {...context,
+    originalMessage: "哪家净利润最低？"})).toEqual({kind: "ranking", position: "bottom", top_n: 1});
+  expect(await completeRankingOperation({kind: "ranking", position: null, top_n: null}, {...context,
+    originalMessage: "哪家费用控制最好？"})).toEqual({kind: "ranking", position: null, top_n: 1});
+});
 
 describe("排名业务依据独立于参数形状", () => {
   it.each([3, 10, 37])("只说排名不能默认前%d名", async count => {

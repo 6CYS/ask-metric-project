@@ -63,7 +63,7 @@ invalid("unknown_field", request => {request.targets[0].operations = [{action: "
 const feedbackSchema = await read("feedback.schema.json");
 const feedbackExamples = (await read("feedback-examples.json")).examples;
 const validateFeedback = Compile(feedbackSchema);
-assert.deepEqual(Object.keys(feedbackSchema.properties).sort(), ["answer_receipts", "continuation", "issues", "pending_questions", "protocol_version", "query_recovery", "state", "status"]);
+assert.deepEqual(Object.keys(feedbackSchema.properties).sort(), ["analysis_recovery", "analysis_recovery_partial", "answer_receipts", "continuation", "issues", "pending_questions", "protocol_version", "query_recovery", "state", "status"]);
 assert.deepEqual(feedbackSchema.definitions.field.enum, schema.definitions.field.enum, "输入与反馈必须使用同一业务槽位");
 for (const {id, feedback} of feedbackExamples) {
   assert(validateFeedback.Check(feedback), `${id}: 反馈结构错误`);

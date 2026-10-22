@@ -8,3 +8,8 @@ export function hasInputEvidence(originalMessage: string, sourceText: string): b
   const evidence = normalizeInputEvidence(sourceText);
   return !!evidence && normalizeInputEvidence(originalMessage).includes(evidence);
 }
+
+/** 只拆机构清单的显式分隔符；保留空成员供校验拒绝，不拆正式名称中可能出现的“和/与”。 */
+export function organizationInputMembers(value: string): string[] {
+  return value.split(/[、，,]/u).map(member => member.trim());
+}

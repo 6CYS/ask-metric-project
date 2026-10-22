@@ -66,6 +66,42 @@ describe("目标声明与字段解析共用本轮来源校验", () => {
 const organizationSchema: CapabilitySchema = {capability: "synthetic_org", tool: "synthetic", fields: {
   organizations: {label: "机构", resolver: "organization", required: true, inheritable: true},
 }};
+it.each(["、", ",", "，"])("机构清单按成员校验原文来源，允许模型使用%s分隔", async separator => {
+  const resolveCatalog = vi.fn(async () => ({status: "resolved" as const, value: {codes: ["O1", "O2"], names: ["合成机构甲", "合成机构乙"]}}));
+  const schema = organizationSchema.fields.organizations!;
+  const result = await createFieldResolvers().getResolver(schema).resolve(`合成机构甲${separator}合成机构乙`, schema,
+    {originalMessage: "合成机构甲和合成机构乙最近经营如何？", currentDate: "2026-10-22", turnId: "multi", resolveCatalog});
+  expect(result.status).toBe("resolved");
+  expect(resolveCatalog).toHaveBeenCalledWith("organization", ["合成机构甲", "合成机构乙"]);
+});
+it.each(["合成机构甲,合成机构丙", "合成机构甲,,合成机构乙", "合成机构甲,"])("不丢弃缺乏原文依据或空白的机构成员：%s", async value => {
+  const resolveCatalog = vi.fn(), schema = organizationSchema.fields.organizations!;
+  await expect(createFieldResolvers().getResolver(schema).resolve(value, schema,
+    {originalMessage: "合成机构甲和合成机构乙最近经营如何？", currentDate: "2026-10-22", turnId: "invalid-multi", resolveCatalog}))
+    .rejects.toMatchObject({code: "FIELD_INPUT_NOT_CURRENT"});
+  expect(resolveCatalog).not.toHaveBeenCalled();
+});
+it("机构清单中的未知成员保留交由目录裁决，不静默缩小到已知机构", async () => {
+  const resolveCatalog = vi.fn(async () => ({status: "not_found" as const})), schema = organizationSchema.fields.organizations!;
+  const result = await createFieldResolvers().getResolver(schema).resolve("合成机构甲,未知机构", schema,
+    {originalMessage: "合成机构甲和未知机构最近经营如何？", currentDate: "2026-10-22", turnId: "unknown-multi", resolveCatalog});
+  expect(result.status).toBe("not_found");
+  expect(resolveCatalog).toHaveBeenCalledWith("organization", ["合成机构甲", "未知机构"]);
+});
+it("多机构分隔适配仍执行目录权限校验", async () => {
+  const resolveCatalog = vi.fn(async () => {throw new Error("SCOPE_DENIED");}), schema = organizationSchema.fields.organizations!;
+  await expect(createFieldResolvers().getResolver(schema).resolve("合成机构甲,合成机构乙", schema,
+    {originalMessage: "合成机构甲和合成机构乙最近经营如何？", currentDate: "2026-10-22", turnId: "denied-multi", resolveCatalog}))
+    .rejects.toThrow("SCOPE_DENIED");
+  expect(resolveCatalog).toHaveBeenCalledWith("organization", ["合成机构甲", "合成机构乙"]);
+});
+it("不把正式机构名称中的和字拆成机构清单", async () => {
+  const resolveCatalog = vi.fn(async () => ({status: "resolved" as const, value: {codes: ["O1"], names: ["合成和美银行"]}}));
+  const schema = organizationSchema.fields.organizations!;
+  await createFieldResolvers().getResolver(schema).resolve("合成和美银行", schema,
+    {originalMessage: "合成和美银行最近经营如何？", currentDate: "2026-10-22", turnId: "literal-name", resolveCatalog});
+  expect(resolveCatalog).toHaveBeenCalledWith("organization", ["合成和美银行"]);
+});
 const proposal = (): BusinessFrame => ({frameId: "proposal", sessionId: "s", turnId: "prior", requestId: "prior",
   operationFrameId: "proposal", capability: "synthetic_org", status: "clarifying", createdAt: "2026-10-13", issues: [],
   delta: {executionMode: "resolve_more", fieldChanges: []}, fields: {organizations: {source: "explicit", rawValue: "合成机构",

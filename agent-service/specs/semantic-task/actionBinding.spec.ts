@@ -4,10 +4,39 @@ import {SemanticPlanService} from "../../src/semantic-task/planService.js";
 import {createSemanticExecuteTool} from "../../src/semantic-task/tools.js";
 import {runTool} from "../../src/tools/testUtils.js";
 import type {SemanticOperation} from "../../src/semantic-task/protocol.js";
+import {coalesceOrganizationAssignments} from "../../src/semantic-task/actionBinding.js";
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {for (const close of cleanup.splice(0)) await close();});
 async function setup() {const f = await fixture(); cleanup.push(f.close); return f;}
+
+it.each(["合成机构甲和合成机构乙，只看合成机构甲", "合成机构甲，不查合成机构乙", "合成机构甲换成合成机构乙"])
+  ("含集合限定时不把多次set合并成正向全集：%s", question => {
+    const operations: SemanticOperation[] = ["合成机构甲", "合成机构乙"].map(value => ({action: "set", field: "organizations", value}));
+    expect(coalesceOrganizationAssignments(operations, question)).toBe(operations);
+  });
+it.each<SemanticOperation[]>([
+  [{action: "set", field: "organizations", value: "合成机构甲"}, {action: "set", field: "organizations", value: "无来源机构"}],
+  [{action: "set", field: "organizations", value: "合成机构甲"}, {action: "exclude", field: "organizations", subject: "合成机构乙"}],
+  [{action: "set", field: "organizations", value: "合成机构甲", structured: true, values: ["合成机构甲"]}, {action: "set", field: "organizations", value: "合成机构乙"}],
+  [{action: "set", field: "organizations", value: "合成机构甲,"}, {action: "set", field: "organizations", value: "合成机构乙"}],
+])("保留无法安全归一的机构动作，不静默丢弃无效项：%j", (...operations) => {
+  expect(coalesceOrganizationAssignments(operations, "合成机构甲和合成机构乙最近情况？")).toBe(operations);
+});
+it("其他字段的重复赋值仍由协议拒绝", async () => {
+  const f = await setup(), request = f.request("duplicate-time", "合成机构甲和合成机构乙2024年末和2025年末的合成指标甲");
+  const operations = [...complete(), {action: "set" as const, field: "organizations" as const, value: "合成机构乙"},
+    {action: "set" as const, field: "time" as const, value: "2024年末"}];
+  await expect(new SemanticPlanService(request).resolve(proposal(operations))).rejects.toMatchObject({issue: {code: "FIELD_MULTIPLE_ASSIGNMENTS"}});
+  expect(f.backend.basicQueries).not.toHaveBeenCalled();
+});
+it("历史目标的重复机构set仍拒绝，不自动改写历史范围", async () => {
+  const f = await setup(), request = f.request("duplicate-current", "合成机构甲和合成机构乙最近情况？");
+  await expect(new SemanticPlanService(request).resolve(proposal([
+    {action: "set", field: "organizations", value: "合成机构甲"}, {action: "set", field: "organizations", value: "合成机构乙"},
+  ], {kind: "current"}))).rejects.toMatchObject({issue: {code: "FIELD_MULTIPLE_ASSIGNMENTS"}});
+  expect(f.backend.basicQueries).not.toHaveBeenCalled();
+});
 
 it.each([
   {field: "metrics", question: "查合成机构甲2025年末的数据", answer: "指标是合成指标甲", value: "合成指标甲"},

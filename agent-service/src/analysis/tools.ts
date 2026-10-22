@@ -14,6 +14,7 @@ import {analysisFollowupSource, inquiryReview} from "./inquiry.js";
 import {normalizeReportNarrative, reviewNarrativeDensity} from "./narrative.js";
 import {publicTextProblem} from "../runtime/delivery.js";
 import {analysisEvidenceAliases, verifiedFindingsView, type VerifiedFindings} from "./verifiedFindings.js";
+import {rankingModelView} from "./rankingView.js";
 
 export interface AnalysisEvidence extends BusinessEvidence {
   kind: "analysis_evidence"; run_ref: string; scope_id: string; frame_id?: string;
@@ -80,7 +81,7 @@ export function createGeneralAnalysisTool(frame: BusinessFrame): AgentHarnessToo
       registerAnalysisPlan(request, plan);
       if (previous.length >= analysisBudget(request).executions) throw new Error("ANALYSIS_ROUND_LIMIT");
       const orgs = frame.fields.organizations?.resolvedValue as ResolvedOrganizations | undefined;
-      const time = frame.fields.time?.resolvedValue as {start?: string; end?: string; dates?: string[]; date_selection?: string} | undefined;
+      const time = frame.fields.time?.resolvedValue as {start?: string; end?: string; dates?: string[]; date_selection?: string; record_selection?: string} | undefined;
       const latest = !time || time.date_selection === "latest_snapshot";
       let conversation = await request.commands.getConversationId();
       if (!conversation) {
@@ -90,7 +91,9 @@ export function createGeneralAnalysisTool(frame: BusinessFrame): AgentHarnessToo
       const first = previous[0]?.evidence as AnalysisEvidence | undefined;
       const payload = {plan, conversation_id: conversation,
         ...(orgs?.scope ? {organization_scope: orgs.scope, scope_fingerprint: orgs.scope_fingerprint, org_codes: []} : {org_codes: orgs?.codes ?? []}),
-        date_selection: latest ? "latest_snapshot" : time?.start === time?.end || time?.dates ? "exact" : "available_in_range",
+        date_selection: latest ? "latest_snapshot" : time?.record_selection === "all_in_range" ? "all_in_range"
+          : time?.record_selection === "latest_in_range" ? "latest_in_range"
+          : time?.start === time?.end || time?.dates ? "exact" : "available_in_range",
         ...(!latest ? {start: time?.start, end: time?.end, ...(time?.dates ? {dates: time.dates} : {})} : {}),
         // 不同主题可以有不同发布日；首批利润的旧观测日不能遮住新发现的存贷款记录。
         ...(latest && (first?.checked_on ?? first?.analysis_date) ? {anchor_date: first!.checked_on ?? first!.analysis_date} : {}),
@@ -129,6 +132,7 @@ export function createGeneralAnalysisTool(frame: BusinessFrame): AgentHarnessToo
         evidence_items: atoms.map((atom, index) => ({...atom, ref: `${evidenceRef}.v${index + 1}`,
           value: undefined, fact_id: undefined, metadata_version: undefined, calculation_id: undefined, input_fact_refs: undefined,
           calculation: undefined, input_refs: undefined})),
+        ...rankingModelView(result, aliases),
         evidence_ref: evidenceRef, next_action: "coverage_review是可选探索方向，不是必须补齐的报告栏目。根据用户目标和analysis_brief实际发现选择具体疑问；补查计划inquiry写question、prior_judgment、basis_refs（此前事实原子）、expected_change，随后用inquiry_review的新证据支持、修正或限定判断；没有有效疑问就交付，不穷举候选。补查source复制followup_source中的完整reference配对，不自行拼接；没有该字段时只在唯一目标下用{kind:current}，多目标先读取上下文选择已签发reference。原句明确机构时operations保留机构set，同一范围的补查放在一份analysis计划中，只提交新增步骤。必要时analysis_catalog发现正式指标，遵守remaining_execution_rounds。报告自然组织，可直接回答、按发现展开或深入一个问题，不强制分主题栏目。正文只引用关键数字，其他明细留表格。数字用{{e1.v1}}等实际ref，值已含单位，不自行计算或截取。日期用actual_dates，不编造变量。未知会计口径不得假定累计或单月；不以余额推断业务原因或无标准评价好坏。"})}],
         details: {...result, execution_turn_id: request.semanticStep?.rootOperationId ?? request.operationId, binding_map: catalogBindingState(request), candidate_map: analysisCandidates(request), answer_policy: "general_analysis_evidence_v1"}};
     }};

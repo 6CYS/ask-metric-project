@@ -394,6 +394,11 @@ def resolve_date_field(
     模型换算结果。解析命中确定性规则时忽略 model_value。
     """
     try:
+        # 无界近期是数据覆盖策略，不能采纳模型猜测的日历日期。
+        if re.fullmatch(r"(?:最近|近期|近来|最新|这段时间|这阵子|这阵儿)", raw.strip()):
+            return {"status": "invalid", "metadata": {
+                "reason": "unsupported_expression", "businessDate": today.isoformat(),
+            }}
         recent_years = re.fullmatch(r"(?:近|最近|过去)\s*(\d+|[一二两三四五六七八九十]+)\s*个?年", raw.strip())
         if recent_years:
             amount = recent_years.group(1)

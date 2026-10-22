@@ -146,7 +146,14 @@ def _compile(evidence, measures, peer_groups=()):
             }
         )
     evidence["evidence_items"].extend(derived)
-    evidence["verified_findings"] = {"version": VERSION, "items": selected, "boundary": BOUNDARY}
+    rankings = [
+        {"ref": atom["ref"], "kind": "ranking", "text": atom["display"],
+         "evidence_refs": atom["input_refs"], "date": atom["date"], "org_code": atom["org_code"]}
+        for atom in atoms.values() if atom.get("judgment_kind") == "ranking"
+    ]
+    evidence["verified_findings"] = {
+        "version": VERSION, "items": [*rankings, *selected][:8], "boundary": BOUNDARY
+    }
     return evidence
 
 
