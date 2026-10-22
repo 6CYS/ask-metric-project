@@ -294,3 +294,54 @@ def test_report_list_cannot_attribute_another_institutions_value(general_environ
         with pytest.raises(ApplicationError) as failure:
             compose_analysis_report(service, actor, valid.model_copy(update={"summary": text}))
         assert failure.value.code in {"ANALYSIS_REPORT_REFERENCE", "ANALYSIS_REPORT_NUMBER"}
+
+
+def test_rank_ordinal_uses_verified_ranking_not_an_arbitrary_digit(general_environment):
+    service, actor, sessions, source = general_environment
+    actor, codes = multi(service, actor, sessions, source, 3)
+    names = dict(zip(codes, ["合成甲银行", "合成乙银行", "合成丙银行"], strict=True))
+    with sessions() as session:
+        for code, name in names.items():
+            session.query(OrgTerm).filter(OrgTerm.org_code == code).update({"org_name": name})
+        session.commit()
+    original = source.execute_readonly
+
+    def execute(*, sql, parameters):
+        result = original(sql=sql, parameters=parameters)
+        for row in result.rows:
+            if row.get("org_code") in names:
+                row["org_name"] = names[row["org_code"]]
+        return result
+
+    source.execute_readonly = execute
+    ref = binding(service, actor, "净利润金额当日数")
+    result = service.execute(request(plan(ref, steps=[{
+        "id": "rank", "method": "ranking", "metric_refs": [ref], "answers": ["performance"],
+        "rationale": "核对名次", "position": "top", "top_n": 1,
+    }]), org_codes=codes), actor, "verified-ordinal")
+    judgment = next(
+        atom for atom in result["evidence_items"] if atom.get("judgment_kind") == "ranking"
+    )
+    fact = next(atom for atom in result["evidence_items"] if atom["type"] == "fact"
+                and atom["org_code"] == judgment["org_code"])
+    body = (
+        fact["org_name"] + "，净利润{{" + fact["ref"]
+        + "}}，位列第1{{" + judgment["ref"] + "|cite}}。"
+    )
+    valid = AnalysisReportRequest(run_refs=[result["run_ref"]], summary=body)
+    assert "位列第1" in compose_analysis_report(service, actor, valid)["report"]["summary"]
+    spaced = valid.model_copy(update={"summary": body + "本次参与3 家。"})
+    assert "3 家" in compose_analysis_report(service, actor, spaced)["report"]["summary"]
+    other = next(atom for atom in result["evidence_items"] if atom["type"] == "fact"
+                 and atom["org_code"] != judgment["org_code"])
+    for invalid in [body.replace("位列第1", "位列第2"),
+                    body.replace(fact["org_name"], other["org_name"]),
+                    body.replace("位列第1", "位列第1次"),
+                    body.replace("位列第1", "位列第1亿元"),
+                    body.replace("位列第1", "位列第1名亿元"),
+                    body + "本次参与3 元。",
+                    body + "本次参与999 家。",
+                    body.replace("位列第1", "位列第1，另有999亿元")]:
+        with pytest.raises(ApplicationError) as failure:
+            compose_analysis_report(service, actor, valid.model_copy(update={"summary": invalid}))
+        assert failure.value.code == "ANALYSIS_REPORT_NUMBER"

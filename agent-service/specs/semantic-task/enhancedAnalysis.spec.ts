@@ -1,7 +1,7 @@
 import {afterEach, expect, it, vi} from "vitest";
 import {SemanticPlanService} from "../../src/semantic-task/planService.js";
 import {createSemanticExecuteTool, createSemanticResolveTool} from "../../src/semantic-task/tools.js";
-import {prepareSemanticArguments, type EnhancedAnalysis} from "../../src/semantic-task/protocol.js";
+import {prepareSemanticArguments, type EnhancedAnalysis, type SemanticOperation} from "../../src/semantic-task/protocol.js";
 import {businessEvidences} from "../../src/answerEvidence.js";
 import {catalogBindingView} from "../../src/analysis/bindings.js";
 import {runTool} from "../../src/tools/testUtils.js";
@@ -9,6 +9,7 @@ import {fixture} from "./fixtures.js";
 import {createCapabilities} from "../../src/business-context/capabilities.js";
 import {createFieldResolvers} from "../../src/business-context/resolvers.js";
 import {analysisFollowupSource} from "../../src/analysis/inquiry.js";
+import type {AnalysisPlan} from "../../src/analysis/contracts.js";
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {for (const close of cleanup.splice(0)) await close();});
@@ -30,6 +31,66 @@ async function setup() {
   });
   return {...f, backend};
 }
+
+it.each(["analysis", "redundant", "query", "reference-query", "analysis-operation-only"])("最低后追问最高继承机构、日期和指标，提案方式=%s", async mode => {
+  const f = await setup(), firstRequest = f.request("rank-bottom", "合成机构甲和合成机构乙近期合成指标甲最低的是哪家？");
+  const rankPlan = (position: "top" | "bottom", top_n = 1): AnalysisPlan => ({objective: "比较合成指标极值",
+    scope_notice: "隔离合成数据", requirements: [{id: "extreme", question: "哪家机构指标极值？"}],
+    steps: [{id: "rank", method: "ranking", metric_refs: ["signed-ranking"], answers: ["extreme"],
+      position, top_n, rationale: "完整集合比较"}]});
+  f.backend.analysisExecute.mockResolvedValue({kind: "analysis_evidence", status: "succeeded", delivery: "business_evidence_v1",
+    run_ref: "synthetic-ranking", scope_id: "synthetic", org_codes: ["O1", "O2"], tasks: [], rows: [], gaps: [], evidence_items: [], metric_descriptors: []});
+  const first = await runTool(createSemanticResolveTool(), {protocol_version: 2, intent: "analyze", targets: [{source: {kind: "new"},
+    operations: [{action: "set", field: "organizations", value: "合成机构甲和合成机构乙"}, {action: "set", field: "time", value: "近期"}],
+    analysis: {kind: "business_analysis", plan: rankPlan("bottom")}}]}, firstRequest);
+  expect(first.details.status, JSON.stringify(first.details)).toBe("ready");
+  await runTool(createSemanticExecuteTool(), {task_ref: first.details.state.task_ref, target_ref: first.details.state.targets[0]!.target_ref}, firstRequest);
+  const saved = await firstRequest.semanticTasks!.plan(first.details.state.task_ref!);
+  for (const [index, position, top_n, question] of [
+    [1, "top", 1, "那哪家农商行利润最高呢？"],
+    [2, "bottom", 1, "那最低呢？"],
+    [3, "top", 3, "那前三家呢？"],
+  ] as const) {
+    const request = f.request(`rank-follow-${index}`, question);
+    const current = (await request.semanticTasks!.plan((await request.semanticTasks!.planIndex()).focus!))!;
+    const source = mode === "reference-query" ? {kind: "reference", task_ref: current.ref, target_ref: current.steps[0]!.targetRef} : {kind: "current"};
+    const isQuery = mode.endsWith("query");
+    const operationOnly = isQuery || mode === "analysis-operation-only";
+    const ready = await runTool(createSemanticResolveTool(), {protocol_version: 2, intent: isQuery ? "query" : "analyze", targets: [{source,
+      operations: mode === "redundant" || operationOnly ? [{action: "set", field: "operation", queryOperation: {kind: "ranking", position, top_n}}] : [],
+      ...(operationOnly ? {} : {analysis: {kind: "business_analysis", plan: rankPlan(position, top_n)}})}]}, request);
+    expect(ready.details.status, JSON.stringify(ready.details)).toBe("ready");
+    await runTool(createSemanticExecuteTool(), {task_ref: ready.details.state.task_ref, target_ref: ready.details.state.targets[0]!.target_ref}, request);
+    expect(f.backend.analysisExecute).toHaveBeenLastCalledWith(expect.objectContaining({org_codes: ["O1", "O2"],
+      date_selection: "latest_snapshot", plan: expect.objectContaining({steps: [expect.objectContaining({metric_refs: ["signed-ranking"], position, top_n})]})}),
+    expect.any(String), expect.anything());
+  }
+  expect(await firstRequest.semanticTasks!.plan(first.details.state.task_ref!)).toEqual(saved);
+});
+it.each(["missing", "conflict-direction", "conflict-count", "non-ranking", "duplicate"])("重复排名操作规范化并拒绝歧义：%s", async mode => {
+  const f = await setup(), request = f.request("ranking-contract", "合成机构甲合成指标甲最高的是哪家？");
+  const step: AnalysisPlan["steps"][number] = {id: "rank", method: mode === "non-ranking" ? "observe" : "ranking",
+    metric_refs: ["signed-ranking"], answers: ["extreme"], rationale: "隔离合成排名契约",
+    ...(mode === "missing" ? {} : {position: mode === "conflict-direction" ? "bottom" : "top", top_n: mode === "conflict-count" ? 2 : 1})};
+  const operation = {action: "set", field: "operation",
+    queryOperation: {kind: "ranking", position: "top", top_n: 1}} as const;
+  const result = await runTool(createSemanticResolveTool(), {protocol_version: 2, intent: "analyze", targets: [{source: {kind: "new"},
+    operations: [{action: "set", field: "organizations", value: "合成机构甲"}, operation, ...(mode === "duplicate" ? [operation] : [])],
+    analysis: {kind: "business_analysis", plan: {objective: "极值", scope_notice: "合成范围",
+      requirements: [{id: "extreme", question: "最高机构"}], steps: [step]}}}]}, request);
+  if (mode === "missing") {
+    expect(result.details.status, JSON.stringify(result.details)).toBe("ready");
+    await runTool(createSemanticExecuteTool(), {task_ref: result.details.state.task_ref,
+      target_ref: result.details.state.targets[0]!.target_ref}, request);
+    expect(f.backend.analysisExecute).toHaveBeenCalledWith(expect.objectContaining({plan: expect.objectContaining({
+      steps: [expect.objectContaining({position: "top", top_n: 1})]})}), expect.any(String), expect.anything());
+  } else {
+    expect(result.details.status).toBe("needs_interpretation");
+    expect(result.details.issues).toContainEqual(expect.objectContaining({code: mode === "duplicate"
+      ? "FIELD_MULTIPLE_ASSIGNMENTS" : "ANALYSIS_RANKING_OPERATION_CONFLICT"}));
+    expect(f.backend.analysisExecute).not.toHaveBeenCalled();
+  }
+});
 it("完整分析计划可省略空的范围变更，普通空目标与混用query仍拒绝", () => {
   const raw = {protocol_version: 2, intent: "analyze", targets: [{source: {kind: "new"}, analysis: overview}]};
   expect(prepareSemanticArguments(raw).targets[0]?.operations).toEqual([]);
@@ -221,6 +282,29 @@ it("通用分析向语义子任务传递当前目录短引用，并经后端验�
   expect(f.backend.analysisExecute).toHaveBeenCalledWith(expect.objectContaining({plan: expect.objectContaining({
     steps: [expect.objectContaining({metric_refs: ["signed-synthetic-profit"]})],
   })}), expect.any(String), expect.anything());
+});
+it.each(["comma", "chinese-comma", "separate", "overlapping"])("多机构通用分析首次提案即可绑定并执行完整范围：%s", async mode => {
+  const f = await setup(), request = f.request(`multi-${mode}`, "合成机构甲和合成机构乙最近经营情况如何？");
+  catalogBindingView(request, {items: [{code: "SYNTH_PROFIT", binding_ref: "signed-synthetic-profit"}]});
+  const analysis: EnhancedAnalysis = {kind: "business_analysis", plan: {objective: "多机构经营分析", scope_notice: "隔离合成测试",
+    requirements: [{id: "profit", question: "两家机构的盈利表现"}], steps: [{id: "observe", method: "observe", metric_refs: ["k1"],
+      answers: ["profit"], rationale: "分别获取两家机构的正式指标"}]}};
+  const values = mode === "separate" ? ["合成机构甲", "合成机构乙"]
+    : mode === "overlapping" ? ["合成机构甲,合成机构乙", "合成机构乙"]
+    : [mode === "comma" ? "合成机构甲,合成机构乙" : "合成机构甲，合成机构乙"];
+  const operations: SemanticOperation[] = values.map(value => ({action: "set", field: "organizations", value,
+    suggestion: {code: "O1", name: "合成机构甲", excerpt: "合成机构甲"}}));
+  const args = prepareSemanticArguments({protocol_version: 2, intent: "analyze", targets: [{source: {kind: "new"}, analysis, operations}]});
+  const before = structuredClone(args);
+  const result = await new SemanticPlanService(request).resolve(args);
+  expect(result.status, JSON.stringify(result.issues)).toBe("ready");
+  expect(args).toEqual(before);
+  const execution = await runTool(createSemanticExecuteTool(), {task_ref: result.state.task_ref,
+    target_ref: result.state.targets[0]!.target_ref}, request);
+  expect(execution.details.status, JSON.stringify(execution.details)).toBe("succeeded");
+  expect(f.backend.analysisExecute).toHaveBeenCalledTimes(1);
+  expect(f.backend.analysisExecute).toHaveBeenCalledWith(expect.objectContaining({org_codes: ["O1", "O2"]}), expect.any(String), expect.anything());
+  expect(f.backend.basicQueries).not.toHaveBeenCalled();
 });
 it("未知目录短引用不能生成分析执行许可", async () => {
   const f = await setup(), request = f.request("invalid", "合成机构甲最近盈利表现如何？");

@@ -16,6 +16,7 @@ import {pendingCompletionSource, explicitContextReset, sourceSelection} from "./
 import {compileQueryRequest} from "./structuredQuery.js";
 import {inheritAnalysisState} from "../analysis/bindings.js";
 import {overviewContinuesCurrent} from "../business-context/overviewPolicy.js";
+import {normalizeRankingContinuation} from "./analysisContinuation.js";
 
 type Goal = Awaited<ReturnType<AskMetricRequestContext["backend"]["inspectBusinessGoal"]>>;
 const problem = (code: string, message: string, remediation: SemanticIssue["remediation"] = "pi", category = "semantic"): SemanticIssue => ({code, message, remediation, category});
@@ -139,7 +140,7 @@ export class SemanticPlanService {
     const index = await this.store.planIndex();
     let plan = index.operations[this.request.operationId] ? await this.store.plan(index.operations[this.request.operationId]!) : undefined;
     let focus = plan ?? (turn.context ? turn.context.plan : index.focus ? await this.store.plan(index.focus) : undefined);
-    const enhancedAnalysis = input.targets.some(target => target.operations.some(op => op.field === "_analysis"));
+    let enhancedAnalysis = input.targets.some(target => target.operations.some(op => op.field === "_analysis"));
     // 在新计划写入焦点前拒绝错误来源，让模型可用current修正，不能先丢失上一轮的机构日期。
     if (!plan && focus && enhancedAnalysis && overviewContinuesCurrent(this.request.originalMessage)
       && input.targets.some(target => target.source.kind === "new")) fail("ANALYSIS_CONTINUATION_SOURCE_REQUIRED",
@@ -178,6 +179,8 @@ export class SemanticPlanService {
       || !["organizations", "metrics", "time"].includes(op.field) || hasInputEvidence(this.request.originalMessage, op.value)
       || inputFacts.fragments.some(fragment => op.field === "organizations" ? fragment.organizations.length
         : op.field === "metrics" ? fragment.mentions.length : fragment.calendar.ranges.length || fragment.calendar.unresolved.length));
+    input = compileQueryRequest(await normalizeRankingContinuation(this.request, input, turn.context?.plan ?? focus, inputFacts));
+    enhancedAnalysis = input.targets.some(target => target.operations.some(op => op.field === "_analysis"));
     bindGroupOperations(input, semanticMessage);
     const answersOnlyIntent = answersOnly ? plan?.intent ?? focus?.intent : undefined;
     if (!plan) {

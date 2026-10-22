@@ -8,6 +8,9 @@ import type {SemanticTask, SemanticTurn} from "./store.js";
 import {backendIssue} from "./backendIssue.js";
 import {bindFieldOperations} from "./actionBinding.js";
 import {inquiryProblem} from "../analysis/inquiry.js";
+import {completeRankingSteps} from "../analysis/contracts.js";
+import {completeRankingOperation} from "../business-context/rankingEvidence.js";
+import {metricMentions} from "../business-context/metricMentions.js";
 import {retainedQueryScope, assertRetainedQueryScope, assertRecoveryComparisonBasis, completeRecoveryMetricAlternatives} from "./queryRecovery.js";
 
 /** 分析计划复用既有口径校验和受治理取数，但来源、状态及执行许可统一进入语义任务。 */
@@ -38,6 +41,20 @@ export async function resolveEnhancedAnalysis(request: AskMetricRequestContext, 
     const scopeOperations = [...operations.filter(op => op.field !== "organizations"), ...boundOrganizations];
     const changes: ContextDelta["fieldChanges"] = [{fieldHint: "plan", operation: "set", rawValue: input.plan}];
     for (const op of scopeOperations.filter(item => item.field !== "_analysis" && item.field !== "objective")) {
+      if (op.field === "operation" && op.action === "set" && op.queryOperation?.kind === "ranking"
+        && input.kind === "business_analysis" && scopeOperations.filter(item => item.field === "operation").length === 1) {
+        const proposed = op.queryOperation.position !== null && op.queryOperation.top_n !== null ? op.queryOperation
+          : await completeRankingOperation(op.queryOperation, {
+          originalMessage: turn.originalMessage, currentDate: turn.businessDate, turnId: turn.operationId,
+          resolveCatalog: async () => ({status: "invalid"}),
+          resolveMetricMentions: question => metricMentions(request, question),
+        });
+        if (!completeRankingSteps(input.plan, proposed)) throw new BusinessInputError(
+          "ANALYSIS_RANKING_OPERATION_CONFLICT", "operation",
+          "重复声明的排名操作与analysis.plan不一致或未完整。请保留本轮用户要求，在ranking步骤明确相同方向和条数；不要选择冲突的一方执行。范围operations可省略这条重复声明。");
+        // 排名参数属于计划，不另存为范围字段；真正变化仍保留在新计划与原生调用记录。
+        continue;
+      }
       if (!["organizations", "time"].includes(op.field) || !["set", "clear"].includes(op.action)) throw new BusinessInputError(
         "ANALYSIS_SCOPE_OPERATION_UNSUPPORTED", op.field, "分析范围使用机构或日期的set/clear；选择可信source后只提交变化字段，指标和方法写入analysis.plan。");
       changes.push({fieldHint: op.field, operation: op.action as "set" | "clear", ...("value" in op ? {rawValue: op.value} : {})});

@@ -349,8 +349,37 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
         for metric in (metric for source in sources for metric in source["metric_descriptors"]):
             checked = checked.replace(metric["name"], "")
 
+        def ranking_ordinal(match):
+            # “位列第1”与程序的“前序第1位”是同一名次，只接受本段已引用的排序判断。
+            if re.match(
+                r"[\d.]|次|期|年|月|日|亿元|万元|元|个百分点|%|户|笔|倍|家",
+                checked[match.end():],
+            ):
+                return match[0]
+            rankings = [atom for atom in selected_atoms if atom.get("judgment_kind") == "ranking"]
+            paragraph = checked[: match.start()].rsplit("\n\n", 1)[-1]
+            owners = {
+                atom["org_code"] for atom in selected_atoms
+                if atom.get("org_code") and atom.get("org_name")
+                and atom["org_name"] in paragraph
+            }
+            if len(owners) > 1 or not owners and len(rankings) != 1:
+                return match[0]
+            return "" if any(
+                re.search(rf"第{match[1]}位(?!\d)", atom["display"])
+                and (not owners or atom.get("org_code") in owners)
+                for atom in rankings
+            ) else match[0]
+
+        checked = re.sub(
+            r"(?:位列|位居|排名(?:为)?|排在|排)第([1-9]\d{0,2})(?:名|位)?",
+            ranking_ordinal,
+            checked,
+        )
+
         def literal_value(match):
-            value = match[0]
+            # “53 家”与“53家”只差排版空格，仍须逐字匹配规范后的完整数值和单位。
+            value = re.sub(r"[ \t]+", "", match[0])
             matches = [
                 atom
                 for atom in selected_atoms
@@ -374,7 +403,9 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             return value
 
         checked = re.sub(
-            r"[+-]?\d+(?:\.\d+)?(?:亿元|万元|元|个百分点|%|名|户|笔|倍|家|位)", literal_value, checked
+            r"[+-]?\d+(?:\.\d+)?[ \t]*(?:亿元|万元|元|个百分点|%|名|户|笔|倍|家|位)",
+            literal_value,
+            checked,
         )
         raw_values = {
             Decimal(atom["value"])
