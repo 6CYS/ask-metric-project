@@ -144,6 +144,46 @@ it("只有本轮重新读取的旧证据可标为背景，原始运行身份保�
   expect(history.execution_turn_id).toBe("previous-turn");
 });
 
+it("只讨论旧分析时按真实正文引用创建追问视图，不伪造本轮新运行", async () => {
+  const report = vi.fn(async () => ({kind: "business_report", status: "succeeded", public_answer: "合成利润对比"}));
+  const history = {...evidence, execution_turn_id: "previous-turn", evidence_items: [
+    {ref: "old.loan", type: "fact", display: "合成贷款"}, {ref: "old.profit", type: "fact", display: "合成利润"},
+  ]};
+  const request = testRequestContext(api({analysisReport: report}), new MemoryCommandBridge(),
+    {operationId: "op-1", originalMessage: "那利润呢", answerEvidence: async () => [{ref: "e1", evidence: history}]});
+  const tool = createAnalysisReportTool();
+  expect((await runTool(tool, {evidence_refs: ["e1"], body: "比较利润表现。"}, request)).details.status).toBe("needs_revision");
+  expect(report).not.toHaveBeenCalled();
+  const result = await runTool(tool, {evidence_refs: ["e1"], body: "利润观测{{e1.v2}}，原因仍待核查。"}, request);
+  expect(result.terminate).toBe(true);
+  expect(report).toHaveBeenCalledWith(expect.objectContaining({context_run_refs: [history.run_ref],
+    run_refs: [history.run_ref], focus_refs: ["old.profit"], summary: "利润观测{{old.profit}}，原因仍待核查。"}), expect.anything());
+  expect(history.execution_turn_id).toBe("previous-turn");
+});
+
+it("追问cite确定范围但不展示次要数字，旧版回读标识也可识别且不接受猜测引用", async () => {
+  const report = vi.fn(async () => ({kind: "business_report", status: "succeeded", public_answer: "合成分析"}));
+  const request = testRequestContext(api({analysisReport: report}), new MemoryCommandBridge(),
+    {answerEvidence: async () => [{ref: "e1", evidence: {...evidence, result_reused: true}}]});
+  const tool = createAnalysisReportTool();
+  expect((await runTool(tool, {evidence_refs: ["e1"], body: "{{e2.v1|cite}}"}, request)).details.status).toBe("ARGUMENT_ERROR");
+  expect(report).not.toHaveBeenCalled();
+  await runTool(tool, {evidence_refs: ["e1"], body: "按所选事实进一步核查。{{e1.v1|cite}}"}, request);
+  expect(report).toHaveBeenCalledWith(expect.objectContaining({focus_refs: ["sample.f1"], summary: "按所选事实进一步核查。{{sample.f1|cite}}"}), expect.anything());
+});
+
+it("存在本轮新分析时不能只选历史来源绕过原始目标覆盖", async () => {
+  const report = vi.fn(async () => {throw new BackendApiError(422, "必须保留本轮分析", "ANALYSIS_REPORT_SCOPE");});
+  const request = testRequestContext(api({analysisReport: report}), new MemoryCommandBridge(),
+    {operationId: "op-1", answerEvidence: async () => [
+      {ref: "e1", evidence: {...evidence, execution_turn_id: "previous"}},
+      {ref: "e2", evidence: {...evidence, execution_turn_id: "op-1", run_ref: "analysis:current"}},
+    ]});
+  const result = await runTool(createAnalysisReportTool(), {evidence_refs: ["e1"], body: "{{e1.v1}}"}, request);
+  expect(result.details.status).toBe("ARGUMENT_ERROR");
+  expect(report).toHaveBeenCalledWith(expect.objectContaining({focus_refs: []}), expect.anything());
+});
+
 it("目录短引用稳定且隔离请求，持久化前还原真实签名", () => {
   const request = testRequestContext(api({}), new MemoryCommandBridge());
   expect(catalogBindingView(request, {items: [{binding_ref: "signed-one", code: "ORG_KNOWN"}, {binding_ref: "signed-two"}]}))

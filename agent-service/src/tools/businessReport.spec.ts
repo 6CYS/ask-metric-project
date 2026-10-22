@@ -267,7 +267,8 @@ it("部分报告保留真实表格与通过校验的分析，不放行错误结�
   expect(report.report.sections).toHaveLength(1);
   expect(report.public_answer).not.toContain("999");
   expect(report.public_answer).not.toContain("风险可控");
-  expect(report.public_answer).toContain("部分解释尚缺少充分依据");
+  expect(report.public_answer).not.toMatch(/部分解释尚缺少充分依据|部分分析文字未通过证据校验/);
+  expect(report.gaps).toContain("部分分析文字未通过证据校验，已省略；基础数据和已校验段落仍可查看。");
   expect(() => composePartialBusinessReport([source(), {...source(), org_codes: ["O2"]}], input())).toThrow("同一机构");
 });
 
@@ -302,7 +303,9 @@ it("所有模型段落均失败时，从已校验回执生成可见事实及比�
       {ref: "total.mom.rate", display: "-1.64%", label: "较上月增幅"}],
     gaps: [{reason: "该期间缺少连续月度记录"}]};
   const report = composePartialBusinessReport([data], {...input(), summary: "**错误推断**\n\n存款999亿元，说明客户流失。", sections: []});
-  expect(report.report.summary).toContain("截至2026-08-27，1104类合成存款为120亿元；较上月变动-2亿元（-1.64%）");
+  expect(report.report.summary).toContain("1104类合成存款为120亿元；较上月变动-2亿元（-1.64%）");
+  expect(report.report.summary).not.toContain("截至2026-08-27");
+  expect(report.report.presentation.scope).toContain("2026-08-27");
   expect(report.report.summary).toContain("该期间缺少连续月度记录");
   expect(report.report.summary).not.toMatch(/999|客户流失|错误推断/);
   expect(report.report.body_evidence).toEqual([{paragraph: 1,
@@ -356,6 +359,35 @@ it("事实降级保留真实零值及期间各自日期，不将缺失值填成�
   expect(report.report.summary).not.toContain("合成缺失项为0");
   expect(report.report.body_evidence).toEqual([{paragraph: 1, evidence_refs: ["d20260731.total.current"]},
     {paragraph: 2, evidence_refs: ["d20260827.total.current"]}]);
+});
+
+it("同一观测日统一由范围展示，段首重复日期可合并但句内日期与证据关联保留", () => {
+  const data = source();
+  const report = composeBusinessReport([data], {...input(), summary:
+    "截至2026-08-27，余额{{total.current}}。\n\n截止2026年8月27日，已核对当前规模{{total.current|cite}}。\n\n规模按2026年8月27日记录核对{{total.current|cite}}。",
+    sections: [{title: "进一步观察", text: "截至2026/8/27，当前规模{{total.current}}。", evidence_refs: ["total.current"]}]});
+  expect(report.report.summary).toBe("余额120亿元。\n\n已核对当前规模。\n\n规模按2026年8月27日记录核对。");
+  expect(report.report.sections[0]?.text).toBe("当前规模120亿元。");
+  expect(report.report.presentation.scope).toContain("2026-08-27");
+  expect(report.report.body_evidence.map(item => item.paragraph)).toEqual([1, 2, 3]);
+  expect(() => composeBusinessReport([data], {...input(), summary: "截至2026-08-28，余额{{total.current}}。"})).toThrow();
+  expect(data.evidence_items[0]?.display).toBe("120亿元");
+});
+
+it("兜底正文合并业务缺项，完整校验诊断仍保留在回执，日期新鲜度不再展开执行细节", () => {
+  const reason = "较同期正式比较指标的当前值、增量与增幅不一致或比较分母为零，暂停用于分析；原查询记录保留，需核验数据口径或质量";
+  const data: OverviewEvidence = {...source(), gaps: [
+    {label: "个人存款占比", reason}, {label: "对公存款占比", reason}],
+    data_freshness: {checked_on: "2026-10-21", as_of: "2026-08-27", lag_days: 55,
+      notice: "用于确定日期的指标及覆盖检查过程"}};
+  const report = composePartialBusinessReport([data], {...input(), summary: "余额999亿元。", sections: []});
+  expect(report.report.summary).toContain("个人存款占比、对公存款占比的较同期数据暂不可用，相关比较未纳入本次分析。");
+  expect(report.report.summary).toContain("当前可用数据距查询日55天。");
+  expect(report.report.summary).not.toMatch(/当前值、增量与增幅不一致|分母为零|原查询记录保留|部分解释|部分分析文字|用于确定日期/);
+  expect(report.gaps).toContain(`个人存款占比${reason}`);
+  expect(report.gaps).toContain(`对公存款占比${reason}`);
+  expect(report.report.presentation.source_notices).toContain(data.data_freshness!.notice);
+  expect(report.report.body_evidence).toEqual([{paragraph: 1, evidence_refs: ["total.current"]}]);
 });
 
 it("期间月份列表与实际快照数量可从覆盖元数据校验", () => {

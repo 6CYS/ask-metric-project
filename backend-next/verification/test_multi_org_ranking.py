@@ -255,6 +255,38 @@ def test_cohort_uses_hierarchy_provider_and_discloses_actual_count(general_envir
     assert not count_report.get("partial_analysis")
 
 
+def test_same_institution_set_in_different_order_can_form_one_report(general_environment):
+    service, actor, sessions, source = general_environment
+    actor, codes = multi(service, actor, sessions, source, 5)
+    ref = binding(service, actor, "净利润金额当日数")
+    payload = request(
+        plan(
+            ref,
+            steps=[
+                {
+                    "id": "value",
+                    "method": "observe",
+                    "metric_refs": [ref],
+                    "answers": ["performance"],
+                    "rationale": "观察",
+                }
+            ],
+        ),
+        org_codes=codes,
+    )
+    first = service.execute(payload, actor, "forward")
+    second = service.execute(
+        payload.model_copy(update={"org_codes": list(reversed(codes))}), actor, "reverse"
+    )
+    atom = next(item for item in first["evidence_items"] if item["type"] == "fact")
+    report = compose_analysis_report(
+        service,
+        actor,
+        AnalysisReportRequest(
+            run_refs=[first["run_ref"], second["run_ref"]], summary="{{" + atom["ref"] + "}}"
+        ),
+    )
+    assert report["status"] == "succeeded" and set(report["org_codes"]) == set(codes)
 
 
 def test_report_list_cannot_attribute_another_institutions_value(general_environment):

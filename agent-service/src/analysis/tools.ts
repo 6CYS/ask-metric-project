@@ -11,7 +11,8 @@ import {analysisBudget, analysisCandidates, analysisDiscoveryRounds, catalogBind
 import {analysisCoverageReview, analysisPlanningReview} from "./coverage.js";
 import {analysisInterpretationBrief} from "./interpretation.js";
 import {analysisFollowupSource, inquiryReview} from "./inquiry.js";
-import {normalizeReportNarrative, reviewNarrativeDensity} from "./narrative.js";
+import {narrativeEvidenceRefs, normalizeReportNarrative, reviewNarrativeDensity} from "./narrative.js";
+import {rememberReportSelection} from "./reportSelection.js";
 import {publicTextProblem} from "../runtime/delivery.js";
 import {analysisEvidenceAliases, verifiedFindingsView, type VerifiedFindings} from "./verifiedFindings.js";
 import {rankingModelView} from "./rankingView.js";
@@ -19,6 +20,7 @@ import {rankingModelView} from "./rankingView.js";
 export interface AnalysisEvidence extends BusinessEvidence {
   kind: "analysis_evidence"; run_ref: string; scope_id: string; frame_id?: string;
   execution_turn_id?: string;
+  result_reused?: boolean;
   analysis_date: string | null; org_codes: string[]; rows: unknown[]; plan: AnalysisPlan;
   date_selection?: string; requested_start?: string | null; requested_end?: string | null;
   checked_on?: string;
@@ -154,7 +156,7 @@ const reportFailures = new WeakMap<AskMetricRequestContext, number>();
 
 export function createAnalysisReportTool(): AgentHarnessTool<AskMetricRequestContext, typeof reportParameters> {
   return {name: "analysis_report_present", label: "交付通用分析报告", parameters: reportParameters,
-    description: "通用分析取数和必要补查后，依据本轮analysis_evidence的e1/e2回执交付文字报告与程序生成的事实表格，并结束。可按需提交presentation选择表达风格；它只改变组织方式，不改变事实、证据或权限。报告内容随用户目标和证据变化；不把无数据、缺口或服务错误伪装成完整结论。",
+    description: "通用分析取数和必要补查后，依据本轮analysis_evidence的e1/e2回执交付文字报告与程序生成的事实表格，并结束。追问仅讨论已有结果时，先read_business_result；body用真实原子引用明确这次关注的指标，可用{{e1.v1|cite}}不显示数字。服务端据此选择追问证据视图，无需重查或重复上一轮无关主题。新取数仍须覆盖本轮原始目标。相同日期在顶部说明即可，不逐句重复；不同日期仍须区分。可按需提交presentation，不改变事实、证据或权限。",
     execute: async (_id, rawInput, _update, request, _invocation, context) => {
       try {
         let input = {...rawInput, ...normalizeReportNarrative(rawInput)};
@@ -174,15 +176,18 @@ export function createAnalysisReportTool(): AgentHarnessTool<AskMetricRequestCon
         const selected = input.evidence_refs.map(ref => evidence.find(item => item.ref === ref));
         if (new Set(input.evidence_refs).size !== input.evidence_refs.length || selected.some(item => item?.evidence.kind !== "analysis_evidence" || item.evidence.status !== "succeeded")) throw new Error("请选择本轮成功的analysis_evidence回执e1/e2，不使用历史编号或目录回执。");
         const sources = selected.map(item => item!.evidence as AnalysisEvidence);
-        if (allSources[0] && !input.evidence_refs.includes(allSources[0].ref)) throw new Error("报告必须保留本轮首批计划及原始子问题，不能只交付最后一次补查。");
+        const historical = (source: AnalysisEvidence) => source.execution_turn_id
+          ? source.execution_turn_id !== (request.semanticStep?.rootOperationId ?? request.operationId) : source.result_reused === true;
+        const reuseOnly = allSources.every(item => historical(item.evidence as AnalysisEvidence));
+        if (!reuseOnly && allSources[0] && !input.evidence_refs.includes(allSources[0].ref)) throw new Error("报告必须保留本轮首批计划及原始子问题，不能只交付最后一次补查。");
         // 目录方向只是探索建议；用户原始子问题的证据覆盖仍由后端逐项校验。
         const aliases = new Map(input.evidence_refs.flatMap((ref, index) =>
           [...analysisEvidenceAliases(ref, sources[index]?.evidence_items ?? [])]));
         const translate = (text: string) => text.replace(/\{\{([^{}]+?)(\|cite)?\}\}/g,
           (full, ref: string, citation?: string) => aliases.has(ref) ? `{{${aliases.get(ref)}${citation ?? ""}}}` : full);
         const payload = {run_refs: allSources.filter(item => input.evidence_refs.includes(item.ref)).map(item => (item.evidence as AnalysisEvidence).run_ref), summary: input.summary,
-          context_run_refs: sources.filter(source => source.execution_turn_id
-            && source.execution_turn_id !== (request.semanticStep?.rootOperationId ?? request.operationId)).map(source => source.run_ref),
+          context_run_refs: sources.filter(historical).map(source => source.run_ref),
+          focus_refs: [] as string[],
           ...(input.presentation ? {presentation: input.presentation} : {}),
           planning_gaps: [],
           sections: input.sections.map(section => ({...section, title: translate(section.title), text: translate(section.text), evidence_refs: [...new Set(section.evidence_refs.flatMap(ref => {
@@ -190,6 +195,15 @@ export function createAnalysisReportTool(): AgentHarnessTool<AskMetricRequestCon
             return index < 0 ? [aliases.get(ref) ?? ref] : (sources[index]?.evidence_items ?? []).map(atom => atom.ref);
           }))]}))};
         payload.summary = translate(input.summary);
+        if (reuseOnly) {
+          const refs = [...new Set([payload.summary, ...payload.sections.map(section => section.text)].flatMap(narrativeEvidenceRefs))];
+          const known = new Set(sources.flatMap(source => source.evidence_items?.map(atom => atom.ref) ?? []));
+          if (refs.some(ref => !known.has(ref))) throw new Error("追问正文包含不属于所选回执的原子引用，请使用本轮读取回执中的真实引用。");
+          if (!refs.length) return {content: [{type: "text", text: "已读取历史分析，无需重新查询。请按本次追问选择相关指标，在body中使用回执的{{e1.v1}}等真实原子引用；无需展示数字时用{{e1.v1|cite}}。这些引用同时确定追问的证据范围，不要求重复上一轮无关主题，不能直接手写数值。"}],
+            details: {kind: "analysis_report", status: "needs_revision", retryable: true}};
+          payload.focus_refs = refs;
+          rememberReportSelection(request, allSources.map(item => (item.evidence as AnalysisEvidence).run_ref), payload);
+        }
         const editorial = reviewNarrativeDensity(request, rawInput.body,
           sources.flatMap((source, index) => source.evidence_items?.filter(atom => atom.type !== "observation")
             .map((atom, atomIndex) => ({...atom, ref: `${input.evidence_refs[index]}.v${atomIndex + 1}`})) ?? []),

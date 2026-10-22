@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from ask_metric.core.errors import ApplicationError
+from ask_metric.application.analysis_report_view import compact_fact_section, focused_sources, shared_date_text
 
 
 class ReportSection(BaseModel):
@@ -28,7 +29,8 @@ class PresentationRequest(BaseModel):
 class AnalysisReportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     run_refs: list[str] = Field(min_length=1, max_length=6)
-    context_run_refs: list[str] = Field(default_factory=list, max_length=5)
+    context_run_refs: list[str] = Field(default_factory=list, max_length=6)
+    focus_refs: list[str] = Field(default_factory=list, max_length=80)
     summary: str = Field(default="", max_length=6000)
     sections: list[ReportSection] = Field(default_factory=list, max_length=12)
     planning_gaps: list[str] = Field(default_factory=list, max_length=12)
@@ -131,13 +133,16 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
     # 跨轮追问只能显式带入已重新鉴权的同会话背景；计算仍受原scope约束。
     context_refs = set(request.context_run_refs)
     current = [source for source in sources if source["run_ref"] not in context_refs]
-    if not current or len(context_refs) != len(request.context_run_refs) or not context_refs.issubset(request.run_refs):
+    reuse_view = bool(request.focus_refs) and not current
+    if (not current and not reuse_view) or len(context_refs) != len(request.context_run_refs) or not context_refs.issubset(request.run_refs):
         raise ApplicationError("ANALYSIS_REPORT_SCOPE", "背景引用必须属于已选运行，且保留本轮分析运行。", status_code=422)
-    first = current[0]
+    if request.focus_refs and not reuse_view:
+        raise ApplicationError("ANALYSIS_REPORT_SCOPE", "本轮新分析必须保留原始目标，不能用追问视图缩减覆盖。", status_code=422)
+    first = (current or sources)[0]
     if len(set(request.run_refs)) != len(request.run_refs) or any(
         (source in current and source["scope_id"] != first["scope_id"])
         or source["conversation_id"] != first["conversation_id"]
-        or source["org_codes"] != first["org_codes"]
+        or set(source["org_codes"]) != set(first["org_codes"])
         or source["date_selection"] != first["date_selection"]
         or source["requested_start"] != first["requested_start"]
         or source["requested_end"] != first["requested_end"]
@@ -152,6 +157,9 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
     for source in sources:
         for metric in source["metric_descriptors"]:
             semantics.resolve(metric["binding_ref"])
+    if reuse_view:
+        sources = focused_sources(sources, request.focus_refs)
+        first = sources[0]
     atoms = {item["ref"]: item for source in sources for item in source["evidence_items"]}
 
     def expanded_refs(references):
@@ -595,11 +603,6 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             rendered,
         )
 
-    observations = list({item["text"]: item for item in [
-        *({"ref": atom["ref"], "text": atom["display"]}
-          for atom in atoms.values() if atom.get("judgment_kind")),
-        *(item for source in sources for item in source["observations"]),
-    ]}.values())
     summary_refs = set()
     body_evidence = []
     if request.fallback:
@@ -631,13 +634,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
                 })
             except ApplicationError:
                 continue  # 逐段复核，不能因为一句无依据判断而丢失其他已经通过的分析。
-        sections = sections or ([] if retained else [
-            {
-                "title": "已核验事实",
-                "text": "\n".join(item["text"] for item in observations[:36]),
-                "evidence_refs": [item["ref"] for item in observations[:36]],
-            }
-        ])
+        sections = sections or ([] if retained else [compact_fact_section(sources, atoms)])
     else:
         if not request.summary:
             raise ApplicationError(
@@ -691,6 +688,8 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             for metric in first["metric_descriptors"]
             if metric["binding_ref"] in refs
         }
+        if reuse_view and not codes:
+            continue  # 历史追问只核对本次所选指标，不将旧主题冒充本轮任务。
         related_atoms = {ref for ref, atom in atoms.items() if atom.get("metric_code") in codes}
         for source in sources:
             for observation in source["observations"]:
@@ -761,7 +760,11 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
         dict.fromkeys(item for source in sources for item in source["defaults_applied"])
     )
     dates = sorted({day for source in sources for day in source["actual_dates"]})
-    scope = f"分析机构：{'、'.join(first['org_names'])}。"
+    # 文案先通过原事实校验，再精简共同时点；不同截至日不能相互替代。
+    summary = shared_date_text(summary, dates)
+    sections = [{**section, "text": shared_date_text(section["text"], dates)} for section in sections]
+    scope = (f"分析范围：{len(first['org_codes'])}家机构。" if len(first["org_codes"]) > 5
+             else f"分析机构：{'、'.join(first['org_names'])}。")
     if first["requested_start"]:
         scope += f"请求期间：{first['requested_start']}至{first['requested_end']}。"
     scope += (
@@ -802,6 +805,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
         or request.fallback
         or any(not source["complete"] for source in sources),
         "run_refs": request.run_refs,
+        "evidence_view": {"kind": "focused_reuse", "focus_refs": request.focus_refs} if reuse_view else None,
         "org_codes": first["org_codes"],
         "tasks": list(
             {item["task_id"]: item for source in sources for item in source["tasks"]}.values()

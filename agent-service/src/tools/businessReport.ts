@@ -32,6 +32,30 @@ export interface ReportInput {
 
 const isProseError = (error: unknown): error is Error => error instanceof Error && /^(?:summary |sections\[)/u.test(error.message);
 
+/** 仅合并同一快照的段首日期；跨期比较和句内基期日期保持原样。 */
+function overviewDisplayText(text: string, sources: OverviewEvidence[]) {
+  const date = sources[0]?.analysis_date;
+  if (!date || sources.some(source => source.analysis_date !== date
+    || source.period?.snapshot_dates.some(snapshot => snapshot !== date)
+    || source.table_rows.some(row => row.data_date && row.data_date !== date))) return text;
+  return text.replace(/(^|\n[ \t]*\n)([ \t]*)(?:截至|截止)(\d{4})(?:年|[-/])(\d{1,2})(?:月|[-/])(\d{1,2})日?[,，][ \t]*/gu,
+    (matched, paragraph: string, indent: string, year: string, month: string, day: string) =>
+      `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}` === date ? paragraph + indent : matched);
+}
+
+/** 校验细节保存在 gaps；正文只说明受影响的业务比较，合并同一种缺项。 */
+function overviewBusinessGaps(sources: OverviewEvidence[]) {
+  const groups = new Map<string, Set<string>>();
+  for (const gap of sources.flatMap(source => source.gaps)) {
+    const comparison = /^(较上月|较同期|较年初)正式比较指标的当前值、增量与增幅不一致或比较分母为零/u.exec(gap.reason);
+    const reason = comparison ? `的${comparison[1]}数据暂不可用，相关比较未纳入本次分析。` : gap.reason;
+    const labels = groups.get(reason) ?? new Set<string>();
+    labels.add(gap.label ?? "");
+    groups.set(reason, labels);
+  }
+  return [...groups].map(([reason, labels]) => [...labels].filter(Boolean).join("、") + reason);
+}
+
 /** 表格和文字降级共用同一合并规则，未查询的比较格不能覆盖已经取得的值。 */
 function mergedOverviewRows(sources: OverviewEvidence[]) {
   const rows = new Map<string, Record<string, string>>();
@@ -108,18 +132,21 @@ export function composePartialBusinessReport(sources: OverviewEvidence[], input:
   const report = composeBusinessReport(sources, {...input, summary, sections});
   if (!report.report.body_evidence.length && !sections.length) {
     const facts = overviewFactBody(sources, input.metric_ids);
-    report.report.summary = facts.text || "已检查请求范围，未取得可用指标记录，暂不能形成经营判断。";
+    report.report.summary = overviewDisplayText(facts.text, sources) || "已检查请求范围，未取得可用指标记录，暂不能形成经营判断。";
     report.report.body_evidence = facts.bodyEvidence;
   }
-  const note = "部分解释尚缺少充分依据，已省略相关结论；以上仅反映已核验的指标事实。";
-  // 前端自然报告只展示 summary/sections；限制也须落在正文末尾，不能仅写在被隐藏的 gaps 中。
-  const tail = [sources[0]?.data_freshness?.notice, ...report.gaps, note].filter(Boolean).join("\n\n");
-  if (sections.length) report.report.sections.at(-1)!.text += `\n\n${tail}`;
-  else report.report.summary += `\n\n${tail}`;
+  const lag = sources[0]?.data_freshness?.lag_days;
+  const tail = [typeof lag === "number" && lag > 0 ? `当前可用数据距查询日${lag}天。` : "",
+    ...overviewBusinessGaps(sources)].filter(Boolean).join("\n\n");
+  // 正文不堆叠校验、降级和补查诊断；确实影响解释的业务缺项只说明一次。
+  if (tail) {
+    if (sections.length) report.report.sections.at(-1)!.text += `\n\n${tail}`;
+    else report.report.summary += `\n\n${tail}`;
+  }
   report.gaps.push("部分分析文字未通过证据校验，已省略；基础数据和已校验段落仍可查看。");
   return {...report, partial_analysis: true,
     public_answer: overviewPublicAnswer(sources[0]!, report.report.summary, report.report.sections,
-      report.gaps, report.report.presentation.source_notices)};
+      [], report.report.presentation.source_notices)};
 }
 
 function overviewPublicAnswer(first: OverviewEvidence, summary: string, sections: ReportInput["sections"], gaps: string[], notices: Array<string | undefined>) {
@@ -343,14 +370,15 @@ export function composeBusinessReport(sources: OverviewEvidence[], input: Report
         (matched, ref: string, citation?: string) => evidence.has(ref) ? citation ? "" : evidence.get(ref)!.display : matched);
   };
   const preparedSummary = prepareProse(input.summary);
-  const summary = interpolate(preparedSummary, "summary");
+  const summary = overviewDisplayText(interpolate(preparedSummary, "summary"), sources);
   const sections = input.sections.map((section, index) => {
     const path = `sections[${index}]`;
     const text = prepareProse(section.text);
     const placeholders = narrativeEvidenceRefs(text);
     const refs = [...new Set([...section.evidence_refs, ...placeholders])];
     if (!refs.length || refs.some(ref => !evidence.has(ref))) issues.push(`${path} 需要有效的分析证据引用；段落 evidence_refs 使用 total.current 等原子 ref，不能使用 e1/e2 回执编号。`);
-    return {...section, evidence_refs: refs, title: interpolate(prepareProse(section.title), `${path}.title`), text: interpolate(text, `${path}.text`)};
+    return {...section, evidence_refs: refs, title: interpolate(prepareProse(section.title), `${path}.title`),
+      text: overviewDisplayText(interpolate(text, `${path}.text`), sources)};
   });
   if (issues.length) throw new Error([...new Set(issues)].join("\n"));
   if (new Set(input.metric_ids).size !== input.metric_ids.length || input.metric_ids.some(id => ![...rows.values()].some(row => row.metric_id === id))) throw new Error("表格只能选择本轮实际取得数据的指标ID，缺数时使用空数组。");
@@ -367,7 +395,7 @@ export function composeBusinessReport(sources: OverviewEvidence[], input: Report
     ? `本次有值指标的映射来源：${[...metricSources].map(([label, source]) => `${label}（${source}）`).join("；")}。`
     : "";
   const notices = [first.context_notice, first.source_notice, sourceDetail, first.data_freshness?.notice].filter(Boolean);
-  const publicAnswer = overviewPublicAnswer(first, summary, sections, gaps, notices);
+  const publicAnswer = overviewPublicAnswer(first, summary, sections, overviewBusinessGaps(sources), notices);
   return {kind: "business_report", status: "succeeded", delivery: "business_evidence_v1",
     answer_policy: "verified_report_v1", public_answer: publicAnswer,
     topic: first.topic ?? "loan", topic_version: first.topic_version, topic_name: first.topic_name, source_notice: first.source_notice, context_notice: first.context_notice,

@@ -16,6 +16,7 @@ from ask_metric.application.analysis_report import (
 from ask_metric.application.calculation_service import CalculationApplicationService
 from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.analysis_methods import AnalysisPlan
+from ask_metric.application.analysis_report_view import compact_fact_section, shared_date_text
 
 
 @pytest.fixture
@@ -138,7 +139,10 @@ def test_verified_judgments_precede_prose_and_expand_to_requirement_sources(gene
             run_refs=[result["run_ref"]], summary="{{" + items[0]["ref"] + "}}"))
     fallback = compose_analysis_report(service, actor, AnalysisReportRequest(
         run_refs=[result["run_ref"]], summary="经营收入999999亿元", fallback=True))
-    assert any(item["text"] in fallback["report"]["sections"][0]["text"] for item in items)
+    section = fallback["report"]["sections"][0]
+    assert any(item["ref"] in section["evidence_refs"] for item in items)
+    assert "增加" in section["text"] and "减少" in section["text"]
+    assert "截至2026-08-31" not in section["text"]  # 共同时点由报告顶部承载。
     for claim in ["费用控制并未恶化，反而有所改善。", "成本效率有所优化。"]:
         with pytest.raises(ApplicationError, match="未经证实"):
             compose_analysis_report(service, actor, AnalysisReportRequest(
@@ -336,7 +340,10 @@ def test_report_checks_numbers_refs_scope_and_actual_sources(general_environment
     assert report["report"]["plans"][0]["scope_notice"] == analysis_plan.scope_notice
     assert observation["display"] in report["public_answer"]
     chinese = payload.model_copy(update={"summary": "截至2026年8月31日，已取得现状及可比观测。"})
-    assert "2026年8月31日" in compose_analysis_report(service, actor, chinese)["public_answer"]
+    chinese_report = compose_analysis_report(service, actor, chinese)
+    assert chinese_report["status"] == "succeeded"
+    assert "2026-08-31" in chinese_report["report"]["presentation"]["scope"]
+    assert chinese_report["report"]["summary"] == payload.summary
     fact = next(item for item in result["evidence_items"] if item["type"] == "fact")
     duplicate = payload.model_copy(update={"summary": "当前观测{{" + fact["ref"] + "}}亿元"})
     assert "亿元亿元" not in compose_analysis_report(service, actor, duplicate)["public_answer"]
@@ -428,6 +435,106 @@ def test_report_explicit_history_context_keeps_scope_and_current_goal(general_en
     with pytest.raises(ApplicationError) as failure:
         compose_analysis_report(service, actor, payload)
     assert failure.value.code == "ANALYSIS_REPORT_SCOPE"
+
+
+def focused_report_fixture(environment):
+    service, actor, _, source = environment
+    income, profit = (binding(service, actor, name) for name in ["营业收入金额当日数", "净利润金额当日数"])
+    # 两个主题各有发布日，重现经营分析后仅追问利润的场景。
+    source.observations = [(code, date(2026, 7, 31) if code == "profit" else day, value)
+                           for code, day, value in source.observations if code != "profit" or value != 0]
+    original = service.execute(request(plan(income,
+        requirements=[{"id": "income", "question": "收入如何？"}, {"id": "profit", "question": "利润如何？"}],
+        steps=[{"id": key, "method": "observe", "metric_refs": [ref], "answers": [key], "rationale": "确认本项事实。"}
+               for key, ref in [("income", income), ("profit", profit)]])), actor, "focused-original")
+    profit_atom = next(atom for atom in original["evidence_items"] if atom.get("metric_code") == "profit")
+    payload = AnalysisReportRequest(run_refs=[original["run_ref"]], context_run_refs=[original["run_ref"]],
+        focus_refs=[profit_atom["ref"]], summary="净利润为{{" + profit_atom["ref"] + "}}；具体业务原因需另行核查。")
+    return original, profit_atom, payload
+
+
+def test_reused_report_focuses_authorized_evidence_without_requery_or_old_goal_loss(general_environment):
+    service, actor, _, source = general_environment
+    original, _, payload = focused_report_fixture(general_environment)
+    calls = len(source.calls)
+    report = compose_analysis_report(service, actor, payload)
+    assert report["status"] == "succeeded" and len(source.calls) == calls
+    assert {row["metric_name"] for row in report["rows"]} == {"净利润金额当日数"}
+    assert report["report"]["presentation"]["scope"].count("2026-07-31") == 1
+    assert "2026-08-31" not in report["report"]["presentation"]["scope"]
+    assert [item["id"] for item in report["report"]["requirement_coverage"]] == ["profit"]
+    assert report["evidence_view"]["kind"] == "focused_reuse"
+    assert report["report"]["plans"][0]["steps"] == original["plan"]["steps"]
+    saved = service.authorized_evidence(actor, original["run_ref"])
+    assert saved["plan"] == original["plan"] and saved["rows"] == original["rows"]
+    assert len(saved["plan"]["requirements"]) == 2
+
+
+@pytest.mark.parametrize("mutation,code", [
+    ("fresh_focus", "ANALYSIS_REPORT_SCOPE"), ("missing_focus", "ANALYSIS_REPORT_SCOPE"),
+    ("unknown_ref", "ANALYSIS_REPORT_REFERENCE"), ("other_topic", "ANALYSIS_REPORT_REFERENCE"),
+    ("fabricated_number", "ANALYSIS_REPORT_NUMBER"),
+])
+def test_reused_focus_keeps_scope_reference_and_fact_guards(general_environment, mutation, code):
+    service, actor, _, _ = general_environment
+    original, _, payload = focused_report_fixture(general_environment)
+    if mutation == "fresh_focus":
+        payload.context_run_refs = []
+    elif mutation == "missing_focus":
+        payload.focus_refs = []
+    elif mutation == "unknown_ref":
+        payload.focus_refs = ["invented.atom"]
+    elif mutation == "other_topic":
+        income = next(atom for atom in original["evidence_items"] if atom.get("metric_code") == "income")
+        payload.summary += "营业收入{{" + income["ref"] + "}}。"
+    else:
+        payload.summary = "净利润999亿元。"
+    with pytest.raises(ApplicationError) as failure:
+        compose_analysis_report(service, actor, payload)
+    assert failure.value.code == code
+
+
+def test_reused_focus_rechecks_authorization_before_projection(general_environment, monkeypatch):
+    service, actor, _, _ = general_environment
+    _, _, payload = focused_report_fixture(general_environment)
+    def denied(*_):
+        raise ApplicationError("PERMISSION_DENIED", "授权已撤回。", status_code=403)
+    monkeypatch.setattr(service, "authorized_evidence", denied)
+    with pytest.raises(ApplicationError) as failure:
+        compose_analysis_report(service, actor, payload)
+    assert failure.value.status_code == 403
+
+
+def test_reused_focus_fallback_only_presents_selected_topic(general_environment):
+    service, actor, _, _ = general_environment
+    _, _, payload = focused_report_fixture(general_environment)
+    report = compose_analysis_report(service, actor, payload.model_copy(update={"summary": "净利润999亿元。", "fallback": True}))
+    body = report["report"]["sections"][0]
+    assert "净利润金额当日数" in body["text"] and "营业收入" not in body["text"]
+    assert "2026-07-31" not in body["text"] and "999" not in body["text"]
+    assert body["evidence_refs"] and report["partial_analysis"]
+
+
+def test_compact_fallback_groups_two_organizations_and_distinct_dates():
+    rows, atoms = [], {}
+    for name, day in [("净利润", "2026-07-31"), ("贷款", "2026-08-27")]:
+        for org in ["甲行", "乙行"]:
+            ref = f"{name}-{org}"
+            rows.append({"metric_name": name, "org_name": org, "stat_date": day, "value_role": "分析时点", "metric_value": "1.00亿元"})
+            atoms[ref] = {"ref": ref, "type": "fact", "metric_name": name, "org_name": org, "date": day, "display": "1.00亿元"}
+    section = compact_fact_section([{"rows": rows, "org_codes": ["A", "B"], "org_names": ["甲行", "乙行"]}], atoms)
+    assert section["text"].count("2026-07-31") == section["text"].count("2026-08-27") == 1
+    assert "**净利润**：甲行 1.00亿元；乙行 1.00亿元" in section["text"]
+    assert "**贷款**：甲行 1.00亿元；乙行 1.00亿元" in section["text"]
+    assert set(section["evidence_refs"]) == set(atoms)
+
+
+def test_shared_date_only_removes_repeated_common_prefix_and_preserves_code_and_other_dates():
+    text = "截至2026-07-31，甲行利润已取得。\n\n截至2026年7月31日，乙行利润已取得。\n\n截至2026-06-30，基期另有记录。\n\n```text\n截至2026-07-31，原样保留\n```"
+    cleaned = shared_date_text(text, ["2026-07-31"])
+    assert cleaned.startswith("甲行利润已取得。\n\n乙行利润已取得。")
+    assert "截至2026-06-30" in cleaned and "```text\n截至2026-07-31" in cleaned
+    assert shared_date_text(text, ["2026-07-31", "2026-08-27"]) == text
 
 
 def test_report_cleans_public_gaps_but_keeps_original_plan(general_environment):

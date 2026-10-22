@@ -3,6 +3,7 @@ import type {AgentHarnessTool} from "@earendil-works/pi-agent-core";
 import type {AskMetricRequestContext} from "../requestContext.js";
 import {BackendApiError} from "../backendClient.js";
 import {composePartialBusinessReport, type OverviewEvidence} from "./businessReport.js";
+import {reportSelection} from "../analysis/reportSelection.js";
 
 export const PARTIAL_ANALYSIS = "analysis_partial_present";
 const parameters = Type.Object({reason: Type.Union([
@@ -26,6 +27,15 @@ export function createPartialAnalysisTool(): AgentHarnessTool<AskMetricRequestCo
           && ["business_overview", "analysis_evidence"].includes(item.evidence.kind));
         if (!sources.length) throw new Error("本轮没有可交付的分析证据。");
         const notice = notices[input.reason];
+        const focused = sources.every(item => item.evidence.kind === "analysis_evidence")
+          ? reportSelection(request, [...new Set(sources.map(item => (item.evidence as unknown as {run_ref: string}).run_ref))]) : undefined;
+        if (focused) {
+          // 报告纠错耗尽仍沿用追问已绑定的范围，并逐段复核；不铺开上一轮整个经营报告。
+          const details = await request.backend.analysisReport({...focused, fallback: true}, {signal: context.abortSignal});
+          if (details.kind !== "business_report" || details.status !== "succeeded" || typeof details.public_answer !== "string") throw new Error("INVALID_ANALYSIS_REPORT");
+          return {content: [{type: "text", text: details.public_answer}], details: {...details,
+            partial_analysis: true, fallback_reason: input.reason}, terminate: true};
+        }
         const reports: Array<Record<string, unknown>> = [];
         // 各范围分别校验和呈现，不将不同日期、主题或机构合并计算。
         for (const item of sources) {
@@ -54,12 +64,15 @@ export function createPartialAnalysisTool(): AgentHarnessTool<AskMetricRequestCo
         const reportBodies = reports.map(report => (report.report ?? {summary: report.public_answer}) as {summary?: string;
           sections?: Array<{title: string; text: string}>; plans?: unknown[];
           presentation?: {scope?: string; source_notices?: string[]; limitations?: string[]}});
-        const body = [...reportBodies.flatMap(report => [report.summary,
-          ...report.sections?.map(section => `${section.title ? `**${section.title}**\n\n` : ""}${section.text}`) ?? []]),
-          "后续补查未完成，以上仅依据已取得并核验的数据；尚缺证据的原因和变化不作结论。"].filter(Boolean).join("\n\n");
+        const scopes = [...new Set(reportBodies.map(report => report.presentation?.scope).filter((scope): scope is string => !!scope))];
+        const scope = scopes.length === 1 ? scopes[0]! : "";
+        // 单一范围用顶部元信息承载日期；不同范围分别保留上下文，避免去重后混淆时点或主题。
+        const body = reportBodies.flatMap(report => [scopes.length > 1 ? report.presentation?.scope : undefined,
+          report.summary, ...report.sections?.map(section => `${section.title ? `**${section.title}**\n\n` : ""}${section.text}`) ?? []])
+          .filter(Boolean).join("\n\n");
         const details = {kind: "business_report", status: "succeeded", delivery: "business_evidence_v1",
           answer_policy: "verified_report_v1", partial_analysis: true, fallback_reason: input.reason,
-          public_answer: body,
+          public_answer: [scope, body].filter(Boolean).join("\n\n"),
           columns: [...new Set(["org_name", "stat_date", ...reports.flatMap(report => report.columns as string[])])],
           org_codes: [...new Set(reports.flatMap(report => report.org_codes as string[]))],
           rows, row_count: rows.length, tasks: reports.flatMap(report => report.tasks as unknown[]),
@@ -69,7 +82,7 @@ export function createPartialAnalysisTool(): AgentHarnessTool<AskMetricRequestCo
           report: {summary: body, sections: [], plans: reportBodies.flatMap(report => report.plans ?? []),
             evidence_refs: sources.map(item => item.ref),
             presentation: {version: 1, body_mode: "narrative", layout: ["summary", "analysis", "data"],
-              scope: [...new Set(reportBodies.map(report => report.presentation?.scope).filter(Boolean))].join("；"),
+              scope,
               source_notices: [...new Set(reportBodies.flatMap(report => report.presentation?.source_notices ?? []))],
               limitations: [...new Set(reportBodies.flatMap(report => report.presentation?.limitations ?? []))]}},
           source_reports: reports};
