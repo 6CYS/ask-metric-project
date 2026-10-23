@@ -132,6 +132,47 @@ it.each(["complete", "partial", "malformed", "denied"])("漏分析子问题后�
   expect((f.model.payloads[3] as {tool_choice: unknown}).tool_choice).toEqual({type: "function", function: {name: "analysis_plan_repair"}});
 });
 
+it.each(["plain", "narrow_query", "repeat_catalog", "partial_catalog"])("相关多候选遇到%s仍通过实际取数交付，不因模型未推进退回固定失败文案", async mode => {
+  const original = proposal(complete().map(op => op.field === "metrics" ? {...op, value: "合成存款"} : op));
+  const narrow = {protocol_version: 2, intent: "query", targets: [{source: {kind: "new"}, query: {
+    organizations: {kind: "named", names: ["合成机构甲"]}, metrics: ["合成存款余额当日数"],
+    time: {expression: "2025年末"}, selection: "exact", operation: {kind: "value"}}}]};
+  const leak = "让我构造resolve_business_turn并重新选择指标。";
+  const catalog = [{name: "analysis_catalog", args: {keywords: ["无效模型检索词"], page: 99}}];
+  const f = await setup([[{name: "resolve_business_turn", args: original}], mode === "plain" ? leak : catalog,
+    mode === "narrow_query" ? [{name: "resolve_business_turn", args: narrow}] : mode === "repeat_catalog" ? catalog : leak, leak]);
+  const candidates = ["余额当日数", "余额较年初", "余额较年初增幅", "余额较年初增幅排名", "余额较年初排名"]
+    .map((suffix, i) => ({code: `P${i}`, value: `合成存款${suffix}`}));
+  const resolver = f.backend.resolveBusinessField.getMockImplementation()!;
+  f.backend.resolveBusinessField.mockImplementation(async (...args) => args[0] === "metric" && args[1].includes("合成存款")
+    ? {status: "needs_confirmation", candidates} : resolver(...args));
+  const execute = vi.fn(async (payload: Record<string, unknown>) => ({kind: "analysis_evidence", status: "succeeded", run_ref: "synthetic-parallel",
+    scope_id: "synthetic-scope", org_codes: ["O1"], analysis_date: "2025-12-31", actual_dates: ["2025-12-31"], tasks: [], rows: [], gaps: [],
+    plan: payload.plan, metric_descriptors: [], evidence_items: [{ref: "synthetic.f1", type: "fact", metric_code: "P0", value: "100", display: "100元"}]}));
+  const report = vi.fn(async () => ({kind: "business_report", status: "succeeded", delivery: "business_evidence_v1", answer_policy: "verified_report_v1",
+    public_answer: "合成存款余额为100元。" + (mode === "partial_catalog" ? "暂未取得合成存款余额较年初排名，本次未包含此项。" : "其余已取得指标见明细。"),
+    org_codes: ["O1"], rows: [], columns: [], tasks: [], gaps: []}));
+  Object.assign(f.backend, {analysisMethods: vi.fn(async () => ({methods: []})), analysisValidate: vi.fn(async () => ({valid: true})),
+    analysisCatalog: vi.fn(async (code: string) => {
+      if (mode === "partial_catalog" && code === "P4") throw new Error("synthetic unavailable");
+      const item = candidates.find(item => item.code === code)!;
+      return {items: [{code, name: item.value, binding_ref: `signed-${code}`}], has_more: true};
+    }), analysisExecute: execute, analysisReport: report});
+  expect((await f.run("parallel-host", "合成机构甲2025年末合成存款信息")).ok).toBe(true);
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(execute.mock.calls[0]![0]).toMatchObject({org_codes: ["O1"], start: "2025-12-31", end: "2025-12-31",
+    plan: {steps: [expect.objectContaining({metric_refs: candidates.slice(0, mode === "partial_catalog" ? 4 : 5).map(item => `signed-${item.code}`)})]}});
+  expect(report).toHaveBeenCalledTimes(1);
+  const entries = await f.session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
+  const visible = projectEntries(entries).flatMap(message => message.role === "assistant" && message.text ? [message.text] : []).at(-1);
+  expect(visible).toContain("合成存款余额为100元");
+  expect(visible).not.toContain(leak);
+  expect(visible).not.toContain("指标名称与正式目录");
+  expect(JSON.stringify(entries)).not.toContain("SEMANTIC_NO_PROGRESS");
+  expect(f.backend.basicQueries).not.toHaveBeenCalled();
+  expect(f.model.calls()).toBeLessThanOrEqual(6);
+});
+
 it("目录成功后模型反复输出内部规划，宿主有限纠错且刷新不泄露原文", async () => {
   const leak = "用户提出四项指标，我应该先回答待确认问题。让我构造resolve_business_turn，top_n=null。";
   const f = await setup([[{name: "analysis_catalog", args: {keywords: ["存款"]}}], leak]);

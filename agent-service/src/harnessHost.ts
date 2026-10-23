@@ -61,7 +61,7 @@ import {normalizeAnswerInput, QuestionAnswerError, type Answer, type AnswerError
 import {semanticRuntimeAdapter, semanticPublicToolDefinitions} from "./semantic-task/tools.js";
 import {analysisFollowupToolView} from "./semantic-task/analysisToolView.js";
 import {isSemanticFeedback, semanticPublicAnswer, type SemanticFeedback} from "./semantic-task/feedback.js";
-import {queryRecoveryPhase} from "./semantic-task/queryRecovery.js";
+import {normalizeParallelMetricProposal, queryRecoveryPhase} from "./semantic-task/queryRecovery.js";
 import {ANALYSIS_REPAIR, analysisRecoveryPhase, markPartialAnalysis} from "./semantic-task/analysisRecovery.js";
 import {SemanticPlanService} from "./semantic-task/planService.js";
 import {buildCompactSemanticSystemPrompt, buildSemanticSystemPrompt, semanticBusinessSkills} from "./semantic-task/prompt.js";
@@ -850,6 +850,17 @@ export class HarnessHost {
         const recoveringQuery = queryRecoveryPhase(current);
         const recoveryCalls = event.message.content.filter(block => block.type === "toolCall");
         if (recoveringQuery && (recoveryCalls.length !== 1 || recoveryCalls[0]?.name !== recoveringQuery.tool)) {
+          // 已冻结的相关候选有确定执行路线，网关忽略工具选择时直接推进，不再反复提醒模型。
+          if (recoveringQuery.recovery.metric_alternatives?.length && receipts.length < MAX_TOOL_CALLS_PER_OPERATION) {
+            if (recoveringQuery.tool === "analysis_catalog") return {message: {...event.message,
+              content: [{type: "toolCall" as const, id: `query-discovery-${request.operationId}-${receipts.length}`,
+                name: "analysis_catalog", arguments: {keywords: recoveringQuery.recovery.unresolved_metrics.slice(0, 4), page_size: 30}}], stopReason: "toolUse" as const}};
+            const proposal = await normalizeParallelMetricProposal(request, {protocol_version: 2, intent: "query",
+              targets: [{source: {kind: "current"}, operations: []}]});
+            if (proposal.intent === "analyze") return {message: {...event.message,
+              content: [{type: "toolCall" as const, id: `query-parallel-${request.operationId}-${receipts.length}`,
+                name: "resolve_business_turn", arguments: proposal as unknown as Record<string, unknown>}], stopReason: "toolUse" as const}};
+          }
           const reminders = receipts.filter(message => message.toolCallId.startsWith("query-recovery-required-")).length;
           if (reminders < RUNTIME_LIMITS.recoveryReminders && receipts.length < MAX_TOOL_CALLS_PER_OPERATION) return {message: {...event.message,
             content: [{type: "toolCall" as const, id: `query-recovery-required-${reminders + 1}`, name: ACTION_REQUIRED, arguments: {}}], stopReason: "toolUse" as const}};
