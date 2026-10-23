@@ -6,7 +6,8 @@ import {BusinessInputError} from "../business-context/inputError.js";
 import type {ContextDelta} from "../business-context/types.js";
 import {isSemanticFeedback, semanticPublicAnswer, type SemanticFeedback} from "./feedback.js";
 import type {SemanticTask} from "./store.js";
-import {analysisCandidates} from "../analysis/bindings.js";
+import {analysisCandidates, analysisDiscoveryRounds} from "../analysis/bindings.js";
+import {compileQueryRequest} from "./structuredQuery.js";
 import {completeRankingSteps, type AnalysisPlan} from "../analysis/contracts.js";
 import type {SemanticRequest} from "./protocol.js";
 import {overviewTimeExpression, recentOverviewExpression} from "../business-context/overviewPolicy.js";
@@ -35,27 +36,48 @@ export function parallelMetricAlternatives(field: ResolvedField | undefined, que
   return related || overview ? unique : [];
 }
 
+/** 目录工具按可信冻结候选补引用，不再要求模型反复搜索名称或猜测分页。 */
+export async function recoveryMetricCandidates(request: AskMetricRequestContext) {
+  const recovery = (await request.semanticTasks?.turn(request.operationId))?.queryRecovery;
+  if (!recovery) return [];
+  const plan = await request.semanticTasks?.plan(recovery.planRef);
+  if (!plan || plan.owner !== request.actor.id || plan.operationId !== request.operationId
+    || plan.steps.some(step => !["draft", "blocked"].includes(step.status))) return [];
+  return [...new Map(recovery.scopes.flatMap(scope => parallelMetricAlternatives(scope.fields.metrics, plan.originalMessage))
+    .map(item => [item.code, item])).values()];
+}
+
 /** 目录已齐备时，原目标的普通重提可确定性展开为并列读取；不采纳模型自选，不改范围或用户真实回复。 */
 export async function normalizeParallelMetricProposal(request: AskMetricRequestContext, input: SemanticRequest): Promise<SemanticRequest> {
   if (input.intent !== "query" || input.targets.length !== 1 || request.trustedAnswers?.length) return input;
   const target = input.targets[0]!;
-  if (target.source.kind !== "current" || target.query || target.analysis
-    || input.context_action && input.context_action !== "resume"
-    || target.operations.some(op => !["metrics", "organizations", "time", "objective"].includes(op.field))) return input;
+  if (target.analysis || input.context_action && input.context_action !== "resume") return input;
   const recovery = (await request.semanticTasks?.turn(request.operationId))?.queryRecovery;
   if (recovery?.scopes.length !== 1) return input;
   const plan = await request.semanticTasks?.plan(recovery.planRef);
-  if (!plan || plan.owner !== request.actor.id || plan.steps.some(step => !["draft", "blocked"].includes(step.status))) return input;
+  if (!plan || plan.owner !== request.actor.id || plan.operationId !== request.operationId
+    || plan.steps.length !== 1 || plan.steps.some(step => !["draft", "blocked"].includes(step.status))) return input;
+  if (target.source.kind === "references" || target.source.kind === "reference"
+    && (target.source.task_ref !== plan.ref || target.source.target_ref !== plan.steps[0]!.targetRef)) return input;
+  const frozen = recovery.scopes[0]!.fields;
+  if ((frozen.operation?.resolvedValue as {kind?: string})?.kind !== "value"
+    || frozen.comparison_organizations?.resolutionStatus === "resolved") return input;
+  const operations = compileQueryRequest(input).targets[0]!.operations;
+  if (operations.some(op => !["metrics", "organizations", "time", "objective", "selection", "operation"].includes(op.field)
+    || op.field === "selection" && (!("value" in op) || op.value !== frozen.selection?.resolvedValue)
+    || op.field === "operation" && (!("queryOperation" in op) || op.queryOperation?.kind !== "value"))) return input;
   const alternatives = parallelMetricAlternatives(recovery.scopes[0]!.fields.metrics, plan.originalMessage);
   const catalog = analysisCandidates(request);
-  if (!alternatives.length || alternatives.some(item => !catalog.some(entry => entry.code === item.code))) return input;
+  const available = alternatives.flatMap(item => catalog.filter(entry => entry.code === item.code));
+  if (!alternatives.length || !available.length
+    || available.length < alternatives.length && analysisDiscoveryRounds(request) < 1) return input;
   // 原始模型调用仍保存在原生消息；这里执行的是账本原目标的安全展开，答案选择不作为用户确认入账。
-  return {protocol_version: 2, intent: "analyze", targets: [{source: target.source,
-    operations: target.operations.filter(op => op.field !== "metrics"),
+  return {protocol_version: 2, intent: "analyze", targets: [{source: {kind: "current"},
+    operations: operations.filter(op => !["metrics", "selection", "operation"].includes(op.field)),
     analysis: {kind: "business_analysis", plan: {objective: plan.originalMessage,
       scope_notice: "保留原机构和日期；相关正式指标分别读取并标明口径，缺数不当作零",
       requirements: [{id: "parallel", question: plan.originalMessage}],
-      steps: [{id: "read_parallel", method: "observe", metric_refs: alternatives.map(item => catalog.find(entry => entry.code === item.code)!.binding_ref),
+      steps: [{id: "read_parallel", method: "observe", metric_refs: available.map(item => item.binding_ref),
         answers: ["parallel"], rationale: "按原指标完整候选清单并列读取，不替用户选定单一口径、不混算或重算排名"}]}}}]};
 }
 
@@ -212,11 +234,28 @@ export function completeRecoveryMetricAlternatives(request: AskMetricRequestCont
   if (!alternatives.length) return;
   const catalog = analysisCandidates(request);
   const undiscovered = alternatives.filter(item => !catalog.some(entry => entry.code === item.code));
-  if (undiscovered.length) throw new BusinessInputError("QUERY_RECOVERY_ALTERNATIVES_REQUIRED", "plan",
+  const available = alternatives.flatMap(item => catalog.filter(entry => entry.code === item.code));
+  if (undiscovered.length && (!available.length || analysisDiscoveryRounds(request) < 1)) throw new BusinessInputError("QUERY_RECOVERY_ALTERNATIVES_REQUIRED", "plan",
     "这些指标可分别读取，无需让用户单选。先用analysis_catalog补齐正式引用，不能猜编码："
     + undiscovered.map(item => item.name).join("；"));
+  const saved = plan.requirements.find(item => item.id.startsWith("parallel_gap")
+    && item.gap_reason?.startsWith("暂未取得") && !plan.steps.some(step => step.answers.includes(item.id)));
+  if (!undiscovered.length && saved) plan.requirements.splice(plan.requirements.indexOf(saved), 1);
+  if (undiscovered.length) {
+    // 缺少辅助候选不能阻止已签发指标取数；明确保留未覆盖义务，不假称完整回答。
+    const names = undiscovered.map(item => item.name).join("、");
+    const label = names.length <= 230 ? names : `${names.slice(0, 180)}等${undiscovered.length}项指标`;
+    const question = `补充${label}`;
+    const gap = `暂未取得${label}，本次结果未包含这些指标。`;
+    if (saved) {saved.question = question; saved.gap_reason = gap;}
+    else if (plan.requirements.length < 8) {
+      let id = "parallel_gap";
+      while (plan.requirements.some(item => item.id === id)) id += "_next";
+      plan.requirements.push({id, question, gap_reason: gap});
+    } else throw new BusinessInputError("QUERY_RECOVERY_ALTERNATIVES_REQUIRED", "plan", "保留已发现指标，并为未取得引用的候选留出一个明确缺口，不能隐去未完成要求。");
+  }
   const observed = new Set(plan.steps.filter(step => step.method === "observe").flatMap(step => step.metric_refs));
-  const missing = alternatives.map(item => catalog.find(entry => entry.code === item.code)!)
+  const missing = available
     .filter(candidate => !observed.has(candidate.binding_ref) && !observed.has(candidate.code));
   if (!missing.length) return;
   const existing = plan.steps.find(step => step.method === "observe" && step.metric_refs.length + missing.length <= 12);

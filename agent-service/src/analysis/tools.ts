@@ -16,6 +16,7 @@ import {rememberReportSelection} from "./reportSelection.js";
 import {publicTextProblem} from "../runtime/delivery.js";
 import {analysisEvidenceAliases, verifiedFindingsView, type VerifiedFindings} from "./verifiedFindings.js";
 import {rankingModelView} from "./rankingView.js";
+import {recoveryMetricCandidates} from "../semantic-task/queryRecovery.js";
 
 export interface AnalysisEvidence extends BusinessEvidence {
   kind: "analysis_evidence"; run_ref: string; scope_id: string; frame_id?: string;
@@ -52,15 +53,41 @@ export function createAnalysisCatalogTool(): AgentHarnessTool<AskMetricRequestCo
           if (/^(?:整体|总体)?经营(?:情况|概况|表现|状况)?$/u.test(term)) return ["利润", "不良"];
           return [keyword];
         }))].slice(0, 4);
-        const [methods, ...results] = await Promise.all([request.backend.analysisMethods({signal: context.abortSignal}),
-          ...keywords.map(keyword => request.backend.analysisCatalog(keyword, input.page ?? 1, input.page_size ?? 12, {signal: context.abortSignal}))]);
+        const candidates = await recoveryMetricCandidates(request);
+        const known = new Set(analysisCandidates(request).map(item => item.code));
+        const pending = candidates.filter(item => !known.has(item.code));
+        // 恢复阶段只补账本中已确认的身份，避免主题推荐和分页遮住正式候选。
+        // 每批至多十二项；撤权或取消必须整体终止，普通单项失败保留其他成功发现。
+        const lookups = pending.slice(0, 12);
+        const lookupFailures: string[] = [];
+        const methods = await request.backend.analysisMethods({signal: context.abortSignal});
+        const results = candidates.length ? await Promise.all(lookups.map(async candidate => {
+          try {
+            const result = await request.backend.analysisCatalog(candidate.code, 1, 1, {signal: context.abortSignal});
+            const items = Array.isArray(result.items) ? result.items.filter(raw => {
+              const item = raw as {code?: unknown; binding_ref?: unknown};
+              return item.code === candidate.code && typeof item.binding_ref === "string" && !!item.binding_ref;
+            }) : [];
+            if (!items.length) lookupFailures.push(candidate.code);
+            return {...result, items};
+          } catch (error) {
+            if (context.abortSignal?.aborted || error instanceof BackendApiError && [401, 403].includes(error.status)) throw error;
+            lookupFailures.push(candidate.code);
+            return {items: []};
+          }
+        })) : await Promise.all(keywords.map(keyword => request.backend.analysisCatalog(keyword,
+          input.page ?? 1, input.page_size ?? 12, {signal: context.abortSignal})));
+        if (lookups.length && lookupFailures.length === lookups.length && !candidates.some(item => known.has(item.code)))
+          throw new Error("RECOVERY_CATALOG_UNAVAILABLE");
         const count = registerAnalysisDiscovery(request);
         const view = catalogBindingView(request, results);
         const planning = analysisPlanningReview(request);
         return {content: [{type: "text", text: JSON.stringify({methods, results: view, discovery_rounds_remaining: analysisBudget(request).discovery - count,
           ...(planning.length ? {planning_review: planning} : {}),
           next_action: "根据用户目标选择binding_ref短引用（如k1），提交intent=analyze、target.analysis.kind=business_analysis计划。目录预算按已发现主题和子问题分配，有可用指标就先查；找不到的项目写gap_reason，不反复搜索追求完整目录。requirements用id关联，steps.answers填这些id。规模/水平选当日数等当前水平指标，不能用较上月/较同期差额代替。正式比较指标用observe；compare用于同指标跨日期。没有已审核关系用observe并列读取。不退回metric_query要求用户挑内部口径。"})}],
-          details: {kind: "analysis_catalog", status: "succeeded", keywords: input.keywords, binding_map: catalogBindingState(request), candidate_map: analysisCandidates(request),
+          details: {kind: "analysis_catalog", status: "succeeded", keywords: input.keywords,
+            ...(lookups.length ? {recovery_lookup_codes: lookups.map(item => item.code), unresolved_lookup_codes: lookupFailures} : {}),
+            binding_map: catalogBindingState(request), candidate_map: analysisCandidates(request),
             catalog_answer: results.flatMap(result => Array.isArray(result.items) ? result.items : []).flatMap(raw => {
               const item = raw as {name?: unknown; description?: unknown; unit?: unknown};
               if (typeof item.name !== "string") return [];

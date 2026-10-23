@@ -2,7 +2,8 @@ import {afterEach, expect, it, vi} from "vitest";
 import {createSemanticExecuteTool, createSemanticResolveTool} from "../../src/semantic-task/tools.js";
 import {NativeSemanticTaskStore} from "../../src/semantic-task/store.js";
 import {queryRecoveryPhase, assertRecoveryComparisonBasis, parallelMetricAlternatives, normalizeParallelMetricProposal} from "../../src/semantic-task/queryRecovery.js";
-import {catalogBindingView} from "../../src/analysis/bindings.js";
+import {analysisCandidates, catalogBindingView, restoreAnalysisDiscovery} from "../../src/analysis/bindings.js";
+import {createAnalysisCatalogTool} from "../../src/analysis/tools.js";
 import {BackendApiError} from "../../src/backendClient.js";
 import {runTool} from "../../src/tools/testUtils.js";
 import {complete, fixture, proposal} from "./fixtures.js";
@@ -32,6 +33,73 @@ async function parallelSetup() {
   const input = proposal(complete().map(op => op.field === "metrics" ? {...op, value: "合成存款"} : op));
   return {f, request, candidates, input};
 }
+
+it.each(["complete", "unavailable", "wrong_identity"])("冻结候选按可信编码发现，%s时可执行部分不被其他候选阻塞且回执可重开", async mode => {
+  const {f, request, candidates, input} = await parallelSetup();
+  await resolve(request, input);
+  const catalog = vi.fn(async (code: string) => {
+    if (code === "P4" && mode === "unavailable") throw new Error("synthetic unavailable");
+    const item = candidates.find(item => item.code === code)!;
+    return {items: [{code: mode === "wrong_identity" && code === "P4" ? "UNRELATED" : item.code,
+      name: item.value, binding_ref: `signed-${code}`}], has_more: true};
+  });
+  const execute = vi.fn(async () => ({kind: "analysis_evidence", status: "succeeded", delivery: "business_evidence_v1",
+    run_ref: "partial-catalog", scope_id: "synthetic", org_codes: ["O1"], rows: [], evidence_items: [], metric_descriptors: []}));
+  Object.assign(f.backend, {analysisMethods: vi.fn(async () => ({methods: []})), analysisCatalog: catalog,
+    analysisValidate: vi.fn(async () => ({valid: true})), analysisExecute: execute});
+  const found = await runTool(createAnalysisCatalogTool(), {keywords: ["故意无效的模型关键词"], page: 99, page_size: 12}, request);
+  expect(found.details).toMatchObject({status: "succeeded", recovery_lookup_codes: candidates.map(item => item.code),
+    unresolved_lookup_codes: mode === "complete" ? [] : ["P4"]});
+  expect(catalog.mock.calls.map(args => args[0])).toEqual(candidates.map(item => item.code));
+  expect(catalog).toHaveBeenCalledWith("P4", 1, 1, expect.anything());
+  const reopened = f.request(request.operationId, request.originalMessage);
+  restoreAnalysisDiscovery(reopened, [found.details]);
+  expect(analysisCandidates(reopened)).toHaveLength(mode === "complete" ? 5 : 4);
+  // 重现截图：模型重新建query且只选余额，程序按原始目标保留全部可用候选。
+  const retry = {protocol_version: 2, intent: "query", targets: [{source: {kind: "new"}, query: {
+    organizations: {kind: "named", names: ["合成机构甲"]}, metrics: [candidates[0]!.value],
+    time: {expression: "2025年末"}, selection: "exact", operation: {kind: "value"}}}]};
+  const ready = await resolve(reopened, retry);
+  expect(ready.details, JSON.stringify(ready.details)).toMatchObject({status: "ready", answer_receipts: [], pending_questions: []});
+  const done = await runTool(createSemanticExecuteTool(), {task_ref: ready.details.state!.task_ref!,
+    target_ref: ready.details.state!.targets[0]!.target_ref}, reopened);
+  expect(done.details.status, JSON.stringify(done.details)).toBe("succeeded");
+  const payload = execute.mock.calls[0] as unknown as [Record<string, unknown>];
+  expect(payload[0]).toMatchObject({org_codes: ["O1"], start: "2025-12-31", end: "2025-12-31",
+    plan: {steps: [expect.objectContaining({metric_refs: candidates.slice(0, mode === "complete" ? 5 : 4).map(item => `signed-${item.code}`)})]}});
+  const requirements = (payload[0].plan as {requirements: Array<{gap_reason?: string}>}).requirements;
+  expect(requirements.filter(item => item.gap_reason)).toHaveLength(mode === "complete" ? 0 : 1);
+  if (mode !== "complete") expect(requirements.find(item => item.gap_reason)?.gap_reason).toContain(candidates[4]!.value);
+  expect(f.backend.basicQueries).not.toHaveBeenCalled();
+});
+
+it.each([401, 403])("定向发现遇到%s不能登记其他成功项或放宽权限继续执行", async status => {
+  const {f, request, input} = await parallelSetup();
+  await resolve(request, input);
+  Object.assign(f.backend, {analysisMethods: vi.fn(async () => ({methods: []})),
+    analysisCatalog: vi.fn(async (code: string) => {
+      if (code === "P4") throw new BackendApiError(status, "PERMISSION_DENIED", "synthetic denied");
+      return {items: [{code, name: `合成${code}`, binding_ref: `signed-${code}`}]};
+    })});
+  await expect(runTool(createAnalysisCatalogTool(), {keywords: ["合成存款"]}, request)).rejects.toBeInstanceOf(BackendApiError);
+  expect(analysisCandidates(request)).toEqual([]);
+  expect(f.backend.basicQueries).not.toHaveBeenCalled();
+});
+
+it.each([false, true])("其他候选全部读取失败时，已有可信候选=%s，仅有可用依据才推进", async cached => {
+  const {f, request, candidates, input} = await parallelSetup();
+  await resolve(request, input);
+  if (cached) catalogBindingView(request, {items: [{code: "P0", name: candidates[0]!.value, binding_ref: "signed-P0"}]});
+  Object.assign(f.backend, {analysisMethods: vi.fn(async () => ({methods: []})),
+    analysisValidate: vi.fn(async () => ({valid: true})),
+    analysisCatalog: vi.fn(async () => {throw new Error("synthetic unavailable");})});
+  const result = await runTool(createAnalysisCatalogTool(), {keywords: ["合成存款"]}, request);
+  expect(result.details).toMatchObject({status: cached ? "succeeded" : "error"});
+  if (cached) {
+    const ready = await resolve(request, proposal([], {kind: "current"}));
+    expect(ready.details, JSON.stringify(ready.details)).toMatchObject({status: "ready"});
+  }
+});
 
 it("相关指标多候选先发现并列查询，保留完整五项候选而不是页面前四项，不要求用户单选", async () => {
   const {f, request, candidates, input} = await parallelSetup();
