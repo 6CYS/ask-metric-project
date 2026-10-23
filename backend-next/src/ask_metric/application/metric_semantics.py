@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from ask_metric.application.business_overview import bind_metrics
 from ask_metric.application.catalog_search import search_metrics
 from ask_metric.core.errors import ApplicationError
+from ask_metric.domain.metric_matching import normalize_semantic_text
 
 CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
 METHOD_VERSION = "general-analysis-v1"
@@ -290,8 +291,23 @@ class MetricSemantics:
             for key, group in self.topic_groups.items()
             if matched_codes.intersection(group["codes"])
         }
+        # 精确身份先于主题推荐；否则完整指标名/编码也会被主题第一页长期遮住。
+        term = normalize_semantic_text(keyword)
+        exact = [
+            hit.code
+            for hit in result.items
+            if term
+            and any(
+                normalize_semantic_text(value) == term
+                for value in (
+                    self.items[hit.code].code,
+                    self.items[hit.code].name,
+                    *self.items[hit.code].aliases,
+                )
+            )
+        ]
         priority = [code for group in groups.values() for code in group["codes"]]
-        ordered = list(dict.fromkeys([*priority, *(hit.code for hit in result.items)]))
+        ordered = list(dict.fromkeys([*exact, *priority, *(hit.code for hit in result.items)]))
         selected = ordered[(page - 1) * page_size : page * page_size]
         matches = {hit.code: hit.match_type for hit in result.items}
         items = []

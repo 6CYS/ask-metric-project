@@ -796,6 +796,26 @@ def test_semantic_config_rejects_unreviewed_authority_and_bad_relations():
         )
 
 
+@pytest.mark.parametrize("identity", ["isolated-14", "合成存款指标14", "合成末项别名"])
+def test_exact_identity_precedes_topic_recommendation_and_pagination(identity):
+    from ask_metric.application.metric_semantics import MetricSemantics
+    from ask_metric.domain.semantics import MetricCatalogItem
+
+    metrics = [MetricCatalogItem(code=f"isolated-{index}", name=f"合成存款指标{index}",
+                                 unit="元", aliases=["合成末项别名"] if index == 14 else [])
+               for index in range(15)]
+    semantics = MetricSemantics(metrics, secret="isolated-key", actor_id="isolated")
+    semantics.topic_groups = {"synthetic": {"name": "合成存款", "default_sections": [],
+                                            "codes": [item.code for item in metrics]}}
+    result = semantics.search(identity, page_size=1)
+    assert result["items"][0]["code"] == "isolated-14"
+    assert semantics.resolve(result["items"][0]["binding_ref"])["code"] == "isolated-14"
+    assert result["has_more"] is True
+    # 泛称仍保留领域推荐；精确优先不改变推荐集和分页覆盖。
+    broad = semantics.search("合成存款", page_size=30)
+    assert [item["code"] for item in broad["items"]] == [item.code for item in metrics]
+
+
 def test_discovery_reuses_unique_domain_bindings_without_guessing_codes():
     from ask_metric.application.metric_semantics import MetricSemantics
     from ask_metric.domain.semantics import MetricCatalogItem
