@@ -19,6 +19,7 @@ import {resolveEnhancedAnalysis} from "./enhancedAnalysis.js";
 import {BusinessInputError} from "../business-context/inputError.js";
 import {assertRecoveredQueryConditions, frozenQueryScope} from "./queryRecovery.js";
 import {operationLabel} from "./structuredQuery.js";
+import {applyMetricDefaultContext} from "../business-context/metricDefaults.js";
 import {analysisCandidates} from "../analysis/bindings.js";
 import {semanticRef, type SemanticAnswerApplication, type SemanticAnswerSnapshot, type SemanticIssue,
   type SemanticQuestionIssue, type SemanticTarget, type SemanticTask, type SemanticTurn} from "./store.js";
@@ -853,6 +854,9 @@ export class SemanticTaskService {
         response = await resolveTurnField(this.request, entity, "values" in operation && operation.values
           ? operation.values : entity === "organization" ? await organizationValues(this.request, raw) : [raw], {signal: this.signal}, undefined, source);
         }
+        const metricContext = entity === "metric" && previous?.resolutionStatus === "resolved"
+          && checkedEntity(previous.resolvedValue) ? previous.resolvedValue : undefined;
+        if (entity === "metric") response = applyMetricDefaultContext(response, metricContext);
         // 模型把用户原文的错字/缩写预纠成规范名时，按后端回记的原文槽位重新解析：
         // 字段解析和纠正留痕使用同一份原文依据，不要求用户重述。建议与无建议路径共用。
         if (entity === "organization" && response.metadata?.hint_source_bound === true) {
@@ -873,7 +877,9 @@ export class SemanticTaskService {
           }
         }
         if (entity === "metric" && operation.action !== "exclude") {
-          const allMentions = await metricMentions(this.request);
+          const foundMentions = await metricMentions(this.request);
+          const allMentions = {...foundMentions, mentions: foundMentions.mentions.map(mention => ({...mention,
+            resolution: applyMetricDefaultContext(mention.resolution, metricContext)}))};
           const original = operation.action === "set" && hasCollectionIntent(turn.originalMessage)
             ? {...allMentions, mentions: allMentions.mentions.filter(mention => hasInputEvidence(raw, mention.text)
               || hasInputEvidence(mention.text, raw) || (mention.resolution.value as EntityValue | undefined)?.codes?.some(code =>

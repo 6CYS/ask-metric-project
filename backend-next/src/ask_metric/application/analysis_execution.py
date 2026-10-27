@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from ask_metric.application.catalog_references import explicit_catalog_references
 from ask_metric.application.commands import ExecuteQueryCommand, SubmitQuestionCommand
 from ask_metric.application.data_availability import AvailabilityRequest, execute_availability
+from ask_metric.application.metric_candidates import metric_candidate_index
 from ask_metric.application.metric_semantics import METHOD_VERSION, MetricSemantics, digest
 from ask_metric.application.organization_query_scope import resolve_query_scope
 from ask_metric.application.ports import PermissionDeniedError
@@ -152,6 +153,19 @@ class GeneralAnalysisService:
             organization_aliases={},
         )["metrics"]
         selected = {item["code"] for item in bindings.values()}
+        # 默认不是用户显式口径，但也不能被规划漏掉；已有同概念确认口径可覆盖默认。
+        index = metric_candidate_index(list(semantics.items.values()))
+
+        def required_defaults(text):
+            return {
+                code for mention in index.mentions(text)
+                if (resolution := mention["resolution"])["status"] == "resolved"
+                and resolution.get("metadata", {}).get("resolution_source") == "business_default"
+                and not selected.intersection(resolution["metadata"].get("context_codes", []))
+                for code in resolution["value"]["codes"]
+            }
+
+        explicit.update(required_defaults(question))
         # 独立分支可先执行，但未执行的明确指标必须保留为对应子问题的缺口，不能冒充已回答。
         deferred = set()
         answered = {answer for step in plan.steps for answer in step.answers}
@@ -162,6 +176,7 @@ class GeneralAnalysisService:
                     requirement.question, metrics=list(semantics.items.values()),
                     organizations=[], organization_aliases={},
                 )["metrics"])
+                deferred.update(required_defaults(requirement.question))
         missing = explicit - selected - deferred
         if missing:
             raise ApplicationError(

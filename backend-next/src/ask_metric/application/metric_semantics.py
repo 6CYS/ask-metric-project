@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from ask_metric.application.business_overview import bind_metrics
 from ask_metric.application.catalog_search import search_metrics
+from ask_metric.application.field_resolution import resolve_catalog_field
 from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.metric_matching import normalize_semantic_text
 
@@ -284,6 +285,12 @@ class MetricSemantics:
 
     def search(self, keyword: str, *, page=1, page_size=12) -> dict:
         result = search_metrics(keyword, list(self.items.values()), limit=len(self.items))
+        # 发现与查询共享正式指标选择；检索仍保留其他候选，默认不是“取搜索第一名”。
+        resolution = resolve_catalog_field("metric", [keyword], list(self.items.values()))
+        resolved = (
+            resolution.get("value", {}).get("codes", [])
+            if resolution["status"] == "resolved" else []
+        )
         # 单主题和跨主题检索复用同一已绑定目录；词法相似的陌生指标不能遮住领域总量。
         matched_codes = {hit.code for hit in result.items}
         groups = {
@@ -307,7 +314,9 @@ class MetricSemantics:
             )
         ]
         priority = [code for group in groups.values() for code in group["codes"]]
-        ordered = list(dict.fromkeys([*exact, *priority, *(hit.code for hit in result.items)]))
+        ordered = list(dict.fromkeys([
+            *resolved, *exact, *priority, *(hit.code for hit in result.items),
+        ]))
         selected = ordered[(page - 1) * page_size : page * page_size]
         matches = {hit.code: hit.match_type for hit in result.items}
         items = []
@@ -336,9 +345,14 @@ class MetricSemantics:
                 for key, group in groups.items()
             ],
             "items": items,
+            **({"metric_resolution": {
+                "status": "resolved", "value": resolution["value"],
+                "defaulted": bool(resolution.get("metadata", {}).get("metric_defaults")),
+            }} if resolved else {}),
             "notice": (
                 "检索命中不证明语义适合或指定条件有数据。"
-                "按完整名称、定义和限定词选择；绑定引用仅证明正式目录来源。"
+                "metric_resolution为当前词语的统一解析结果，明确口径优先于默认；"
+                "追问应优先沿用同指标已确认口径。绑定引用仅证明正式目录来源。"
             ),
         }
 

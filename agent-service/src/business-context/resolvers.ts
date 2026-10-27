@@ -1,6 +1,7 @@
 import { FieldResolverRegistry } from "./core.js";
 import type { FieldCandidate, FieldResolution, MentionResolution, ResolverContext, OrganizationScopeInput, HistoryFieldReferenceInput, FieldTurnIntent } from "./types.js";
 import type { MetricMention } from "./metricMentions.js";
+import {applyMetricDefaultContext} from "./metricDefaults.js";
 import { BusinessInputError } from "./inputError.js";
 import { hasInputEvidence, organizationInputMembers } from "./inputEvidence.js";
 import {resolveRankingEvidence} from "./rankingEvidence.js";
@@ -338,7 +339,10 @@ export function createFieldResolvers(): FieldResolverRegistry {
               "独立新查询必须保留本轮识别到的全部指标；不能用 mentionIndexes 丢弃已确定项。若用户明确修改已有目标，应引用原 Frame 后再选择变化片段。原焦点未改变。");
           }
         }
-        const mentions = indexes.map(i => result.mentions[i - 1]!);
+        const known = context.previous?.resolutionStatus === "resolved"
+          ? context.previous.resolvedValue as {codes: string[]; names: string[]} : undefined;
+        const mentions = indexes.map(i => ({...result.mentions[i - 1]!,
+          resolution: applyMetricDefaultContext(result.mentions[i - 1]!.resolution, known)}));
         const rawValues = mentions.map(mention => mention.text);
         if (!mentions.length) {
           if (context.previous && !retryQuestion) {
@@ -376,7 +380,9 @@ export function createFieldResolvers(): FieldResolverRegistry {
         throw currentInputError(entity, context);
       }
       // 只传原文；正式编码由当前授权目录的精确/别名匹配返回。
-      const response = await context.resolveCatalog(entity, values);
+      const found = await context.resolveCatalog(entity, values);
+      const response = entity === "metric" ? applyMetricDefaultContext(found,
+        context.previous?.resolutionStatus === "resolved" ? context.previous.resolvedValue as {codes: string[]; names: string[]} : undefined) : found;
       return response.status === "resolved" ? {...response, metadata: {...response.metadata,
         referenceValues: Object.values(response.value as object).flat()}} : response;
     },

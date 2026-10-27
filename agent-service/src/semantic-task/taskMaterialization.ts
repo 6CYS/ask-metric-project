@@ -4,6 +4,7 @@ import {resolveCatalogBindings} from "../analysis/bindings.js";
 import {hasInputEvidence} from "../business-context/inputEvidence.js";
 import {completeRankingOperation} from "../business-context/rankingEvidence.js";
 import {metricMentions} from "../business-context/metricMentions.js";
+import {applyMetricDefaultContext} from "../business-context/metricDefaults.js";
 import {SemanticConflict} from "./service.js";
 import {resolveTurnField, updateCollection, type EntityValue, type TurnFacts} from "./actionBinding.js";
 import type {SemanticRequest} from "./protocol.js";
@@ -91,7 +92,12 @@ export async function materializeTaskRequest(request: AskMetricRequestContext, i
             ...((mention.resolution.value as EntityValue | undefined)?.codes ?? []),
             ...(mention.resolution.candidates ?? []).flatMap(candidate => candidate.code ? [candidate.code] : []),
           ]));
-          const found = await resolveTurnField(request, "metric", [raw], {signal});
+          let found = applyMetricDefaultContext(await resolveTurnField(request, "metric", [raw], {signal}),
+            {codes: [...original.keys()], names: [...original.values()].map(item => item.name)});
+          if (found.metadata?.metric_defaults && !found.metadata.default_context_applied) {
+            const prior = await priorDescriptors();
+            found = applyMetricDefaultContext(found, {codes: prior.map(item => item.code), names: prior.map(item => item.name)});
+          }
           let value = found.status === "resolved" ? found.value as EntityValue : undefined;
           if (!value?.codes?.length) {
             // 泛称只有在原目录候选与已选指标交集唯一时才能沿用原口径；不从新候选任选。

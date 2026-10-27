@@ -21,6 +21,11 @@ from rapidfuzz.distance import Levenshtein
 from rapidfuzz.fuzz import partial_ratio_alignment
 
 from ask_metric.application.metric_alias_structure import StructuredMetric, derive_alias_structure
+from ask_metric.application.metric_defaults import (
+    business_metric_terms,
+    default_metadata,
+    has_explicit_metric_qualifier,
+)
 from ask_metric.application.text_correction import (
     CorrectionTerm,
     compete_correction,
@@ -117,6 +122,17 @@ class MetricCandidateIndex:
             self.base_terms[base].add(source)
             self.basis_terms[basis].add(basis)
             structured.append(StructuredMetric(item.code, source, base, basis))
+        self.business_terms = business_metric_terms(list(items))
+        concept_codes = {code for term in self.business_terms.values() for code in term.codes}
+        self.business_codes = concept_codes
+        for text, term in list(self.business_terms.items()):
+            formal = {item.code for item in items if normalize_semantic_text(item.name) == text}
+            if formal:
+                # 完整正式名称优先，业务默认不能把另一个真实指标改写成默认成员。
+                del self.business_terms[text]
+                continue
+            self.full_terms[text] = (self.full_terms[text] - concept_codes) | set(term.codes)
+        self._sorted_full_texts = sorted(self.full_terms)
         # 基础别名与口径别名从“指标术语”维护的组合同义词推导，只存于内存，不另设维护入口。
         base_aliases, basis_aliases = derive_alias_structure(
             structured, {item.code: item.aliases for item in items}
@@ -296,6 +312,9 @@ class MetricCandidateIndex:
         unfinished_names: set[tuple[int, int]] = set()
         if self.base_trie is not None:
             for start, end, sources in self.base_trie.parse(text):
+                term = self.business_terms.get(text[start:end])
+                if term and term.defaulted and has_explicit_metric_qualifier(text, start, end):
+                    continue
                 spans.extend(self._base_spans(
                     text, positions, start, end, frozenset(sources), homophone=False,
                     unfinished_names=unfinished_names,
@@ -304,6 +323,12 @@ class MetricCandidateIndex:
         if self.full_trie is not None:
             for start, end, codes in self.full_trie.parse(text):
                 if (start, end) in unfinished_names:
+                    continue
+                term = self.business_terms.get(text[start:end])
+                if term and term.defaulted and has_explicit_metric_qualifier(text, start, end):
+                    continue
+                if (self.business_codes.intersection(codes)
+                        and self._unfinished_business_name(text, positions, start, end)):
                     continue
                 alias = not any(normalize_semantic_text(self.items[code].name) == text[start:end]
                                 for code in codes)
@@ -337,6 +362,25 @@ class MetricCandidateIndex:
         selected = [span for span in selected
                     if not self._alias_inside_longer_text(text, positions, span, selected)]
         return sorted(selected, key=lambda item: item.start)
+
+    def _unfinished_business_name(self, text: str, positions: list[int], start: int,
+                                  end: int) -> bool:
+        # 兼容简称的组合词也遵守“口径没说完不截短”，如“净利润较同期增”。
+        prefix = text[start:end]
+        names = self._sorted_full_texts
+        position = bisect_left(names, prefix)
+        longer = []
+        while position < len(names) and names[position].startswith(prefix):
+            if len(names[position]) > len(prefix):
+                longer.append(names[position])
+            position += 1
+        cursor = end
+        while cursor < len(text) and any(
+            name.startswith(text[start:cursor + 1]) for name in longer
+        ):
+            cursor += 1
+        return (cursor > end and text[start:cursor] not in self.full_terms
+                and _is_pause(text, positions, cursor, len(text)))
 
     def _alias_inside_longer_text(self, text: str, positions: list[int], span: _Span,
                                   selected: list[_Span]) -> bool:
@@ -614,6 +658,9 @@ class _Parse:
         source = self.index.source_by_code.get(codes[0])
         group = self._group(source) if source else None
         match = self._match(span, self.index.items[codes[0]].name)
+        term = self.index.business_terms.get(self.text[span.start:span.end])
+        if term and not span.homophone and term.codes == frozenset(codes):
+            match.update(default_metadata(term))
         self._emit(span.start, span.end, self._resolved(codes, **match), "catalog_name", group)
         if not source:
             return

@@ -23,7 +23,9 @@ def explicit_catalog_references(
         resolution = mention["resolution"]
         codes = resolution.get("value", {}).get("codes", [])
         if (resolution["status"] != "resolved" or len(codes) != 1
-                or resolution.get("metadata", {}).get("match") == "homophone"):
+                or resolution.get("metadata", {}).get("match") == "homophone"
+                # 业务默认是可被同指标已确认口径覆盖的建议，不冒充用户显式限定。
+                or resolution.get("metadata", {}).get("resolution_source") == "business_default"):
             continue
         item = index.items[codes[0]]
         exact = normalize_semantic_text(mention["text"]) == normalize_semantic_text(item.name)

@@ -201,6 +201,7 @@ def resolve_catalog_field(
     # 纠错逐条留痕，便于调用方向用户明示“按沭阳处理”。
     resolution_sources: list[str] = []
     corrections: list[dict] = []
+    metric_defaults: list[dict] = []
     # (提交原值, 模型建议编码, 来源覆盖)；模型建议与 raw_values 逐条合并解析。
     entries: list[tuple[str, str | None, str | None]] = [(raw, None, None) for raw in raw_values]
     if entity == "organization" and suggested:
@@ -238,6 +239,29 @@ def resolve_catalog_field(
             continue
         normalized = normalize_semantic_text(raw)
         exact = _exact_matches(items, normalized, include_code=True)
+        if entity == "metric" and not any(
+            normalize_semantic_text(value) == normalized
+            for item in exact for value in (item.code, item.name)
+        ):
+            # 简称与完整原问使用同一规则；别名不能绕过经确认的业务默认或显式限定。
+            index = metric_candidate_index(items)
+            mentions = index.mentions(raw)
+            if mentions and _covers_raw(raw, mentions) and all(
+                mention["resolution"]["status"] == "resolved" for mention in mentions
+            ):
+                codes = resolved_metric_codes(mentions)
+                for code in sorted(codes):
+                    selected[code] = index.items[code]
+                pending_values[raw_index] = sorted(codes)
+                metric_defaults.extend(
+                    {"raw_text": mention["text"], **mention["resolution"]["metadata"],
+                     "value": mention["resolution"]["value"]}
+                    for mention in mentions
+                    if mention["resolution"].get("metadata", {}).get("default_value_basis")
+                )
+                continue
+            # 别名解析仍有歧义或被限定词阻止时，不能再从旧的精确别名捷径任选一个。
+            exact = []
         # 先尊重完整正式名称/别名；“本级”仅限定实体自身，不展开下属或放宽模糊匹配。
         if not exact and entity == "organization" and normalized.endswith("本级"):
             exact = _exact_matches(items, normalized[:-2], include_code=False)
@@ -276,7 +300,11 @@ def resolve_catalog_field(
                     )
                     if candidate.get("code")
                 ]
-                reason = "needs_confirmation" if hits else "not_found"
+                reason = (
+                    "ambiguous" if _covers_raw(raw, mentions) and any(
+                        mention["resolution"]["status"] == "ambiguous" for mention in mentions
+                    ) else "needs_confirmation" if hits else "not_found"
+                )
             else:
                 if normalized:
                     outcome, matched = _organization_ladder(normalized, items)
@@ -334,7 +362,7 @@ def resolve_catalog_field(
             {"code": item.code, "name": item.name, "base_name": item.base_name,
              "value_basis": item.value_basis}
             for item in selected.values()
-        ]}
+        ], **({"metric_defaults": metric_defaults} if metric_defaults else {})}
     return result
 
 

@@ -1,4 +1,5 @@
-import {afterEach, expect, it, vi} from "vitest";
+import {afterEach, expect, it, vi, type Mock} from "vitest";
+import type {BackendClient} from "../../src/backendClient.js";
 import {fixture, metricNames} from "./fixtures.js";
 import {createSemanticExecuteTool, createSemanticResolveTool} from "../../src/semantic-task/tools.js";
 import {runTool} from "../../src/tools/testUtils.js";
@@ -14,6 +15,27 @@ const descriptors = Object.entries(metricNames).map(([code, name]) => ({code, na
 const initialPlan = (): AnalysisPlan => ({objective: "比较两家机构的两个指标", scope_notice: "合成隔离数据",
   requirements: [{id: "q", question: "两家有何差异？"}], steps: [{id: "s", method: "observe",
     metric_refs: ["signed-M1", "signed-M2"], answers: ["q"], rationale: "按正式指标比较"}]});
+
+it("追问中的业务默认不能覆盖来源已确认口径，完整任务继续保留机构和最近策略", async () => {
+  const plan = initialPlan(); plan.steps[0]!.metric_refs = ["signed-M2"];
+  const f = await setup(plan);
+  const resolveField = f.backend.resolveBusinessField as unknown as Mock<BackendClient["resolveBusinessField"]>;
+  const resolve = resolveField.getMockImplementation()!;
+  resolveField.mockImplementation(async (...args) => args[0] === "metric" && args[1][0] === "合成指标乙"
+    ? {status: "resolved", value: {codes: ["M1"], names: [metricNames.M1]}, metadata: {metric_defaults: [{
+      value: {codes: ["M1"], names: [metricNames.M1]}, default_value_basis: "当日数",
+      context_codes: ["M1", "M2"],
+    }]}} : resolve(...args));
+  const request = f.request("default-follow-context", "那只比较合成指标乙呢？");
+  const result = await runTool(createSemanticResolveTool(), {protocol_version: 2, intent: "query", targets: [{source: {kind: "current"},
+    operations: [{action: "set", field: "metrics", value: "合成指标乙"}]}]}, request);
+  expect(result.details.status, JSON.stringify(result.details)).toBe("ready");
+  await runTool(createSemanticExecuteTool(), {task_ref: result.details.state.task_ref, target_ref: result.details.state.targets[0]!.target_ref}, request);
+  const payload = f.backend.analysisExecute.mock.calls.at(-1)![0] as any;
+  expect(payload.plan.steps[0].metric_refs).toEqual(["signed-M2"]);
+  expect(payload.org_codes).toEqual(["O1", "O2"]);
+  expect(payload.date_selection).toBe("latest_snapshot");
+});
 
 async function setup(plan = initialPlan()) {
   const f = await fixture(); cleanup.push(f.close);

@@ -27,14 +27,19 @@ export function missingMetricDiagnostics(plan: AnalysisPlan, metrics: Array<{cod
 export async function completeExplicitMetricCoverage(request: AskMetricRequestContext, plan: AnalysisPlan): Promise<AnalysisPlan> {
   const mentions = await metricMentions(request);
   if (mentions.status === "temporary_error") return plan; // 后端完整原文校验仍是最终边界。
+  const registry = catalogBindingState(request), selected = new Set(resolveCatalogBindings(request, plan).steps.flatMap(step => step.metric_refs));
   const explicit = [...new Map(mentions.mentions.flatMap(mention => {
     const value = mention.resolution.value as {codes?: string[]; names?: string[]} | undefined;
+    const contextCodes = mention.resolution.metadata?.context_codes;
+    // 默认仍是一项回答义务；已选同概念口径时不再强行补回普通当日数。
+    if (mention.resolution.metadata?.resolution_source === "business_default"
+      && Array.isArray(contextCodes) && contextCodes.some(code => typeof code === "string"
+        && selected.has(registry[`code:${code}`] ?? ""))) return [];
     return mention.resolution.status === "resolved" && value?.codes?.length === 1 && value.names?.length === 1
       && mention.resolution.metadata?.match !== "homophone"
       ? [[value.codes[0]!, {code: value.codes[0]!, name: value.names[0]!, text: mention.text}] as const] : [];
   })).values()];
   if (!explicit.length) return plan;
-  const registry = catalogBindingState(request), selected = new Set(resolveCatalogBindings(request, plan).steps.flatMap(step => step.metric_refs));
   const known = new Set(Object.values(registry));
   if ([...selected].some(ref => !known.has(ref))) return plan;
   const answered = new Set(plan.steps.flatMap(step => step.answers));
