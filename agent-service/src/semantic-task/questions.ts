@@ -114,7 +114,7 @@ export interface PublishedQuestionSnapshot {
 
 export type AnswerErrorCode = "ANSWER_INPUT_SHAPE_INVALID" | "ANSWER_OPERATION_CONFLICT"
   | "QUESTION_SUPERSEDED" | "ANSWER_OPTION_INVALID" | "ANSWER_SELECTION_INVALID"
-  | "QUESTION_NOT_PUBLISHED" | "ANSWER_EXCERPT_UNGROUNDED" | "ANSWER_TARGET_AMBIGUOUS" | "ANSWER_ALREADY_APPLIED";
+  | "QUESTION_NOT_PUBLISHED" | "ANSWER_EXCERPT_UNGROUNDED" | "ANSWER_REJECTION_UNGROUNDED" | "ANSWER_TARGET_AMBIGUOUS" | "ANSWER_ALREADY_APPLIED";
 export class QuestionAnswerError extends Error {
   constructor(readonly code: AnswerErrorCode, message: string, readonly remediation: "pi" | "user" | "stop" = "pi") {
     super(`${code}: ${message}`); this.name = "QuestionAnswerError";
@@ -190,6 +190,29 @@ export function normalizeAnswerForQuestion(input: unknown, question: PendingQues
   const answer = normalizeAnswerChoiceForQuestion(normalizeAnswerInput(input, source), question, reason);
   validateAnswer(question, answer);
   return answer;
+}
+
+/** 模型可用的拒绝动作与保存前校验共用原文依据，不通过更宽松的发送Schema绕过保护。 */
+export function hasExplicitGroupRejection(originalMessage: string, evidence = originalMessage): boolean {
+  const text = originalMessage.normalize("NFKC").replace(/[ \t\r]+/gu, "");
+  const excerpt = evidence.normalize("NFKC").replace(/[ \t\r]+/gu, "");
+  // 只认完整陈述分句，不从“不是都不符合”等句子中截出相反意思，也不把反问当拒绝。
+  const clauses = [...text.matchAll(/([^,。.!?;；\n]+)([,。.!?;；\n]|$)/gu)];
+  const groupRejection = /^(?:(?:这些|以上|上述|所有|这(?:两|二|三|几|\d+)(?:个|项))(?:的)?(?:候选(?:项)?|选项|指标|机构)?)?(?:都|全都|全部|均)(?:不是|不对|不符合|不合适|不选|不要|不用)(?:我(?:想要|要|需要)的|要求|条件|我的要求)?(?:了)?$/u;
+  const eachRejection = /^(?:我)?(?:一个|一项)(?:也|都)(?:不选|不要|不用)(?:了)?$/u;
+  const rejected = clauses.findIndex(([, clause, ending]) => ending !== "?" && !!clause
+    && excerpt.includes(clause) && (groupRejection.test(clause) || eachRejection.test(clause)));
+  const laterSelection = rejected >= 0 && clauses.slice(rejected + 1).some(([, clause]) =>
+    /^(?:我|还是|改为|改成|就|请|那|但|不过|现在|其实)*(?:选(?:择)?|确认|(?:要)?第(?:\d+|[一二两三四五六七八九十]+)(?:个|项|种))/u.test(clause ?? ""));
+  return rejected >= 0 && !laterSelection;
+}
+
+/** 拒绝整组候选会关闭原题；不允许局部否定、摘录截断或答题格式错误产生这一状态变更。 */
+export function validateRejectionEvidence(answer: Answer, originalMessage: string): void {
+  if (answer.source.channel !== "model" || answer.choice.type !== "none_of_these") return;
+  if (!hasExplicitGroupRejection(originalMessage, answer.source.excerpt ?? "")) {
+    fail("ANSWER_REJECTION_UNGROUNDED", "本轮完整原文及摘录不能支持拒绝所有候选，原题保持开放。请依据原文修正答案：选择已有候选用 select 和本题已发布 option_id；无法确定选择时保留原题，不得提交 none_of_these 或改写原指标来代替选择。");
+  }
 }
 
 export function validateAnswer(question: PendingQuestion, answer: ClickAnswerInput): void {

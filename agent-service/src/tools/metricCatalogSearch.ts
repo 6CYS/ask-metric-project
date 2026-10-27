@@ -11,7 +11,7 @@ export function createMetricCatalogSearchTool(): AgentHarnessTool<AskMetricReque
     name: "metric_catalog_search",
     label: "指标目录检索",
     description:
-      "用途：搜索、浏览某类指标或为结构化取值/覆盖查询确认正式编码，例如有哪些存款指标。" +
+      "用途：搜索、浏览某类指标，读取已维护的指标说明与口径，或为结构化取值/覆盖查询确认正式编码，例如有哪些存款指标。" +
       "本工具只检索启用目录，不能校验整句多指标覆盖、停用状态或代替业务澄清。" +
       "前提：提供用户完整名称、编码或类别关键词，确认指定指标时不删减名称限定词。返回：后端按确定性命中（exact/contains/lexical）排序并返回切片前总数 total，另附 embedding 近似推荐。",
     parameters: catalogSearchParameters,
@@ -28,6 +28,7 @@ export function createMetricCatalogSearchTool(): AgentHarnessTool<AskMetricReque
               exact_matches: result.items.filter(item => item.match_type === "exact"),
               semantic_suggestions: result.semantic_suggestions,
               usage_hint:
+                "metric_explanation 为已维护的指标说明，description 为已维护的指标口径；空值或缺失表示尚无该项资料，不能根据名称、别名或常识补写正式口径。" +
                 "exact_matches 仅表示命中了本次检索词（可能是短别名），不表示符合用户原文。先核对用户完整名称及限定词；原文存在更完整名称时必须重新检索完整名称。match_type 为 exact/contains/lexical 的条目可作为编码来源，不能替代语义确认；" +
                 "semantic_suggestions 仅是语义近似推荐，不得据此锁定编码。未命中或 has_more 时不要断定指标不存在，" +
                 "新指标通过 resolve_business_turn 的 {fromQuestion:true} 引用本轮目录算法匹配；计算或覆盖缺项应补齐原目标，不改成普通取值。" +

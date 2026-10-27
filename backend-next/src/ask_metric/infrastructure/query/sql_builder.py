@@ -7,6 +7,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 from sqlglot import exp, parse_one
+from sqlglot.errors import ErrorLevel
 from sqlglot.expressions import Select
 
 from ask_metric.domain.query_execution import (
@@ -410,6 +411,8 @@ class _MySqlAdapter(_DialectAdapter):
         ).from_("metric_values", dialect=self.read_dialect)
         inner = inner.where("metric_code IN :metric_codes", dialect=self.read_dialect).where(
             self._org_filter(""), dialect=self.read_dialect
+        ).where(
+            "metric_value IS NOT NULL", dialect=self.read_dialect,
         )
         predicate = _date_predicate(scenario.time, "stat_date")
         if predicate is not None:
@@ -909,6 +912,8 @@ class SqlBuilder:
         self,
         dialect: str,
         identifiers: dict[str, str] | None = None,
+        *,
+        output_dialect: str | None = None,
     ) -> None:
         adapter_class = _DIALECTS.get(dialect)
         if adapter_class is None:
@@ -918,6 +923,12 @@ class SqlBuilder:
         _validate_identifiers(self.variables)
         self._adapter = adapter_class(self.variables)
         self.read_dialect = self._adapter.read_dialect
+        self.output_dialect = self.read_dialect if output_dialect is None else output_dialect
+        allowed_outputs = {"hive", "mysql"} if dialect == "inceptor" else {"mysql"}
+        if self.output_dialect not in allowed_outputs:
+            raise QueryPlanError(
+                f"Dialect {dialect} cannot render SQL as {self.output_dialect}"
+            )
 
     def build(self, plan: QueryExecutionPlan) -> str:
         if plan.dialect != self.dialect:
@@ -939,7 +950,13 @@ class SqlBuilder:
         query = self._adapter.build(plan.template, scenario)
         if plan.shape.value == "metric_rank_position":
             query = self._rank_position(query)
-        sql = query.sql(self.read_dialect)
+        # 保留源表、清洗和批次语义，仅适配显式指定的承载数据库语法。
+        # 转换不支持时拒绝执行，避免生成器忽略不兼容的查询条件。
+        sql = (
+            query.sql(self.read_dialect)
+            if self.output_dialect == self.read_dialect
+            else query.sql(self.output_dialect, unsupported_level=ErrorLevel.RAISE)
+        )
         self._validate_bound_parameters(plan, sql)
         # 出口校验只读形态，所有查询场景均经过同一道闸门。
         validate_readonly_sql(sql)
@@ -1031,4 +1048,6 @@ def sql_builder_from_settings(settings: Settings) -> SqlBuilder:
         "fact_value_field": settings.sit_fact_value_field,
         "fact_increment_field": settings.sit_fact_increment_field,
         "batch_order": "f." + settings.sit_batch_order.replace(", ", ", f."),
-    })
+    }, output_dialect=(
+        settings.sit_sql_dialect if settings.query_database_dialect == "inceptor" else None
+    ))

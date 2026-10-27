@@ -38,8 +38,9 @@ const structuredQueryParameters = Type.Object({
     ])),
     scope_fingerprint: Type.Optional(Type.String({pattern: "^[a-f0-9]{64}$"})),
   }, {additionalProperties: false})),
-  start: Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "起始日期 YYYY-MM-DD（含）；多个离散日期时为最早日期" }),
-  end: Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "结束日期 YYYY-MM-DD（含）；多个离散日期时为最晚日期" }),
+  start: Type.Optional(Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "起始日期 YYYY-MM-DD（含）；多个离散日期时为最早日期" })),
+  end: Type.Optional(Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "结束日期 YYYY-MM-DD（含）；多个离散日期时为最晚日期" })),
+  preset: Type.Optional(Type.Literal("latest")),
   time_alternative: Type.Optional(Type.Object({
     label: Type.String({minLength: 1, maxLength: 200}),
     start: Type.String({pattern: "^\\d{4}-\\d{2}-\\d{2}$"}),
@@ -50,8 +51,8 @@ const structuredQueryParameters = Type.Object({
     minItems: 2, maxItems: 31,
     description: "多个离散日期点（如各月末），各点独立取值；start/end 须等于最早/最晚。与排名、完整时间序列互斥。",
   })),
-  selection: StringEnum(["exact", "latest_in_range", "all_in_range"], {
-    description: "日期取值方式：exact=指定同一天；latest_in_range=范围内最新有值日期；all_in_range=全部已有数据点。排名单独由 operation 表达，不扩展日期。",
+  selection: StringEnum(["exact", "latest", "latest_in_range", "all_in_range"], {
+    description: "日期取值方式：latest=普通取值按最新有效数据日；exact=指定同一天；latest_in_range=范围内最新有值日期；all_in_range=全部已有数据点。排名单独由 operation 表达，不扩展日期。",
   }),
   operation: Type.Optional(Type.Union([
     Type.Object({kind: Type.Literal("value")}, {additionalProperties: false}),
@@ -64,10 +65,13 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
   return {
     name: "metric_query_structured",
     label: "指标结构化查询",
-    description: "用途：正式编码、日期和取值口径已确认时直接取数，包括覆盖后取值、组合计算的基础取数、批量查询或排名。不适用：条件未明的自然语言提槽、历史结果重显或业务归因。前提：正式机构/指标编码有目录或成功回执依据，完整绝对日期已确认；无需预先查覆盖，沿用覆盖范围时不能用样例日期替代。返回：执行条件、任务/结果引用、样例行、截断标记和可计算事实。",
+    description: "用途：正式编码、日期和取值口径已确认时直接取数，包括覆盖后取值、组合计算的基础取数、批量查询或排名。不适用：条件未明的自然语言提槽、历史结果重显或业务归因。前提：正式机构/指标编码有目录或成功回执依据，完整绝对日期或latest策略已由宿主确认；无需预先查覆盖，沿用覆盖范围时不能用样例日期替代。返回：执行条件、任务/结果引用、样例行、截断标记和可计算事实。",
     parameters: structuredQueryParameters,
     execute: async (_toolCallId, params: Static<typeof structuredQueryParameters>, _onUpdate, request, _invocation, context) => {
-      if (!isCalendarDate(params.start) || !isCalendarDate(params.end) || params.start > params.end) {
+      const latest = params.preset === "latest";
+      if (latest ? params.start !== undefined || params.end !== undefined || params.dates !== undefined
+        || params.time_alternative !== undefined || params.selection !== "latest" || params.operation?.kind && params.operation.kind !== "value"
+        : !params.start || !params.end || !isCalendarDate(params.start) || !isCalendarDate(params.end) || params.start > params.end || params.selection === "latest") {
         return {
           content: [{ type: "text", text: JSON.stringify({ status: "error", message: "日期必须是 YYYY-MM-DD 且 start 不晚于 end" }) }],
           details: { kind: "metric_query_structured" as const, status: "error", retryable: true, public_answer: "查询参数未通过校验，请核对日期与机构范围。" },
@@ -105,7 +109,7 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
         : !!comparison?.org_codes?.length && !comparison.scope_fingerprint;
       const isRank = params.operation?.kind === "ranking" || params.operation?.kind === "rank_position";
       if (!scopeValid || (params.operation?.kind === "rank_position" ? !comparisonValid : comparison !== undefined)
-        || !["exact", "latest_in_range", "all_in_range"].includes(params.selection)
+        || !["exact", "latest", "latest_in_range", "all_in_range"].includes(params.selection)
         || "order" in params || "top_n" in params || (isRank && params.selection === "all_in_range")
         || (hasDates && (isRank || params.selection === "all_in_range"))) {
         return {
@@ -128,7 +132,7 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
           ...(params.organization_scope ? {organization_scope: params.organization_scope, scope_fingerprint: params.scope_fingerprint!}
             : {org_codes: [...new Set(params.org_codes!)]}),
           ...(comparison ? {comparison_scope: comparison} : {}),
-          time: { start: params.start, end: params.end, ...(hasDates ? { dates: params.dates } : {}) },
+          time: latest ? {preset: "latest"} : {start: params.start!, end: params.end!, ...(hasDates ? {dates: params.dates} : {})},
           ...(timeAlternative ? {time_alternative: timeAlternative} : {}),
           selection: params.selection as BasicQuerySpec["selection"],
           operation: (params.operation ?? {kind: "value"}) as NonNullable<BasicQuerySpec["operation"]>,
@@ -187,6 +191,8 @@ export function createStructuredQueryTool(): AgentHarnessTool<AskMetricRequestCo
             version: task?.version,
             result_id: task?.result?.result_id,
             public_answer: result.status === "succeeded" ? resultAnswer(result) : readableMessage ?? "查询未成功。",
+            ...(result.answer_blocks ? {public_answer_blocks: result.answer_blocks} : {}),
+            ...(result.evidence?.query_dates ? {query_dates: result.evidence.query_dates} : {}),
             status: result.status,
             // “近N年”备选口径透传到工具明细（SSE tool_end 与会话快照同源），前端据此提供“切换口径”。
             ...(timeAlternative ? {time_variants: [timeAlternative]} : {}),

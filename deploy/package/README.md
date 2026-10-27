@@ -109,7 +109,7 @@ cd ask-metric-20260824.1-linux-x86_64-py3.12
 /opt/ask-metric/current               当前版本软链接
 /etc/ask-metric/backend.env           跨版本保留的配置
 /etc/ask-metric/agent.env             智能助手服务配置（跨版本保留）
-/var/lib/ask-metric/runtime-config/    模型与提示词（跨版本保留）
+/var/lib/ask-metric/runtime-config/    模型、提示词与业务知识（跨版本保留）
 /var/lib/ask-metric/                   其他跨版本运行数据和配置历史
 /home/appuser/log/                     行内规范日志目录（物理目录，禁止软链接）
 ```
@@ -205,6 +205,7 @@ chmod 0640 /etc/ask-metric/config-sm4.key
 
 ```dotenv
 MODEL_CONFIG_PATH=/var/lib/ask-metric/runtime-config/model-config.json
+BUSINESS_KNOWLEDGE_PATH=/var/lib/ask-metric/runtime-config/business-knowledge.json
 PROMPT_CONFIG_PATH=/var/lib/ask-metric/runtime-config/prompts.json
 SEMANTIC_CONFIG_PATH=/opt/ask-metric/current/backend/config/semantic-config.json
 MODEL_SECRET_ENV_PATH=/etc/ask-metric/backend.env
@@ -380,7 +381,7 @@ sudo /opt/ask-metric/current/ops/rollback.sh --release 20260824.1
 不新增数据库字段、迁移或依赖。后端渠道集成仍有真实旧语义服务依赖，本次保留该渠道，
 不宣称已移除全部旧 HTTP 入口。回退时排空新版本任务，保留新旧状态，恢复整套旧包及匹配配置；
 不得让旧进程续跑新契约 Frame。新旧包联动、目录同步与真实数据库榜单须在授权环境验收。
-本地验证与未验收项见 [交付记录](../../docs/verification/query-intent-v2-delivery.md)。
+现场部署后仍须按本手册检查健康状态、登录和真实问数；开发验收记录不随源码包提供。
 
 
 ### SQL builder 统一生成

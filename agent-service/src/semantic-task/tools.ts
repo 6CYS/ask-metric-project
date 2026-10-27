@@ -7,17 +7,20 @@ import {BusinessContextService} from "../business-context/service.js";
 import {createCapabilities} from "../business-context/capabilities.js";
 import {createFieldResolvers} from "../business-context/resolvers.js";
 import {BackendApiError} from "../backendClient.js";
-import {semanticParameters, prepareSemanticArguments} from "./protocol.js";
+import {semanticParameters, prepareSemanticArguments, SemanticInputShapeError} from "./protocol.js";
 import {SemanticPlanService} from "./planService.js";
 import {SemanticConflict, SemanticTaskService} from "./service.js";
 import type {SemanticIssue} from "./store.js";
 import {semanticFeedback, type SemanticFeedback} from "./feedback.js";
-import {permissionFilteredContext, scopeAvailable} from "./contextMemory.js";
+import {permissionFilteredAdmission, permissionFilteredContext, scopeAvailable} from "./contextMemory.js";
 import type {SemanticHistoryQuery} from "./store.js";
 import {referencedQueryNumbers, requestedHistory} from "./historyReference.js";
 import {completeQuery} from "./querySpec.js";
-import {QuestionAnswerError} from "./questions.js";
+import {hasExplicitGroupRejection, QuestionAnswerError, type PendingQuestion} from "./questions.js";
 import {backendIssue} from "./backendIssue.js";
+import {recoverUnmatchedQuery, parallelMetricAlternatives, normalizeParallelMetricProposal} from "./queryRecovery.js";
+import {ANALYSIS_REPAIR, analysisDiscoveryFeedback, repairAnalysisPlan} from "./analysisRecovery.js";
+import {analysisPlanSchema, type AnalysisPlan} from "../analysis/contracts.js";
 
 type Tool = AgentHarnessTool<AskMetricRequestContext>;
 const receipt = (feedback: SemanticFeedback, evidence?: AgentToolResult<unknown>): AgentToolResult<SemanticFeedback> => {
@@ -64,13 +67,60 @@ const readFailure = (result: AgentToolResult<unknown>) => {
     message: denied ? "当前权限不足，不能读取历史结果。" : "结果读取未成功，原查询结果仍保留。", remediation: "stop"});
 };
 export function createSemanticResolveTool(): Tool {
-  return {name: "resolve_business_turn", label: "解析业务语义任务", description: "版本2整笔业务提议。新查询用target.query输出完整结构化机构、指标、时间、取数方式与操作，真实缺项写null；排名直接给position/top_n，不写排序描述。继承或局部修改用operations，排序修改使用queryOperation对象。已发布字段问题用顶层answers。程序绑定目录身份、机构权限和日历后执行，不重新猜排序语义。source及引用见轮状态或business_context_read。",
+  return {name: "resolve_business_turn", label: "解析业务语义任务", description: "版本2整笔业务提议。新查询用target.query输出完整结构化机构、指标、时间、取数方式与操作，真实缺项写null；排名直接给position/top_n，不写排序描述。经营分析用intent=analyze、target.analysis完整计划，机构范围可用target.analysis.organizations（与query同一结构，children_of沿用已确认父机构），日期变化写同一target.operations；不混填query。机构拖累追问沿用source与实际日期，用正式差额observe查完整机构明细，不因未给前几名而追问top_n。继承或局部修改用operations，排序修改使用queryOperation对象。已发布字段问题用顶层answers。程序绑定目录身份、机构权限和日历后执行，不重新猜排序语义。source及引用见轮状态或business_context_read。",
     parameters: semanticParameters, prepareArguments: prepareSemanticArguments,
     execute: async (_id, args, _update, request, _invocation, context) => {
-      try {const feedback = await new SemanticPlanService(request, context.abortSignal).resolve(prepareSemanticArguments(args));
+       try {
+         const input = await normalizeParallelMetricProposal(request, prepareSemanticArguments(args));
+        const feedback = await new SemanticPlanService(request, context.abortSignal).resolve(input);
+         return receipt(await recoverUnmatchedQuery(request, feedback));}
+      catch (error) {
+        // 拒绝模型同轮自确认仍保留原门禁；已有并列恢复时给出可执行的纠错方向，不能改成确认成功。
+        if (error instanceof QuestionAnswerError && error.code === "QUESTION_NOT_PUBLISHED") {
+          const recovery = (await request.semanticTasks?.turn(request.operationId))?.queryRecovery;
+          const plan = recovery ? await request.semanticTasks?.plan(recovery.planRef) : undefined;
+          if (plan?.owner === request.actor.id && recovery?.scopes.some(scope => parallelMetricAlternatives(scope.fields.metrics, request.originalMessage).length)) {
+            const feedback = await new SemanticPlanService(request, context.abortSignal).feedback(plan, "needs_interpretation");
+            feedback.pending_questions = feedback.pending_questions.filter(question => question.scope.field !== "metrics");
+            feedback.issues = [{code: "QUERY_RECOVERY_ANALYSIS_REQUIRED", field: "metrics", category: "catalog", remediation: "pi",
+              message: "不能替用户确认单选题。当前相关指标应并列查询：继续同一source，提交intent=analyze、analysis.kind=business_analysis及目录k引用的observe计划，不填写answers或普通query。系统会补齐已发现候选读取，保留原机构日期；没有用户确认发生。"}];
+            return receipt(feedback);
+          }
+        }
+        const feedback = error instanceof SemanticInputShapeError
+        ? semanticFeedback(undefined, "invalid_input", error.problems.map(problem => ({code: "INPUT_SHAPE_INVALID", field: problem.path,
+          category: "input_shape", message: `参数位置${problem.path}未通过${problem.rule}校验。${problem.hint ? problem.hint + "。" : ""}请对照版本2 Schema修正该位置的结构，保留其他已正确条件；对象和数组不能写成JSON字符串。`, remediation: "pi"}))) : errors(error);
+        const discovery = error instanceof SemanticInputShapeError ? analysisDiscoveryFeedback(args, error.problems) : undefined;
+        if (discovery) {
+          // 尚未形成合法计划，先补目录依据；不能伪造计划引用或直接补选指标。
+          feedback.analysis_discovery = discovery;
+          feedback.continuation = {actor: "host", action: "discover_analysis_metrics"};
+          feedback.issues = feedback.issues.map(issue => /^\/targets\/\d+\/analysis\/plan\/steps\/\d+\/metric_refs$/.test(issue.field ?? "")
+            ? {...issue, code: "ANALYSIS_METRICS_REQUIRED", category: "catalog",
+              message: "计划步骤尚未选择正式指标。先用analysis_catalog按原业务问题中的指标词检索，核对定义后使用其binding_ref重新提交完整计划；保留原source、机构、日期和requirements。正式比较指标可用observe，没有审核关系不能执行structure；缺乏依据的子问题如实保留缺口，不得提交空metric_refs或猜造指标。"}
+            : issue);
+        }
+        if (error instanceof QuestionAnswerError && error.remediation === "pi" && request.semanticTasks) {
+          // 答案格式错误不撤销原题；只补回本轮仍可见、已发布的开放版本供模型修正。
+          feedback.pending_questions = (await permissionFilteredAdmission(request))?.pending_questions ?? [];
+          if (error.code === "ANSWER_SELECTION_INVALID" && feedback.pending_questions.length) {
+            feedback.issues = feedback.issues.map(issue => ({...issue, message: issue.message
+              + "请按当前问题的题型修正答案：choice 题使用 select，保留本题 question_id、version，option_ids 只填本题已发布选项的 option_id；accept 只适用于 confirm。格式错误不代表用户否定；仅在用户明确拒绝所有候选时使用 none_of_these，不得代替用户选择。"}));
+          }
+        }
         return receipt(feedback);}
-      catch (error) {return receipt(error instanceof Error && error.message.startsWith("SEMANTIC_INPUT_SHAPE_INVALID")
-        ? semanticFeedback(undefined, "invalid_input", [{code: "INPUT_SHAPE_INVALID", category: "input_shape", message: "工具参数不符合唯一版本2协议，请按Schema修正，原始业务目标已保留。", remediation: "pi"}]) : errors(error));}
+    }};
+}
+export function createAnalysisRepairTool(): Tool {
+  const parameters = Type.Unsafe<{task_ref: string; target_ref: string; revision: number; steps: AnalysisPlan["steps"]}>({type: "object",
+    required: ["task_ref", "target_ref", "revision", "steps"], additionalProperties: false,
+    properties: {task_ref: {type: "string", minLength: 1}, target_ref: {type: "string", minLength: 1}, revision: {type: "integer", minimum: 0},
+      steps: analysisPlanSchema.properties.steps}});
+  return {name: ANALYSIS_REPAIR, label: "修复分析缺失步骤", parameters,
+    description: "仅在analysis_recovery期间使用。引用该回执task_ref/target_ref/revision，只提交diagnostics指定的缺失或错误steps，answers引用原requirements.id。原机构日期、目标、正确步骤由程序保留；不能重交完整计划、删除子问题或编造gap_reason。补查目录后使用正式指标引用。",
+    execute: async (_id, args, _update, request, _invocation, context) => {
+      try {return receipt(await repairAnalysisPlan(request, args as {task_ref: string; target_ref: string; revision: number; steps: AnalysisPlan["steps"]}, context.abortSignal));}
+      catch (error) {return receipt(errors(error));}
     }};
 }
 export function createSemanticContextTool(): Tool {
@@ -239,7 +289,7 @@ export function createSemanticReadTool(): Tool {
 /** 能力说明工具接入语义回执：综合分析改用 analyze 规划，其余保留原能力说明。 */
 export function semanticCapabilityTool(tool: Tool): Tool {
   return {...tool,
-    description: "说明尚未提供的预测、因果归因或血缘能力。综合分析已支持现有指标查询、比较排名、覆盖和可验证公式，应使用resolve_business_turn的analyze分阶段规划，不因综合分析这一名称拒绝。",
+    description: tool.description + "综合分析已支持现有指标查询、比较排名、覆盖和可验证公式，应使用resolve_business_turn的analyze分阶段规划，不因综合分析这一名称拒绝。",
     execute: async (...args: Parameters<Tool["execute"]>) => {
       if ((args[1] as {capability: string}).capability === "comprehensive_analysis") return receipt(semanticFeedback(undefined, "needs_interpretation", [{
         code: "ANALYSIS_AVAILABLE", category: "capability", message: "综合分析已支持现有指标、比较排名、覆盖与公式；请保留用户目标，使用analyze继续同一Pi循环，取得结果后再规划。", remediation: "pi"}]));
@@ -254,12 +304,32 @@ export function semanticCapabilityTool(tool: Tool): Tool {
 export function semanticRuntimeAdapter(tool: Tool): Tool {
   return tool.name === "resolve_business_turn" ? {...tool, parameters: Type.Unsafe({}), prepareArguments: raw => structuredClone(raw)} : tool;
 }
-/** 给模型的Schema始终唯一且严格；原生隔离适配器的容器形状不得公开。 */
-export function semanticPublicToolDefinitions(payload: Record<string, unknown>): Record<string, unknown> {
+/** 按当前可见已发布题收窄发送Schema；不改公共协议，也不代替保存前的权限和版本校验。 */
+export function semanticPublicToolDefinitions(payload: Record<string, unknown>, questions?: readonly PendingQuestion[],
+  originalMessage = ""): Record<string, unknown> {
   if (!Array.isArray(payload.tools)) return payload;
+  const visible = questions?.filter(question => question.status === "open") ?? [];
+  const parameters = visible.length ? structuredClone(semanticParameters) : semanticParameters;
+  if (visible.length) {
+    const definitions = (parameters as typeof semanticParameters & {definitions: Record<string, Record<string, unknown>>}).definitions;
+    const modelAnswer = definitions.modelAnswer!;
+    const answerProperties = modelAnswer.properties as Record<string, unknown>;
+    delete definitions.answerChoice;
+    definitions.modelAnswer = {oneOf: visible.map(question => {
+        const choices: Record<string, unknown>[] = [{type: "object", additionalProperties: false, required: ["type", "option_ids"],
+          properties: {type: {const: "select"}, option_ids: {type: "array", minItems: 1, uniqueItems: true,
+            maxItems: question.selection_mode === "single" ? 1 : question.options.length,
+            items: {type: "string", oneOf: question.options.map(option => ({const: option.option_id, description: option.label}))}}}}];
+        const actions = question.kind === "confirm" ? ["accept", "reject"] : [];
+        if (hasExplicitGroupRejection(originalMessage)) actions.push("none_of_these");
+        for (const type of actions) choices.push({type: "object", additionalProperties: false, required: ["type"], properties: {type: {const: type}}});
+        return {...modelAnswer, properties: {...answerProperties, question_id: {type: "string", const: question.question_id},
+          version: {type: "integer", const: question.version}, choice: {oneOf: choices}}};
+    })};
+  }
   return {...payload, tools: payload.tools.map(raw => {
     const definition = raw as {name?: string; function?: {name?: string}};
-    if (definition.function?.name === "resolve_business_turn") return {...definition, function: {...definition.function, parameters: semanticParameters}};
-    return definition.name === "resolve_business_turn" ? {...definition, parameters: semanticParameters} : raw;
+    if (definition.function?.name === "resolve_business_turn") return {...definition, function: {...definition.function, parameters}};
+    return definition.name === "resolve_business_turn" ? {...definition, parameters} : raw;
   })};
 }

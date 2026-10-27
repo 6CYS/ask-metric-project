@@ -69,7 +69,8 @@ class ModelOnlyUpdate(BaseModel):
 
 def _credential_status(settings: Settings, config: ModelRuntimeConfig) -> dict[str, bool]:
     resolve_credential = credential_resolver_from_env_file(
-        resolve_config_path(PROJECT_DIR, settings.model_secret_env_path)
+        resolve_config_path(PROJECT_DIR, settings.model_secret_env_path),
+        store=settings._config_center,
     )
     return {
         role: endpoint.authentication.type == "none"
@@ -115,9 +116,7 @@ def _update_model_credentials(
     if not updates:
         return
     key = (
-        load_config_sm4_key(
-            environ={}, key_file=settings.ask_metric_config_sm4_key_file
-        )
+        load_config_sm4_key(environ={}, key_file=settings.ask_metric_config_sm4_key_file)
         if settings.ask_metric_config_sm4_key_file
         else load_config_sm4_key(required=False)
     )
@@ -131,10 +130,19 @@ def _update_model_credentials(
         name: encrypt_config_value(secret, key) if key is not None else secret
         for name, secret in updates.items()
     }
-    update_env_file(
-        resolve_config_path(PROJECT_DIR, settings.model_secret_env_path), stored_updates
-    )
-    os.environ.update(updates)
+    if settings._config_center:
+        store = settings._config_center
+        document = store.read_json("sznsznws_backend_security.yaml")
+        # 保持中心为唯一来源，不把新密钥注入进程或本地 dotenv。
+        for name, value in stored_updates.items():
+            document = {k: v for k, v in document.items() if k.upper() != name.upper()}
+            document[name.lower()] = value
+        store.publish_json("sznsznws_backend_security.yaml", document)
+    else:
+        update_env_file(
+            resolve_config_path(PROJECT_DIR, settings.model_secret_env_path), stored_updates
+        )
+        os.environ.update(updates)
 
 
 class ModelConnectionTestResponse(BaseModel):
@@ -170,7 +178,8 @@ def _draft_model_service(
         if secret.strip() and endpoints[role].api_key_env
     }
     persisted_credential = credential_resolver_from_env_file(
-        resolve_config_path(PROJECT_DIR, settings.model_secret_env_path)
+        resolve_config_path(PROJECT_DIR, settings.model_secret_env_path),
+        store=settings._config_center,
     )
 
     def resolve_credential(name: str) -> str | None:
@@ -179,7 +188,8 @@ def _draft_model_service(
     return ConfigurableModelService(
         model_config_repository=_InlineModelConfigRepository(payload.config),  # type: ignore[arg-type]
         prompt_config_repository=PromptConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.prompt_config_path)
+            resolve_config_path(PROJECT_DIR, settings.prompt_config_path),
+            store=settings._config_center,
         ),
         credential_resolver=resolve_credential,
         client=request.app.state.model_http_client,
@@ -194,8 +204,14 @@ def get_model_config_repositories(
 ) -> tuple[ModelConfigRepository, PromptConfigRepository]:
     settings: Settings = request.app.state.settings
     return (
-        ModelConfigRepository(resolve_config_path(PROJECT_DIR, settings.model_config_path)),
-        PromptConfigRepository(resolve_config_path(PROJECT_DIR, settings.prompt_config_path)),
+        ModelConfigRepository(
+            resolve_config_path(PROJECT_DIR, settings.model_config_path),
+            store=settings._config_center,
+        ),
+        PromptConfigRepository(
+            resolve_config_path(PROJECT_DIR, settings.prompt_config_path),
+            store=settings._config_center,
+        ),
     )
 
 

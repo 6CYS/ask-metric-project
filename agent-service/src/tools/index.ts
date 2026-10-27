@@ -8,16 +8,27 @@ import type { AskMetricRequestContext } from "../requestContext.js";
 import { createBusinessCapabilityTool } from "./businessCapability.js";
 import { withFocusedArgumentErrors } from "./shared.js";
 import { createCatalogTool } from "./catalog.js";
-import { createReadTool } from "./readTools.js";
+import { createReadTool, createSessionHistoryReadTool } from "./readTools.js";
 import { createConversationReplyTool, createActionRequiredTool } from "./turnContract.js";
 import {
   createSemanticResolveTool,
+  createAnalysisRepairTool,
   createSemanticContextTool,
   createSemanticExecuteTool,
   createSemanticReadTool,
   createSemanticClarifyTool,
   semanticCapabilityTool,
 } from "../semantic-task/tools.js";
+import { createBusinessTopicReadTool } from "./businessOverview.js";
+import { createBusinessReportTool } from "./businessReport.js";
+import {createAnalysisCatalogTool, createAnalysisReportTool} from "../analysis/tools.js";
+import {createPartialAnalysisTool} from "./partialAnalysis.js";
+import {createRuntimeFinalizeTool} from "../runtime/finalizeTool.js";
+import {createInquiryQueryTools} from "../inquiry/queryTools.js";
+import {createInquiryReportTool} from "../inquiry/reportTool.js";
+import {createInquiryChartTool} from "../inquiry/chartTool.js";
+import {createInquiryKnowledgeTool} from "../inquiry/knowledgeTool.js";
+import {createInquiryCalculationTool} from "../inquiry/calculationTool.js";
 
 export { createMetricCatalogSearchTool } from "./metricCatalogSearch.js";
 export { createOrgCatalogSearchTool } from "./orgCatalogSearch.js";
@@ -28,12 +39,25 @@ export type { CatalogSearchDetails, StructuredQueryDetails } from "./shared.js";
 /** pi 选择业务工具；结构化查询仍接受后端目录、权限与能力校验。 */
 export function createAskMetricTools(): AgentHarnessTool<AskMetricRequestContext>[] {
   const tools = [
+    ...createInquiryQueryTools(),
+    createSessionHistoryReadTool(),
+    createInquiryKnowledgeTool(),
+    createInquiryCalculationTool(),
+    createInquiryChartTool(),
+    createInquiryReportTool(),
     semanticCapabilityTool(deliverable(createBusinessCapabilityTool())),
     createSemanticResolveTool(),
+    createAnalysisRepairTool(),
     createSemanticContextTool(),
     createSemanticExecuteTool(),
     createSemanticReadTool(),
     createReadTool(),
+    createBusinessTopicReadTool(),
+    createBusinessReportTool(),
+    createAnalysisCatalogTool(),
+    createAnalysisReportTool(),
+    createPartialAnalysisTool(),
+    createRuntimeFinalizeTool(),
     deliverable(createCatalogTool()),
     createConversationReplyTool(),
     createActionRequiredTool(),

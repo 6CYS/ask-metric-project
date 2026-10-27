@@ -16,6 +16,9 @@ import type {
   AuthUser,
   LoginResponse,
   Sm2PublicKeyResponse,
+  BusinessKnowledgeList,
+  BusinessKnowledgePayload,
+  BusinessKnowledgeWriteResult,
 } from "@/types/api"
 import { encryptLoginPassword } from "@/lib/gm"
 import {
@@ -277,6 +280,24 @@ export async function deleteOrg(orgCode: string) {
 
 export function listDatasets() {
   return request<{ items: DatasetItem[] }>(apiUrl(backendNextBase, "/api/v1/catalog/datasets"))
+}
+
+const businessKnowledgePath = "/api/v1/catalog/business-knowledge"
+
+export function listBusinessKnowledge() {
+  return request<BusinessKnowledgeList>(apiUrl(backendNextBase, businessKnowledgePath), { cache: "no-store" })
+}
+
+export function createBusinessKnowledge(payload: BusinessKnowledgePayload) {
+  return request<BusinessKnowledgeWriteResult>(apiUrl(backendNextBase, businessKnowledgePath), { method: "POST", body: JSON.stringify(payload) })
+}
+
+export function updateBusinessKnowledge(id: string, payload: BusinessKnowledgePayload) {
+  return request<BusinessKnowledgeWriteResult>(apiUrl(backendNextBase, `${businessKnowledgePath}/${encodeURIComponent(id)}`), { method: "PUT", body: JSON.stringify(payload) })
+}
+
+export function setBusinessKnowledgeEnabled(id: string, payload: { enabled: boolean; revision: string }) {
+  return request<BusinessKnowledgeWriteResult>(apiUrl(backendNextBase, `${businessKnowledgePath}/${encodeURIComponent(id)}/enabled`), { method: "PATCH", body: JSON.stringify(payload) })
 }
 
 export function createDataset(payload: DatasetPayload) {

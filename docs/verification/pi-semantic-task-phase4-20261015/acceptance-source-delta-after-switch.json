@@ -1,8 +1,0 @@
-{
-  "changed_since_latest_model_batch": [
-    "src/config.ts"
-  ],
-  "reason": "default protocol fallback changed fixed_v1 to semantic_v2 after user direct-switch instruction; batches explicitly select protocol",
-  "other_recorded_source_hashes_match": true,
-  "batch_completed": false
-}

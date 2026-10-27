@@ -1,8 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    // 测试文件引用 src 下的生产代码，根目录需覆盖两侧
-    "rootDir": "."
-  },
-  "include": ["specs", "src"]
-}

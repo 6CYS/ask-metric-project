@@ -3,6 +3,7 @@ import {applyProvisionalAnswer, clearProvisionalAnswer} from "@/lib/provisionalA
 import ChatProvisionalAnswer from "./ChatProvisionalAnswer.vue"
 import { availabilityReply, type AvailabilityDetails } from "@/lib/dataAvailability"
 import { governedReply, catalogOverviewReply, type CatalogOverviewDetails } from "@/lib/replyPresentation"
+import { businessReportPresentation } from "@/lib/businessReportPresentation"
 import { AlertTriangle, Bot, Check, Copy, Ellipsis, LoaderCircle, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Trash2 } from "@lucide/vue"
 import { computed, nextTick, onActivated, onMounted, onBeforeUnmount, ref, watch } from "vue"
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from "reka-ui"
@@ -410,6 +411,7 @@ function responseFromMetricAsk(details: MetricAskDetails, answer: string): ChatR
     : null
   // 备选时间口径随工具明细透传到结构化响应，历史快照经同一入口还原
   const timeVariants = details.time_variants?.length ? details.time_variants : undefined
+  const analysisReport = businessReportPresentation(details)
   return {
     message_id: details.task_id ?? createId(),
     intent: "metric_query",
@@ -420,6 +422,8 @@ function responseFromMetricAsk(details: MetricAskDetails, answer: string): ChatR
     metric_definition: null,
     clarification: null,
     debug: { task_id: details.task_id, row_count: rowCount },
+    ...(details.report ? { analysis_plan: details.report.plans.flatMap(plan => plan?.questions ?? []) } : {}),
+    ...(analysisReport ? { analysis_report: analysisReport } : {}),
     download: rowCount > 100 && details.task_id
       ? { task_id: details.task_id, row_count: rowCount, format: "xlsx" }
       : undefined,
@@ -487,7 +491,7 @@ function asMetricAskDetails(value: unknown): MetricAskDetails | undefined {
   // 只读任务状态不等于读取结果，不能将 SUCCEEDED 状态回执渲染成空数据答案。
   if (kind === "metric_read" && !(value as MetricAskDetails).result_id
     && !["error", "failed"].includes(String((value as MetricAskDetails).status).toLowerCase())) return undefined
-  return kind === "metric_ask" || kind === "metric_query_structured" || kind === "metric_read"
+  return kind === "metric_ask" || kind === "metric_query_structured" || kind === "metric_read" || kind === "business_report"
     ? value as MetricAskDetails
     : undefined
 }

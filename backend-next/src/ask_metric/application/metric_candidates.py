@@ -34,6 +34,8 @@ from ask_metric.domain.semantics import MetricCatalogItem
 # 并列连接词；标点已在归一化时剔除，顿号、逗号分隔等价于空连接。
 _JOINERS = re.compile(r"(?:和|及|与|以及|还有|跟|的)*")
 _LEADING_JOINER = re.compile(r"(?:和|及|与|以及|还有|跟)$")
+# 完整问数谓语是实体边界；不能单独截断“分别”，以免丢掉数量、否定或比例限定。
+_QUESTION_PREDICATE = re.compile(r"(?:分别|各)?(?:有|是|为)多少")
 _CANDIDATE_LIMIT = 5
 # 完整基础名称精确且唯一命中、仅省略口径时的默认口径；目录无唯一当日数成员时不默认、不拼造。
 _DEFAULT_VALUE_BASIS = normalize_semantic_text("当日数")
@@ -249,6 +251,15 @@ class MetricCandidateIndex:
             normalize_semantic_text(self.base_names[source]) == text[start:end]
             for source in sources
         )
+        # 唯一余额来源的精确基础别名可带已有的“余额”尾词；目录原名和别名优先。
+        # 只扩展本次精确片段，不注册新词条，避免扩大同音识别和模糊纠错范围。
+        if (alias and len(sources) == 1 and text.startswith("余额", end)
+                and not text[start:end].endswith("余额")
+                and normalize_semantic_text(self.base_names[next(iter(sources))]).endswith("余额")
+                and text[start:end] not in self.full_terms
+                and text[start:end + 2] not in self.full_terms
+                and text[start:end + 2] not in self.base_terms):
+            end += 2
         spans = [_Span(start, end, 2, sources=sources, base_end=end,
                        homophone=homophone, alias=alias)]
         hit = self._basis_at(text, end, len(text))
@@ -359,6 +370,9 @@ class MetricCandidateIndex:
         while (right < len(text) and right - span.end < _CONTEXT_WINDOW and free(right)
                and self._basis_at(text, right, len(text)) is None
                and not _is_pause(text, positions, right, len(text))):
+            predicate = _QUESTION_PREDICATE.match(text, right)
+            if predicate and _is_pause(text, positions, predicate.end(), len(text)):
+                break
             right += 1
         if (left, right) == (span.start, span.end):
             return False
@@ -647,7 +661,7 @@ class _Parse:
             if not members:
                 # 同音待确认项不直接默认口径；基础别名是“指标术语”维护的精确词条，视同精确命中。
                 self._missing_basis(span.start, span.end, sources, group,
-                                    exact_base=not span.homophone,
+                                    exact_base=not span.homophone, exact_alias=span.alias,
                                     **({"understood_as": match["understood_as"]}
                                        if span.homophone else {}))
         canons.update(canon for _, _, member, partial in members if not partial
@@ -669,7 +683,8 @@ class _Parse:
         return members
 
     def _missing_basis(self, start: int, end: int, sources: frozenset[str],
-                       group: dict | None, *, exact_base: bool, **metadata) -> None:
+                       group: dict | None, *, exact_base: bool, exact_alias: bool,
+                       **metadata) -> None:
         # 只说了基础指标：完整基础名称精确且唯一命中、仅省略口径时，默认该基础在
         # 目录中唯一的“当日数”成员，不追问口径；默认结果与明确口径共用 resolved
         # 形态（字段解析、原问 mentions 与准入共用同一规则），调用方凭
@@ -686,7 +701,16 @@ class _Parse:
                     base_name=self.index.base_names[source],
                 ), "catalog_base", group)
                 return
-        # 其余情况（同音待确认、多源基础、目录无唯一当日数成员）维持追问口径，
+        # 多源精确别名只在各来源都有唯一当日数时收窄候选；来源歧义始终交用户确认。
+        if exact_base and exact_alias and len(sources) > 1:
+            defaults = [self.index.variants[source].get(_DEFAULT_VALUE_BASIS, set())
+                        for source in sources]
+            if all(len(codes) == 1 for codes in defaults):
+                self._emit(start, end, self._listing(
+                    "needs_confirmation", set().union(*defaults),
+                ), "catalog_base", group)
+                return
+        # 其余情况（同音待确认、多源正式名称、目录无唯一当日数成员）维持追问口径，
         # 候选是该基础指标在目录中实际存在的指标。
         codes = self.index.codes_for(sources, self.index.valid_canons(sources))
         self._emit(start, end, self._listing(

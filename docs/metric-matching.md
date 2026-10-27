@@ -62,41 +62,6 @@
 
 排名操作只表达前 N / 后 N（`position=top|bottom`）。名次类指标（目录单位为“名”，数值即名次）越小越靠前，后端按目录单位在同一 SQL 内逐指标反转方向，回执 `evidence.ranking[].sort` 写明实际排序。真实目录 4461 个“…排名”指标单位均为“名”。
 
-## 可复现验证
-
-在 `backend-next` 执行：
-
-```sh
-.venv/bin/python -m pytest -q verification tests
-PYTHONPATH=src .venv/bin/python verification/benchmark_metric_candidates.py /tmp/metric-matching.json
-```
-
-在 `agent-service` 执行：
-
-```sh
-npm run typecheck
-npm test -- --silent
-npm run build
-node --env-file=.env --import tsx scripts/check-metric-name-model.ts --live
-node --env-file=.env --import tsx scripts/check-metric-typo-model.ts --live
-```
-
-真实模型脚本使用配置模型、真实 Python 算法、隔离合成目录和取数桩；不连接业务数据库。无 `--live` 时不调用模型。
-
-一万条合成目录、8 个词法/错字/同音/描述样本：旧整句 SequenceMatcher 的 Top-5 命中 2/8，单独 Trie 2/8，组合算法 8/8。固定 RapidFuzz 3.13.0 的本机热索引 p50 约 0.73 ms、p95 约 3.11 ms，冷构建约 527 ms。详见 [基准记录](verification/metric-matching-benchmark-2026-09-21.json)。
-
-2026-09-23 前缀省略通道上线后，合成基准 CASES 扩充至 13 条（故障问句复现、唯一/别名前缀正例、“各项存款”类短前缀反例），组合算法 13/13，旧整句与单独 Trie 对新用例均未命中。真实目录的 mention 抽取回归使用 `verification/mention_regression.py`（语料为验收文档真实问句，只读目录）：基线与对照见 `docs/verification/mention-regression-baseline-2026-09-23.json`、`mention-regression-after-prefix-2026-09-23.json`，72 条问句 diff 为零新增、零消失、零状态变化，结论见 `mention-regression-diff-2026-09-23.md`。
-
-这些延迟不包含数据库加载、快照指纹、HTTP、Pi 模型推理；合成小样本不能代表真实目录准确率，也不能证明整体问答已达到毫秒级。
-
-2026-09-27 结构化识别改造验证（前述阈值/前缀/逐字对齐记录为历史，已被替代；2026-09-28 别名改为从同义词推导并加入启动预热后后端 416 项通过，识别结果不变）：后端 413 项、Agent 294 项测试通过，Agent 类型检查与构建通过，`check-query-intent-v2.ts` 离线校验 47 个用例通过。合成基准 13 条组合算法仍 13/13，热索引 p50 约 0.46 ms。本地真实目录未执行 0005，结构按名称后缀推导、别名由索引从同义词推导：72 条验收问句与 2026-09-23 基线相比 70 条不变，2 条变化均为“金融机构数量较同期”（目录中已停用）从静默丢失变为提示该口径不存在；对话中复现的共用基础指标错字、缺口径、口径没说完、“对公和个人”等问句均按上表处理。本次没有调用真实模型、没有写入本地或业务数据库；迁移 0005 回填与真实模型确认流程仍需在授权环境验收。
-
-2026-09-21 版本离线检查：Agent 210 项、后端 301 项通过；类型检查、构建、修改文件 Ruff 和 `git diff --check` 通过。当日真实模型专项：4 种完整指标名各一次取数；2 种同音错字按当时的强制确认策略，确认前零取数、确认后一次取数。2026-09-22 起改为上述 95% 自动采用策略，错字模型脚本同步覆盖高分直接查询和低分确认后查询；旧报告不代表新策略的验证结果。
-
-2026-09-22 的阈值改造验证：后端 314 项、Agent 212 项通过；类型检查、构建、修改 Python 文件 Ruff、`git diff --check` 通过。新增回归覆盖 95% 边界、低于阈值、同分不同码、同码别名、完整名称与问句尾文、混合多指标，以及已确定指标不随机构候选重复澄清。验证使用合成目录和取数桩；本次没有重新调用真实模型或执行真实业务取数。当前项目后端与 Agent 已重启，后端健康/就绪、Agent 健康及前端 Agent 代理均返回 HTTP 200。
-
-额外七轮连续回归没有全部通过：出现模型请求超时、无效工具格式，以及历史复用时模型夹带 clear 参数。后一项已改为 `ARGUMENT_ERROR` 并保留焦点，补充同轮纠正单测；没有把本次七轮失败写成通过。模型回答环节的延迟和稳定性仍需处理。[完整记录与先前失败](verification/metric-matching-model-2026-09-21.json)。
-
 ## 内网交付
 
 沿用现有无 Docker 离线包，不新增入口、Java 服务或外部 HanLP REST 调用，不携带神经模型权重。构建机需访问经过批准的依赖源；目标机无外网。

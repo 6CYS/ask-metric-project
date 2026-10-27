@@ -63,9 +63,14 @@ class SemanticConfig(BaseModel):
 
 
 class SemanticConfigRepository:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, store=None) -> None:
         self.path = path
+        self.store = store
 
     def load(self) -> SemanticConfig:
+        if self.store:
+            return SemanticConfig.model_validate(
+                self.store.read_json("sznsznws_backend_semantic.json")
+            )
         with self.path.open("r", encoding="utf-8") as file:
             return SemanticConfig.model_validate(json.load(file))

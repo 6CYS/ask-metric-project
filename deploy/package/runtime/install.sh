@@ -196,6 +196,10 @@ if [[ ! -f "$RUNTIME_CONFIG_ROOT/model-config.json" ]]; then
   cp "$FINAL_RELEASE/backend/config/model-config.json" \
     "$RUNTIME_CONFIG_ROOT/model-config.json"
 fi
+if [[ ! -f "$RUNTIME_CONFIG_ROOT/business-knowledge.json" ]]; then
+  cp "$FINAL_RELEASE/backend/config/business-knowledge.json" \
+    "$RUNTIME_CONFIG_ROOT/business-knowledge.json"
+fi
 if [[ ! -f "$RUNTIME_CONFIG_ROOT/prompts.json" ]]; then
   cp "$FINAL_RELEASE/backend/config/prompts.json" "$RUNTIME_CONFIG_ROOT/prompts.json"
 else

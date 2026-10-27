@@ -46,6 +46,7 @@ from ask_metric.domain.task import (
 from ask_metric.domain.task_state_machine import InvalidTaskTransition, QueryTaskStateMachine
 from ask_metric.infrastructure.db.models import ChatMessage, QueryRun, QueryTask
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
+from ask_metric.infrastructure.query.organization_codes import OrganizationMappedDataSource
 from ask_metric.infrastructure.query.sql_builder import SqlBuilder
 from ask_metric.infrastructure.query.sql_safety import validate_readonly_sql
 
@@ -134,10 +135,15 @@ class QueryExecutionApplicationService:
         # 元数据事务已提交 RUNNING 状态并释放连接，再访问独立的业务查询数据库。
         sql_started = perf_counter()
         try:
-            execution = self.data_source.execute_readonly(
-                sql=sql,
-                parameters=plan.parameters,
-            )
+            if isinstance(self.data_source, OrganizationMappedDataSource):
+                execution = self.data_source.execute_readonly(
+                    sql=sql, parameters=plan.parameters,
+                    before_execute=lambda parameters, mapping: self._record_source_binding(
+                        command.task_id, run_id, parameters, mapping,
+                    ),
+                )
+            else:
+                execution = self.data_source.execute_readonly(sql=sql, parameters=plan.parameters)
             timings_ms["sql_execution_ms"] = _elapsed_ms(sql_started)
             fetched_rows = list(execution.rows)
             if any(row.get("rank_data_conflict") for row in fetched_rows):
@@ -280,7 +286,6 @@ class QueryExecutionApplicationService:
         coverage_notice = _result_coverage_notice(
             plan,
             rows,
-            current_system_date=self.today_provider(),
         )
         missing_metric_notice = _missing_metric_notice(plan, visible_rows, truncated=truncated)
         truncation_notice = (
@@ -324,8 +329,12 @@ class QueryExecutionApplicationService:
                 "logical_dsl": plan.dsl,
                 "catalog": plan.catalog,
                 "template": plan.template.value,
+                **({"organization_mapping": execution.organization_mapping,
+                    "source_parameters": json_safe(execution.source_parameters)}
+                   if hasattr(execution, "organization_mapping") else {}),
                 "coverage_notice": coverage_notice,
                 "missing_metric_notice": missing_metric_notice,
+                "query_dates": _query_date_evidence(visible_rows, truncated=truncated),
                 **({"ranking": ranking_evidence} if ranking_evidence else {}),
                 "response_kind": (
                     "availability" if plan.shape.value == "metric_availability" else "values"
@@ -401,6 +410,18 @@ class QueryExecutionApplicationService:
             expected_version=execution_version,
         )
         return result
+
+    def _record_source_binding(
+        self, task_id: str, run_id: int, parameters: dict[str, Any], mapping: dict[str, Any],
+    ) -> None:
+        # 映射已核验、尚未发出事实SQL；失败和超时同样能追溯实际参数。
+        with self.uow_factory() as uow:
+            run = uow.runs.get(run_id)
+            if run is None or run.task_id != task_id or run.status != "running":
+                raise RuntimeError("QueryRun is no longer available for source binding")
+            run.sql_params = json_safe(parameters)
+            run.query_plan = {**(run.query_plan or {}), "organization_mapping": mapping}
+            uow.commit()
 
     def _fail_unfinished_execution(
         self,
@@ -706,11 +727,12 @@ class QueryExecutionApplicationService:
         dsl, metric_catalog, organization_catalog = self._authorize_query(
             uow=uow, actor=actor, logical_dsl=logical_dsl, strict_codes=strict_codes,
         )
-        # 非 latest 预设的区间不允许越过业务日期；latest 由执行层取有数据日，不校验边界。
+        business_date = self.today_provider()
+        # 显式日期不允许越过业务日；latest 由 planner 使用同一业务日限制实际取数。
         if (
             dsl.time.preset != "latest"
             and dsl.time.end is not None
-            and dsl.time.end > self.today_provider()
+            and dsl.time.end > business_date
         ):
             raise QueryPlanError("Time range end cannot be after the business date")
         if (not strict_codes and query_shape == "metric_ranking"
@@ -748,6 +770,7 @@ class QueryExecutionApplicationService:
                 item.code for item in metric_catalog
                 if item.code in dsl.metrics and item.unit in ORDINAL_UNITS
             ],
+            business_date=business_date,
         )
         plan.catalog = {
             "metrics": [
@@ -1297,7 +1320,22 @@ def _missing_metric_notice(
     *,
     truncated: bool,
 ) -> str | None:
-    """Disclose wholly absent metrics only when the returned selection is complete."""
+    """只在结果完整时披露缺项；最新普通取值按指标与机构组合核对。"""
+    if (plan.shape.value == "metric_value" and plan.dsl.get("time", {}).get("preset") == "latest"
+            and rows and _query_date_evidence(rows, truncated=truncated)["complete"]):
+        returned = {(row.get("metric_code"), row.get("org_code")) for row in rows}
+        missing = [(metric, org) for metric in plan.parameters["metric_codes"]
+                   for org in plan.parameters["org_codes"] if (metric, org) not in returned]
+        if missing:
+            metrics = {item["code"]: item["name"] for item in plan.catalog.get("metrics", [])}
+            orgs = {item["code"]: item["name"] for item in plan.catalog.get("organizations", [])}
+            labels = [f"{orgs.get(org, org)}的{metrics.get(metric, metric)}"
+                      for metric, org in missing[:8]]
+            return "以下查询对象在截至业务日的范围内没有有效数值：" + "、".join(labels) + (
+                f"等{len(missing)}项。" if len(missing) > 8 else "。")
+        return None
+    if plan.dsl.get("time", {}).get("preset") == "latest":
+        return None
     if plan.shape.value == "metric_availability" and not truncated and rows:
         returned = {(row.get("metric_code"), row.get("org_code")) for row in rows}
         missing = [(metric, org) for metric in plan.parameters["metric_codes"]
@@ -1325,11 +1363,18 @@ def _missing_metric_notice(
     return "另外，" + _execution_message(missing_plan, [])
 
 
+def _query_date_evidence(rows: list[dict[str, Any]], *, truncated: bool) -> dict[str, Any]:
+    """实际日期来自完整结果，不从模型样例或最大日期推导统一时点。"""
+    dates = [_parse_result_date(row.get("stat_date")) for row in rows]
+    actual = sorted({day.isoformat() for day in dates if day is not None})
+    complete = not truncated and all(day is not None for day in dates)
+    return {"complete": complete, "actual_dates": actual,
+            "uniform_date": actual[0] if complete and len(actual) == 1 else None}
+
+
 def _result_coverage_notice(
     plan: QueryExecutionPlan,
     rows: list[dict[str, Any]],
-    *,
-    current_system_date: date,
 ) -> str | None:
     if not rows:
         return None
@@ -1344,15 +1389,11 @@ def _result_coverage_notice(
         )
         if not actual_dates:
             return None
-        system_date = _format_result_date(current_system_date)
         if len(actual_dates) == 1:
-            return (
-                f"截至当前系统日期{system_date}，当前数据源中本次查询可获取的"
-                f"最新一期为{_format_result_date(actual_dates[0])}。"
-            )
+            # 事实正文已带实际日期，无需重复说明系统日期和最新取数过程。
+            return None
         return (
-            f"截至当前系统日期{system_date}，当前数据源已返回本次查询中各指标、"
-            f"各机构可获取的最新一期数据，统计日期从"
+            "各项最新数据的统计日期从"
             f"{_format_result_date(actual_dates[0])}至"
             f"{_format_result_date(actual_dates[-1])}不等，具体日期以各条结果为准。"
         )

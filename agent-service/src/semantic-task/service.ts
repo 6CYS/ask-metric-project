@@ -8,12 +8,17 @@ import {hasInputEvidence, normalizeInputEvidence} from "../business-context/inpu
 import {type TurnFacts, bindFieldOperations, hasCollectionIntent, entityIsGrounded, inspectTurn, resolveTurnField, updateCollection} from "./actionBinding.js";
 import {isCalendarDate} from "../tools/shared.js";
 import {validateFrame} from "../business-context/core.js";
-import {normalizeQueryOperation} from "../business-context/rankingEvidence.js";
+import {completeRankingOperation, normalizeQueryOperation} from "../business-context/rankingEvidence.js";
 import {createCapabilities} from "../business-context/capabilities.js";
 import type {BusinessFrame, FieldCandidate, FieldResolution, ResolvedField} from "../business-context/types.js";
 import type {ModelCalendar, SemanticOperation, SemanticRequest, SemanticSource} from "./protocol.js";
 import {bindAnswerInputs} from "./questions.js";
 import {backendIssue} from "./backendIssue.js";
+import {resolveEnhancedAnalysis} from "./enhancedAnalysis.js";
+import {BusinessInputError} from "../business-context/inputError.js";
+import {assertRecoveredQueryConditions, frozenQueryScope, recoveredQueryMetric} from "./queryRecovery.js";
+import {operationLabel} from "./structuredQuery.js";
+import {analysisCandidates, type AnalysisCandidate} from "../analysis/bindings.js";
 import {semanticRef, type SemanticAnswerApplication, type SemanticAnswerSnapshot, type SemanticIssue,
   type SemanticQuestionIssue, type SemanticTarget, type SemanticTask, type SemanticTurn} from "./store.js";
 
@@ -125,6 +130,7 @@ export function explicitOrganizationCount(question: string): number | undefined 
 export class SemanticTaskService {
   private boundFacts: TurnFacts | undefined;
   private boundCalendar: ModelCalendar | undefined;
+  private recoveredMetric: AnalysisCandidate | undefined;
   constructor(private readonly request: AskMetricRequestContext, private readonly signal?: AbortSignal) {}
   private get store() {if (!this.request.semanticTasks) throw new Error("SEMANTIC_STORE_NOT_BOUND"); return this.request.semanticTasks;}
   async resolve(input: SemanticRequest): Promise<{task?: SemanticTask; status: string; issues?: SemanticIssue[]}> {
@@ -155,11 +161,15 @@ export class SemanticTaskService {
       throw new SemanticConflict(issue("ANSWER_TARGET_AMBIGUOUS", "objective", "回答不能唯一绑定当前任务。", "pi", "reference"));
     }
     if (input.intent === "reuse") return {task, status: task.target.status === "succeeded" ? "reused" : "needs_user"};
+    if (proposal.operations.some(op => op.field === "_analysis")) {
+      return resolveEnhancedAnalysis(this.request, task, turn, proposal.operations, this.signal);
+    }
     if (task.permit?.consumed && task.permit.operationId === turn.operationId) return {task, status: task.target.status === "succeeded" ? "succeeded" : task.target.status === "failed" ? "failed" : "unknown"};
     if (["executing", "unknown"].includes(task.target.status)) return {task, status: "unknown"};
     const facts = this.request.semanticStep?.facts ?? (typeof this.request.backend.inspectBusinessGoal === "function"
       ? await inspectTurn(this.request, turn.originalMessage, turn.businessDate, this.request.semanticStep?.referenceYear, this.signal) : undefined);
     this.boundFacts = facts;
+    this.recoveredMetric = answerSnapshots.length ? undefined : await recoveredQueryMetric(this.request, task, proposal.operations, facts);
     const binding = bindFieldOperations(proposal.operations, facts, turn.baseline!.fields, {joint: this.request.semanticStep?.multipleTargets, analysis: this.request.semanticStep?.analysis, ...(this.request.timeOverride ? {calendar: this.request.timeOverride} : {}),
       answered: new Set(answerSnapshots.map(snapshot => snapshot.question.scope.field))});
     proposal.operations = binding.operations; this.boundCalendar = binding.calendar;
@@ -382,6 +392,9 @@ export class SemanticTaskService {
       task.issues.push(issue("ORGANIZATION_COUNT_CONFLICT", quantityField, target.pending[quantityField], "user", "coverage"));
     }
     const availability = this.request.semanticStep?.kind === "availability";
+    if (!availability && !this.request.semanticStep?.analysis && (!operationKind || operationKind === "value")) {
+      await this.completeQueryDefaults(target, task, turn, proposal.source, answerSnapshots);
+    }
     const required = availability ? ["organizations", "availability"] : ["organizations", "metrics", "time"];
     if (operationKind === "rank_position") required.push("comparison_organizations");
     for (const field of required) {
@@ -403,15 +416,15 @@ export class SemanticTaskService {
         delete target.pending.selection;
       }
     }
-    const time = target.fields.time?.resolvedValue as {start?: string; end?: string; dates?: string[]} | undefined;
-    if (!availability && target.fields.time?.resolutionStatus === "resolved" && (time?.start === time?.end && !time?.dates || time?.dates && (!target.fields.selection || target.pending.selection))) {
+    const time = target.fields.time?.resolvedValue as {start?: string; end?: string; dates?: string[]; preset?: string} | undefined;
+    if (!availability && target.fields.time?.resolutionStatus === "resolved" && (time?.start && time.start === time.end && !time.dates || time?.dates && (!target.fields.selection || target.pending.selection))) {
       target.fields.selection = {...resolved("指定日期", "exact", "enum"), source: "resolved"};
       delete target.pending.selection;
       delete target.pendingChanges?.selection;
       task.issues = task.issues.filter(item => item.field !== "selection");
     }
     const selection = target.fields.selection?.resolvedValue;
-    if (!availability && target.fields.time?.resolutionStatus === "resolved" && (!selection || selection === "exact" && time?.start !== time?.end && !time?.dates)) {
+    if (!availability && time?.preset !== "latest" && target.fields.time?.resolutionStatus === "resolved" && (!selection || selection === "exact" && time?.start !== time?.end && !time?.dates)) {
       target.pending.selection = SELECTION_PENDING_QUESTION;
       if (!task.issues.some(item => item.field === "selection")) task.issues.push(issue("TIME_SELECTION_REQUIRED", "selection", SELECTION_PENDING_QUESTION, "user"));
     }
@@ -428,10 +441,11 @@ export class SemanticTaskService {
       task.issues.push(issue("OPERATION_NOT_ENABLED", "operation", "原始问题包含当前阶段未接入的操作，不能降级成普通取值。", "stop", "capability"));
     }
     if (!availability && (operationKind === "ranking" || operationKind === "rank_position") && (selection === "all_in_range" || time?.dates)) {
-      target.pending.selection = "当前后端尚不支持逐日或离散日期排名";
-      task.issues.push(issue("QUERY_COMBINATION_UNSUPPORTED", "selection", target.pending.selection, "stop", "capability"));
+      target.pending.selection = "保留原日期及排名操作，转通用分析逐期排名";
+      task.issues.push(issue("QUERY_RANGE_ANALYSIS_REQUIRED", "selection", target.pending.selection,
+        operationKind === "ranking" ? "pi" : "stop", "capability"));
     }
-    if (this.request.semanticStep) {
+    if (this.request.semanticStep && !task.issues.some(item => item.code === "QUERY_RANGE_ANALYSIS_REQUIRED")) {
       const schema = createCapabilities().get(task.capability ?? "metric_query");
       for (const validation of validateFrame(schema, target.fields).issues) {
         // 取数方式依赖日历；日期尚未确定时不制造“缺少selection”的模型错误或重复追问。
@@ -444,6 +458,13 @@ export class SemanticTaskService {
       }
     }
     this.applyDeclinedAnswers(target, task, answerSnapshots, turn);
+    if (!task.issues.length && !Object.keys(target.pending).length) {
+      try {assertRecoveredQueryConditions(await frozenQueryScope(this.request, task), target.fields,
+        {question: turn.originalMessage, previousMetric: turn.baseline?.fields.metrics});} catch (error) {
+        if (!(error instanceof BusinessInputError)) throw error;
+        task.issues.push(issue(error.code, error.field, error.correction, "pi", "input_shape"));
+      }
+    }
     if (task.issues.length || Object.keys(target.pending).length) target.status = "blocked";
     task = {...task, revision: task.revision + 1, target, status: task.issues.some(item => item.category === "permission") ? "stopped"
       : task.issues.some(item => item.remediation === "user") ? "waiting_input" : "active", completion: "unmet"};
@@ -471,6 +492,48 @@ export class SemanticTaskService {
       : task.issues.some(item => item.remediation === "stop" && item.category === "capability") ? "unsupported"
       : target.status === "blocked" ? task.issues.some(item => item.remediation !== "user") ? "needs_interpretation" : "needs_user"
       : unchanged && input.intent === "query" ? "reused" : input.intent === "prepare" ? "prepared" : "ready"};
+  }
+  /** 默认只补新目标的空槽位；显式清除、否定、候选和失败都保留原裁决。 */
+  private async completeQueryDefaults(target: SemanticTarget, task: SemanticTask, turn: SemanticTurn,
+    source: SemanticSource, answers: readonly SemanticAnswerSnapshot[]) {
+    const declined = new Set<string>(answers.filter(snapshot => ["reject", "none_of_these"].includes(snapshot.answer.choice.type))
+      .map(snapshot => snapshot.question.scope.field));
+    const canDefault = (field: "organizations" | "time") => source.kind === "new" && !target.fields[field]
+      && !target.pending[field] && !declined.has(field) && !task.issues.some(item => item.field === field)
+      && !turn.operations[field]?.some(operation => ["clear", "exclude", "replace"].includes(operation.action));
+    const rejectsOrganization = /(?:不(?:是|用|看|查|要)|别用|排除)(?:本行|我行|账号所属机构|账户所属机构|默认机构)/u.test(turn.originalMessage.replace(/\s/gu, ""));
+    if (canDefault("organizations") && !rejectsOrganization) {
+      const code = this.request.actor.org_code?.trim();
+      const response = code ? await resolveTurnField(this.request, "organization", [code], {signal: this.signal}) : undefined;
+      if (response?.status === "resolved" && checkedEntity(response.value) && response.value.codes.length === 1 && response.value.codes[0] === code) {
+        target.fields.organizations = {...resolved(response.value.names[0]!, response.value, "organization"), source: "resolved",
+          metadata: {...response.metadata, defaultSource: "authenticated_account"}};
+      } else {
+        target.pending.organizations = "账号所属机构不可用，请指定查询机构。";
+        task.issues.push(issue("ACCOUNT_ORGANIZATION_UNAVAILABLE", "organizations", target.pending.organizations, "user", "catalog"));
+      }
+    }
+    const rejectsTime = /(?:不(?:用|看|查|要)|别用|排除)(?:最新|最近)/u.test(turn.originalMessage.replace(/\s/gu, ""));
+    if (canDefault("time") && !rejectsTime) {
+      target.fields.time = {...resolved("最新有效数据日", {preset: "latest"}, "date"), source: "resolved",
+        metadata: {defaultSource: "latest_valid_date", timePolicy: "latest"}};
+    }
+    const time = target.fields.time;
+    if ((time?.resolvedValue as {preset?: string} | undefined)?.preset !== "latest") return;
+    const keepsDate = /(?:日期|时间|时点|(?:其他|其余|其它)条件)(?:保持)?(?:不变|一致)|(?:^|[，,；;。])(?:请|并且|并)?(?:仍按|沿用|保留|保持)(?:原(?:来)?的?|之前的?|上次的?)(?:日期|时间|时点)/u
+      .test(turn.originalMessage.replace(/\s/gu, ""));
+    // 明确保持时点时，空结果或不同截至日不能被误当成一个统一日期。
+    if (time?.source === "inherited" && time.metadata?.queryDates && !turn.operations.time?.length
+      && keepsDate) {
+      target.pending.time = "上次结果没有统一的实际数据日，请指定日期，或明确按各项最新数据继续查询。";
+      task.issues.push(issue("LATEST_DATE_INHERITANCE_AMBIGUOUS", "time", target.pending.time, "user", "calendar"));
+      return;
+    }
+    if (!turn.operations.selection?.length || target.fields.selection?.resolvedValue === "latest") {
+      target.fields.selection = {...resolved("最新有效数据日", "latest", "enum"), source: "resolved"};
+      delete target.pending.selection;
+      task.issues = task.issues.filter(item => item.field !== "selection");
+    }
   }
   /**
    * 明确口径优先：用户用“较上月/当日数”等口径词要求换口径、模型却把它写进 time 时，
@@ -644,6 +707,48 @@ export class SemanticTaskService {
     await this.store.save(task, (await this.store.index()).version, turn);
     return task;
   }
+  private async requireRecoveryAnalysis() {
+    if (!analysisCandidates(this.request).length) return;
+    const recovery = (await this.store.turn(this.request.semanticStep?.rootOperationId ?? this.request.operationId))?.queryRecovery;
+    if (recovery) throw new SemanticConflict(issue("QUERY_RECOVERY_ANALYSIS_REQUIRED", "metrics",
+      "目录已发现候选，但候选全名不等于用户原始指标含义。请继续同一source，改用target.analysis.kind=business_analysis并引用已签发的k引用完成原目标；不要继续把候选全名塞回query或清空指标后询问用户补指标。净增等比较基期不明时，清楚区分正式比较或只确认缺少的基期，不能擅自默认。", "pi", "catalog"));
+  }
+  private deferUnboundMetric(target: SemanticTarget, raw: string, turn: SemanticTurn): never {
+    // 旧值保留在 pendingChanges 基线；无原文证据时，不能把模型名称或整句原话直接当作指标依据。
+    target.fields.metrics = {rawValue: raw, resolutionStatus: "invalid", source: "explicit",
+      resolver: "metric", metadata: {proposalTurn: turn.operationId}};
+    throw new SemanticConflict(issue("FIELD_INPUT_NOT_CURRENT", "metrics",
+      "更换指标请用当前原句中的真实指标片段重新提交set，再查证正式目录；不要把候选全名或整句当作用户指标。若本轮未要求更换指标，请重提来源中已确定的指标，不能用旧结果冒充新指标答案。", "pi", "input_shape"));
+  }
+  private async metricDiscoveryFragment(turn: SemanticTurn, baseName: string, excludedTerms: string[]): Promise<string | undefined> {
+    const facts = this.boundFacts;
+    if (!facts || facts.question !== turn.originalMessage || facts.fragments.length !== 1
+      || facts.fragments[0]!.mentions.length || this.request.semanticStep?.multipleTargets) return;
+    let text = normalizeInputEvidence(turn.originalMessage);
+    const organizations = new Set(facts.fragments[0]!.organizations);
+    if (organizations.size) {
+      if (typeof this.request.backend.orgCatalog !== "function") return;
+      const catalog = await orgCatalog(this.request);
+      const members = catalog.items.filter(item => organizations.has(item.code));
+      if (catalog.status === "temporary_error" || members.length !== organizations.size) return;
+      // 机构名里的业务词不能成为换指标依据；遮挡仅用于核验，不改写保留的用户原句。
+      const terms = members.flatMap(item => [item.name, ...item.aliases]).map(normalizeInputEvidence)
+        .filter(Boolean).sort((a, b) => b.length - a.length);
+      for (const term of terms) text = text.split(term).join(" ".repeat(term.length));
+    }
+    const base = normalizeInputEvidence(baseName), spans: Array<{start: number; end: number; text: string}> = [];
+    for (let start = 0; start < text.length - 1; start++) {
+      let end = start + 2;
+      if (!base.includes(text.slice(start, end))) continue;
+      while (end < text.length && base.includes(text.slice(start, end + 1))) end++;
+      if (!spans.some(span => span.end >= end)) spans.push({start, end, text: text.slice(start, end)});
+    }
+    const excluded = [...excludedTerms, ...facts.fragments[0]!.calendar.ranges.flatMap(range =>
+      [range.start, range.end, ...(range.dates ?? [])])].map(normalizeInputEvidence).filter(Boolean);
+    // 先保留最长原文片段再排除共有词，不能从已排除的长片段内再拆短词取得依据。
+    return spans.sort((a, b) => b.text.length - a.text.length)
+      .find(span => !excluded.some(term => term.includes(span.text)))?.text;
+  }
   private async apply(target: SemanticTarget, operation: SemanticOperation, turn: SemanticTurn,
     answerCandidates?: FieldCandidate[], publishedFields?: Set<string>) {
     const field = operation.field;
@@ -698,9 +803,14 @@ export class SemanticTaskService {
     }
     if (field === "operation" && "value" in operation) {
       if ("queryOperation" in operation && operation.queryOperation) {
-        const value = operation.queryOperation;
-        target.fields.operation = {...resolved(operation.value, value, "query_operation"),
-          metadata: {structuredQuery: true, modelOperation: structuredClone(value)}};
+        const submitted = operation.queryOperation;
+        const value = submitted.kind === "ranking" && (submitted.position === null || submitted.top_n === null)
+          ? await completeRankingOperation(submitted, {originalMessage: turn.originalMessage, currentDate: turn.businessDate,
+            turnId: turn.operationId, resolveCatalog: async () => ({status: "invalid"}),
+            resolveMetricMentions: question => metricMentions(this.request, question)}) : submitted;
+        target.fields.operation = {...resolved(operationLabel(value), value, "query_operation"),
+          metadata: {structuredQuery: true, modelOperation: structuredClone(value),
+            ...(value !== submitted ? {submittedOperation: structuredClone(submitted), sourceEvidence: "original_question"} : {})}};
         if (value.kind === "sort" || value.kind === "ranking" && (value.position === null || value.top_n === null)) {
           target.fields.operation.resolutionStatus = "ambiguous";
         }
@@ -721,9 +831,10 @@ export class SemanticTaskService {
       let raw = "value" in operation ? operation.value : operation.subject;
       const facts = this.request.semanticStep?.facts;
       if (operation.action === "set" && !hasInputEvidence(turn.originalMessage, raw) && facts
-        && !(entity === "metric" && this.request.semanticStep?.analysis)
+        && !(entity === "metric" && (this.request.semanticStep?.analysis || this.recoveredMetric))
         && !facts.fragments.some(fragment => entity === "organization" ? fragment.organizations.length : fragment.mentions.length)
         && previous?.resolutionStatus !== "resolved") {
+        if (field === "metrics") await this.requireRecoveryAnalysis();
         delete target.fields[field]; delete target.pending[field]; return;
       }
       let response: FieldResolution;
@@ -941,13 +1052,19 @@ export class SemanticTaskService {
       const value = response.value;
       if (response.status !== "resolved" || !checkedEntity(value)) {
         if (previous?.resolutionStatus === "resolved" && operation.action === "set" && !hasInputEvidence(turn.originalMessage, raw)
-          && !this.request.semanticStep?.analysis) {target.fields[field] = structuredClone(previous); return;}
+          && !this.request.semanticStep?.analysis) {
+          if (field !== "metrics") {target.fields[field] = structuredClone(previous); return;}
+          this.deferUnboundMetric(target, raw, turn);
+        }
         target.fields[field] = {rawValue: raw, resolutionStatus: response.status === "resolved" ? "temporary_error" : response.status,
           source: "explicit", resolver: entity, ...(response.candidates ? {candidates: response.candidates} : {}), metadata: {...response.metadata, proposalTurn: turn.operationId}};
         target.pending[field] = raw;
         const analysisPick = field === "metrics" && this.request.semanticStep?.analysis && !(await metricMentions(this.request)).mentions.length;
         // 零候选的 not_found 是死胡同澄清：必须引导用户改写，不能原样复读模型给出的错名。
         const noHit = entity === "organization" && response.status === "not_found" && !response.candidates?.length;
+        if (entity === "organization" && response.metadata?.reason === "account_organization_unavailable")
+          throw new SemanticConflict(issue("ACCOUNT_ORGANIZATION_UNAVAILABLE", field,
+            "当前账号没有可用的所属机构，请说明‘我行’具体指哪家机构。", "user", "catalog"));
         throw new SemanticConflict(analysisPick ? issue("ANALYSIS_CATALOG_EVIDENCE_REQUIRED", field, "此分析选指标提案尚无正式目录身份，请先catalog检索相关业务类别，核对确定性命中后继续规划；不用让用户填写内部指标。", "pi", "catalog")
           : issue("ENTITY_NOT_DETERMINED", field, noHit
             ? `未找到名为「${raw}」的机构，请换个说法或回复机构全称。`
@@ -955,8 +1072,10 @@ export class SemanticTaskService {
       }
       if (field === "metrics" && operation.action !== "confirm" && operation.action !== "exclude" && !this.request.semanticStep?.analysis) {
         const mentions = await metricMentions(this.request);
+        if (this.recoveredMetric && (value.codes.length !== 1 || value.codes[0] !== this.recoveredMetric.code))
+          throw new SemanticConflict(issue("QUERY_RECOVERY_METRIC_CHANGED", "metrics", "目录指标身份已变化，请按原目标重新查证。", "pi", "catalog"));
         const supported = new Set([...entityValue(previous).codes, ...mentions.mentions.flatMap(mention =>
-          (mention.resolution.value as EntityValue | undefined)?.codes ?? [])]);
+          (mention.resolution.value as EntityValue | undefined)?.codes ?? []), ...(this.recoveredMetric ? [this.recoveredMetric.code] : [])]);
         const unsupported = value.codes.filter(code => !supported.has(code));
         // “明确口径优先”：同一基础指标换口径（“改成较上月”）可在本轮原文明确写出该口径时采用，
         // 不需要完整指标名再次出现在原句；基础名必须与已绑定指标一致，口径词必须来自本轮原文。
@@ -970,6 +1089,22 @@ export class SemanticTaskService {
             && normalizeInputEvidence(turn.originalMessage).includes(normalizeInputEvidence(metric.value_basis));
         });
         if (unsupported.length && !basisGrounded && !hasInputEvidence(turn.originalMessage, raw)) {
+          await this.requireRecoveryAnalysis();
+          if (previous?.resolutionStatus === "resolved" && operation.action === "set") {
+            const proposed = proposedMetrics.length === 1 ? proposedMetrics[0] : undefined;
+            const fragment = value.codes.length === 1 && proposed && proposed.code === value.codes[0] && proposed.base_name
+              ? await this.metricDiscoveryFragment(turn, proposed.base_name, [...previousBases, ...entityValue(previous).names,
+                ...((previous.metadata?.metrics as MetricBasis[] | undefined) ?? []).flatMap(item => item.value_basis ? [item.value_basis] : []),
+                ...(proposed.value_basis ? [proposed.value_basis] : [])]) : undefined;
+            if (fragment) {
+              // 正式基础名的重合只说明值得发现；保留完整原句及限定词，不直接采用模型提出的指标身份。
+              target.fields.metrics = {rawValue: turn.originalMessage, resolutionStatus: "not_found", source: "explicit",
+                resolver: "metric", metadata: {proposalTurn: turn.operationId, discoveryFragment: fragment}};
+              throw new SemanticConflict(issue("ENTITY_NOT_DETERMINED", field,
+                "本轮指标含义尚未确定，请保留完整原问题及限定词查证目录，不能直接采用此前指标或当前提案的值。", "user", "catalog"));
+            }
+            this.deferUnboundMetric(target, raw, turn);
+          }
           if (previous) target.fields[field] = structuredClone(previous); else delete target.fields[field];
           return;
         }
@@ -1006,6 +1141,9 @@ export class SemanticTaskService {
         next = updateCollection(before, actual.action, value, found)!;
       } else next = updateCollection(before, actual.action as "set" | "add" | "confirm", value)!;
       target.fields[field] = {...resolved(["add", "replace", "exclude"].includes(actual.action) ? next.names.join("、") : raw, next, entity), metadata: {...response.metadata, confirmed: operation.action === "confirm", confirmedBindings}};
+      if (field === "metrics" && this.recoveredMetric) target.fields[field] = {...target.fields[field]!,
+        rawValue: this.recoveredMetric.query_recovery!.metric_expression, source: "resolved",
+        metadata: {...target.fields[field]!.metadata, catalogInterpretation: this.recoveredMetric.query_recovery}};
       if (!next.codes.length) target.pending[field] = "集合为空，不能扩大成全部范围"; else delete target.pending[field];
       for (const [index, following] of pendingTail.entries()) {
         const baseline = structuredClone(target.fields[field]!);
@@ -1074,6 +1212,13 @@ export class SemanticTaskService {
       // 模型随原文提交的日历换算经 model_value 通道上送；形状由协议 Schema 约束，严格日历校验在服务端。
       const response = await resolveTurnField(this.request, "date", [operation.value], {signal: this.signal}, year,
         {business_date: turn.businessDate, source_question: turn.originalMessage}, operation.modelCalendar);
+      if (response.status === "resolved" && (response.value as {preset?: string} | undefined)?.preset === "latest") {
+        if (this.request.semanticStep?.kind === "availability") throw new SemanticConflict(issue("TIME_STRATEGY_NOT_SUPPORTED", "time",
+          "覆盖发现不支持最新有效值策略，请明确要发现的日期范围或省略日期限制。", "user", "capability"));
+        target.fields.time = {...resolved(operation.value, {preset: "latest"}, "date"), metadata: {...response.metadata, timePolicy: "latest"}};
+        delete target.pending.time;
+        return;
+      }
       let value = response.value as {start?: string; end?: string; dates?: string[]} | undefined;
       if (operation.action === "set" && this.boundCalendar && this.boundFacts?.question === turn.originalMessage
         && response.metadata?.resolution_source !== "model") {
@@ -1099,13 +1244,13 @@ export class SemanticTaskService {
       target.fields.time = {...resolved(operation.value, value, "date"), metadata: {...response.metadata, ...(response.alternative ? {timeAlternative: response.alternative} : {})}};
     } else if (field === "selection") {
       const text = normalizeInputEvidence(operation.value);
-      const meaning = ("selectionValue" in operation ? operation.selectionValue : undefined) ?? (/最新|最后|latest_in_range/u.test(text) ? "latest_in_range"
+      const meaning = ("selectionValue" in operation ? operation.selectionValue : undefined) ?? (text === "latest" ? "latest" : /最新|最后|latest_in_range/u.test(text) ? "latest_in_range"
         : /全部|所有|完整|逐|各期|all_in_range/u.test(text) ? "all_in_range" : /指定|精确|exact/u.test(text) ? "exact" : undefined);
       // 模型提案无法解读（如只写“记录”）不是协议错误：转成可向用户回答的待补问题，保留范围和其他字段。
       if (!meaning) throw new SemanticConflict(issue("SELECTION_NOT_INTERPRETED", field, SELECTION_PENDING_QUESTION, "user"));
       const source = normalizeInputEvidence(turn.originalMessage);
-      const anchor = meaning === "latest_in_range" ? /最新|最后|最近一期|末次/u.test(source)
-        : meaning === "all_in_range" ? /所有|全部|完整|逐日|每日|各期|序列|趋势|变化/u.test(source) : true;
+      const anchor = meaning === "latest" || meaning === "latest_in_range" ? /最新|最后|最近一期|末次/u.test(source)
+        : meaning === "all_in_range" ? /所有|全部|完整|整个(?:月|月份|季度|期间|年份)|整(?:月|季|年)|逐日|每日|各期|序列|趋势|变化/u.test(source) : true;
       // 原句没有对应锚词（“记录”不等于全量）时不默认任何取数方式，只向用户追问。
       if (!anchor && !("structured" in operation && operation.structured) && !this.request.semanticStep?.analysis) throw new SemanticConflict(issue("SELECTION_SOURCE_NOT_ESTABLISHED", field,
         `原始问题尚未明确区间取数方式，不能默认最新一期或完整序列。${SELECTION_PENDING_QUESTION}`, "user"));
@@ -1163,6 +1308,10 @@ export class SemanticTaskService {
     }
     for (const field of ["organizations", "metrics"] as const) {
       if (!task.target.fields[field]) continue;
+      // 经营分析允许省略机构，由后端按认证账户取默认机构并重新鉴权；不能把缺省占位当空机构清单解析。
+      // 显式机构、解析失败或其他能力的必填字段仍走原许可复核。
+      if (field === "organizations" && ["business_overview", "business_analysis"].includes(task.capability ?? "")
+        && task.target.fields[field].resolutionStatus === "missing") continue;
       const value = entityValue(task.target.fields[field]);
       const checked = await this.request.backend.resolveBusinessField(field === "metrics" ? "metric" : "organization", value.codes, {signal: this.signal});
       if (checked.status !== "resolved" || !checkedEntity(checked.value) || checked.value.codes.length !== value.codes.length
@@ -1180,6 +1329,14 @@ export class SemanticTaskService {
   async settle(task: SemanticTask, frame?: BusinessFrame) {
     const latest = await this.store.get(task.ref);
     if (!latest || latest.revision !== task.revision) return latest;
+    if (frame?.status === "success" && frame.fields.time?.metadata?.queryDates) {
+      latest.target.fields.time = structuredClone(frame.fields.time);
+      if (frame.fields.selection) latest.target.fields.selection = structuredClone(frame.fields.selection);
+    }
+    if (frame?.status === "success" && ["business_analysis", "business_overview"].includes(frame.capability)) {
+      if (frame.fields.organizations?.metadata?.analysisScope) latest.target.fields.organizations = structuredClone(frame.fields.organizations);
+      if (frame.fields.time?.metadata?.analysisDates) latest.target.fields.time = structuredClone(frame.fields.time);
+    }
     latest.target.status = frame?.status === "success" ? "succeeded" : frame?.status === "failed" ? "failed" : "unknown";
     latest.status = frame?.status === "success" ? "completed" : frame?.status === "failed" ? "stopped" : "waiting_dependency";
     latest.completion = frame?.status === "success" && !frame.resultSummary?.truncated ? "full" : "unmet";

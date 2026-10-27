@@ -212,27 +212,44 @@ class PromptRuntimeConfig(BaseModel):
 
 
 class ModelConfigRepository:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, store=None) -> None:
         self.path = path
+        self.store = store
 
     def load(self) -> ModelRuntimeConfig:
-        return ModelRuntimeConfig.model_validate(_read_json(self.path))
+        data = (
+            self.store.read_json("sznsznws_backend_model.json")
+            if self.store
+            else _read_json(self.path)
+        )
+        return ModelRuntimeConfig.model_validate(data)
 
     def save(self, config: ModelRuntimeConfig) -> None:
+        if self.store:
+            self.store.publish_json("sznsznws_backend_model.json", config.model_dump(mode="json"))
+            return
         _write_json(self.path, config.model_dump(mode="json"))
 
 
 class PromptConfigRepository:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, store=None) -> None:
         self.path = path
+        self.store = store
 
     def load(self) -> PromptRuntimeConfig:
-        data = _read_json(self.path)
+        data = (
+            self.store.read_json("sznsznws_backend_prompts.json")
+            if self.store
+            else _read_json(self.path)
+        )
         # 持久配置可来自旧版本；退役提示词不再加载或暴露，保留磁盘文件供回退。
         data.get("prompts", {}).pop("intent_routing", None)
         return PromptRuntimeConfig.model_validate(data)
 
     def save(self, config: PromptRuntimeConfig) -> None:
+        if self.store:
+            self.store.publish_json("sznsznws_backend_prompts.json", config.model_dump(mode="json"))
+            return
         _write_json(self.path, config.model_dump(mode="json"))
 
     def validate_update(self, updated: PromptRuntimeConfig) -> None:

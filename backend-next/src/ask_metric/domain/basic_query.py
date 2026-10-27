@@ -7,8 +7,10 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SerializerFunctionWrapHandler,
     StringConstraints,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -36,8 +38,9 @@ def _require_calendar_date(value) -> date:
 class BasicQueryTime(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    start: date
-    end: date
+    start: date | None = None
+    end: date | None = None
+    preset: Literal["latest"] | None = None
     # 多个离散日期点（如"2月末、3月末、4月末"）；为空表示单点或连续区间。
     # start/end 始终是这些点的最早/最晚，兼容既有 {start,end} 消费方。
     # 上限与规划层 MAX_TARGET_DATES 一致，超限在契约层返回 422，不进入任务执行。
@@ -46,7 +49,7 @@ class BasicQueryTime(BaseModel):
     @field_validator("start", "end", mode="before")
     @classmethod
     def require_calendar_date(cls, value):
-        return _require_calendar_date(value)
+        return None if value is None else _require_calendar_date(value)
 
     @field_validator("dates", mode="before")
     @classmethod
@@ -59,6 +62,12 @@ class BasicQueryTime(BaseModel):
 
     @model_validator(mode="after")
     def validate_range(self):
+        if self.preset == "latest":
+            if self.start is not None or self.end is not None or self.dates is not None:
+                raise ValueError("latest 不能同时指定日历日期或离散日期")
+            return self
+        if self.start is None or self.end is None:
+            raise ValueError("日历日期必须同时指定 start 和 end")
         if self.start > self.end:
             raise ValueError("开始日期不能晚于结束日期")
         if self.dates is not None:
@@ -69,6 +78,17 @@ class BasicQueryTime(BaseModel):
                 raise ValueError("离散日期的最早/最晚必须等于 start/end")
             self.dates = unique
         return self
+
+    @model_serializer(mode="wrap")
+    def serialize_time(self, handler: SerializerFunctionWrapHandler):
+        # 旧日历请求的序列化形状参与幂等指纹，不能因新增空 preset 改变已有请求身份。
+        result = handler(self)
+        if self.preset is None:
+            result.pop("preset", None)
+        else:
+            for field in ("start", "end", "dates"):
+                result.pop(field, None)
+        return result
 
 
 class BasicQueryTimeAlternative(BaseModel):
@@ -148,11 +168,16 @@ class BasicQuerySpec(BaseModel):
     comparison_scope: ComparisonScope | None = None
     time: BasicQueryTime
     time_alternative: BasicQueryTimeAlternative | None = None
-    selection: Literal["exact", "latest_in_range", "all_in_range"]
+    selection: Literal["exact", "latest_in_range", "all_in_range", "latest"]
     operation: QueryOperation = Field(default_factory=ValueOperation)
 
     @model_validator(mode="after")
     def validate_selection(self):
+        latest = self.time.preset == "latest"
+        if latest != (self.selection == "latest"):
+            raise ValueError("latest 日期策略必须与 latest 取数方式配对")
+        if latest and (self.operation.kind != "value" or self.time_alternative is not None):
+            raise ValueError("latest 仅支持普通取值，不能混用排名或备选日期")
         has_dates = self.time.dates is not None
         # 多个离散点本质是"多个 exact 点"，各点各取一值；与区间取数方式互斥。
         if has_dates:
@@ -215,7 +240,9 @@ class BasicQuerySpec(BaseModel):
             task=TaskType.METRIC_QUERY,
             metrics=self.metric_codes,
             orgs=[] if self.operation.kind == "rank_position" else self.org_codes,
-            time=LogicalTimeRange(start=self.time.start, end=self.time.end),
+            time=LogicalTimeRange(
+                start=self.time.start, end=self.time.end, preset=self.time.preset,
+            ),
             ops=ops,
             options=options,
         )

@@ -1,11 +1,30 @@
 import type {AskMetricRequestContext} from "../requestContext.js";
 import type {FieldResolution, ResolvedField} from "../business-context/types.js";
-import {hasInputEvidence} from "../business-context/inputEvidence.js";
+import {hasInputEvidence, organizationInputMembers} from "../business-context/inputEvidence.js";
 import type {ModelCalendar, SemanticOperation} from "./protocol.js";
 
 export type TurnFacts = Awaited<ReturnType<AskMetricRequestContext["backend"]["inspectBusinessGoal"]>>;
 /** 集合范围已由动作或限定子句表达时，词法提及不能再变成正向全集。 */
 export const hasCollectionIntent = (question: string) => /排除|去掉|剔除|不要|不(?:查|看)|只(?:看|查|要)|仅(?:看|查)|换成|换为|改成|改为|替换/u.test(question);
+
+/** 新目标的同一机构清单可被模型分成多次set；仅合并全有原文依据的正向成员，不改历史或集合动作。 */
+export function coalesceOrganizationAssignments(operations: SemanticOperation[], question: string): SemanticOperation[] {
+  const organizations = operations.filter(operation => operation.field === "organizations");
+  if (organizations.length < 2 || hasCollectionIntent(question)) return operations;
+  const members: string[] = [];
+  for (const operation of organizations) {
+    if (operation.action !== "set" || operation.structured || operation.values || operation.organizationScope) return operations;
+    const values = organizationInputMembers(operation.value);
+    if (!values.every(member => hasInputEvidence(question, member))) return operations;
+    members.push(...values);
+  }
+  const names = [...new Set(members)];
+  if (names.length > 100) return operations;
+  // 单条suggestion不能代表整个集合；完整清单重新交授权目录解析，不采信模型提供的编码。
+  const merged: SemanticOperation = {action: "set", field: "organizations", value: names.join("、")};
+  return operations.flatMap(operation => operation.field !== "organizations" ? [operation]
+    : operation === organizations[0] ? [merged] : []);
+}
 export type EntityValue = {codes: string[]; names: string[]};
 type ResolveArguments = Parameters<AskMetricRequestContext["backend"]["resolveBusinessField"]>;
 
@@ -48,12 +67,29 @@ export function bindFieldOperations(operations: SemanticOperation[], facts: Turn
     fragment.mentions.some(mention => index >= mention.start && index < mention.end) ? " " : character).join("")).join("；");
   const changesTime = /(?:改|换|另|别|其他|其它|调整).{0,8}(?:日期|时间)|(?:日期|时间).{0,8}(?:改|换|调整)/u.test(facts.question);
   const choosingTime = fields.time?.resolutionStatus !== "resolved" && fields.time?.candidates?.length;
-  const normalized = !calendars.length && !unresolvedTimes.length && !choosingTime ? operations.flatMap(operation => {
+  let normalized = !calendars.length && !unresolvedTimes.length && !choosingTime ? operations.flatMap(operation => {
     if (operation.field !== "time" || !["set", "replace"].includes(operation.action) || !("value" in operation)
       || hasInputEvidence(timeEvidence, operation.value)) return [operation];
-    return fields.time?.resolutionStatus === "resolved" && !changesTime ? [] : [{action: "clear" as const, field: "time" as const}];
+    // 丢弃模型无依据补出的日期不等于用户清除；真实换日期但未说明新值才保留缺项。
+    return !changesTime ? [] : [{action: "clear" as const, field: "time" as const}];
   }) : operations;
-  if (options.joint || normalized.some(operation => "structured" in operation && operation.structured)) return {operations: normalized};
+  if (options.joint) return {operations: normalized};
+  const latestSelection = normalized.find(operation => operation.field === "selection" && operation.action === "set"
+    && /最新|latest/u.test(operation.value));
+  const latestDate = /最新(?:有(?:效)?数据|有值|有效|可用)?(?:的)?(?:数据日|日期|时点)/u.test(timeEvidence);
+  const previousTime = fields.time?.resolvedValue as {preset?: string; start?: string; end?: string; dates?: string[]} | undefined;
+  const canRefreshLatest = !fields.time || previousTime?.preset === "latest"
+    || fields.time.metadata?.timePolicy === "latest" && !!previousTime?.start && previousTime.start === previousTime.end && !previousTime.dates;
+  const boundedOrRetained = /区间|期间|范围|(?:日期|时间|时点|条件)(?:保持)?(?:不变|一致)|(?:仍按|沿用|保留|保持)(?:原(?:来)?的?|之前的?|上次的?)(?:日期|时间|时点)|(?:不(?:要|用|查|按)|别(?:用|查))最新/u.test(timeEvidence);
+  if (latestSelection && latestDate && canRefreshLatest && !boundedOrRetained && !options.analysis && !options.calendar
+    && !calendars.length && !unresolvedTimes.length && !choosingTime && !options.answered?.has("time")
+    && !normalized.some(operation => operation.field === "time")) {
+    // 用户改查最新实际日期时，模型可能只修改selection；补齐时间意图后仍交正式日期解析器核验。
+    normalized = normalized.map(operation => operation === latestSelection
+      ? {...operation, selectionValue: "latest" as const} : operation);
+    normalized.push({action: "set", field: "time", value: "最新"});
+  }
+  if (normalized.some(operation => "structured" in operation && operation.structured)) return {operations: normalized};
   const bound = normalized.map(operation => {
     const previous = fields[operation.field];
     if (operation.action === "replace" && previous?.resolutionStatus === "resolved" && operation.field !== "time"
@@ -117,7 +153,7 @@ export function bindFieldOperations(operations: SemanticOperation[], facts: Turn
     if (existing.length) {
       const index = bound.indexOf(existing[0]!);
       // 原文完整槽位可能含待定成员；不能用词法只识别出的那一部分替换整个槽位。
-      if (field === "organizations" && "value" in existing[0]! && existing[0]!.value.split(/[、，,]/u).every(member => hasInputEvidence(facts.question, member))) continue;
+      if (field === "organizations" && "value" in existing[0]! && organizationInputMembers(existing[0]!.value).every(member => hasInputEvidence(facts.question, member))) continue;
       // 原文机构槽位已明确时，用正式身份绑定；错字建议通道仍按原值和 suggestion 解析。
       if (field === "organizations" && existing[0] && "suggestion" in existing[0] && existing[0].suggestion) continue;
       bound[index] = normalized;

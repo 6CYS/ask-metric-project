@@ -5,6 +5,8 @@ import { createDataAvailabilityTool } from "../tools/dataAvailability.js";
 import { createMetricCalculateTool } from "../tools/metricCalculate.js";
 import type { BusinessFrame, QueryOperation, ResolvedOrganizations } from "./types.js";
 import { withOrgResolutionNotices } from "./resolutionNotice.js";
+import { createBusinessOverviewTool } from "../tools/businessOverview.js";
+import {createGeneralAnalysisTool} from "../analysis/tools.js";
 
 type Tool = AgentHarnessTool<AskMetricRequestContext>;
 type Call = Parameters<Tool["execute"]>;
@@ -26,8 +28,16 @@ const value = (frame: BusinessFrame, name: string) => frame.fields[name]?.resolv
 const codes = (frame: BusinessFrame, name: string) => (value(frame, name) as {codes?: string[]} | undefined)?.codes ?? [];
 export function createBusinessTools(): BusinessToolRegistry {
   const registry = new BusinessToolRegistry();
+  registry.register("general_analysis", async (frame, call) => {
+    const tool = createGeneralAnalysisTool(frame);
+    return tool.execute(call[0], {}, call[2], call[3], call[4], call[5]);
+  });
+  registry.register("business_overview", async (frame, call) => {
+    const tool = createBusinessOverviewTool(frame);
+    return tool.execute(call[0], {}, call[2], call[3], call[4], call[5]);
+  });
   registry.register("metric_query_structured", async (frame, [id, , update, request, invocation, context]) => {
-    const time = value(frame, "time") as {start: string; end: string; dates?: string[]};
+    const time = value(frame, "time") as import("../backendClient.js").BasicQueryTime;
     const tool = createStructuredQueryTool();
     // “近N年”默认解析的完整年度备选口径：随查询提交并透传回执，供前端“切换口径”重查。
     const rawAlternative = frame.fields.time?.metadata?.timeAlternative as {label?: unknown; start?: unknown; end?: unknown} | undefined;
@@ -38,7 +48,7 @@ export function createBusinessTools(): BusinessToolRegistry {
     if (organizations.scope && !organizations.scope_fingerprint) throw new Error("SCOPE_FINGERPRINT_MISSING");
     const selection = value(frame, "selection");
     // 单日范围内取最新与精确日语义等价，在执行边界统一请求，保留 Frame 原始意图。
-    const normalizedSelection = selection === "latest_in_range" && time.start === time.end ? "exact" : selection;
+    const normalizedSelection = selection === "latest_in_range" && time.start && time.start === time.end ? "exact" : selection;
     const comparison = value(frame, "comparison_organizations") as ResolvedOrganizations | undefined;
     if (comparison?.scope && !comparison.scope_fingerprint) throw new Error("SCOPE_FINGERPRINT_MISSING");
     // 只组装规范化查询参数；指标/机构/日期身份已由宿主绑定层核验，不再附原句证明。

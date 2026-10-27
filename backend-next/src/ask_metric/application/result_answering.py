@@ -5,14 +5,13 @@ import json
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
 from typing import Any, Literal
 
 from ask_metric.domain.query_execution import QueryExecutionPlan, json_safe
-from ask_metric.domain.value_presentation import money_reply_fields
+from ask_metric.domain.value_presentation import MONEY_UNIT_SCALES, money_reply_fields
 
 _MAX_FACTS_IN_ANSWER = 20
-_MONEY_UNITS = {"元", "万元"}
 _COUNT_UNITS = {"户"}
 
 
@@ -231,7 +230,8 @@ def _render_standard_facts(
     if len(facts) == 1:
         fact = facts[0]
         stat_date = _format_date(fact.fields.get("stat_date"))
-        prefix = f"{stat_date}，" if stat_date else ""
+        date_intro = "截至" if "余额" in str(fact.fields.get("metric_name") or "") else ""
+        prefix = f"{date_intro}{stat_date}，" if stat_date else ""
         segments = (
             ([_segment(prefix)] if prefix else [])
             + _standard_fact_body(fact.fields)
@@ -261,10 +261,15 @@ def _standard_fact_body(fields: dict[str, Any]) -> list[dict[str, Any]]:
     """单条事实正文的片段序列；关键数值（指标值/名次）标 bold。"""
     org = str(fields.get("org_name") or "")
     metric = str(fields.get("metric_name") or "查询指标")
+    if metric.endswith("当日数") and len(metric) > len("当日数"):
+        # 正文已有统计日，仅省去重复的当前取值后缀；日均、同期等业务含义保留。
+        metric = metric.removesuffix("当日数")
     value = fields.get("metric_value")
     unit = str(fields.get("unit") or "")
     rank = fields.get("rank")
     subject = f"{org}{metric}" or "查询结果"
+    value_text = _format_value(value, unit, metric, approximate=True)
+    connector = "" if value_text.startswith("约") else "为"
     if "排名" in metric and value is not None:
         return [
             _segment(f"{subject}为"),
@@ -274,12 +279,12 @@ def _standard_fact_body(fields: dict[str, Any]) -> list[dict[str, Any]]:
         rank_text = _format_integer(rank)
         return [
             _segment(f"第{rank_text}名", bold=True),
-            _segment(f"{subject}为"),
-            _segment(_format_value(value, unit, metric), bold=True),
+            _segment(f"{subject}{connector}"),
+            _segment(value_text, bold=True),
         ]
     return [
-        _segment(f"{subject}为"),
-        _segment(_format_value(value, unit, metric), bold=True),
+        _segment(f"{subject}{connector}"),
+        _segment(value_text, bold=True),
     ]
 
 
@@ -426,7 +431,7 @@ def _subject(fields: dict[str, Any]) -> str:
     ) or "查询指标"
 
 
-def _format_value(value: Any, unit: str, metric_name: str) -> str:
+def _format_value(value: Any, unit: str, metric_name: str, *, approximate: bool = False) -> str:
     if value is None:
         return "暂无数据"
     if "排名" in metric_name:
@@ -434,11 +439,18 @@ def _format_value(value: Any, unit: str, metric_name: str) -> str:
     decimal = _decimal_or_none(value)
     if decimal is None:
         return f"{value}{unit}"
-    if unit in _MONEY_UNITS:
+    if unit in MONEY_UNIT_SCALES:
         reply = money_reply_fields(decimal, unit)
         if not reply:
             return "暂无数据"
-        return f"{Decimal(reply['reply_value']):,.2f}{reply['reply_unit']}"
+        displayed = Decimal(reply["reply_value"])
+        with localcontext() as context:
+            context.prec = max(60, len(decimal.as_tuple().digits) + 12, decimal.adjusted() + 12)
+            rounded = displayed * MONEY_UNIT_SCALES[reply["reply_unit"]] != (
+                decimal * MONEY_UNIT_SCALES[unit]
+            )
+        prefix = "约" if approximate and rounded else ""
+        return f"{prefix}{displayed:,.2f}{reply['reply_unit']}"
     if unit in _COUNT_UNITS:
         return f"{decimal.quantize(Decimal('1'), rounding=ROUND_HALF_UP):,.0f}{unit}"
     if unit in {"%", "％"}:
@@ -501,4 +513,4 @@ def _format_date(value: Any) -> str | None:
         parsed = None
     if parsed is None:
         return None
-    return f"{parsed.year}年{parsed.month:02d}月{parsed.day:02d}日"
+    return f"{parsed.year}年{parsed.month}月{parsed.day}日"

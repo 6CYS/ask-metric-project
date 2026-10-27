@@ -386,7 +386,7 @@ def resolve_date_field(
     reference_year: int | None = None,
     model_value: dict | None = None,
 ) -> dict:
-    """复用现有日期规则；不允许 latest 或无法确定的区间进入正式查询。
+    """复用现有日期规则；无界近期返回实际数据策略，不猜日历日期。
 
     顺序：先处理“近 N 年”歧义（默认滚动 N 年截至今天，附“最近 N 个完整年度”
     备选口径，不再阻塞澄清），再走确定性解析（离散多点 → 单点/区间）；确定性
@@ -394,6 +394,11 @@ def resolve_date_field(
     模型换算结果。解析命中确定性规则时忽略 model_value。
     """
     try:
+        # 无界近期是数据覆盖策略，不能采纳模型猜测的日历日期。
+        if re.fullmatch(r"(?:最近|近期|近来|最新|这段时间|这阵子|这阵儿)", raw.strip()):
+            return {"status": "resolved", "value": {"preset": "latest"}, "metadata": {
+                "resolution_source": "deterministic", "businessDate": today.isoformat(),
+            }}
         recent_years = re.fullmatch(r"(?:近|最近|过去)\s*(\d+|[一二两三四五六七八九十]+)\s*个?年", raw.strip())
         if recent_years:
             amount = recent_years.group(1)
@@ -546,6 +551,7 @@ _SOURCE_MONTH = r"[0-9一二两三四五六七八九十]{1,3}月份?(?:末|底)?
 _SOURCE_YEAR = r"(?:\d{4}年|今年|本年|去年|上年|前年)"
 _SOURCE_POINT = rf"(?:(?:{_SOURCE_YEAR})?(?:(?:第)?[一二三四1-4]季度|[上下]半年)|\d{{4}}-\d{{1,2}}-\d{{1,2}}|(?:{_SOURCE_YEAR})?{_SOURCE_MONTH}(?:\d{{1,2}}(?:日|号))?|{_SOURCE_YEAR}(?:末|底|初)?)"
 _SOURCE_CALENDAR = re.compile(
+    r"上个?月(?:末|底)|"
     rf"(?:向前)?滚动\s*(?:\d+|[一二两三四五六七八九十]+)\s*年\s*(?:[,，]?\s*截至(?:今天|今日))?|"
     rf"{_SOURCE_POINT}\s*(?:至|到|~|～)\s*{_SOURCE_POINT}|{_SOURCE_POINT}|"
     r"(?:近|最近|过去)\s*(?:\d+|[一二两三四五六七八九十]+)\s*个?(?:完整)?[年月天]|今天|今日|昨天"

@@ -27,6 +27,8 @@ export interface AgentServiceConfig {
   /** 发送副本的回执视图；raw 保留原始工具内容，持久记录始终不变。 */
   modelContextView?: "raw" | "compact_v1";
   semanticPromptVariant?: "full" | "compact_v1";
+  /** 模型网关不兼容强制工具选择时使用auto；服务端业务与结果校验保持生效。 */
+  modelToolChoicePolicy?: "native" | "auto";
   model: {
     baseUrl: string;
     name: string;
@@ -91,6 +93,8 @@ function parseBoolean(raw: string | undefined, fallback: boolean, name: string):
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceConfig {
   const directQueryDelivery = env.AGENT_DIRECT_QUERY_DELIVERY?.trim() || "on";
+  const modelToolChoicePolicy = env.AGENT_MODEL_TOOL_CHOICE_POLICY?.trim() || "native";
+  if (!["native", "auto"].includes(modelToolChoicePolicy)) throw new Error("AGENT_MODEL_TOOL_CHOICE_POLICY 必须为 native 或 auto");
   if (!["off", "observe", "on"].includes(directQueryDelivery)) throw new Error("AGENT_DIRECT_QUERY_DELIVERY 必须为 off、observe 或 on");
   const modelContextView = env.AGENT_MODEL_CONTEXT_VIEW?.trim() || "compact_v1";
   if (!["raw", "compact_v1"].includes(modelContextView)) throw new Error("AGENT_MODEL_CONTEXT_VIEW 必须为 raw 或 compact_v1");
@@ -138,6 +142,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceCo
     modelRetry,
     answerStreaming: parseBoolean(env.AGENT_ANSWER_STREAMING, false, "AGENT_ANSWER_STREAMING"),
     directQueryDelivery: directQueryDelivery as "off" | "observe" | "on",
+    modelToolChoicePolicy: modelToolChoicePolicy as "native" | "auto",
     modelContextView: modelContextView as "raw" | "compact_v1",
     semanticPromptVariant: semanticPromptVariant as "full" | "compact_v1",
     model: {

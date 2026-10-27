@@ -127,6 +127,7 @@ class QueryPlanner:
         display_metric_names: list[str] | None = None,
         display_org_names: list[str] | None = None,
         ordinal_metric_codes: list[str] | None = None,
+        business_date: date | None = None,
     ) -> QueryExecutionPlan:
         if dsl.task.value != "metric_query":
             raise UnsupportedQueryError(f"Task {dsl.task.value} is not executable yet")
@@ -192,7 +193,9 @@ class QueryPlanner:
                 "grain": grain, "selection": selection,
             })
         elif shape == SupportedQueryShape.METRIC_VALUE:
-            template, value_parameters = _value_plan(dsl, compare_entities=bool(result_operations))
+            template, value_parameters = _value_plan(
+                dsl, compare_entities=bool(result_operations), business_date=business_date,
+            )
             if self.dialect == "inceptor" and "period_starts" in value_parameters:
                 # Inceptor deployments differ in JSON_TABLE/array expansion support.
                 # Fetch the bounded date set and keep period selection in the application
@@ -320,17 +323,17 @@ def _validate_operation_support(dsl: LogicalDSL, shape: SupportedQueryShape) -> 
 
 
 def _value_plan(
-    dsl: LogicalDSL, *, compare_entities: bool
+    dsl: LogicalDSL, *, compare_entities: bool, business_date: date | None = None,
 ) -> tuple[QueryTemplateId, dict[str, Any]]:
     start = dsl.time.start
     end = dsl.time.end
     if dsl.time.preset == "latest":
-        template = (
-            QueryTemplateId.METRIC_VALUE_COMPARE_LATEST
-            if compare_entities
-            else QueryTemplateId.METRIC_VALUE_LATEST
-        )
-        return template, {}
+        if compare_entities:
+            return QueryTemplateId.METRIC_VALUE_COMPARE_LATEST, {}
+        if business_date is None:
+            raise QueryPlanError("Latest value queries require the server business date")
+        # 业务日仅是执行上界，DSL 保留 latest 策略，不能把今天伪装为实际数据日。
+        return QueryTemplateId.METRIC_VALUE_AS_OF, {"end_date": business_date}
     time_windows = _time_windows(dsl.options.get("time_windows"))
     if time_windows:
         return QueryTemplateId.METRIC_VALUE_AT_PERIODS, {

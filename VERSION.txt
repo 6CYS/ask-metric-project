@@ -1,0 +1,5 @@
+branch: release
+base_commit: 0d86941d53e7534424b883b85b7b623bfc29d54f
+date: 2026-10-27
+snapshot: source handoff with documentation/test cleanup, not a new commit
+Dependencies, local configuration, credentials, sessions, database and model service are not bundled.

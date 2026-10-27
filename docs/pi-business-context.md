@@ -3,7 +3,7 @@
 现有智能问数页面继续使用原 Pi Session / main lane 入口；没有新增产品入口或第二套 Agent。
 Pi 理解原文、历史指代和本轮变化，业务上下文层只处理结构化 Delta。后端不再为这条问数链路调用第二次语义模型。
 
-2026-10-14 起，模型业务提交统一使用 [固定业务请求接口](fixed-business-turn-interface.md)：根字段为 `protocol_version/capability/base/mode/changes`，每项变化使用有类型的动作。下文旧 `fieldChanges/fieldIntents/rawValue` 示例描述内部 Delta 或历史实现，不再作为新模型参数协议；旧会话由独立兼容层恢复。
+2026-10-14 起，模型业务提交统一使用 固定业务请求接口（历史参考材料，未随交付包提供）：根字段为 `protocol_version/capability/base/mode/changes`，每项变化使用有类型的动作。下文旧 `fieldChanges/fieldIntents/rawValue` 示例描述内部 Delta 或历史实现，不再作为新模型参数协议；旧会话由独立兼容层恢复。
 
 ## 实际调用链
 
@@ -17,7 +17,7 @@ NEEDS_CLARIFICATION 不调用业务数据查询，由 Pi 只针对 issues 和 ca
 
 跨轮不能直接执行旧 Frame。`FRAME_NOT_CURRENT_TURN` 对本会话旧引用返回可纠正的 `ARGUMENT_ERROR`：先继承/引用旧条件，生成本轮 Frame，再执行。未变字段不重新 set；机构仍显式提交 `changes.organizations.action=inherit`，不重新提取确认话语。模型视图同时提供续接契约。
 
-2026-09-22 衔接修复验证：Agent 219 项测试、类型检查、构建通过。`node --env-file=.env --import tsx scripts/check-multiturn-model.ts --live --handoff` 的真实模型四轮通过，覆盖查询、改日期、重开会话后换指标、历史结果回读。使用合成目录与取数桩，前三轮各查询一次，最后一轮仅回读一次；第3轮曾发生日期原文参数错误，原状态保留并在同轮纠正。模型调用耗时仍存在，未将此验证作为业务数据库或浏览器验收。详见 [验证记录](verification/business-handoff-2026-09-22.json)。
+2026-09-22 衔接修复验证：Agent 219 项测试、类型检查、构建通过。`node --env-file=.env --import tsx scripts/check-multiturn-model.ts --live --handoff` 的真实模型四轮通过，覆盖查询、改日期、重开会话后换指标、历史结果回读。使用合成目录与取数桩，前三轮各查询一次，最后一轮仅回读一次；第3轮曾发生日期原文参数错误，原状态保留并在同轮纠正。模型调用耗时仍存在，未将此验证作为业务数据库或浏览器验收。详见 验证记录（历史参考材料，未随交付包提供）。
 
 ## 工具与能力
 
@@ -54,7 +54,7 @@ NEEDS_CLARIFICATION 不调用业务数据查询，由 Pi 只针对 issues 和 ca
 
 为命中网关前缀缓存，系统提示词保持静态（基座提示词、知识目录、业务能力 Schema 与已读业务知识）；随请求变化的轮状态数据（当前业务焦点、历史条件索引、本轮指标算法匹配）由 `transform_context` 附在本轮用户消息之后的发送副本上，以【服务端注入：本轮业务状态 开头，不写入原生会话历史、不在页面展示；压缩摘要调用不经过该注入。全部校验仍由宿主按用户原句与 Frame 独立执行，不依赖这段文字的位置。
 
-此轮提示词调整后，223 项自动测试、类型检查与构建通过。基础提示词及加载正式业务知识目录的两组真实模型四轮回归均通过：各轮一次解析后执行/回读，没有重填历史日期的参数错误；取数各一次，历史回读不重查。测试使用合成后端，加载目录不代表模型逐项读取了业务知识正文。详见 [提示词与上下文验证记录](verification/prompt-context-2026-09-22.json)。
+此轮提示词调整后，223 项自动测试、类型检查与构建通过。基础提示词及加载正式业务知识目录的两组真实模型四轮回归均通过：各轮一次解析后执行/回读，没有重填历史日期的参数错误；取数各一次，历史回读不重查。测试使用合成后端，加载目录不代表模型逐项读取了业务知识正文。详见 提示词与上下文验证记录（历史参考材料，未随交付包提供）。
 
 - 指标由后端 `/api/v1/business-context/metric-mentions` 直接匹配宿主绑定的完整用户原文，每轮只解析一次。Pi 新指标传 `{fromQuestion:true}`；涉及排除或替换时用从 1 开始的 `mentionIndexes` 引用算法片段，不自行切分或纠正名称。`mentionIndexes` 只引用本轮注入清单的 index：清单每轮从本轮消息重新抽取，不跨轮复用；用户回复待确认问题时传 `{confirm:true}`（见下文候选确认）；用户明确放弃某项指标用 `operation=remove`。机构仍提交原文名称；候选确认通过 `resolve-field` 重新核对目录。
 - 指标按“基础指标 + 口径”结构识别：完整名称/别名、基础指标加口径的精确组合或同音错字唯一命中时 resolved；缺口径、口径没说完、口径不存在、基础指标不确定时澄清，不替用户默认口径。同一基础指标下多个口径共用组号，候选只展示一次，确认一次即按同一源指标确定整组；只确认了基础指标时，Agent 按目录重新解析该基础指标并继续追问口径。机构沿用原精确匹配与候选确认规则。
@@ -101,7 +101,7 @@ NEEDS_CLARIFICATION 不调用业务数据查询，由 Pi 只针对 issues 和 ca
 所有业务查询与覆盖 SQL 统一由 builder 生成；模板文件、执行切换和在线 SQL 编辑已清理，模型及提示词配置保留。
 
 新契约及配套发布前置条件见 [接口合同](external-api.md#3-结构化基础查询basic-queries) 与
-[交付记录](verification/query-intent-v2-delivery.md)。
+交付记录（历史参考材料，未随交付包提供）。
 
 ## Frame、历史及焦点
 
@@ -152,62 +152,6 @@ CAS 冲突返回可识别错误；同一次请求的等价 Delta（包括字段�
 `business_frame` 日志记录 session/turn/frame/parent、capability、状态、字段来源、Resolver、问题原因及结果引用。
 完整原文、字段值及候选保留在按用户隔离的业务状态中，不写入公开日志。
 原工具审计保留 proposed/admitted/blocked/executed 及参数指纹，现有耗时日志覆盖解析和执行工具。
-
-## 验证与验收边界
-
-### 对照方案的实现落点
-
-| 阶段 | 实现 | 本地验证 |
-| --- | --- | --- |
-| T1 Frame 基础设施 | types/store/service；原生 Session 事务保存、不可变快照、焦点、版本与幂等 | 重启、并发冲突、重复执行、旧执行完成不覆盖新焦点 |
-| T2 Schema 主流程 | core/capabilities；通用合并、继承、清除与执行门禁 | 缺项及可选错误字段阻断；新增合成字段不改主流程 |
-| T3 字段解析 | resolvers 与后端 resolve-field；目录和原有日期文法 | 精确、别名、同名歧义、候选确认后重新授权、异常 |
-| T4 Pi 接入 | 原 Harness 和 businessContext 工具接入 Delta/Selector | 现有入口闭环、连续澄清、历史分支；真实模型连续多轮及候选确认脚本 |
-| T5 结果引用 | 原后端查询快照、原生结果 values、read_business_result | 分页、权限撤回、不重复取数、历史模型上下文裁剪 |
-| T6 回归与可观测性 | context.spec、后端 verification、语义改写脚本、结构化 trace | 离线回归、防特判与真实模型合成数据验收；正式数据另行验收 |
-
-### 2026-09-21 复核发现及调整
-
-| 方案要求 | 原实现问题 | 调整 |
-| --- | --- | --- |
-| 第 6/28 节：Pi 决策并生成回答 | 宿主强制交付、模板替换和补救调用覆盖 Pi | 删除宿主旧路由和回答接管；保留原生会话、鉴权、门禁和诊断 |
-| 第 16/19 节：Resolver 确定事实，按 Schema 继承 | 日期原文规则与历史年份解析不配套 | DateResolver 将可信历史年份交给后端；多个参数错误一次反馈，不切换焦点 |
-| 第 21 节：只询问缺失部分 | 确认后焦点丢失，待澄清仍重复工具调用 | 候选记录来源回合；澄清阶段仅生成文本并设置工具门禁 |
-| 第 24/25 节：按引用复用结果 | READY 引用找不到随后生成的 SUCCESS 结果 | 依据同一 operationFrameId 定位完成快照并复查权限 |
-| 第 44.5 节：控制上下文与性能 | 完整字段溯源和重复状态读取反复进入模型 | 紧凑 Schema/焦点、历史结果引用、当前轮分页读取；计算必要 Schema 一次提供 |
-
-`harnessHost.ts` 是 Pi 原生运行的接入层，不是另一个 Agent。删除的旧逻辑包括强制旧澄清工具、旧追问来源选择、回答证据补救与正文拼接。字段选择、合并与校验在 business-context；语义选择与最终回答由 Pi 负责。
-
-### 复现命令
-
-- Agent：`npm run typecheck`、`npm test`、`npm run build`。
-- 多轮单测：`npm test -- specs/business-context/context.spec.ts`，使用临时 JSONL 与合成后端。
-- 历史引用与焦点：`npm test -- specs/business-context/historyReference.spec.ts`；配置模型验收使用 `node --env-file=.env --import tsx scripts/check-history-focus-model.ts --live`（不加 `--live` 只列出用例，不执行验证；`--case=名称` 仅运行指定用例）。该脚本仅使用隔离合成目录/结果，验证序号、相对位置、业务条件引用、焦点切换后续接和普通续接；`fresh` 从空白会话经真实模型建立三次查询，再验证历史替换、分支续接、列表浏览、仅切焦点和重开后续接，共八轮。不访问业务数据库，每轮检查实际取数次数、提交参数及持久化焦点。
-  `replay` 验证只重显第一笔已有结果（必须回读后端且不重新取数），重开会话后只改机构继续继承该笔的全部指标及日期。
-  2026-09-28 完成 351 项 Agent 测试及六组 14 回合真实配置模型验证，见 [历史引用与焦点验收](verification/history-focus-2026-09-28.md)；业务后端为隔离合成实现，不代表真实数据库或浏览器验收。
-  同日进一步补齐通用结果读取的焦点行为，360 项测试通过；最新七组真实模型回归六组通过、一组因模型只输出计划而没有调用工具失败，整体尚未通过，见 [原有焦点能力核对与读取入口回归](verification/history-focus-replay-2026-09-28.md)。
-- 后端：`.venv/bin/python -m pytest -q verification/test_business_context.py tests`。
-- 连续多轮真实模型：`node --env-file=.env --import tsx scripts/check-multiturn-model.ts --live`。使用合成目录与结果、真实 Python 日期解析；覆盖换机构、无年份月份、必要口径澄清、历史复用、重开分支及缺项补充。
-- 候选确认：`node --env-file=.env --import tsx scripts/check-confirmation-model.ts --live`。
-- 受控计算：`node --env-file=.env --import tsx scripts/check-skill-model.ts`。使用真实模型、合成事实与真实 Python Decimal 表达式引擎。
-- 前端：`npm run typecheck`、`npm test`、`npm run build`。
-
-前两种真实模型脚本不加 `--live` 只校验测试定义，不发起模型请求。测试报告明确区分真实模型、合成事实和真实业务数据库。
-真实模型存在延迟及参数生成波动，不能用一次成功或离线测试宣称所有自然语言问法稳定。
-
-### 实际验证结果
-
-- Agent：26 个文件、197 项测试通过；TypeScript 类型检查与构建通过。
-- 后端：285 项本地测试通过；新增字段解析接口、实现和回归文件的 Ruff 检查通过。保留两条依赖弃用警告。
-- 前端：17 项测试、类型检查与构建通过；构建仍提示大于 500 kB 的分包。
-- 真实模型连续七轮通过：五轮各取数一次，缺项澄清零取数，历史复用一次回读且零取数；每轮不超过两次业务工具调用，没有回答补救或额外交付调用。单轮耗时约 11～35 秒。
-- 九种语义改写通过：前八种首次通过，第九种因同值 set 与 retain 的测试等价判定过严，修正断言后单独复验通过；未为此修改生产逻辑。
-- 两种候选确认通过：确认前零取数，确认后各一次解析、一次执行。
-- 取数后计算通过：一次取数、一次 Decimal 计算；总耗时约 78.5 秒，其中模型约 78.4 秒，业务工具约 0.13 秒。包含一次参数修正；不据此声称模型延迟已解决。
-- 本地后端 8011、Agent 8020、前端 127.0.0.1:5173 已重启，健康及就绪、前端代理均返回 200。
-- 浏览器只核验登录页。未验证登录后的界面交互、真实业务数据库或生产环境。
-
-机器可读记录见 [验收记录](verification/pi-context-2026-09-21.json)，同时保留前几次真实模型失败记录。合成数据测试不代表真实业务数据正确性，单轮成功也不证明所有改写稳定。
 
 ## 升级与回退
 

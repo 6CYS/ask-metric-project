@@ -435,6 +435,17 @@ def resolve_field(
     with uow:
         all_items = uow.organization_catalog.list_enabled()
         items = _authorized_organization_items(all_items, actor=actor, permissions=permissions)
+    # “我行”是认证账号的机构指代，不进入字符/拼音模糊推荐；别名仅在本次请求生效。
+    self_references = {"我行", "本行", "我们行", "我们银行"}
+    if any(raw in self_references for raw in payload.raw_values):
+        member = next((item for item in items if item.code == actor.org_id), None)
+        if member is None:
+            return {"status": "not_found", "candidates": [], "metadata": {
+                "reason": "account_organization_unavailable",
+                "pendingRawValues": list(payload.raw_values), "candidate_count": 0,
+            }}
+        all_items = [item.model_copy(update={"aliases": [*item.aliases, *sorted(self_references)]})
+                     if item.code == member.code else item for item in all_items]
     suggested = (
         [entry.model_dump(exclude_none=True) for entry in payload.suggested]
         if payload.suggested else None

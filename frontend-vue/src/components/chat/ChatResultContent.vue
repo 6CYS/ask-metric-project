@@ -32,16 +32,24 @@ const ChatResultChart = defineAsyncComponent(() => import("@/components/chat/Cha
 const props = withDefaults(defineProps<{ response: ChatResponse; question?: string; clarificationResolved?: boolean; showDebugButton?: boolean; streamAnswer?: boolean; showDataDetails?: boolean }>(), { question: "", clarificationResolved: false, showDebugButton: false, streamAnswer: false, showDataDetails: true })
 const emit = defineEmits<{ debug: []; answerStreamComplete: [] }>()
 const visualization = computed(() => resolveResultVisualization(props.response, props.question))
-const resultMode = ref<ResultView>("table")
+const selectedResultView = ref<ResultView | null>(null)
+const hasReportChart = computed(() => Boolean(props.response.analysis_report?.charts?.length))
+const resultMode = computed<ResultView>(() => {
+  if (hasReportChart.value) return "table"
+  return selectedResultView.value && visualization.value.allowedViews.includes(selectedResultView.value)
+    ? selectedResultView.value : visualization.value.defaultView
+})
 const resultPage = ref(1)
 const resultPageSize = ref<number>(RESULT_PAGE_SIZE_OPTIONS[0])
 const isDownloading = ref(false)
 const downloadError = ref("")
-// 数据明细默认展开；正文生成中不渲染明细区（见模板 answerStreamComplete 条件）。
-const isDataDetailsOpen = ref(Boolean(props.response.result?.table?.rows.length))
+// 有图表或自然报告时先展示结论，完整明细仍可按需展开。
+const isDataDetailsOpen = ref(Boolean(props.response.result?.table?.rows.length)
+  && props.response.analysis_report?.body_mode !== "narrative" && resultMode.value === "table")
 // Agent 先交付回执再异步读取结果；首批行到达时展开，后续更新不覆盖用户的折叠选择。
-watch(() => Boolean(props.response.result?.table?.rows.length), (hasRows, hadRows) => {
-  if (hasRows && !hadRows) isDataDetailsOpen.value = true
+watch(() => [Boolean(props.response.result?.table?.rows.length), props.response.analysis_report?.body_mode] as const, ([hasRows, mode], [hadRows, oldMode]) => {
+  if (mode === "narrative" && oldMode !== mode) isDataDetailsOpen.value = false
+  else if (hasRows && !hadRows) isDataDetailsOpen.value = mode !== "narrative" && resultMode.value === "table"
 })
 const dataDetailsId = useId()
 const isAnswerCopied = ref(false)
@@ -120,6 +128,23 @@ const answerMarkdown = computed(() => answerStreamComplete.value && responseBloc
   : renderedAnswer.value.trim())
 const resultRowCount = computed(() => props.response.result?.table?.rows.length ?? 0)
 const hasResultRows = computed(() => resultRowCount.value > 0)
+// 版本化报告按语义区块展示；旧消息与普通查数仍沿用原来的正文路径。
+const analysisReport = computed(() => answerStreamComplete.value ? props.response.analysis_report : undefined)
+const narrativeReport = computed(() => analysisReport.value?.body_mode === "narrative")
+// 自然报告的复制与明细入口共享一行，避免空正文容器撑开间距、悬浮按钮压到入口上。
+const copyInDataToolbar = computed(() => narrativeReport.value && showAnswer.value
+  && props.showDataDetails && answerStreamComplete.value && hasResultRows.value && Boolean(props.response.result?.table))
+const defaultReportLayout = ["summary", "data", "analysis"] as const
+type ReportBlock = typeof defaultReportLayout[number]
+function reportBlockStyle(block: ReportBlock) {
+  if (!analysisReport.value) return block === "analysis" ? { order: "-1" } : undefined
+  const layout = analysisReport.value.layout?.length ? analysisReport.value.layout : defaultReportLayout
+  const position = layout.indexOf(block)
+  return { order: String(position < 0 ? defaultReportLayout.indexOf(block) : position) }
+}
+function reportLabel(key: "summary" | "data" | "analysis", fallback: string) {
+  return analysisReport.value?.labels?.[key] ?? fallback
+}
 const resultRows = computed(() => props.response.result?.table?.rows ?? [])
 const visibleResultColumns = computed(() => getVisibleResultColumns(
   props.response.result?.table?.columns ?? [],
@@ -134,7 +159,7 @@ const resultColumns = computed(() => sharedMetricName.value
   : visibleResultColumns.value)
 const resultPageCount = computed(() => resultTotalPages(resultRowCount.value, resultPageSize.value))
 const paginatedResultRows = computed(() => paginateResultRows(resultRows.value, resultPage.value, resultPageSize.value))
-const chartViews = computed(() => visualization.value.allowedViews.filter((view): view is Exclude<ResultView, "table"> => view !== "table"))
+const chartViews = computed(() => hasReportChart.value ? [] : visualization.value.allowedViews.filter((view): view is Exclude<ResultView, "table"> => view !== "table"))
 const hasChartView = computed(() => chartViews.value.length > 0)
 const activeChartView = computed<Exclude<ResultView, "table"> | null>(() => resultMode.value === "table" ? null : resultMode.value)
 const chartWasLimited = computed(() => !hasChartView.value && visualization.value.reason.includes("超过"))
@@ -142,7 +167,7 @@ const chartWasLimited = computed(() => !hasChartView.value && visualization.valu
 watch(
   [() => props.response.message_id, () => props.question],
   () => {
-    resultMode.value = "table"
+    selectedResultView.value = null
     resultPage.value = 1
   },
 )
@@ -156,6 +181,11 @@ function resultViewLabel(view: ResultView) {
   if (view === "horizontal_bar") return "横向柱状图"
   if (view === "vertical_bar") return "柱状图"
   return "表格"
+}
+
+function selectResultView(view: ResultView) {
+  selectedResultView.value = view
+  isDataDetailsOpen.value = view === "table"
 }
 
 function formatCell(value: unknown, column: string, row: Record<string, unknown>) {
@@ -196,33 +226,40 @@ async function copyAnswer() {
 
 <template>
   <div class="flex min-w-0 flex-col gap-3">
+    <section v-if="showAnswer && analysisReport" :style="reportBlockStyle('summary')" class="space-y-3" :class="narrativeReport ? 'leading-7' : 'rounded-lg border border-border/70 bg-muted/20 p-4'" aria-label="经营分析结论">
+      <h3 v-if="!narrativeReport" class="font-semibold">{{ reportLabel('summary', '主要结论') }}</h3>
+      <p class="break-words text-xs leading-6 text-muted-foreground">{{ analysisReport.scope }}</p>
+      <ChatMarkdown :source="analysisReport.summary" />
+    </section>
     <div v-if="answerStreamComplete && response.metric_definition" class="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border/70 pt-2 text-xs text-muted-foreground">
       <span>指标依据：{{ response.metric_definition.metric_name }}</span>
       <span v-if="response.metric_definition.unit">· {{ response.metric_definition.unit }}</span>
     </div>
 
-    <div v-if="showDataDetails && answerStreamComplete && response.result?.table" class="flex min-w-0 flex-col gap-2">
-      <div v-if="hasResultRows" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/70 pt-2 text-xs text-muted-foreground">
+    <div v-if="showDataDetails && answerStreamComplete && response.result?.table" :style="reportBlockStyle('data')" class="flex min-w-0 flex-col gap-2">
+      <h3 v-if="analysisReport && !narrativeReport && hasResultRows" class="font-semibold">{{ reportLabel('data', '关键数据') }}</h3>
+      <div v-if="hasChartView" class="flex flex-wrap justify-end gap-1" role="group" aria-label="结果展示方式">
+        <BaseButton size="sm" :variant="resultMode === 'table' ? 'secondary' : 'ghost'" class="h-7" @click="selectResultView('table')"><Table2 />表格</BaseButton>
+        <BaseButton v-for="view in chartViews" :key="view" size="sm" :variant="resultMode === view ? 'secondary' : 'ghost'" class="h-7" @click="selectResultView(view)"><ChartColumn />{{ resultViewLabel(view) }}</BaseButton>
+      </div>
+      <ChatResultChart v-if="activeChartView" :decision="visualization" :view="activeChartView" />
+      <div v-if="hasResultRows" class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground" role="group" aria-label="数据明细操作">
         <button type="button" class="inline-flex items-center gap-1 rounded-sm text-muted-foreground/75 underline-offset-4 transition-colors hover:text-muted-foreground hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :aria-expanded="isDataDetailsOpen" :aria-controls="dataDetailsId" @click="isDataDetailsOpen = !isDataDetailsOpen">
-          <Table2 class="size-3.5" />{{ isDataDetailsOpen ? "收起数据明细" : `查看 ${resultRowCount} 条数据明细` }}<span v-if="!isDataDetailsOpen && hasChartView" class="text-muted-foreground/60">· 可切换图表</span>
+          <Table2 class="size-3.5" />{{ isDataDetailsOpen ? "收起数据明细" : `查看 ${resultRowCount} 条数据明细` }}
         </button>
+        <button v-if="copyInDataToolbar && answerMarkdown" type="button" class="ml-auto flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :title="isAnswerCopied ? '已复制' : '复制回答'" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button>
       </div>
       <div v-else class="flex items-start gap-2 border-y border-[#DCE3EF] py-2.5 text-xs text-[#66759B]" role="status">
         <Search class="mt-0.5 size-3.5 shrink-0" />
         <span><strong class="font-medium text-[#52638F]">当前条件下暂未查询到数据。</strong>{{ response.time_variants?.length ? "可以切换下方备选口径重新查询。" : "可以确认统计日期或机构名称，也可以扩大时间范围重新查询。" }}</span>
       </div>
       <div v-if="isDataDetailsOpen" :id="dataDetailsId" class="w-full min-w-0 max-w-full overflow-hidden border-y border-border/70">
-        <div v-if="sharedMetricName || hasChartView" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/70 px-2 py-1.5">
+        <div v-if="sharedMetricName" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/70 px-2 py-1.5">
           <span v-if="sharedMetricName" class="min-w-0 truncate px-1 text-xs text-muted-foreground" :title="sharedMetricName">指标：{{ sharedMetricName }}</span>
-          <div v-if="hasChartView" class="ml-auto flex flex-wrap justify-end gap-1">
-            <BaseButton size="sm" :variant="resultMode === 'table' ? 'secondary' : 'ghost'" class="h-7" @click="resultMode = 'table'"><Table2 />表格</BaseButton>
-            <BaseButton v-for="view in chartViews" :key="view" size="sm" :variant="resultMode === view ? 'secondary' : 'ghost'" class="h-7" @click="resultMode = view"><ChartColumn />{{ resultViewLabel(view) }}</BaseButton>
-          </div>
         </div>
-        <ChatResultChart v-if="activeChartView" :decision="visualization" :view="activeChartView" />
-        <div v-else class="min-w-0 max-w-full">
+        <div class="min-w-0 max-w-full">
           <div class="max-h-[30rem] w-full min-w-0 max-w-full overflow-auto overscroll-x-contain">
-            <table class="w-full min-w-max text-sm"><thead><tr class="border-b bg-muted/50"><th v-for="column in resultColumns" :key="column" class="sticky top-0 z-10 h-9 bg-muted/95 px-3 font-medium whitespace-nowrap backdrop-blur-sm" :class="[getResultColumnClass(column), getResultColumnAlignClass(column)]">{{ getResultColumnLabel(column) }}</th></tr></thead><tbody><tr v-for="(row, rowIndex) in paginatedResultRows" :key="(resultPage - 1) * resultPageSize + rowIndex" class="border-b last:border-b-0 hover:bg-muted/40"><td v-for="column in resultColumns" :key="column" class="px-3 py-2.5 whitespace-nowrap" :class="[getResultColumnClass(column), getResultColumnAlignClass(column)]"><BaseBadge v-if="column === 'status' && getResultCellValue(row, column)" variant="outline" class="max-w-full"><span class="block truncate" :title="String(formatCell(getResultCellValue(row, column), column, row))">{{ formatCell(getResultCellValue(row, column), column, row) }}</span></BaseBadge><span v-else class="block" :class="shouldTruncateResultColumn(column) && 'truncate'" :title="shouldTruncateResultColumn(column) ? String(formatCell(getResultCellValue(row, column), column, row)) : undefined">{{ formatCell(getResultCellValue(row, column), column, row) }}</span></td></tr></tbody></table>
+            <table class="w-full min-w-max text-sm"><thead><tr class="border-b bg-muted/50"><th v-for="column in resultColumns" :key="column" class="sticky top-0 z-10 h-9 bg-muted/95 px-3 font-medium whitespace-nowrap backdrop-blur-sm" :class="[getResultColumnClass(column), getResultColumnAlignClass(column)]">{{ getResultColumnLabel(column) }}</th></tr></thead><tbody><tr v-for="(row, rowIndex) in paginatedResultRows" :key="(resultPage - 1) * resultPageSize + rowIndex" class="border-b last:border-b-0 hover:bg-muted/40"><td v-for="column in resultColumns" :key="column" class="px-3 py-2.5 align-top whitespace-nowrap" :class="[getResultColumnClass(column), getResultColumnAlignClass(column)]"><BaseBadge v-if="column === 'status' && getResultCellValue(row, column)" variant="outline" class="max-w-full"><span class="block truncate" :title="String(formatCell(getResultCellValue(row, column), column, row))">{{ formatCell(getResultCellValue(row, column), column, row) }}</span></BaseBadge><!-- 显示值可能附带口径说明；允许完整换行，避免固定列宽下溢出到相邻列。 --><span v-else class="block" :class="shouldTruncateResultColumn(column) ? 'truncate' : 'whitespace-normal break-words [overflow-wrap:anywhere]'" :title="shouldTruncateResultColumn(column) ? String(formatCell(getResultCellValue(row, column), column, row)) : undefined">{{ formatCell(getResultCellValue(row, column), column, row) }}</span></td></tr></tbody></table>
           </div>
           <div v-if="resultRowCount > RESULT_PAGE_SIZE_OPTIONS[0]" class="border-t border-border/70">
             <div class="flex justify-end px-3 pt-2">
@@ -251,10 +288,23 @@ async function copyAnswer() {
     </div>
 
 
-    <div v-if="showAnswer" class="group/answer relative space-y-1.5 break-words pr-9 leading-7" aria-live="polite">
-      <ChatMarkdown :source="answerMarkdown" />
+    <div v-if="showAnswer && (!copyInDataToolbar || analysisReport?.sections.length || analysisReport?.charts?.length)" :style="reportBlockStyle('analysis')" class="group/answer relative space-y-1.5 break-words leading-7" :class="!copyInDataToolbar && 'pr-9'" aria-live="polite">
+      <template v-if="analysisReport">
+        <section v-for="(section, index) in analysisReport.sections" :key="index" class="mb-5 space-y-2" :aria-label="section.title">
+          <h3 class="font-semibold">{{ section.title }}</h3>
+          <ChatMarkdown :source="section.text" />
+        </section>
+        <ChatResultChart v-for="chart in analysisReport.charts ?? []" :key="chart.source_refs.join('|')"
+          :pie="chart.type === 'pie' ? chart : undefined" :series="chart.type !== 'pie' ? chart : undefined" />
+        <!-- 必要限制由正文说明；来源、分析依据与完成状态保留在回执中，不额外渲染卡片。 -->
+      </template>
+      <details v-else-if="response.analysis_plan?.length" class="mb-3 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+        <summary class="cursor-pointer font-medium">分析思路</summary>
+        <ul class="mt-2 list-disc space-y-1 pl-5"><li v-for="question in [...new Set(response.analysis_plan)]" :key="question">{{ question }}</li></ul>
+      </details>
+      <ChatMarkdown v-if="!analysisReport" :source="answerMarkdown" />
       <span v-if="!answerStreamComplete" class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" />
-      <button v-if="answerStreamComplete && answerMarkdown" type="button" class="absolute -top-1 right-0 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :title="isAnswerCopied ? '已复制' : '复制回答'" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button>
+      <button v-if="answerStreamComplete && answerMarkdown && !copyInDataToolbar" type="button" class="absolute -top-1 right-0 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :title="isAnswerCopied ? '已复制' : '复制回答'" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button>
     </div>
     <p v-if="answerCopyError" class="text-xs text-[#78663E]">{{ answerCopyError }}</p>
 

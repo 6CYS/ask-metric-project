@@ -14,13 +14,14 @@ import {
 } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import type { AgentServiceConfig } from "./config.js";
+import {createModelTransportDiagnostics} from "./modelTransport.js";
 
 export const ASK_METRIC_PROVIDER_ID = "ask-metric";
 /** 模型在首次响应时限内未返回任何内容；错误文本含 timeout，由原生重试策略自动重试一次。 */
 export const MODEL_FIRST_RESPONSE_TIMEOUT = "MODEL_FIRST_RESPONSE_TIMEOUT";
 /** 仅保留旧会话错误码兼容；新请求不再按固定总时长中断持续输出。 */
 export const MODEL_DEADLINE_EXCEEDED = "MODEL_DEADLINE_EXCEEDED";
-/** 已开始输出后长时间没有有效进展；不含 timeout，避免原生策略重放已有输出的请求。 */
+/** 已开始输出后长时间没有有效进展；只重试未完成的模型生成，已执行工具不会重放。 */
 export const MODEL_STREAM_IDLE_EXCEEDED = "MODEL_STREAM_IDLE_EXCEEDED";
 
 interface ResponseProgressWatch {
@@ -60,7 +61,7 @@ function watchResponseProgress(firstResponseMs?: number, idleMs?: number): Respo
     timer = setTimeout(() => {
       errorMessage = first
         ? `${MODEL_FIRST_RESPONSE_TIMEOUT}: 模型服务未在时限内开始返回内容（first response timeout）。`
-        : `${MODEL_STREAM_IDLE_EXCEEDED}: 模型输出长时间没有有效进展，本轮未正常完成。`;
+        : `${MODEL_STREAM_IDLE_EXCEEDED}: 模型输出长时间没有有效进展（stream idle timeout），本次生成未正常完成。`;
       controller.abort();
     }, ms);
   };
@@ -85,10 +86,17 @@ export function wrapStreamsWithAuthorization(
   idleTimeoutMs?: number,
   firstResponseTimeoutMs?: number,
 ): ProviderStreams {
-  const timed = <T extends {signal?: AbortSignal; timeoutMs?: number}>(options: T | undefined, watch: ResponseProgressWatch): T & {signal: AbortSignal} => {
+  const timed = <T extends {signal?: AbortSignal; timeoutMs?: number; fetch?: typeof fetch; sessionId?: string}>(
+    options: T | undefined, watch: ResponseProgressWatch, model: Model<"openai-completions">,
+  ): T & {signal: AbortSignal} => {
     // 两阶段计时统一由本层负责；取消旧请求 timeout 参数，避免与响应进度的语义冲突。
     const {timeoutMs: _requestTimeoutMs, ...rest} = options ?? {};
-    return {...rest, signal: options?.signal ? AbortSignal.any([options.signal, watch.signal]) : watch.signal} as T & {signal: AbortSignal};
+    const observedFetch = createModelTransportDiagnostics(options?.fetch ?? globalThis.fetch, summary => {
+      console.info(JSON.stringify({event: "model_transport", at: new Date().toISOString(),
+        session_id: options?.sessionId ?? null, model: model.id, ...summary}));
+    });
+    return {...rest, fetch: observedFetch,
+      signal: options?.signal ? AbortSignal.any([options.signal, watch.signal]) : watch.signal} as T & {signal: AbortSignal};
   };
   const denied = (model: Model<"openai-completions">): ReturnType<ProviderStreams["streamSimple"]> => {
     const stream = createAssistantMessageEventStream();
@@ -120,7 +128,7 @@ export function wrapStreamsWithAuthorization(
     stream: (model, context, options) => {
       if (!authorize()) return denied(model as Model<"openai-completions">);
       const watch = watchResponseProgress(firstResponseTimeoutMs, idleTimeoutMs);
-      const requestOptions = timed(options, watch);
+      const requestOptions = timed(options, watch, model as Model<"openai-completions">);
       try {
         return normalizeProviderResponse(inner.stream(model, context, requestOptions),
           model as Model<"openai-completions">, options?.signal, watch, requestOptions.signal);
@@ -129,7 +137,7 @@ export function wrapStreamsWithAuthorization(
     streamSimple: (model, context, options) => {
       if (!authorize()) return denied(model as Model<"openai-completions">);
       const watch = watchResponseProgress(firstResponseTimeoutMs, idleTimeoutMs);
-      const requestOptions = timed(options, watch);
+      const requestOptions = timed(options, watch, model as Model<"openai-completions">);
       try {
         return normalizeProviderResponse(inner.streamSimple(model, context, requestOptions),
           model as Model<"openai-completions">, options?.signal, watch, requestOptions.signal);
@@ -220,6 +228,7 @@ export function createAskMetricModels(
   authorize: () => boolean = () => true,
 ): ModelBundle {
   const { model: modelConfig } = config;
+  const siliconFlow = /(^|\.)siliconflow\.(cn|com)$/iu.test(new URL(modelConfig.baseUrl).hostname);
   const model: Model<"openai-completions"> = {
     id: modelConfig.name,
     name: modelConfig.name,
@@ -231,6 +240,8 @@ export function createAskMetricModels(
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: modelConfig.contextWindow,
     maxTokens: modelConfig.maxTokens,
+    // 此供应商使用max_tokens；SDK默认max_completion_tokens可能被兼容接口忽略。
+    ...(siliconFlow ? {compat: {maxTokensField: "max_tokens" as const}} : {}),
     // 网关/模型扩展参数（如 Qwen 的 enable_thinking），由运行配置注入；
     // 采样默认 temperature=0 保证确定性，AGENT_MODEL_EXTRA_BODY 可按键覆盖。
     samplingParams: { temperature: 0, ...modelConfig.extraBody },
@@ -248,7 +259,8 @@ export function createAskMetricModels(
     auth: {
       apiKey: {
         name: "行内模型 API Key",
-        resolve: async () => ({ auth: apiKey ? { headers: { [authHeader]: headerValue } } : {} }),
+        // 自定义 accessKey 头仍需给 SDK apiKey；清除 SDK 默认 Bearer 头，再按现场配置设置鉴权头。
+        resolve: async () => ({ auth: apiKey ? { apiKey, headers: { Authorization: null, [authHeader]: headerValue } } : {} }),
       },
     },
     models: [model],

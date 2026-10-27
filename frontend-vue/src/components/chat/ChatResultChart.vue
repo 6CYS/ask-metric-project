@@ -1,34 +1,44 @@
 <script setup lang="ts">
-import { BarChart, LineChart } from "echarts/charts"
-import { GridComponent, TooltipComponent } from "echarts/components"
+import { BarChart, LineChart, PieChart } from "echarts/charts"
+import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components"
 import { init, use, type ECharts, type EChartsCoreOption } from "echarts/core"
 import { CanvasRenderer } from "echarts/renderers"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 
 import { formatResultCellValue } from "@/lib/resultColumns"
 import type { ResultView, VisualizationDecision } from "@/lib/resultVisualization"
+import { businessPieOption } from "@/lib/businessPieChart"
+import { businessSeriesOption } from "@/lib/businessReportChart"
+import type { BusinessPieChart, BusinessSeriesChart } from "@/types/api"
 
-use([LineChart, BarChart, GridComponent, TooltipComponent, CanvasRenderer])
+use([LineChart, BarChart, PieChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 
 const props = defineProps<{
-  decision: VisualizationDecision
-  view: Exclude<ResultView, "table">
+  decision?: VisualizationDecision
+  view?: Exclude<ResultView, "table">
+  pie?: BusinessPieChart
+  series?: BusinessSeriesChart
 }>()
 const chartElement = ref<HTMLElement | null>(null)
 let chart: ECharts | null = null
 let resizeObserver: ResizeObserver | null = null
 
-const chartHeight = computed(() => props.view === "horizontal_bar"
-  ? Math.max(288, props.decision.points.length * 38 + 72)
-  : 288)
+const chartHeight = computed(() => props.pie ? 340 : props.series?.type === "bar"
+  ? Math.max(288, props.series.points.length * 38 + 72)
+  : props.view === "horizontal_bar" ? Math.max(288, (props.decision?.points.length ?? 0) * 38 + 72) : 288)
 const chartTitle = computed(() => {
-  const category = props.decision.categoryLabel ?? "分类"
-  const value = props.decision.valueLabel ?? "指标值"
-  const unit = props.decision.unit ? `（${props.decision.unit}）` : ""
+  if (props.pie) return `${props.pie.title} · ${displayDate(props.pie.date)}`
+  if (props.series) return `${props.series.title} · ${props.series.dates.map(displayDate).join("、")}`
+  const category = props.decision?.categoryLabel ?? "分类"
+  const value = props.decision?.valueLabel ?? "指标值"
+  const unit = props.decision?.unit ? `（${props.decision.unit}）` : ""
   return `${category} · ${value}${unit}`
 })
 
 const chartOption = computed<EChartsCoreOption | null>(() => {
+  if (props.pie) return businessPieOption(props.pie)
+  if (props.series) return businessSeriesOption(props.series)
+  if (!props.decision || !props.view) return null
   const { points, categoryLabel = "分类", valueField = "metric_value", valueLabel = "指标值", unit = "" } = props.decision
   if (!points.length) return null
   const tooltip = {
@@ -48,7 +58,7 @@ const chartOption = computed<EChartsCoreOption | null>(() => {
     type: props.view === "line" ? "line" : "bar",
     data: points.map((point) => point.value),
     ...(props.view === "line"
-      ? { smooth: true, symbolSize: 7, areaStyle: { opacity: 0.08 } }
+      ? { smooth: false, symbolSize: 7, areaStyle: { opacity: 0.08 } }
       : {
           barMaxWidth: 34,
           itemStyle: { borderRadius: props.view === "horizontal_bar" ? [0, 4, 4, 0] : [4, 4, 0, 0] },
@@ -64,7 +74,7 @@ const chartOption = computed<EChartsCoreOption | null>(() => {
       color: ["#64748b"],
       tooltip,
       grid: { left: 20, right: 96, top: 20, bottom: 20, containLabel: true },
-      xAxis: { type: "value", splitLine: { lineStyle: { color: "#e4e4e7" } } },
+      xAxis: { type: "value", name: unit, splitLine: { lineStyle: { color: "#e4e4e7" } } },
       yAxis: {
         type: "category",
         inverse: true,
@@ -82,17 +92,22 @@ const chartOption = computed<EChartsCoreOption | null>(() => {
     grid: { left: 24, right: 32, top: 24, bottom: 24, containLabel: true },
     xAxis: {
       type: "category",
-      boundaryGap: true,
+      boundaryGap: props.view !== "line",
       data: points.map((point) => point.label),
       axisLabel: { color: "#71717a", interval: 0, hideOverlap: true, width: 110, overflow: "truncate" },
     },
     yAxis: {
       type: "value",
+      name: unit,
       splitLine: { lineStyle: { color: "#e4e4e7" } },
     },
     series: [series],
   }
 })
+
+function displayDate(value: string) {
+  return value.replace(/^(\d{4})-(\d{2})-(\d{2})$/, (_match, year, month, day) => `${year}年${Number(month)}月${Number(day)}日`)
+}
 
 function formatAxisValue(value: unknown, unit: string) {
   const numeric = Number(value)
@@ -137,7 +152,7 @@ onBeforeUnmount(() => { resizeObserver?.disconnect(); chart?.dispose() })
       class="w-full max-w-full"
       :style="{ height: `${chartHeight}px` }"
       role="img"
-      aria-label="问数结果图表"
+      :aria-label="pie ? `${pie.title}饼图，数据截至${pie.date}` : '问数结果图表'"
     />
   </div>
   <p v-else class="py-10 text-center text-sm text-muted-foreground">当前结果无法生成图表。</p>

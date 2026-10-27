@@ -4,7 +4,9 @@ import {randomUUID} from "node:crypto";
 import {BACKGROUND_CONTEXT, setValue, value, type Context, type Session, type SessionMutator} from "@earendil-works/pi-agent-core";
 import type {ResolvedField} from "../business-context/types.js";
 import type {SemanticOperation, SemanticSource} from "./protocol.js";
-import {normalizeAnswerChoiceForQuestion, normalizeAnswerForQuestion, publishQuestionSnapshot, sameAnswerChoiceForQuestion,
+import {reduceRuntime, type RuntimeControl} from "../runtime/control.js";
+import type {AgentMessage} from "@earendil-works/pi-agent-core";
+import {normalizeAnswerChoiceForQuestion, normalizeAnswerForQuestion, validateRejectionEvidence, publishQuestionSnapshot, sameAnswerChoiceForQuestion,
   sameQuestionBusinessBasis, QuestionAnswerError, type Answer, type AnswerAcceptanceRecord, type AnswerReceipt, type PendingQuestion,
   type QuestionBinding, type QuestionOption, type QuestionSnapshotDraft, type QuestionStatus} from "./questions.js";
 
@@ -26,7 +28,7 @@ export interface SemanticTask {
   completion: "unmet" | "partial" | "full"; issues: SemanticIssue[];
   permit?: {operationId: string; revision: number; frameId: string; digest: string; actor: string; consumed: boolean};
   parentPlan?: string;
-  capability?: "metric_query" | "data_availability" | "metric_calculate";
+  capability?: "metric_query" | "data_availability" | "metric_calculate" | "business_overview" | "business_analysis";
   /** 当前反馈使用的公共快照；权威版本、状态和受理事实仍在独立问题记录中。 */
   questionSnapshots?: PendingQuestion[];
   answerReceipts?: AnswerReceipt[];
@@ -101,10 +103,18 @@ interface QuestionVersionRecord {
 }
 export interface SemanticTurn {
   operationId: string; originalMessage: string; businessDate: string; admittedTask?: string; boundTask?: string;
+  /** 控制状态和计划版本引用附着现有账本；不保存另一份业务条件或模型规划正文。 */
+  runtime?: RuntimeControl;
   /** 接纳时冻结，重启或配置回退不得改变已在途 operation 的交付规则；旧记录缺省为 off。 */
   directQueryDelivery?: "off" | "observe" | "on";
   /** 本轮只读交付的签发来源；与旧计划隔离，不能把历史operation改成当前operation。 */
   readDelivery?: {planRef: string; revision: number; digest: string; targetRefs: string[]; source: "query_ordinal" | "admitted_focus"};
+  /** 基础指标未命中后的有限恢复；范围在首次恢复时冻结，重启和重提不能重置预算。 */
+  queryRecovery?: {planRef: string; attempts: number; scopes: Array<{taskRef: string; targetRef: string;
+    fields: Record<string, ResolvedField>}>};
+  /** 仅引用原计划中的失败提案，不复制业务计划；次数在同一原生事务中累积。 */
+  analysisRecovery?: {planRef: string; targetRef: string; revision: number; attempts: number;
+    active: boolean};
   /** 在原生Session事务中冻结入场来源；本轮重提、工具执行或焦点移动不能改变它。 */
   context?: {plan?: SemanticPlan; tasks: SemanticTask[]; clarification?: SemanticClarification};
   contextAction?: "resume" | "defer" | "abandon"; source?: SemanticSource; baseline?: SemanticTarget; operations: Record<string, SemanticOperation[]>;
@@ -130,6 +140,23 @@ export class NativeSemanticTaskStore {
   async index() {return structuredClone((await this.session.getValue(indexAddress, BACKGROUND_CONTEXT))?.value ?? {version: 0, order: []});}
   async get(ref: string) {return structuredClone((await this.session.getValue(taskAddress(ref), BACKGROUND_CONTEXT))?.value);}
   async turn(id: string) {return structuredClone((await this.session.getValue(turnAddress(id), BACKGROUND_CONTEXT))?.value);}
+  async reconcileRuntime(operationId: string, messages: readonly AgentMessage[]) {
+    return this.session.mutate(async (tx, context) => {
+      const turn = (await tx.getValue(turnAddress(operationId), context))?.value;
+      if (!turn) return;
+      const index = (await tx.getValue(value<PlanIndex>(NS, "plans/index"), context))?.value;
+      const ref = index?.operations[operationId];
+      const plan = ref ? (await tx.getValue(value<SemanticPlan>(NS, `plans/${ref}`), context))?.value : undefined;
+      const runtime = reduceRuntime(turn.originalMessage, messages, operationId, plan, turn.runtime);
+      // 并行工具后到达的旧观察不能倒退控制状态；下一边界仍从完整原生记录重新结算。
+      if (turn.runtime && (runtime.budget.tools_used < turn.runtime.budget.tools_used
+        || turn.runtime.observed_calls?.some(id => !runtime.observed_calls.includes(id)))) return structuredClone(turn.runtime);
+      if (JSON.stringify(runtime) === JSON.stringify(turn.runtime)) return structuredClone(runtime);
+      runtime.revision++;
+      await tx.commit([setValue(turnAddress(operationId), {...turn, runtime})], context);
+      return structuredClone(runtime);
+    }, BACKGROUND_CONTEXT);
+  }
   async reference(ref: string) {return structuredClone((await this.session.getValue(referenceAddress(ref), BACKGROUND_CONTEXT))?.value);}
   async question(questionId: string, version?: number): Promise<SemanticQuestionView | undefined> {
     const pointer = (await this.session.getValue(questionPointerAddress(questionId), BACKGROUND_CONTEXT))?.value;
@@ -292,6 +319,7 @@ export class NativeSemanticTaskStore {
         ? {question_id: answer.question_id, version: answer.version, choice: answer.choice, evidence: {excerpt: answer.source.excerpt}}
         : {question_id: answer.question_id, version: answer.version, choice: answer.choice};
       answer = normalizeAnswerForQuestion(input, view.question, answer.source, record.binding.reason);
+      validateRejectionEvidence(answer, turn.originalMessage);
       snapshots.push({answer, ...view, questionRevision: record.revision});
       answers.push(answer);
     }
@@ -482,9 +510,10 @@ export class NativeSemanticTaskStore {
       this.flushQuestionWrites(writes, recordWrites, pointerWrites, refUpdates);
       const next = {...index, version: index.version + 1, ...(focus ? {focus: task.ref} : {}),
         order: index.order.includes(task.ref) ? index.order : [...index.order, task.ref]};
+      const runtime = turn ? (await tx.getValue(turnAddress(turn.operationId), context))?.value?.runtime : undefined;
       await tx.commit([...writes, setValue(indexAddress, next), setValue(taskAddress(task.ref), nextTask),
         setValue(referenceAddress(nextTask.target.ref), {task: nextTask.ref, target: structuredClone(nextTask.target)}),
-        ...(turn ? [setValue(turnAddress(turn.operationId), turn)] : [])], context);
+        ...(turn ? [setValue(turnAddress(turn.operationId), {...turn, ...(runtime ? {runtime} : {})})] : [])], context);
       return structuredClone(nextTask);
     }, BACKGROUND_CONTEXT);
   }
@@ -614,6 +643,31 @@ export class NativeSemanticTaskStore {
       const address = turnAddress(operationId), turn = (await tx.getValue(address, context))?.value;
       if (!turn) throw new Error("SEMANTIC_TURN_NOT_ADMITTED");
       await tx.commit([setValue(address, {...turn, contextAction: action})], context);
+    }, BACKGROUND_CONTEXT);
+  }
+  async claimQueryRecovery(operationId: string, planRef: string,
+    scopes: NonNullable<SemanticTurn["queryRecovery"]>["scopes"], limit: number) {
+    return this.session.mutate(async (tx, context) => {
+      const address = turnAddress(operationId), turn = (await tx.getValue(address, context))?.value;
+      if (!turn) throw new Error("SEMANTIC_TURN_NOT_ADMITTED");
+      const previous = turn.queryRecovery;
+      if (previous && (previous.planRef !== planRef || previous.attempts >= limit)) return undefined;
+      const recovery = {planRef, attempts: (previous?.attempts ?? 0) + 1,
+        scopes: structuredClone(previous?.scopes ?? scopes)};
+      await tx.commit([setValue(address, {...turn, queryRecovery: recovery})], context);
+      return recovery;
+    }, BACKGROUND_CONTEXT);
+  }
+  async updateAnalysisRecovery(operationId: string, update: (previous: SemanticTurn["analysisRecovery"]) => SemanticTurn["analysisRecovery"]) {
+    return this.session.mutate(async (tx, context) => {
+      const address = turnAddress(operationId), turn = (await tx.getValue(address, context))?.value;
+      if (!turn) throw new Error("SEMANTIC_TURN_NOT_ADMITTED");
+      const recovery = update(structuredClone(turn.analysisRecovery));
+      const next = {...turn};
+      if (recovery) next.analysisRecovery = recovery;
+      else delete next.analysisRecovery;
+      await tx.commit([setValue(address, next)], context);
+      return structuredClone(recovery);
     }, BACKGROUND_CONTEXT);
   }
   async bindReadDelivery(operationId: string, binding: NonNullable<SemanticTurn["readDelivery"]>) {

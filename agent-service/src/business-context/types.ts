@@ -164,6 +164,8 @@ export interface ResolverContext {
   originalMessage: string;
   currentDate: string;
   turnId: string;
+  /** 用户原始回合；子步骤仍保留各自 turnId，不能据此误判为跨轮。 */
+  rootOperationId?: string;
   /** 仅由宿主工具入口绑定，模型参数不能关闭目标声明门禁。 */
   requireFieldIntents?: boolean;
   /** 宿主绑定的前端点选来源，模型参数不得创建或更换。 */
@@ -180,9 +182,23 @@ export interface ResolverContext {
   /** 用户回复的依据：原文、目录识别编码、前端点选（仅对指定待确认 Frame 有效）。 */
   replyEvidence?(frameId: string): Promise<import("./clarificationOptions.js").ReplyEvidence>;
   resolveFactBindings?(bindings: Record<string, {fact_id: string}>): Promise<FieldResolution>;
+  /** 保存规划前核对主题指标，参数错误不得污染当前已成功的业务焦点。 */
+  validateOverviewPlan?(plan: import("../tools/businessOverview.js").OverviewPlan): Promise<void>;
+  validateAnalysisPlan?(plan: import("../analysis/contracts.js").AnalysisPlan): Promise<import("../analysis/contracts.js").AnalysisPlan | void>;
+  /** 仅实际提供通用目录与计划校验的宿主开启，旧客户端和隔离解析器保持兼容。 */
+  analysisFallbackAvailable?: boolean;
   /** 默认匹配本轮原文；继承重试上次临时失败的指标时传入当时的原句。 */
   resolveMetricMentions?(question?: string): Promise<import("./metricMentions.js").MetricMentions>;
   resolveFieldReference?(input: HistoryFieldReferenceInput, targetField: string, inputSource?: "explicit" | "inherited", previous?: ResolvedField): Promise<FieldResolution>;
+  /** 从目录匹配原文中的机构名/别名，编码解析与权限仍由字段 Resolver 校验。 */
+  organizationMentions?(): Promise<string[]>;
+  /** 统一语义入口已从当前原文正式绑定的完整机构身份；仅供内部分析适配器衔接，不由模型提供。 */
+  boundOrganizationCodes?: readonly string[];
+  /**
+   * 机构话语指代（“上述三家”“那两家”等本轮原文）：按会话历史中最近讨论的去重机构解析。
+   * 原文不是指代时返回 undefined（走目录匹配）；指代但无法唯一确定（无数量、历史不足）返回 not_found 交用户澄清。
+   */
+  resolveOrganizationReference?(raw: string): Promise<FieldResolution | undefined>;
   resolveOrganizationScope?(scope: OrganizationScopeInput): Promise<FieldResolution>;
   /**
    * 上一轮遗留的执行中 Frame：按发送前登记的幂等键只读回查真实终态，不重发查询。
@@ -195,6 +211,8 @@ export interface ResolverContext {
 }
 export interface FieldResolver {
   name: string;
+  /** Schema 拒绝时补充可修正的诊断，不代替 Schema 或业务校验。 */
+  inputProblem?(raw: unknown): string | undefined;
   /** 声明支持 remove 操作；未声明的字段收到 remove 时由主循环直接报参数错误，不静默退化为继承。 */
   removable?: boolean;
   supports(schema: FieldSchema): boolean;

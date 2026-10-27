@@ -61,10 +61,18 @@ def init_config(args: argparse.Namespace) -> None:
         BUNDLE_ROOT / "backend/runtime/config/model-config.json": runtime_config
         / "model-config.json",
         BUNDLE_ROOT / "backend/runtime/config/prompts.json": runtime_config / "prompts.json",
+        BUNDLE_ROOT / "backend/runtime/config/business-knowledge.json": runtime_config
+        / "business-knowledge.json",
     }
     for source, target in mappings.items():
         print(f"{_copy_once(source, target)}: {target}")
     if config_file.exists():
+        existing = config_file.read_text(encoding="utf-8")
+        if not re.search(r"(?m)^\s*(?:export\s+)?BUSINESS_KNOWLEDGE_PATH\s*=", existing):
+            knowledge_path = runtime_config / "business-knowledge.json"
+            with config_file.open("a", encoding="utf-8") as output:
+                output.write(("" if not existing or existing.endswith("\n") else "\n")
+                             + f"BUSINESS_KNOWLEDGE_PATH={knowledge_path}\n")
         print(f"kept: {config_file}")
     else:
         template = (BUNDLE_ROOT / "ops/backend.env.example").read_text(encoding="utf-8")
@@ -99,6 +107,14 @@ def validate_config(args: argparse.Namespace) -> None:
         for line in text.splitlines()
         if line and not line.startswith("#") and "=" in line
     }
+    values = dotenv_values(config_file, interpolate=False)
+    if str(values.get("NACOS_CONFIG_ENABLED", "")).lower() in {"true", "1"}:
+        _load_runtime_environment(config_file)
+        from ask_metric.core.config import get_settings
+
+        get_settings.cache_clear()
+        get_settings()
+        required.update({"APP_DATABASE_URL", "QUERY_DATABASE_URL", "JWT_SECRET"})
     missing = sorted(
         {
             "APP_DATABASE_URL",
@@ -109,7 +125,6 @@ def validate_config(args: argparse.Namespace) -> None:
     )
     if missing:
         raise SystemExit("Missing required configuration keys: " + ", ".join(missing))
-    values = dotenv_values(config_file)
     plaintext = sorted(
         name
         for name in SENSITIVE_CONFIG_KEYS

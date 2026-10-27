@@ -78,7 +78,8 @@ def execute_basic_query(
             channel_context={"calculation_context": (
                 payload.calculation_context.model_dump() if payload.calculation_context else {}
             )},
-            text=f"基础查询：{spec.time.start}至{spec.time.end}，"
+            text=("基础查询：最新有效数据，" if spec.time.preset == "latest"
+                  else f"基础查询：{spec.time.start}至{spec.time.end}，") +
                  f"{len(spec.metric_codes)}个指标、{len(spec.org_codes)}个机构",
         ),
         actor=actor,

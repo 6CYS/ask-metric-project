@@ -17,7 +17,7 @@ from ask_metric.infrastructure.db.models import (
 
 
 class MetricCatalogRepository(Protocol):
-    def list_enabled(self) -> list[MetricCatalogItem]: ...
+    def list_enabled(self, *, refresh: bool = False) -> list[MetricCatalogItem]: ...
     def list_disabled(self) -> list[MetricCatalogItem]: ...
 
 
@@ -74,14 +74,14 @@ class SqlAlchemyMetricCatalogRepository:
                                   **self._source_fields(term, source_available))
                 for term in self.session.execute(query).scalars()]
 
-    def list_enabled(self) -> list[MetricCatalogItem]:
+    def list_enabled(self, *, refresh: bool = False) -> list[MetricCatalogItem]:
         source_available = self._has_source_structure()
         cache_key = (
             str(self.session.get_bind().url), self._table_version(MetricTerm),
             self._table_version(MetricSynonym), source_available,
         )
         with self._cache_lock:
-            if self._cache_key == cache_key:
+            if not refresh and self._cache_key == cache_key:
                 return list(self._cache_value)
         query = (
             select(MetricTerm).where(MetricTerm.enabled.is_(True))

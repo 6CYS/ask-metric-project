@@ -2,7 +2,7 @@
 
 当前版本 2 的运行时输入契约。工具名保留 `resolve_business_turn`，请求版本为 `protocol_version: 2`。Pi 结合上下文判断业务意图和目标范围，宿主绑定原文、目录与可信状态，再编译受治理的执行输入。Pi 继续管理唯一的模型与工具循环；没有前置意图 Agent 或第二套消息历史。具体实现、兼容限制与验证边界见[通用多轮上下文实现](implementation-multiturn-context.md)。
 
-机器可读形状见 [请求 Schema](request.schema.json)，合成示例及设计断言见 [请求示例](request-examples.json)。请求后的状态、规范化结果、接续和引用生命周期统一遵循 [反馈与引用契约](feedback.md)，机器形状见 [反馈 Schema](feedback.schema.json)。内部任务、步骤和执行许可见 [状态与执行设计](state-and-execution.md)，版本隔离见 [迁移与回退设计](migration.md)。
+机器可读形状见 请求 Schema（历史参考材料，未随交付包提供），合成示例及设计断言见 请求示例（历史参考材料，未随交付包提供）。请求后的状态、规范化结果、接续和引用生命周期统一遵循 [反馈与引用契约](feedback.md)，机器形状见 反馈 Schema（历史参考材料，未随交付包提供）。内部任务、步骤和执行许可见 [状态与执行设计](state-and-execution.md)，版本隔离见 [迁移与回退设计](migration.md)。
 
 ## 请求字段
 

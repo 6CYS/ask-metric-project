@@ -136,7 +136,8 @@ export function backendErrorResult<TDetails extends ErrorDetails>(
   details: TDetails,
 ): AgentToolResult<TDetails> | undefined {
   if (!(error instanceof BackendApiError)) return undefined;
-  if (error.status === 401) return errorResult("登录状态已失效，请刷新页面重新登录。", details);
+  if (error.status === 401) return {...errorResult("登录状态已失效，请刷新页面重新登录。",
+    {...details, retryable: false, error_code: error.code ?? "UNAUTHORIZED", http_status: 401}), terminate: true};
   if (error.status === 403) return errorResult("无权访问所选数据，请确认机构权限。", details);
   if (error.status === 422) {
     // 参数/口径类错误可纠正：透传后端具体原因，模型据此修正一次；纠错次数由宿主限额兜底。

@@ -192,9 +192,53 @@ export type TimeVariant = {
   start: string
   end: string
 }
+/** 图形面积使用原始值，金额和占比文案沿用服务端已核验的显示值。 */
+export type BusinessPieChart = {
+  type: "pie"
+  title: string
+  date: string
+  unit: string
+  source_refs: string[]
+  points: Array<{ name: string; value: string; display: string; share: string }>
+}
+
+export type BusinessSeriesChart = {
+  type: "bar" | "line"
+  title: string
+  dates: string[]
+  unit: string
+  source_refs: string[]
+  points: Array<{ name: string; value: string; display: string }>
+}
+export type BusinessReportChart = BusinessPieChart | BusinessSeriesChart
+
+/** 已由服务端校验的报告内容；只负责展示，不在前端重新生成业务结论。 */
+export type AnalysisReportView = {
+  summary: string
+  sections: Array<{ title: string; text: string }>
+  scope: string
+  source_notices: string[]
+  limitations: string[]
+  gaps: string[]
+  partial: boolean
+  charts?: BusinessReportChart[]
+  body_mode?: "narrative"
+  profile?: "brief" | "snapshot" | "trend" | "diagnostic" | "multi_topic"
+  density?: "compact" | "medium" | "detailed"
+  layout?: Array<"summary" | "data" | "analysis">
+  labels?: {
+    summary?: string
+    data?: string
+    analysis?: string
+    gaps?: string
+    sources?: string
+  }
+}
 
 /** 单次问数的完整响应，既用于最终 SSE 事件，也会原样写入历史消息快照。 */
 export type ChatResponse = {
+  analysis_plan?: string[]
+  analysis_report?: AnalysisReportView
   message_id: string
   conversation_id?: string | null
   intent: string
@@ -373,3 +417,22 @@ export interface QueryReadiness {
   completed: number
   total: number
 }
+
+export type BusinessKnowledgePayload = {
+  title: string
+  text: string
+  enabled: boolean
+  revision: string
+}
+
+export type BusinessKnowledgeItem = Omit<BusinessKnowledgePayload, "revision"> & {
+  id: string
+  updated_at: string | null
+}
+
+export type BusinessKnowledgeList = {
+  items: BusinessKnowledgeItem[]
+  revision: string
+}
+
+export type BusinessKnowledgeWriteResult = { item: BusinessKnowledgeItem; revision: string }

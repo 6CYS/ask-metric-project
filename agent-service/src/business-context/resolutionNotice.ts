@@ -1,3 +1,4 @@
+import {verifiedQueryDates} from "./queryDates.js";
 import type {AgentToolResult} from "@earendil-works/pi-agent-core";
 import type {BusinessFrame} from "./types.js";
 
@@ -9,9 +10,14 @@ export function orgResolutionNotices(frame: BusinessFrame): string[] {
   const notices: string[] = [];
   for (const field of Object.values(frame.fields)) {
     if (field.resolver !== "organization" || field.resolutionStatus !== "resolved") continue;
+    const names = (field.resolvedValue as {names?: unknown} | undefined)?.names;
+    if (field.metadata?.defaultSource === "authenticated_account" && Array.isArray(names)) {
+      notices.push(field.source === "inherited" ? `沿用此前按账号所属机构确定的「${names.join("、")}」。`
+        : `未指定机构，按账号所属机构「${names.join("、")}」查询。`);
+      continue;
+    }
     const source = field.metadata?.resolution_source;
     if (source !== "corrected" && source !== "model_inferred") continue;
-    const names = (field.resolvedValue as {names?: unknown} | undefined)?.names;
     const corrections = Array.isArray(field.metadata?.corrections)
       ? field.metadata.corrections as Array<Record<string, unknown>> : [];
     const excerpt = typeof field.metadata?.rawExcerpt === "string" && field.metadata.rawExcerpt.trim()
@@ -42,9 +48,19 @@ export function orgResolutionNotices(frame: BusinessFrame): string[] {
  */
 export function withOrgResolutionNotices<T>(frame: BusinessFrame, result: AgentToolResult<T>): AgentToolResult<T> {
   const notices = orgResolutionNotices(frame);
-  if (!notices.length) return result;
   const details = result.details && typeof result.details === "object" && !Array.isArray(result.details)
     ? result.details as Record<string, unknown> : {};
+  const time = frame.fields.time;
+  const calendar = time?.resolvedValue as {start?: string; end?: string} | undefined;
+  // 单日由查询正文展示，继承策略只保存在元数据；日期不一致或无数据才补充说明。
+  const inheritedDate = time?.source === "inherited" && calendar?.start && calendar.start === calendar.end;
+  if (time?.metadata?.timePolicy === "latest" && details.status === "succeeded" && !inheritedDate) {
+    const dates = verifiedQueryDates(details.query_dates ?? time.metadata.queryDates,
+      Number(details.row_count ?? frame.resultSummary?.rowCount ?? 0), Boolean(details.truncated));
+    if (dates.actual_dates.length > 1) notices.push(`各项最新有效数据日期不同：${dates.actual_dates.join("、")}，不能视为同一时点。`);
+    else if (!dates.actual_dates.length && dates.complete) notices.push("当前范围内没有可用的最新有效数据，尚未确定实际数据日。");
+  }
+  if (!notices.length) return result;
   const prefix = notices.join("\n");
   const publicAnswer = typeof details.public_answer === "string"
     ? details.public_answer.startsWith(`${prefix}\n`) ? details.public_answer : `${prefix}\n${details.public_answer}` : undefined;

@@ -70,10 +70,18 @@ logger = logging.getLogger(__name__)
 ModelRole = Literal["chat", "embedding", "reranker"]
 
 
-def credential_resolver_from_env_file(path: Path) -> Callable[[str], str | None]:
+def credential_resolver_from_env_file(path: Path, *, store=None) -> Callable[[str], str | None]:
     """Resolve secrets from the process first, then the configured external env file."""
 
     def resolve(name: str) -> str | None:
+        if store:
+            values = store.read_json("sznsznws_backend_security.yaml")
+            value = next((v for k, v in values.items() if k.upper() == name.upper()), None)
+            if value is None:
+                return None
+            key_file = store.settings.ask_metric_config_sm4_key_file
+            key = load_config_sm4_key(environ={}, key_file=key_file) if key_file else None
+            return decrypt_config_value(str(value), key)
         process_value = os.getenv(name)
         if process_value:
             return decrypt_config_value(process_value)

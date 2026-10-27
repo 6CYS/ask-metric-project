@@ -1,9 +1,0 @@
-{
-  "agent-service/src/harnessHost.ts": "1f8af56429d4fc547102b0f5c4d2569e89d39b5f6f21dc01fab2dc16b4d5c9bd",
-  "agent-service/src/semantic-task/service.ts": "52a5f8ac1ff2766e832a32255889b3f2d2c97b6a8774f8b7aa7c6a8922a3353f",
-  "agent-service/src/semantic-task/planService.ts": "17b7455d12a423d663938fed28116fab6080d70cec98fd7ee9064f8aa476696e",
-  "agent-service/src/semantic-task/store.ts": "3aa620475568fc9982a0ee2c650f35df0e0523bf47137d2c0f3eed6eb435b4eb",
-  "agent-service/src/semantic-task/tools.ts": "ece876a328cf62cc60d60df4f5182fb0570452f85de15886fcaae96babb21157",
-  "agent-service/src/semantic-task/prompt.ts": "ace578d123519ec7d7acbba9f8c9defaed96e824ce3b32d250cb665053102b38",
-  "agent-service/src/tools/readTools.ts": "6281c3abff9ec9ee171ae5680adc3b393f8f23e4ee19a307ccaff79555a10dca"
-}

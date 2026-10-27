@@ -49,6 +49,8 @@ export type CatalogMatchType = "exact" | "contains" | "lexical" | "semantic";
 export interface MetricSearchHit {
   metric_code: string;
   metric_name: string;
+  metric_explanation?: string;
+  description?: string;
   unit?: string | null;
   synonyms?: string[];
   score: number;
@@ -203,7 +205,12 @@ export interface TaskResultPage {
   evidence?: Record<string, unknown>;
 }
 
-/** 结构化基础查询（basic-queries）契约：不调用模型，按正式编码与明确日期取数 */
+/** 无界最新是受控取数策略；实际日期由后端完整结果证据确定。 */
+export type BasicQueryTime = {start: string; end: string; dates?: string[]; preset?: never}
+  | {preset: "latest"; start?: never; end?: never; dates?: never};
+export interface QueryDatesEvidence {complete: boolean; actual_dates: string[]; uniform_date: string | null}
+
+/** 结构化基础查询（basic-queries）契约：不调用模型，按正式编码与受控时间取数 */
 export interface BasicQuerySpec {
   conversation_id?: string;
   calculation_context?: {scope_id: string; user_question: string};
@@ -214,10 +221,10 @@ export interface BasicQuerySpec {
   scope_fingerprint?: string;
   /** 位次查询的比较总体；与 org_codes / organization_scope 关注对象分离。 */
   comparison_scope?: {org_codes?: string[]; organization_scope?: import("./business-context/types.js").OrganizationScope; scope_fingerprint?: string};
-  time: { start: string; end: string; dates?: string[] };
+  time: BasicQueryTime;
   /** “近N年”默认滚动口径的完整年度备选（可选）；随 spec 提交，供前端“切换口径”重查。 */
   time_alternative?: {label: string; start: string; end: string};
-  selection: "exact" | "latest_in_range" | "all_in_range";
+  selection: "exact" | "latest" | "latest_in_range" | "all_in_range";
   operation?: import("./business-context/types.js").QueryOperation;
 }
 
@@ -230,6 +237,7 @@ export interface BasicQueryResponse {
         metrics?: Array<{ code?: string; name?: string; unit?: string }>;
         organizations?: Array<{ code?: string; name?: string }>;
       };
+      query_dates?: QueryDatesEvidence;
       coverage_notice?: string | null;
       missing_metric_notice?: string | null;
     };
@@ -324,6 +332,49 @@ export class BackendClient {
 
   getMe(options?: CallOptions): Promise<BackendUser> {
     return this.request<BackendUser>("/api/v1/auth/me", {}, options);
+  }
+
+  businessTopic(topic: string, knowledge = false, options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request(`/api/v1/business-topics/${encodeURIComponent(topic)}${knowledge ? "/knowledge" : ""}`, {}, options);
+  }
+
+  searchBusinessKnowledge(query: string, contextTerms: readonly string[], options?: CallOptions): Promise<unknown> {
+    return this.request("/api/v1/business-knowledge/search", {
+      method: "POST", body: JSON.stringify({query, context_terms: contextTerms}),
+    }, options);
+  }
+
+  businessOverview(payload: Record<string, unknown>, key: string, options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request("/api/v1/business-overviews", {method: "POST", body: JSON.stringify(payload)}, {...options, idempotencyKey: key});
+  }
+
+  analysisCatalog(keyword: string, page: number, pageSize: number, options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request(`/api/v1/analysis/catalog?keyword=${encodeURIComponent(keyword)}&page=${page}&page_size=${pageSize}`, {}, options);
+  }
+  analysisMethods(options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request("/api/v1/analysis/methods", {}, options);
+  }
+  analysisValidate(plan: import("./analysis/contracts.js").AnalysisPlan, question: string, options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request("/api/v1/analysis/validate", {method: "POST", body: JSON.stringify({plan, question})}, options);
+  }
+  analysisExecute(payload: Record<string, unknown>, key: string, options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request("/api/v1/analysis/execute", {method: "POST", body: JSON.stringify(payload)}, {...options, idempotencyKey: key});
+  }
+  analysisReport(payload: Record<string, unknown>, options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request("/api/v1/analysis/report", {method: "POST", body: JSON.stringify(payload)}, options);
+  }
+
+  analysisCalculate(payload: Record<string, unknown>, key: string, options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request("/api/v1/analysis/calculations", {method: "POST", body: JSON.stringify(payload)},
+      {...options, idempotencyKey: key});
+  }
+
+  analysisStatus(key: string, conversationId: string, options?: CallOptions): Promise<{status: string; evidence?: Record<string, unknown>}> {
+    return this.request(`/api/v1/analysis/runs/${encodeURIComponent(key)}?conversation_id=${encodeURIComponent(conversationId)}`, {}, options);
+  }
+
+  analysisEvidence(runRef: string, conversationId: string, options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request(`/api/v1/analysis/evidence/${encodeURIComponent(runRef)}?conversation_id=${encodeURIComponent(conversationId)}`, {}, options);
   }
 
   resolveBusinessField(entity: string, rawValues: string[], options?: CallOptions, referenceYear?: number,

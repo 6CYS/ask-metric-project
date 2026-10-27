@@ -1,7 +1,0 @@
-{
-  "old_pid": 7954,
-  "new_pid": 12649,
-  "health_ok": true,
-  "source_entry": "agent-service/src/server.ts",
-  "history_preserved": true
-}

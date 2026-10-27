@@ -24,7 +24,11 @@ from ask_metric.domain.query_execution import QueryPlanner
 from ask_metric.domain.semantics import MetricCatalogItem
 from ask_metric.infrastructure.db.org_hierarchy import SqlAlchemyOrgHierarchyProvider
 from ask_metric.infrastructure.db.organization_scope import SqlAlchemyOrganizationScopeProvider
-from ask_metric.infrastructure.db.session import get_app_session_factory, get_query_engine
+from ask_metric.infrastructure.db.session import (
+    get_app_session_factory,
+    get_org_catalog_engine,
+    get_query_engine,
+)
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
 from ask_metric.infrastructure.model.catalog_vectors import catalog_embedding_texts
 from ask_metric.infrastructure.model.configuration import (
@@ -37,6 +41,10 @@ from ask_metric.infrastructure.model.provider import (
     credential_resolver_from_env_file,
 )
 from ask_metric.infrastructure.query.factory import create_data_source_adapter
+from ask_metric.infrastructure.query.organization_codes import (
+    OrganizationCodeMappingLoader,
+    OrganizationMappedDataSource,
+)
 from ask_metric.infrastructure.query.sql_builder import sql_builder_from_settings
 from ask_metric.infrastructure.semantic.configuration import SemanticConfigRepository
 
@@ -62,17 +70,25 @@ def initialize_query_catalog(request: Request) -> None:
     if not model.is_enabled("embedding"):
         return
     settings = request.app.state.settings
-    config = SemanticConfigRepository(
-        resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
-    ).load().metric_matching
+    config = (
+        SemanticConfigRepository(
+            resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
+            store=settings._config_center,
+        )
+        .load()
+        .metric_matching
+    )
     corpus = catalog_embedding_texts(items)
     # 后面的分批模型请求不占用数据库连接。
     if not corpus:
         raise ValueError("Enabled metric catalog is empty")
     request.app.state.catalog_vector_cache.warmup(
         # 传入绑定方法作为回调，缓存每完成一批便调用它更新公共初始化状态。
-        model, corpus, batch_size=config.embedding_batch_size,
-        wait_seconds=config.embedding_cache_wait_seconds, progress=initialization.progress,
+        model,
+        corpus,
+        batch_size=config.embedding_batch_size,
+        wait_seconds=config.embedding_cache_wait_seconds,
+        progress=initialization.progress,
     )
 
 
@@ -140,7 +156,8 @@ def get_query_task_service(request: Request) -> QueryTaskApplicationService:
     return QueryTaskApplicationService(
         running_stale_after=_running_stale_after(settings),
         semantic_config_repository=SemanticConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.semantic_config_path)
+            resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
+            store=settings._config_center,
         ),
         # 追问来源的权限复核与执行链使用同一机构边界
         permission_service=ScopedOrganizationPermissionService(
@@ -155,13 +172,16 @@ def get_model_service(request: Request) -> ConfigurableModelService:
     settings: Settings = request.app.state.settings
     return ConfigurableModelService(
         model_config_repository=ModelConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.model_config_path)
+            resolve_config_path(PROJECT_DIR, settings.model_config_path),
+            store=settings._config_center,
         ),
         prompt_config_repository=PromptConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.prompt_config_path)
+            resolve_config_path(PROJECT_DIR, settings.prompt_config_path),
+            store=settings._config_center,
         ),
         credential_resolver=credential_resolver_from_env_file(
-            resolve_config_path(PROJECT_DIR, settings.model_secret_env_path)
+            resolve_config_path(PROJECT_DIR, settings.model_secret_env_path),
+            store=settings._config_center,
         ),
         client=request.app.state.model_http_client,
         max_concurrency=settings.model_max_concurrency,
@@ -172,6 +192,19 @@ def get_model_service(request: Request) -> ConfigurableModelService:
 
 def get_query_execution_service(request: Request) -> QueryExecutionApplicationService:
     settings: Settings = request.app.state.settings
+    source_options = ({"session_init_statements": settings.query_session_init_statements}
+                      if settings.query_database_dialect == "inceptor" else {})
+    data_source = create_data_source_adapter(
+        settings.query_database_dialect, get_query_engine(),
+        statement_timeout_ms=settings.query_statement_timeout_ms, **source_options,
+    )
+    if settings.query_database_dialect == "inceptor":
+        data_source = OrganizationMappedDataSource(data_source, OrganizationCodeMappingLoader(
+            settings, create_data_source_adapter(
+                settings.query_database_dialect, get_org_catalog_engine(),
+                statement_timeout_ms=settings.query_statement_timeout_ms, **source_options,
+            ), get_app_session_factory(),
+        ))
     def validate_current_actor(actor: ActorContext) -> None:
         # 长查询发布前再次核对账号、角色和登录版本，不能只复用请求开始时的身份。
         if actor.authentication_method == "local_jwt":
@@ -190,16 +223,7 @@ def get_query_execution_service(request: Request) -> QueryExecutionApplicationSe
         sql_builder=sql_builder_from_settings(settings),
         actor_validator=validate_current_actor,
         running_stale_after=_running_stale_after(settings),
-        data_source=create_data_source_adapter(
-            settings.query_database_dialect,
-            get_query_engine(),
-            statement_timeout_ms=settings.query_statement_timeout_ms,
-            **(
-                {"session_init_statements": settings.query_session_init_statements}
-                if settings.query_database_dialect == "inceptor"
-                else {}
-            ),
-        ),
+        data_source=data_source,
         permission_service=ScopedOrganizationPermissionService(
             organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
             all_organization_org_codes=set(settings.all_organization_org_codes),

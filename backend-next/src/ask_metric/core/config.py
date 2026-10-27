@@ -1,8 +1,8 @@
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -33,6 +33,10 @@ DEFAULT_QUERY_DATABASE_URL = _local_database_url("metric_readonly", "business_me
 
 
 class Settings(BaseSettings):
+    _config_center: object | None = PrivateAttr(default=None)
+    nacos_config_enabled: bool = False
+    nacos_config_group: str = "ASK_METRIC_CONFIG"
+    nacos_prompt_data_id: str = "sznsznws_backend_prompts.json"
     app_name: str = "Ask Metric Backend Next"
     app_env: str = "development"
     log_level: str = "INFO"
@@ -70,6 +74,8 @@ class Settings(BaseSettings):
     query_database_url: str = DEFAULT_QUERY_DATABASE_URL
     app_database_dialect: str = "mysql"
     query_database_dialect: str = "mysql"
+    # 源表使用 Inceptor 查询结构时，显式指定承载数据库的 SQL 语法。
+    sit_sql_dialect: Literal["hive", "mysql"] = "hive"
     metric_catalog_database_url: str | None = None
     org_catalog_database_url: str | None = None
     sit_fact_table: str = "ads_lake.adm_rmt_pub_gnrl_drv_indcr_tab"
@@ -133,6 +139,7 @@ class Settings(BaseSettings):
     model_secret_env_path: Path = PROJECT_DIR / ".env"
     prompt_config_path: Path = PROJECT_DIR / "config" / "prompts.json"
     semantic_config_path: Path = PROJECT_DIR / "config" / "semantic-config.json"
+    business_knowledge_path: Path = PROJECT_DIR / "config" / "business-knowledge.json"
     config_history_dir: Path = PROJECT_DIR / ".runtime" / "config-history"
     query_result_limit: int = Field(default=1000, gt=0, le=10_000)
     query_statement_timeout_ms: int = Field(default=30_000, gt=0, le=600_000)
@@ -421,4 +428,6 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()
+    from ask_metric.infrastructure.config_center.bootstrap import load_settings
+
+    return load_settings()

@@ -20,6 +20,7 @@ from ask_metric.application.ports import (
 )
 from ask_metric.application.requests import ActorContext
 from ask_metric.core.config import PROJECT_DIR, Settings
+from ask_metric.domain.semantics import MetricCatalogItem
 from ask_metric.infrastructure.db.models import (
     ChatConversation,
     Dataset,
@@ -192,10 +193,12 @@ def metric_catalog_overview(
     }
 
 
-def _metric_hit_payload(hit: CatalogSearchHit) -> dict[str, object]:
+def _metric_hit_payload(hit: CatalogSearchHit, metric: MetricCatalogItem) -> dict[str, object]:
     return {
         "metric_code": hit.code,
         "metric_name": hit.name,
+        "metric_explanation": metric.explanation,
+        "description": metric.description,
         "unit": hit.unit,
         "synonyms": hit.aliases,
         "score": round(hit.score, 6),
@@ -226,9 +229,14 @@ def search_metric_catalog(
     embedding 未启用时降级为纯词法结果。
     """
     settings = request.app.state.settings
-    matching = SemanticConfigRepository(
-        resolve_config_path(PROJECT_DIR, settings.semantic_config_path)
-    ).load().metric_matching
+    matching = (
+        SemanticConfigRepository(
+            resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
+            store=settings._config_center,
+        )
+        .load()
+        .metric_matching
+    )
     with uow:
         items = uow.metric_catalog.list_enabled()
     model_service = get_model_service(request)
@@ -242,14 +250,13 @@ def search_metric_catalog(
         batch_size=matching.embedding_batch_size,
         wait_seconds=matching.embedding_cache_wait_seconds,
     )
-    result = rank_metric_catalog(
-        keyword, items, embedding_scores=embedding_scores, limit=limit
-    )
+    result = rank_metric_catalog(keyword, items, embedding_scores=embedding_scores, limit=limit)
+    by_code = {item.code: item for item in items}
     return {
         "total": result.total,
-        "items": [_metric_hit_payload(hit) for hit in result.items],
+        "items": [_metric_hit_payload(hit, by_code[hit.code]) for hit in result.items],
         "semantic_suggestions": [
-            _metric_hit_payload(hit) for hit in result.semantic_suggestions
+            _metric_hit_payload(hit, by_code[hit.code]) for hit in result.semantic_suggestions
         ],
     }
 

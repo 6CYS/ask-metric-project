@@ -73,7 +73,18 @@ export function historySources(values: unknown[], unavailable: () => never): His
       return;
     }
     const kind = typeof node.kind === "string" ? node.kind : context.kind;
-    if (kind === "session_history_read" && node.status === "ok" || kind === "conversation_reply" && node.status === "answered") {
+    if (["business_overview", "analysis_evidence", "business_report"].includes(kind ?? "") && node.status === "succeeded") {
+      if (!Array.isArray(node.org_codes) || !node.org_codes.length || !node.org_codes.every(code => typeof code === "string" && code)) unavailable();
+      organizationScopes.push(node.org_codes as string[]); referencesSeen++;
+      if (!Array.isArray(node.tasks)) unavailable();
+      for (const value of node.tasks as unknown[]) {
+        const source = object(value); if (!source) unavailable();
+        add(source!.task_id, source!.result_id);
+      }
+      return;
+    }
+    if (kind === "session_history_read" && node.status === "ok" || kind === "conversation_reply" && node.status === "answered"
+      || kind === "runtime_delivery" && node.status === "delivered") {
       // 原生回读正文也可能含旧数值，必须携带被读取回合的来源；旧无来源回执不能成为权限旁路。
       const sources = object(node.history_sources);
       if (!sources || !Array.isArray(sources.tasks) || !Array.isArray(sources.organizationScopes)) unavailable();

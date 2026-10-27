@@ -4,7 +4,7 @@
  */
 import { loadBusinessSkills, createBusinessSkillReadTool } from "./businessSkills.js";
 import { serve } from "@hono/node-server";
-import { loadConfig } from "./config.js";
+import { loadRuntimeConfig } from "./nacosConfig.js";
 import { createAskMetricModels } from "./models.js";
 import { HarnessHost } from "./harnessHost.js";
 import { acquireWriterLock, NativeSessionStore } from "./nativeSessions.js";
@@ -12,7 +12,7 @@ import { createAskMetricTools } from "./tools/index.js";
 import { createApp } from "./routes.js";
 
 async function main(): Promise<void> {
-  const config = loadConfig();
+  const config = await loadRuntimeConfig();
   // 单数据根单写实例：多副本共写 JSONL 会破坏原生存储，直接拒绝启动
   const releaseLock = acquireWriterLock(config.dataDir);
   const store = new NativeSessionStore(config.dataDir);
@@ -44,4 +44,8 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
 }
 
-void main();
+void main().catch((error: unknown) => {
+  // 启动配置错误只输出受控提示，避免原生错误对象带请求、凭据或响应。
+  console.error(error instanceof Error ? error.message : "Agent 启动失败");
+  process.exitCode = 1;
+});

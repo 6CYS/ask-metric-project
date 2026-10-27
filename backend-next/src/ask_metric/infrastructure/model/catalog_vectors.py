@@ -16,8 +16,12 @@ logger = logging.getLogger(__name__)
 
 
 def catalog_embedding_texts(metrics: Sequence[MetricCatalogItem]) -> list[str]:
-    """启动预热与在线检索共用相同文本，名称、别名和说明均参与指标表示。"""
-    return [f"{item.name} {' '.join(item.aliases)} {item.description}" for item in metrics]
+    """说明与口径共同参与检索；空说明保持旧表示，避免无意义重建目录向量。"""
+    return [
+        f"{item.name} {' '.join(item.aliases)} {item.description}"
+        + (f"\n{item.explanation}" if item.explanation else "")
+        for item in metrics
+    ]
 
 
 class CatalogVectorCache:

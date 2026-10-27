@@ -44,6 +44,8 @@ export interface HistoryReadSources {
  * 只读当前分支祖先；不暴露隐藏思考、凭据、SQL/debug。
  */
 export interface HistoryBridge {
+  /** 仅定位当前分支中已成功的分析来源并复核原回合权限，不返回旧数值。 */
+  analysisSource?(runRef: string): Promise<{run_ref: string; scope_id: string; execution_turn_id?: string} | null>;
   list(
     beforeSeq?: number,
     limit?: number,
@@ -78,6 +80,8 @@ export interface AskMetricRequestContext {
   sessionId: string;
   requestId: string;
   operationId: string;
+  /** 普通问数使用直接调查链路；旧在途请求和结构化点击沿用原协议。 */
+  executionFlow?: "inquiry_v1";
   /** 用户显式回复某张澄清卡片时的目标（发送时快照） */
   clarificationTarget?: { task_id: string; version: number; clarification_id: string };
   /** 结构化澄清的显式选择（前端 composer 已校验输出） */
@@ -106,6 +110,8 @@ export interface AskMetricRequestContext {
   history: HistoryBridge;
   /** 当前原生回合的证据只读投影；用于 pi 选择最终交付内容。 */
   answerEvidence?: () => Promise<EvidenceReference[]>;
+  /** 宿主绑定的当前原生回合，仅供内部交付和运行控制读取；模型不能传入另一轮记录。 */
+  turnMessages?: () => Promise<import("@earendil-works/pi-agent-core").AgentMessage[]>;
   /** 原生模型步骤，仅用于诊断及隔离摘要请求，不保存业务状态。 */
   modelCall?: { model: string; step: "assistant" | "deferred" | "compaction" | "branch_summary"; attempt: number; startedAt: number; payloadBytes?: number; finalPayloadBytes?: number };
   /** 仅本次驱动的诊断耗时，不承载业务状态或模型记忆。 */

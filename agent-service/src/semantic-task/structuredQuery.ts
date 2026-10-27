@@ -18,6 +18,13 @@ function organization(field: "organizations" | "comparison_organizations", input
 /** 只转换字段形状；机构身份、权限、日历与完整性继续走现有绑定和执行链。 */
 export function compileQueryRequest(input: SemanticRequest): SemanticRequest {
   return {...input, targets: input.targets.map(target => {
+    if (target.analysis) {
+      if (input.intent !== "analyze" || target.query) throw new Error("ANALYSIS_REQUIRES_ANALYZE_OPERATIONS");
+      const {organizations, ...analysis} = target.analysis;
+      return {source: target.source, operations: [...target.operations,
+        ...(organizations ? [organization("organizations", organizations)] : []),
+        {action: "set" as const, field: "_analysis" as const, value: JSON.stringify(analysis)}]};
+    }
     const query = target.query;
     if (!query) return {...target, operations: target.operations.map(operation => "queryOperation" in operation && operation.queryOperation
       ? {...operation, value: operationLabel(operation.queryOperation), structured: true} : operation)};

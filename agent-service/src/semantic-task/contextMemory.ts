@@ -23,7 +23,10 @@ export function workingMessages(messages: readonly AgentMessage[], budget = 4000
   const current = turns.pop() ?? [], retained: AgentMessage[][] = [];
   let used = 0;
   for (const turn of turns.reverse()) {
-    const cost = contextEstimate(turn);
+    // 只计模型可见正文与调用关联；details 等原生元数据不发送，但仍保留供后续权限核验。
+    const cost = contextEstimate(turn.map(message => message.role === "toolResult"
+      ? {role: message.role, content: message.content, toolCallId: message.toolCallId, toolName: message.toolName}
+      : message.role === "user" || message.role === "assistant" ? {role: message.role, content: message.content} : message));
     if (used + cost > budget || retained.length >= 3) break;
     retained.unshift(turn); used += cost;
   }

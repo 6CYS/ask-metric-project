@@ -7,6 +7,7 @@ import QueryRunsView from "@/views/QueryRunsView.vue"
 import DatasetsView from "@/views/DatasetsView.vue"
 import ChatView from "@/views/ChatView.vue"
 import LoginView from "@/views/LoginView.vue"
+import KnowledgeView from "@/views/KnowledgeView.vue"
 import { useAuth } from "@/composables/useAuth"
 import { setAuthFailureReason } from "@/lib/authSession"
 
@@ -25,6 +26,7 @@ const router = createRouter({
     { path: "/query-runs", name: "query-runs", component: QueryRunsView, meta: { requiresAuth: true } },
     { path: "/chat", name: "chat", component: ChatView, meta: { requiresAuth: true } },
     { path: "/llm", name: "llm", component: LlmView, meta: { requiresAuth: true } },
+    { path: "/knowledge", name: "knowledge", component: KnowledgeView, meta: { requiresAuth: true } },
     { path: "/metrics", name: "metrics", component: MetricsView, meta: { requiresAuth: true } },
     { path: "/orgs", name: "orgs", component: OrgsView, meta: { requiresAuth: true } },
     { path: "/datasets", name: "datasets", component: DatasetsView, meta: { requiresAuth: true } },
@@ -56,7 +58,7 @@ router.beforeEach(async (to) => {
   if (requiresAuth && !auth.isAuthenticated.value) {
     return { name: "login", query: { redirect: to.fullPath } }
   }
-  if (["llm"].includes(String(to.name)) && auth.user.value?.role_code !== "SYSTEM_ADMIN") {
+  if (["llm", "knowledge"].includes(String(to.name)) && auth.user.value?.role_code !== "SYSTEM_ADMIN") {
     return { name: "chat" }
   }
   if (to.name === "login" && auth.isAuthenticated.value) return { path: "/chat" }

@@ -5,8 +5,8 @@
 - 同一基础指标各口径的同义词共用同一个开头；被最多口径共用的开头（并列取最长）即基础别名，
   其余部分为该口径的写法；
 - 口径写法只有专属于一个口径、且至少两个基础指标这样写时才建议采用；
-- 同一基础别名落到多个源指标、或与另一基础指标正式名称相同时不采用，仍按完整同义词匹配；
-  检查报告列出这些冲突，供目录负责人修正同义词。
+- 同一基础别名落到多个源指标时保留所有来源供用户确认；与另一基础指标正式名称相同时不采用；
+  检查报告仍列出这些冲突，供目录负责人核对同义词。
 """
 
 from __future__ import annotations
@@ -128,11 +128,15 @@ def propose_alias_structure(
 def derive_alias_structure(
     metrics: Iterable[StructuredMetric], synonyms: dict[str, list[str]],
 ) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
-    """识别索引使用的别名：源指标编码 → 基础别名，规范口径 → 口径写法；冲突项不采用。"""
+    """识别索引保留别名间的多源歧义，但不得用别名覆盖另一来源的正式基础名称。"""
+    metrics = list(metrics)
     proposal = propose_alias_structure(metrics, synonyms)
+    formal_owners: dict[str, set[str]] = defaultdict(set)
+    for metric in metrics:
+        formal_owners[normalize_semantic_text(metric.base_name)].add(metric.source_metric_code)
     base: dict[str, set[str]] = defaultdict(set)
     for item in proposal["base_aliases"]:
-        if item["approved"]:
+        if not (formal_owners[item["alias"]] - {item["source_metric_code"]}):
             base[item["source_metric_code"]].add(item["alias"])
     basis: dict[str, set[str]] = defaultdict(set)
     for item in proposal["value_basis_aliases"]:
