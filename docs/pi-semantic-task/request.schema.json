@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "urn:ask-metric:pi-semantic-task:request:v2",
-  "title": "Pi 语义业务提案请求候选协议",
-  "description": "版本2语义提议。Schema一次校验形状与字段动作；宿主绑定正式条件并统一更新状态，后端控制权限与执行。",
+  "title": "Pi 语义业务提案内部编译协议",
+  "description": "版本2内部提议及历史计划形状。模型通用分析接口使用轻量actions，由analysis/actions.ts编译到本协议；公开示例见enhanced-analysis.md。宿主绑定正式条件并统一更新状态，后端控制权限与执行。",
   "type": "object",
   "additionalProperties": false,
   "required": [

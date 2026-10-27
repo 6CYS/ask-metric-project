@@ -23,8 +23,16 @@ export async function resolveEnhancedAnalysis(request: AskMetricRequestContext, 
     if (declared.length !== 1 || declared[0]?.action !== "set") throw new BusinessInputError(
       "ANALYSIS_PLAN_REQUIRED", "plan", "请在当前target.analysis提交一份完整分析计划，来源和机构日期变化保留在同一target。");
     const input = JSON.parse(declared[0].value) as EnhancedAnalysis;
-    if (input.kind === "business_analysis" && input.plan.workflow_id)
-      operations = await bindWorkflowScopeOperations(operations, request, signal);
+    let calendarBinding: import("../business-context/types.js").ResolverContext["boundAnalysisCalendar"];
+    if (input.kind === "business_analysis") {
+      // 分析统一复用原句的正式身份和日历；不要求模型重复抄写已经确定的范围。
+      const binding = bindFieldOperations(operations, request.semanticStep?.facts,
+        turn.baseline?.fields ?? {}, {analysis: true});
+      operations = binding.operations;
+      const time = operations.find(op => op.field === "time" && op.action === "set");
+      if (binding.calendar && time && "value" in time) calendarBinding = {raw: time.value, value: binding.calendar};
+      if (input.plan.workflow_id) operations = await bindWorkflowScopeOperations(operations, request, signal);
+    }
     const previous = (await request.answerEvidence?.() ?? []).filter(item =>
       ["analysis_evidence", "business_overview"].includes(item.evidence.kind) && item.evidence.status === "succeeded");
     // 回读上轮报告不等于本轮已经执行过首批取数，避免把新追问误当成同轮补查。
@@ -92,7 +100,8 @@ export async function resolveEnhancedAnalysis(request: AskMetricRequestContext, 
       && (explicitOrgs.length !== inheritedOrgs.length || explicitOrgs.some(code => !inheritedOrgs.includes(code))))
       throw new BusinessInputError("ANALYSIS_EXPLICIT_ORGANIZATION_REQUIRED", "organizations",
         "原文已明确机构，请在同一target.operations中set本轮原文机构名称。只写scope_notice不是范围条件，不能省略后改用账号默认机构；保留原分析计划修正，不向用户重复追问。");
-    const resolutionContext = resolverContext(request, signal);
+    const resolutionContext: import("../business-context/types.js").ResolverContext = resolverContext(request, signal);
+    if (calendarBinding) resolutionContext.boundAnalysisCalendar = calendarBinding;
     const frozenTime = recoveryScope?.time;
     const frozenOrganizations = recoveryScope?.organizations;
     if (recoveryScope) {

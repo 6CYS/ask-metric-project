@@ -410,7 +410,8 @@ export function createFieldResolvers(): FieldResolverRegistry {
       // 可确定的日期表达由服务端抽取；模型改写或只截取区间端点时仍以真实原文为准。
       const source = requested ?? (raw.endsWith("月末") && !fromCurrentInput(raw, context) ? raw.slice(0, -1) : raw);
       const trustedInherited = context.inputSource === "inherited" && context.previous?.rawValue === raw;
-      if (!trustedInherited && !fromCurrentInput(source, context)) throw new BusinessInputError("FIELD_INPUT_NOT_CURRENT", "time", "日期请使用本轮表达；独立问题没有日期时省略 time，服务端选择最新数据。历史日期未变化时省略或 retain。");
+      const bound = context.boundAnalysisCalendar?.raw === raw ? context.boundAnalysisCalendar.value : undefined;
+      if (!bound && !trustedInherited && !fromCurrentInput(source, context)) throw new BusinessInputError("FIELD_INPUT_NOT_CURRENT", "time", "日期请使用本轮表达；独立问题没有日期时省略 time，服务端选择最新数据。历史日期未变化时省略或 retain。");
       if (recentOverviewExpression(source) === source) {
         if (recentOverviewExpression(context.originalMessage) !== source) {
           throw new BusinessInputError("OVERVIEW_DATE_SOURCE_MISMATCH", "time",
@@ -421,7 +422,8 @@ export function createFieldResolvers(): FieldResolverRegistry {
       const canonical = ["这个月", "当月", "当前月"].includes(source) ? "本月" : source;
       const previous = context.previous?.resolvedValue as {start?: string; end?: string} | undefined;
       const year = previous?.start?.slice(0, 4);
-      const result = await context.resolveCatalog("date", [canonical], year && year === previous?.end?.slice(0, 4) ? Number(year) : undefined);
+      const result = bound ? resolved(structuredClone(bound))
+        : await context.resolveCatalog("date", [canonical], year && year === previous?.end?.slice(0, 4) ? Number(year) : undefined);
       const allRecords = /全部(?:已有)?记录|所有(?:已有)?记录|整个(?:月|月份|季度|期间|年份)|整(?:月|季|年)|逐日|每日/u.test(context.originalMessage);
       return {...result, ...(result.status === "resolved" && allRecords
         ? {value: {...result.value as object, record_selection: "all_in_range"}} : {}), metadata: {...result.metadata, sourceExpression: source,

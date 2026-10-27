@@ -192,6 +192,8 @@ export interface ResolverContext {
   organizationMentions?(): Promise<string[]>;
   /** 统一语义入口已从当前原文正式绑定的完整机构身份；仅供内部分析适配器衔接，不由模型提供。 */
   boundOrganizationCodes?: readonly string[];
+  /** 仅分析适配器绑定的原文确定性日历；不是模型的换算建议，不能从公开参数写入。 */
+  boundAnalysisCalendar?: {raw: string; value: {start: string; end: string; dates?: string[]}};
   /**
    * 机构话语指代（“上述三家”“那两家”等本轮原文）：按会话历史中最近讨论的去重机构解析。
    * 原文不是指代时返回 undefined（走目录匹配）；指代但无法唯一确定（无数量、历史不足）返回 not_found 交用户澄清。

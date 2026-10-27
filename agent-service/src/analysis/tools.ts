@@ -86,7 +86,7 @@ export function createAnalysisCatalogTool(): AgentHarnessTool<AskMetricRequestCo
         const planning = analysisPlanningReview(request);
         return {content: [{type: "text", text: JSON.stringify({methods, results: view, discovery_rounds_remaining: analysisBudget(request).discovery - count,
           ...(planning.length ? {planning_review: planning} : {}),
-          next_action: "根据用户目标选择binding_ref短引用（如k1），提交intent=analyze、target.analysis.kind=business_analysis计划。目录预算按已发现主题和子问题分配，有可用指标就先查；找不到的项目写gap_reason，不反复搜索追求完整目录。requirements用id关联，steps.answers填这些id。规模/水平选当日数等当前水平指标，不能用较上月/较同期差额代替。正式比较指标用observe；compare用于同指标跨日期。没有已审核关系用observe并列读取。不退回metric_query要求用户挑内部口径。"})}],
+          next_action: "选择目录k引用，提交intent=analyze、analysis={kind:business_analysis,actions:[{question:业务疑问,metrics:[k引用],method:observe}]}。无需objective、scope_notice、requirements、steps或节点编号。ranking另选position/count，compare另选comparisons；补查入选机构可用from_ranking指向前面第几项排名，从1计数。同轮补查用based_on选择已取得的事实或判断引用。无法执行的子问题单独写{question,gap}。规模/水平选当前值，正式比较指标用observe；没有审核关系就并列读取，不发明公式，不把检索失败说成无数据。"})}],
           details: {kind: "analysis_catalog", status: "succeeded", keywords: input.keywords,
             ...(lookups.length ? {recovery_lookup_codes: lookups.map(item => item.code), unresolved_lookup_codes: lookupFailures} : {}),
             binding_map: catalogBindingState(request), candidate_map: analysisCandidates(request),

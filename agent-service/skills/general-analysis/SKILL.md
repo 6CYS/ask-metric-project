@@ -9,9 +9,9 @@ description: 从用户目标和正式指标出发，先观察核心事实，再�
 
 ## 首批取数
 
-- 理解原问题及可信上下文。单指标取值可直接回答；宏观问题先拆出需要了解的主要方面，组成一份business_analysis计划。经营问题应探索规模、收益、质量等相关方面，不能用存贷款代替整体经营；未发现的方面保留明确缺口。
+- 理解原问题及可信上下文。单指标取值可直接回答；宏观问题先拆出需要了解的主要方面，组成一个business_analysis目标的actions列表。经营问题应探索规模、收益、质量等相关方面，不能用存贷款代替整体经营；未发现的方面保留明确缺口。
 - analysis_catalog用一批相关关键词发现正式指标。例如经营问题可以同时发现存款、贷款、利润、质量；具体检索词由问题决定。按完整名称、定义、单位、analysis_hint选择，逐字使用返回的binding_ref短引用，不猜编码、公式、分解关系。
-- 先选择少量能建立初步认识的当前水平与必要比较，不在首批穷举全部分项。requirements记录用户子问题；steps.answers关联其id。每个子问题有步骤或具体gap_reason。observe能直接读正式“较上月/较同期”复合指标；compare比较同一指标的不同日期，不能混用。
+- 先选择少量能建立初步认识的当前水平与必要比较，不在首批穷举全部分项。actions每项记录question及目录metrics，method默认observe；不能执行的项只写question和具体gap。节点身份与回答关联由程序生成。observe能直接读正式“较上月/较同期”复合指标；compare比较同一指标的不同日期，不能混用。
 - 计划经resolve_business_turn(protocol_version=2,intent=analyze,target.analysis.kind=business_analysis)执行。source按new/current/reference选择，机构日期的变化写同一target.operations；无需先建Frame。不把analysis混入普通query或使用旧fieldChanges协议。
 - 没有专项Skill时仍使用公共方法；没有已审核relation_id则observe并列读取，不能自算占比、贡献或任意公式。步骤无环，受工具预算约束；相同计划已执行则使用已有回执。
 
@@ -19,7 +19,7 @@ description: 从用户目标和正式指标出发，先观察核心事实，再�
 
 首批事实之后先作判断：哪个差异最影响用户决策？还有哪个具体问题没有回答？analysis_brief、coverage_review、followup_metrics是线索和正式入口，不是必查清单。
 
-有值得验证的问题才补查。plan.inquiry记录：question具体疑问、prior_judgment现有判断或待核验解释、basis_refs触发疑问的已有事实原子、expected_change新证据将怎样支持、修正或限定判断。只读新增所需步骤；不能为凑栏目、增加字数而查。
+有值得验证的问题才补查。actions.question说明具体疑问，analysis.based_on选择触发疑问的已有事实或判断引用；程序生成内部补查元数据，无需重填四字段inquiry。只读新增所需步骤；不能为凑栏目、增加字数而查。
 
 补查source优先复制执行回执followup_source的完整reference配对，多目标不猜current；同一机构日期范围下的新增步骤放在一份分析计划中，不为每个比较再建一个目标。执行后依据inquiry_review吸收新事实再交付，不重复提交相同计划。
 

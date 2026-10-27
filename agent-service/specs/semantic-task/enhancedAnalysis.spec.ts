@@ -32,6 +32,29 @@ async function setup() {
   return {...f, backend};
 }
 
+it("轻量动作从原文绑定机构日期，执行及跨轮排名追问保留完整范围", async () => {
+  const f = await setup();
+  for (const [index, question, position] of [
+    [0, "合成机构甲和合成机构乙2025年末合成指标甲最低的是哪家？", "bottom"],
+    [1, "那最高呢？", "top"],
+  ] as const) {
+    const request = f.request(`actions-${index}`, question);
+    catalogBindingView(request, [{code: "M1", name: "合成指标甲", binding_ref: "signed-ranking"}]);
+    const ready = await runTool(createSemanticResolveTool(), {protocol_version: 2, intent: "analyze", targets: [{
+      source: {kind: index ? "current" : "new"},
+      analysis: {kind: "business_analysis", actions: [{question: "哪家机构指标极值？", metrics: ["k1"],
+        method: "ranking", position, count: 1}]},
+    }]}, request);
+    expect(ready.details.status, JSON.stringify(ready.details)).toBe("ready");
+    await runTool(createSemanticExecuteTool(), {task_ref: ready.details.state.task_ref,
+      target_ref: ready.details.state.targets[0]!.target_ref}, request);
+    expect(f.backend.analysisExecute).toHaveBeenLastCalledWith(expect.objectContaining({org_codes: ["O1", "O2"],
+      date_selection: "exact", start: "2025-12-31", end: "2025-12-31",
+      plan: expect.objectContaining({steps: [expect.objectContaining({metric_refs: ["signed-ranking"], position, top_n: 1})]})}),
+    expect.any(String), expect.anything());
+  }
+});
+
 it.each(["analysis", "redundant", "query", "reference-query", "analysis-operation-only"])("最低后追问最高继承机构、日期和指标，提案方式=%s", async mode => {
   const f = await setup(), firstRequest = f.request("rank-bottom", "合成机构甲和合成机构乙近期合成指标甲最低的是哪家？");
   const rankPlan = (position: "top" | "bottom", top_n = 1): AnalysisPlan => ({objective: "比较合成指标极值",
