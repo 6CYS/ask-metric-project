@@ -156,6 +156,10 @@ def validate_plan(
     return {
         "status": "validated",
         "metric_count": len(bindings),
+        "metric_descriptors": [
+            {"code": item["code"], "name": item["name"], "binding_ref": reference}
+            for reference, item in bindings.items()
+        ],
         "method_version": METHODS["version"],
     }
 
