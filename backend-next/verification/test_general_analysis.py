@@ -203,12 +203,12 @@ def test_exact_missing_date_does_not_silently_rewind(general_environment):
         ),
     )
     assert report["row_count"] == 0
-    assert report["partial_analysis"]
+    assert not report["partial_analysis"]
     assert gap["display"] in report["public_answer"]
     presentation = report["report"]["presentation"]
     assert presentation["version"] == 1
     assert "未取得可用记录" in presentation["scope"]
-    assert result["source_notice"] in presentation["source_notices"]
+    assert presentation["source_notices"] == []
 
 
 def test_report_presentation_varies_layout_without_changing_facts(general_environment):

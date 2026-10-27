@@ -155,20 +155,34 @@ describe("数据明细默认展开", () => {
     }
   })
 
-  it("无数据时仍直接展示空结果提示", async () => {
-    const empty = { ...response, result: { type: "metric_query", table: { columns: [], rows: [] } } }
+  it("没有正文的空结果提供正常完成提示", async () => {
+    const empty = { ...response, answer: "", result: { type: "metric_query", table: { columns: [], rows: [] } } }
     const html = await render({ response: empty })
-    expect(html).toContain("当前条件下暂未查询到数据。")
-    expect(html).toContain("可以确认统计日期或机构名称")
+    expect(html).toContain("查询已完成，未查到符合当前条件的数据记录。")
+    expect(html).not.toContain("可以确认统计日期或机构名称")
     expect(html).not.toContain("条数据明细")
   })
 
-  it("空结果且存在备选口径时提示可切换口径重新查询", async () => {
-    const empty = { ...response, result: { type: "metric_query", table: { columns: [], rows: [] } },
+  it("已有空结果正文时不追加重复提示或要求更改查询条件", async () => {
+    const answer = "查询已完成，未查到隔离机构在2026年8月31日的各项存款余额记录。"
+    const empty = { ...response, answer, result: { type: "metric_query", table: { columns: [], rows: [] } },
       time_variants: [{ label: "最近3个完整年度", start: "2023-01-01", end: "2025-12-31" }] }
     const html = await render({ response: empty })
-    expect(html).toContain("当前条件下暂未查询到数据。")
-    expect(html).toContain("可以切换下方备选口径重新查询。")
+    expect(html).toContain(answer)
+    expect(html).not.toContain("当前条件下暂未查询到数据。")
+    expect(html).not.toContain("可以切换下方备选口径重新查询。")
     expect(html).not.toContain("可以确认统计日期或机构名称")
+  })
+
+  it("自然报告空结果和历史回放仅显示已有事实说明", async () => {
+    const summary = "查询已完成，未查到隔离机构在2026年8月31日的各项存款余额记录。"
+    const value = JSON.parse(JSON.stringify({...response, answer: summary,
+      result: {type: "metric_query", table: {columns: [], rows: []}},
+      analysis_report: {summary, scope: "隔离样本", partial: false, body_mode: "narrative",
+        sections: [], gaps: [], source_notices: [], limitations: []}}))
+    const html = await render({response: value})
+    expect(html.match(/查询已完成，未查到/g)).toHaveLength(1)
+    expect(html).not.toContain("扩大时间范围")
+    expect(html).not.toContain('role="status"')
   })
 })

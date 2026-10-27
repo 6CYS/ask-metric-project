@@ -19,6 +19,7 @@ from ask_metric.application.metric_candidates import metric_candidate_index
 from ask_metric.application.metric_semantics import METHOD_VERSION, MetricSemantics, digest
 from ask_metric.application.organization_query_scope import resolve_query_scope
 from ask_metric.application.ports import PermissionDeniedError
+from ask_metric.application.query_result_messages import completed_empty_message, empty_query_notice
 from ask_metric.application.requests import IncomingRequest
 from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.analysis_methods import AnalysisPlan
@@ -468,7 +469,8 @@ class GeneralAnalysisService:
 
     def _query(self, context, metric, dates, *, selection="exact", start=None, end=None):
         if not dates:
-            return {"facts": [], "tasks": [], "gaps": ["指定范围没有有效日期记录。"]}
+            return {"facts": [], "tasks": [], "empty_results": [],
+                    "gaps": ["指定范围没有有效日期记录。"]}
         codes = context["org_codes"]
         spec = BasicQuerySpec(
             metric_codes=[metric["code"]],
@@ -491,7 +493,8 @@ class GeneralAnalysisService:
         if state["query_count"] >= 40 or time.monotonic() >= context["deadline"]:
             if context["payload"].plan.workflow_id:
                 raise TimeoutError("workflow_query_budget")
-            return {"facts": [], "tasks": [], "gaps": ["达到本轮查询或时间预算，本项尚未执行。"]}
+            return {"facts": [], "tasks": [], "empty_results": [],
+                    "gaps": ["达到本轮查询或时间预算，本项尚未执行。"]}
         state["query_count"] += 1
         self._save(context["run_id"], context["lease"], state)
         step_key = digest({"run": context["run_id"], "query": signature})
@@ -528,12 +531,18 @@ class GeneralAnalysisService:
         result = {
             "facts": facts,
             "tasks": [{"task_id": query.task_id, "status": query.status}],
+            "empty_results": [],
             "gaps": []
             if valid
             else [f"查询未取得完整可核验结果：{query.error_code or query.status}"],
         }
         if valid and not facts:
-            result["gaps"].append("该范围未取得有效数值；不能将缺失当作零。")
+            notice = empty_query_notice(
+                [context["org_names"][code] for code in codes], metric["name"],
+                spec.time.start, spec.time.end, spec.time.dates,
+            )
+            result["empty_results"].append(notice)
+            result["gaps"].append(notice["message"])
         state["query_results"][signature] = result
         self._save(context["run_id"], context["lease"], state)
         return result
@@ -671,6 +680,7 @@ class GeneralAnalysisService:
             "tasks": [],
             "gaps": [],
             "notices": [],
+            "empty_results": [],
         }
         context["step_progress"] = result
         parent_context["step_progress"] = result
@@ -684,6 +694,7 @@ class GeneralAnalysisService:
                 continue
             end = min(payload.end or payload.anchor_date or today, today)
             start = payload.start
+            previous_gaps = len(result["gaps"])
             latest = None
             if payload.date_selection == "latest_snapshot" or step.method == "trend" and not start:
                 latest = self._latest_valid_date(context, metric, None, end, result)
@@ -719,7 +730,15 @@ class GeneralAnalysisService:
             else:
                 dates = [latest] if latest else []
             if not dates:
-                result["gaps"].append(f"{metric['name']}在目标范围没有可用记录。")
+                if len(result["gaps"]) == previous_gaps:
+                    notice = empty_query_notice(
+                        [context["org_names"][code] for code in context["org_codes"]],
+                        metric["name"], payload.start, end,
+                    )
+                    result["empty_results"].append(notice)
+                    result["gaps"].append(notice["message"])
+                else:
+                    result["gaps"].append(f"{metric['name']}在目标范围没有可用记录。")
                 continue
             query_dates = set(dates)
             comparison_dates = {}
@@ -740,10 +759,12 @@ class GeneralAnalysisService:
             ordered = sorted(query_dates)
             batches = [self._query(context, metric, ordered[index:index + batch_size])
                        for index in range(0, len(ordered), batch_size)]
-            query = {name: [item for batch in batches for item in batch[name]]
-                     for name in ("tasks", "gaps", "facts")}
+            query = {name: [item for batch in batches
+                            for item in (batch.get(name, []) if name == "empty_results" else batch[name])]
+                     for name in ("tasks", "gaps", "facts", "empty_results")}
             result["tasks"].extend(query["tasks"])
             result["gaps"].extend(query["gaps"])
+            result["empty_results"].extend(query["empty_results"])
             result["facts"].extend(
                 [
                     {
@@ -774,7 +795,7 @@ class GeneralAnalysisService:
                     missing = set(context["org_codes"]) - {
                         fact["org_code"] for fact in current_facts if fact["date"] == str(day)
                     }
-                    if missing:
+                    if missing and not query["empty_results"]:
                         result["gaps"].append(
                             f"{metric['name']}在{day}有{len(missing)}家机构未取得有效值；排名仅覆盖实际有数据的机构。"
                         )
@@ -1044,9 +1065,12 @@ class GeneralAnalysisService:
         for index, notice in enumerate(scope_notices, 1):
             # 范围家数来自服务端目录及授权解析，进入证据而非仅留在提示文案中。
             atoms.append({"ref": f"{prefix}.scope{index}", "type": "scope", "display": notice})
+        empty_result = (completed_empty_message(results)
+                        if not any(item.gap_reason for item in payload.plan.requirements) else None)
         return {
             "kind": "analysis_evidence",
             "status": "succeeded",
+            "empty_result": empty_result,
             "delivery": "business_evidence_v1",
             "run_ref": context["run_id"],
             "scope_id": payload.calculation_context.scope_id,
@@ -1114,6 +1138,7 @@ class GeneralAnalysisService:
                 "本次各查询回执不可变；查询库未提供统一批次标识，不能据此宣称跨查询为同一物理快照。"
             ),
             "public_answer": (
+                empty_result or
                 f"已完成{len(rows)}条事实记录的查询，正在依据事实组织分析；请查看数据明细和缺口。"
             ),
         }

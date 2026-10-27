@@ -632,12 +632,23 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
     body_evidence = []
     narrative_issues = []
     facts_only = False
+    # 正常空结果已有程序核验的机构、时间和指标，直接交付事实说明，避免模型推测缺数原因。
+    empty_result = (
+        "\n\n".join(dict.fromkeys(source["empty_result"] for source in sources))
+        if not request.planning_gaps and all(source.get("empty_result") for source in sources)
+        else None
+    )
     registered_delivery = (
         len(sources) == 1 and not reuse_view
         and first["plan"].get("workflow_id") == "profitability_ranking_v1"
         and bool(first.get("workflow_brief"))
     )
-    if registered_delivery:
+    if empty_result:
+        summary = empty_result
+        summary_refs.update(ref for ref, atom in atoms.items() if atom["type"] == "gap")
+        body_evidence = [{"paragraph": 1, "evidence_refs": sorted(summary_refs)}]
+        sections = []
+    elif registered_delivery:
         # 注册路线的业务结论由真实回执编译，模型仅选择呈现方式。
         # 不把模型自由发挥的原因文字混入正式报告，也不依赖词表穷举拦截。
         from ask_metric.application.workflow_evidence import workflow_fact_answer
@@ -880,7 +891,9 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
         for source in sources
     ]
     presentation = _presentation_plan(request, first, sources, sections, rows)
-    answer = "\n\n".join(
+    if empty_result:
+        gaps, limitations, defaults = [], [], []
+    answer = empty_result or "\n\n".join(
         [
             scope,
             *([] if registered_delivery else defaults),
@@ -901,10 +914,10 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
         "answer_policy": "verified_report_v1",
         "analysis_protocol": "general-analysis-v1",
         "public_answer": answer,
-        "partial_analysis": bool(request.planning_gaps)
+        "partial_analysis": not bool(empty_result) and (bool(request.planning_gaps)
         or bool(narrative_issues)
         or request.fallback
-        or any(not source["complete"] for source in sources),
+        or any(not source["complete"] for source in sources)),
         "run_refs": request.run_refs,
         "evidence_view": {"kind": "focused_reuse", "focus_refs": request.focus_refs} if reuse_view else None,
         "org_codes": first["org_codes"],
@@ -927,7 +940,8 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             "presentation": {
                 "version": 1,
                 "scope": scope,
-                "source_notices": list(dict.fromkeys([*defaults, first["source_notice"]])),
+                "source_notices": ([] if empty_result else
+                                   list(dict.fromkeys([*defaults, first["source_notice"]]))),
                 "limitations": limitations,
                 **presentation,
             },
