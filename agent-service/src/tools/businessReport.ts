@@ -68,7 +68,7 @@ function mergedOverviewRows(sources: OverviewEvidence[]) {
   return rows;
 }
 
-/** 只在文字修正耗尽时使用，逐字展示可信回执，不计算新数值或生成经营因果。 */
+/** 成文失败与中断交付共用事实正文，不计算新数值或生成经营因果。 */
 function overviewFactBody(sources: OverviewEvidence[], metricIds: string[]) {
   const atoms = new Map(sources.flatMap(source => source.evidence_items).map(atom => [atom.ref, atom]));
   const paragraphs: string[] = [], bodyEvidence: Array<{paragraph: number; evidence_refs: string[]}> = [];
@@ -156,8 +156,6 @@ function overviewPublicAnswer(first: OverviewEvidence, summary: string, sections
     ...(gaps.length ? [`**数据与分析边界**\n\n${gaps.map(gap => gap.replace(/[。；\s]+$/u, "")).join("；")}。`] : []),
     first.topic === "deposit" ? "余额和正式比较指标可以说明规模及结构变化；客户流失、资金迁移和付息成本变化需要相应流水、客户和付息数据验证。" : "余额与已发布比较指标可以说明变化及组成；投放、还款、核销和客户行为等业务动因仍需相应证据验证。"].join("\n\n");
 }
-
-const reportFailures = new WeakMap<AskMetricRequestContext, number>();
 
 /** 已尝试但缺数也算完成补查；三轮后以缺口交付，不形成无界查询。 */
 export function pendingOverviewFollowup(sources: OverviewEvidence[]) {
@@ -448,10 +446,8 @@ export function createBusinessReportTool(): AgentHarnessTool<AskMetricRequestCon
         let details;
         try { details = composeBusinessReport(sources, input); }
         catch (error) {
-          const failures = (reportFailures.get(request) ?? 0) + 1;
-          reportFailures.set(request, failures);
           // 只处理正文数字/表达问题；身份、跨范围证据、补查、未知行等硬错误仍拒绝。
-          if (failures < 2 || !isProseError(error)) throw error;
+          if (!isProseError(error)) throw error;
           details = composePartialBusinessReport(sources, input);
         }
         // 补查是用户目标的内部步骤；交付后焦点回到本轮初查，追问不继承最后一个分项。

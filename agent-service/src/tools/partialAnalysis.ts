@@ -4,6 +4,7 @@ import type {AskMetricRequestContext} from "../requestContext.js";
 import {BackendApiError} from "../backendClient.js";
 import {composePartialBusinessReport, type OverviewEvidence} from "./businessReport.js";
 import {reportSelection} from "../analysis/reportSelection.js";
+import {deliverAnalysisReport} from "../analysis/delivery.js";
 
 export const PARTIAL_ANALYSIS = "analysis_partial_present";
 const parameters = Type.Object({reason: Type.Union([
@@ -31,31 +32,40 @@ export function createPartialAnalysisTool(): AgentHarnessTool<AskMetricRequestCo
           ? reportSelection(request, [...new Set(sources.map(item => (item.evidence as unknown as {run_ref: string}).run_ref))]) : undefined;
         if (focused) {
           // 报告纠错耗尽仍沿用追问已绑定的范围，并逐段复核；不铺开上一轮整个经营报告。
-          const details = await request.backend.analysisReport({...focused, fallback: true}, {signal: context.abortSignal});
+          const details = await deliverAnalysisReport(request.backend, {...focused, fallback: true}, context.abortSignal);
           if (details.kind !== "business_report" || details.status !== "succeeded" || typeof details.public_answer !== "string") throw new Error("INVALID_ANALYSIS_REPORT");
           return {content: [{type: "text", text: details.public_answer}], details: {...details,
             partial_analysis: true, fallback_reason: input.reason}, terminate: true};
         }
         const reports: Array<Record<string, unknown>> = [];
+        const deliveredRefs: string[] = [], deliveryGaps: string[] = [];
         // 各范围分别校验和呈现，不将不同日期、主题或机构合并计算。
         for (const item of sources) {
-          if (item.evidence.kind === "business_overview") {
-            const source = item.evidence as OverviewEvidence;
-            const scope = await request.backend.resolveBusinessField("organization", source.org_codes, {signal: context.abortSignal});
-            if (scope.status !== "resolved" || JSON.stringify((scope.value as {codes?: string[]})?.codes) !== JSON.stringify(source.org_codes))
-              throw new Error("报告机构权限已变化。");
-            for (const task of source.tasks) await request.backend.getTask(task.task_id, {signal: context.abortSignal});
-            reports.push(composePartialBusinessReport([source], {evidence_refs: [item.ref], summary: "",
-              sections: [], metric_ids: [...new Set(source.table_rows.map(row => row.metric_id!))]}));
-          } else {
-            const source = item.evidence as unknown as {run_ref: string};
-            // 后端按保存的run重新校验用户、会话范围与每个基础任务，不信任传入正文。
-            const report = await request.backend.analysisReport({run_refs: [source.run_ref], summary: "", sections: [], fallback: true}, {signal: context.abortSignal});
-            if (report.kind !== "business_report" || report.status !== "succeeded" || typeof report.public_answer !== "string") throw new Error("INVALID_ANALYSIS_REPORT");
-            reports.push({...report, public_answer: report.public_answer.replace(
-              "已取得的事实如下；部分文字分析未通过校验，现交付可核验事实与缺口。", "以下为已取得的事实与缺口，完整分析尚未完成。")});
+          try {
+            if (item.evidence.kind === "business_overview") {
+              const source = item.evidence as OverviewEvidence;
+              const scope = await request.backend.resolveBusinessField("organization", source.org_codes, {signal: context.abortSignal});
+              if (scope.status !== "resolved" || JSON.stringify((scope.value as {codes?: string[]})?.codes) !== JSON.stringify(source.org_codes))
+                throw new Error("报告机构权限已变化。");
+              for (const task of source.tasks) await request.backend.getTask(task.task_id, {signal: context.abortSignal});
+              reports.push(composePartialBusinessReport([source], {evidence_refs: [item.ref], summary: "",
+                sections: [], metric_ids: [...new Set(source.table_rows.map(row => row.metric_id!))]}));
+            } else {
+              const source = item.evidence as unknown as {run_ref: string};
+              // 后端按保存的run重新校验用户、会话范围与每个基础任务，不信任传入正文。
+              const report = await deliverAnalysisReport(request.backend, {run_refs: [source.run_ref], summary: "", sections: [], fallback: true}, context.abortSignal);
+              if (report.kind !== "business_report" || report.status !== "succeeded" || typeof report.public_answer !== "string") throw new Error("INVALID_ANALYSIS_REPORT");
+              reports.push({...report, public_answer: report.public_answer.replace(
+                "已取得的事实如下；部分文字分析未通过校验，现交付可核验事实与缺口。", "以下为已取得的事实与缺口，完整分析尚未完成。")});
+            }
+            deliveredRefs.push(item.ref);
+          } catch (error) {
+            // 独立来源暂时不可用只影响该来源；撤权、范围冲突与未知错误不作静默降级。
+            if (context.abortSignal?.aborted || !(error instanceof BackendApiError) || ![502, 503, 504].includes(error.status)) throw error;
+            deliveryGaps.push("一部分分析来源暂时无法重新核验，未展示该部分；其余结果已核验。");
           }
         }
+        if (!reports.length) throw new Error("NO_VERIFIED_ANALYSIS_REPORT");
         const rows = reports.flatMap(report => (report.rows as Array<Record<string, unknown>>).map(row => ({...row,
           org_name: row.org_name ?? report.org_name,
           stat_date: row.stat_date ?? report.analysis_date,
@@ -76,11 +86,11 @@ export function createPartialAnalysisTool(): AgentHarnessTool<AskMetricRequestCo
           columns: [...new Set(["org_name", "stat_date", ...reports.flatMap(report => report.columns as string[])])],
           org_codes: [...new Set(reports.flatMap(report => report.org_codes as string[]))],
           rows, row_count: rows.length, tasks: reports.flatMap(report => report.tasks as unknown[]),
-          gaps: [notice, ...reports.flatMap(report => report.gaps as string[] ?? []),
+          gaps: [notice, ...new Set(deliveryGaps), ...reports.flatMap(report => report.gaps as string[] ?? []),
             ...sources.flatMap(item => item.evidence.kind === "business_overview"
               ? (item.evidence as OverviewEvidence).followup_candidates?.map(candidate => `尚未完成补查：${candidate.reason}`) ?? [] : [])],
           report: {summary: body, sections: [], plans: reportBodies.flatMap(report => report.plans ?? []),
-            evidence_refs: sources.map(item => item.ref),
+            evidence_refs: deliveredRefs,
             presentation: {version: 1, body_mode: "narrative", layout: ["summary", "analysis", "data"],
               scope,
               source_notices: [...new Set(reportBodies.flatMap(report => report.presentation?.source_notices ?? []))],

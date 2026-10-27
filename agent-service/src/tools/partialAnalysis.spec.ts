@@ -75,6 +75,43 @@ it("没有当前回合证据不能交付历史或模型猜测数值", async () =
   expect(result.details.rows).toBeUndefined();
 });
 
+it("独立来源暂时不可重新核验时仍交付其它来源，不能混入失败来源的行和引用", async () => {
+  const analysisReport = vi.fn(async (payload: Record<string, unknown>) => {
+    if ((payload.run_refs as string[])[0] === "unavailable") throw new BackendApiError(503, "暂时不可用", "SERVICE_UNAVAILABLE");
+    return {kind: "business_report", status: "succeeded", public_answer: "合成已核验利润", rows: [{value: "15亿元"}],
+      columns: ["value"], org_codes: ["O1"], tasks: [{task_id: "verified"}], gaps: [],
+      report: {summary: "合成已核验利润15亿元", sections: [], presentation: {scope: "隔离范围"}}};
+  });
+  const request = testRequestContext({analysisReport} as unknown as BackendClient, new MemoryCommandBridge(),
+    {answerEvidence: async () => ["unavailable", "available"].map((run_ref, index) => ({ref: `e${index + 1}`,
+      evidence: {kind: "analysis_evidence", status: "succeeded", run_ref}}))});
+  const result = await runTool(createPartialAnalysisTool(), {reason: "model_failure"}, request);
+  expect(result.details).toMatchObject({status: "succeeded", row_count: 1, org_codes: ["O1"],
+    report: {evidence_refs: ["e2"]}, tasks: [{task_id: "verified"}]});
+  expect(result.details.public_answer).toContain("15亿元");
+  expect(result.details.gaps.join("；")).toContain("一部分分析来源暂时无法重新核验");
+  expect(analysisReport.mock.calls.every(([payload]) => payload.retain_valid === true)).toBe(true);
+});
+
+it.each([403, 422, 500])("独立来源返回权限、范围冲突或未知异常时不能当暂时故障忽略：%s", async status => {
+  const denied = new BackendApiError(status, "不允许展示", status === 403 ? "FORBIDDEN" : "ANALYSIS_REPORT_SCOPE");
+  const analysisReport = vi.fn(async (payload: Record<string, unknown>) => {
+    if ((payload.run_refs as string[])[0] === "denied") throw denied;
+    return {kind: "business_report", status: "succeeded", public_answer: "隔离事实15亿元", rows: [], columns: [],
+      org_codes: ["O1"], tasks: [], gaps: []};
+  });
+  const request = testRequestContext({analysisReport} as unknown as BackendClient, new MemoryCommandBridge(),
+    {answerEvidence: async () => ["available", "denied"].map((run_ref, index) => ({ref: `e${index + 1}`,
+      evidence: {kind: "analysis_evidence", status: "succeeded", run_ref}}))});
+  const result = runTool(createPartialAnalysisTool(), {reason: "model_failure"}, request);
+  if (status === 403) await expect(result).rejects.toBe(denied);
+  else {
+    const receipt = await result;
+    expect(receipt.details.status).toBe("failed");
+    expect(receipt.details.public_answer).not.toContain("15亿元");
+  }
+});
+
 it("追问报告失败后沿用已绑定指标和正文逐段复核，不重新展开旧经营主题", async () => {
   const analysisReport = vi.fn(async (payload: Record<string, unknown>) => {
     if (!payload.fallback) throw new BackendApiError(422, "文案需修正", "ANALYSIS_REPORT_NUMBER");

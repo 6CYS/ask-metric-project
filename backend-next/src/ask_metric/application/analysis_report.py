@@ -7,8 +7,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ask_metric.application.analysis_report_view import (
+    compact_fact_section,
+    focused_sources,
+    shared_date_text,
+)
 from ask_metric.core.errors import ApplicationError
-from ask_metric.application.analysis_report_view import compact_fact_section, focused_sources, shared_date_text
 
 
 class ReportSection(BaseModel):
@@ -36,6 +40,7 @@ class AnalysisReportRequest(BaseModel):
     planning_gaps: list[str] = Field(default_factory=list, max_length=12)
     presentation: PresentationRequest | None = None
     fallback: bool = False
+    retain_valid: bool = False
 
 
 def _presentation_plan(
@@ -625,6 +630,8 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
 
     summary_refs = set()
     body_evidence = []
+    narrative_issues = []
+    facts_only = False
     registered_delivery = (
         len(sources) == 1 and not reuse_view
         and first["plan"].get("workflow_id") == "profitability_ranking_v1"
@@ -639,6 +646,46 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
         summary_refs.update(expanded_refs(refs))
         body_evidence = [{"paragraph": 1, "evidence_refs": sorted(summary_refs)}]
         sections = []
+    elif request.retain_valid:
+        # 正常交付与中断交付使用同一逐段策略；来源、权限和范围已在入口严格复核。
+        retained, sections = [], []
+
+        def retain_problem(error, location):
+            if error.code not in {
+                "ANALYSIS_REPORT_NUMBER", "ANALYSIS_REPORT_CAUSE",
+                "ANALYSIS_REPORT_DIRECTION", "ANALYSIS_REPORT_REFERENCE",
+            }:
+                raise error
+            narrative_issues.append({"code": error.code, "location": location})
+
+        for index, paragraph in enumerate(re.split(r"\n\s*\n", request.summary)):
+            if not paragraph.strip():
+                continue
+            try:
+                text = render(paragraph, location=f"正文第{index + 1}段")
+                refs = expanded_refs(prose_refs(paragraph))
+            except ApplicationError as error:
+                retain_problem(error, f"paragraph:{index + 1}")
+                continue
+            retained.append(text)
+            summary_refs.update(refs)
+            body_evidence.append({"paragraph": len(retained), "evidence_refs": sorted(refs)})
+        for index, section in enumerate(request.sections):
+            try:
+                title = render(section.title, location="章节标题")
+                text = render(section.text, section.evidence_refs, location=section.title)
+                refs = sorted(expanded_refs(section.evidence_refs + prose_refs(section.text)))
+            except ApplicationError as error:
+                retain_problem(error, f"section:{index + 1}")
+                continue
+            sections.append({"title": title, "text": text, "evidence_refs": refs})
+        summary = "\n\n".join(retained)
+        if not summary and not sections:
+            facts_only = True
+            section = compact_fact_section(sources, atoms)
+            summary = section["text"]
+            summary_refs.update(expanded_refs(section["evidence_refs"]))
+            body_evidence = [{"paragraph": 1, "evidence_refs": sorted(summary_refs)}]
     elif request.fallback:
         summary = (
             "部分文字分析未通过校验，以下保留已核验分析、基础事实与缺口。"
@@ -746,6 +793,23 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
         # 一个自然回答可以同时回应多个目标，无须为通过覆盖校验拆成固定栏目。
         if related_atoms.intersection(summary_refs):
             titles.insert(0, "正文开篇")
+        if request.retain_valid and related_atoms and not titles:
+            # 只补当前遗漏问题的正式事实，不展开上一轮其它主题，也不要求模型整份重写。
+            names = {metric["name"] for source in sources
+                     for metric in source["metric_descriptors"] if metric["code"] in codes}
+            views = [{**source, "rows": [row for row in source["rows"]
+                      if row["metric_name"] in names]} for source in sources]
+            selected_atoms = {ref: atom for ref, atom in atoms.items() if ref in related_atoms}
+            section = compact_fact_section(views, selected_atoms)
+            if section["text"]:
+                summary = "\n\n".join(filter(None, [summary, section["text"]]))
+                refs = expanded_refs(section["evidence_refs"])
+                summary_refs.update(refs)
+                body_evidence.append({"paragraph": len(body_evidence) + 1,
+                                      "evidence_refs": sorted(refs)})
+                titles.append("补充事实")
+                narrative_issues.append({"code": "ANALYSIS_REPORT_COVERAGE",
+                                         "location": requirement["id"]})
         if (
             len(first["plan"]["requirements"]) > 1
             and related_atoms
@@ -783,7 +847,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             if (cleaned := public_analysis_gap(item, metric_names))
         )
     )
-    if request.fallback and not first.get("workflow_brief"):
+    if request.fallback and not request.retain_valid and not first.get("workflow_brief"):
         gaps.append(
             "部分分析文字未通过证据校验，已省略；基础数据与通过校验的分析仍可查看。"
             if request.summary.strip() or request.sections
@@ -838,6 +902,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
         "analysis_protocol": "general-analysis-v1",
         "public_answer": answer,
         "partial_analysis": bool(request.planning_gaps)
+        or bool(narrative_issues)
         or request.fallback
         or any(not source["complete"] for source in sources),
         "run_refs": request.run_refs,
@@ -852,7 +917,9 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
         "columns": first["columns"],
         "gaps": gaps,
         "report": {
-            "delivery_mode": "registered_workflow" if registered_delivery else "verified_narrative",
+            "delivery_mode": ("registered_workflow" if registered_delivery else
+                              "verified_facts" if facts_only else "verified_narrative"),
+            "narrative_issues": narrative_issues,
             "summary": summary,
             "body_evidence": body_evidence,
             "sections": sections,

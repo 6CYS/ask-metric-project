@@ -18,6 +18,7 @@ import {analysisEvidenceAliases, verifiedFindingsView, type VerifiedFindings} fr
 import {rankingModelView} from "./rankingView.js";
 import {recoveryMetricCandidates} from "../semantic-task/queryRecovery.js";
 import {compactWorkflowEvidence} from "./workflows.js";
+import {deliverAnalysisReport} from "./delivery.js";
 
 export interface AnalysisEvidence extends BusinessEvidence {
   kind: "analysis_evidence"; run_ref: string; scope_id: string; frame_id?: string;
@@ -188,7 +189,6 @@ const reportParameters = Type.Object({evidence_refs: Type.Array(Type.String({des
     ], {description: "信息密度建议；简单问题不要选择 detailed。"})),
   }, {additionalProperties: false, description: "只控制报告组织方式，不改变取数计划、事实和结论。省略时由服务端根据问题和证据选择。"}))
 }, {additionalProperties: false});
-const reportFailures = new WeakMap<AskMetricRequestContext, number>();
 
 export function createAnalysisReportTool(): AgentHarnessTool<AskMetricRequestContext, typeof reportParameters> {
   return {name: "analysis_report_present", label: "交付通用分析报告", parameters: reportParameters,
@@ -196,10 +196,9 @@ export function createAnalysisReportTool(): AgentHarnessTool<AskMetricRequestCon
     execute: async (_id, rawInput, _update, request, _invocation, context) => {
       try {
         let input = {...rawInput, ...normalizeReportNarrative(rawInput)};
-        for (const text of [input.summary, ...input.sections.flatMap(section => [section.title, section.text])]) {
-          const problem = publicTextProblem(text);
-          if (problem) throw new Error(`${problem}；请直接呈现已取证的业务判断，不输出工具编排过程。`);
-        }
+        // 内部规划按段隔离；不得因一段泄漏草稿而丢弃其余正文或正式事实。
+        input.summary = input.summary.split(/\n\s*\n/u).filter(text => !publicTextProblem(text)).join("\n\n");
+        input.sections = input.sections.filter(section => !publicTextProblem(section.title) && !publicTextProblem(section.text));
         const evidence = await request.answerEvidence?.() ?? [];
         const allSources = successfulAnalyses(evidence);
         if (new Set(input.evidence_refs).size !== input.evidence_refs.length) throw new Error("请选择非重复的本轮分析回执。");
@@ -248,15 +247,7 @@ export function createAnalysisReportTool(): AgentHarnessTool<AskMetricRequestCon
           && sources[0]?.plan?.workflow_id === "profitability_ranking_v1"
           && sources[0]?.workflow_brief;
         if (editorial && !registeredDelivery) return editorial;
-        let details;
-        try {details = await request.backend.analysisReport(payload, {signal: context.abortSignal});}
-        catch (error) {
-          const count = (reportFailures.get(request) ?? 0) + 1;
-          reportFailures.set(request, count);
-            // 已选来源先通过当前回合校验；服务端逐段保留有效分析，不兜底权限或范围错误。
-          if (count < 2 || !(error instanceof BackendApiError) || !["ANALYSIS_REPORT_NUMBER", "ANALYSIS_REPORT_CAUSE", "ANALYSIS_REPORT_DIRECTION", "ANALYSIS_REPORT_SUMMARY", "ANALYSIS_REPORT_REFERENCE"].includes(error.code ?? "")) throw error;
-          details = await request.backend.analysisReport({...payload, fallback: true}, {signal: context.abortSignal});
-        }
+        const details = await deliverAnalysisReport(request.backend, payload, context.abortSignal);
         if (details.kind !== "business_report" || details.status !== "succeeded" || typeof details.public_answer !== "string") throw new Error("INVALID_ANALYSIS_REPORT");
         if (sources.length > 1 && request.frames && sources[0]?.frame_id) {
           const state = await request.frames.state(), root = await request.frames.get(sources[0].frame_id);

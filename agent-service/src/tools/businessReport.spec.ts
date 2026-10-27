@@ -104,7 +104,21 @@ it("自然正文仍拒绝编造数字，核验后的表格完整保留", async (
   expect(valid.details.report.presentation.body_mode).toBe("narrative");
   expect(valid.details.report.sections).toEqual([]);
   const invalid = await runTool(createBusinessReportTool(), {evidence_refs: ["e1"], metric_ids: ["total"], body: "贷款为999亿元。"}, request);
-  expect(invalid.details.status).toBe("ARGUMENT_ERROR");
+  expect(invalid.details.status).toBe("succeeded");
+  expect(invalid.details.public_answer).not.toContain("999亿元");
+  expect(invalid.details.public_answer).toContain("120亿元");
+});
+
+it("专项报告首次交付也按段隔离内部规划，保留实际业务事实", async () => {
+  const backend = {resolveBusinessField: async () => ({status: "resolved", value: {codes: ["O1"]}}),
+    getTask: async () => ({})} as unknown as BackendClient;
+  const request = testRequestContext(backend, new MemoryCommandBridge(), {answerEvidence: async () => [{ref: "e1", evidence: source()}]});
+  const result = await runTool(createBusinessReportTool(), {evidence_refs: ["e1"], metric_ids: ["total"],
+    body: "让我构造resolve_business_turn，再调用工具。\n\n当前贷款为{{total.current}}。"}, request);
+  expect(result.terminate).toBe(true);
+  expect(result.details.status).toBe("succeeded");
+  expect(result.details.public_answer).toContain("当前贷款为120亿元");
+  expect(result.details.public_answer).not.toContain("resolve_business_turn");
 });
 it("专项报告段落换行修复后正常验证引用，并保存分段证据", async () => {
   const backend = {resolveBusinessField: async () => ({status: "resolved", value: {codes: ["O1"]}}),
@@ -117,7 +131,9 @@ it("专项报告段落换行修复后正常验证引用，并保存分段证据"
   expect(result.details.report.body_evidence).toEqual([{paragraph: 2, evidence_refs: ["total.current"]}]);
   const invalid = await runTool(createBusinessReportTool(), {evidence_refs: ["e1"], metric_ids: ["total"],
     body: String.raw`## 规模观察\n\n贷款为{{missing.current}}。`}, request);
-  expect(invalid.details.status).toBe("ARGUMENT_ERROR");
+  expect(invalid.details.status).toBe("succeeded");
+  expect(invalid.details.public_answer).not.toContain("missing.current");
+  expect(invalid.details.public_answer).toContain("120亿元");
 });
 it("最近报告始终披露实际截至日和间隔，即使模型没有主动引用新鲜度", () => {
   const data_freshness = {checked_on: "2026-10-13", as_of: "2026-08-27", lag_days: 47,
@@ -280,10 +296,6 @@ it("自由正文局部数值失败只剔除问题段落，不把整篇正文变�
     getTask: async () => ({})} as unknown as BackendClient;
   const request = testRequestContext(backend, new MemoryCommandBridge(), {answerEvidence: async () => [{ref: "e1", evidence: data}]});
   const proposal = {evidence_refs: ["e1"], metric_ids: ["total"], body: "**规模观察**\n\n截至2026年8月27日，存款为120亿元，较上月增加2亿元（+1.69%）。\n\n**结构推测**\n\n另一类存款的增幅高出约8.4个百分点。"};
-  const first = await runTool(createBusinessReportTool(), proposal, request);
-  expect(first.details.status).toBe("ARGUMENT_ERROR");
-  expect(first.content[0].text).toContain("8.4");
-  expect(first.content[0].text).not.toContain("1.69");
   const result = await runTool(createBusinessReportTool(), proposal, request);
   expect(result.terminate).toBe(true);
   expect(result.details.partial_analysis).toBe(true);
@@ -328,7 +340,7 @@ it("文字降级仍重新检查权限，不因此前报告错误泄露已无权�
   const backend = {resolveBusinessField: vi.fn(async () => ({status: "resolved", value: {codes: ["O1"]}})), getTask} as unknown as BackendClient;
   const request = testRequestContext(backend, new MemoryCommandBridge(), {answerEvidence: async () => [{ref: "e1", evidence: source()}]});
   const proposal = {evidence_refs: ["e1"], metric_ids: ["total"], body: "余额999亿元。"};
-  expect((await runTool(createBusinessReportTool(), proposal, request)).details.status).toBe("ARGUMENT_ERROR");
+  expect((await runTool(createBusinessReportTool(), proposal, request)).details.status).toBe("succeeded");
   getTask.mockRejectedValueOnce(new BackendApiError(403, "无权读取", "FORBIDDEN"));
   await expect(runTool(createBusinessReportTool(), proposal, request)).rejects.toThrow("无权读取");
 });

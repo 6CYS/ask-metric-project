@@ -89,6 +89,17 @@ it("自由正文沿用后端数字日期引用校验，不再要求固定章节"
   expect(report).toHaveBeenCalledWith(expect.objectContaining({summary: "先关注差异，再核查{{sample.f1}}。", sections: []}), expect.anything());
 });
 
+it("内部规划按段移除，其余有效正文通过统一保留策略交付", async () => {
+  const report = vi.fn(async () => ({kind: "business_report", status: "succeeded", public_answer: "隔离事实"}));
+  const request = testRequestContext(api({analysisReport: report}), new MemoryCommandBridge(),
+    {answerEvidence: async () => [{ref: "e1", evidence}]});
+  const result = await runTool(createAnalysisReportTool(), {evidence_refs: ["e1"],
+    body: "让我构造resolve_business_turn，再调用工具。\n\n已经核验{{e1.v1}}。"}, request);
+  expect(result.terminate).toBe(true);
+  expect(report).toHaveBeenCalledOnce();
+  expect(report).toHaveBeenCalledWith(expect.objectContaining({retain_valid: true, summary: "已经核验{{sample.f1}}。"}), expect.anything());
+});
+
 it("先核验判断短引用映射稳定，保留原始链路且可直接用于通用报告", async () => {
   const prepared = {...evidence, verified_findings: {version: "verified-findings-v1", boundary: "同日同机构",
     items: [{ref: "sample.j1", kind: "comparison_direction", text: "正式比较增加。", evidence_refs: ["sample.f1"]}]},
@@ -129,7 +140,7 @@ it("成文提醒仅一次且不消耗事实纠错次数，重写仍调用原后�
   expect((await runTool(tool, input, request)).details.status).toBe("needs_revision");
   expect(report).not.toHaveBeenCalled();
   expect((await runTool(tool, input, request)).details.status).toBe("ARGUMENT_ERROR");
-  expect(report).toHaveBeenCalledTimes(1);
+  expect(report).toHaveBeenCalledTimes(2);
   expect(report.mock.calls[0]).not.toEqual(expect.arrayContaining([expect.objectContaining({fallback: true})]));
 });
 it("只有本轮重新读取的旧证据可标为背景，原始运行身份保持不变", async () => {
@@ -264,7 +275,7 @@ it("执行计划复用当前真实问题与会话，补查固定首轮截至日"
   expect(result.details).toMatchObject({answer_policy: "general_analysis_evidence_v1"});
 });
 
-it.each(["ANALYSIS_REPORT_NUMBER", "ANALYSIS_REPORT_REFERENCE"])("报告必须引用本轮回执；连续文案校验失败交付服务端事实兜底（%s）", async errorCode => {
+it.each(["ANALYSIS_REPORT_NUMBER", "ANALYSIS_REPORT_REFERENCE", "ANALYSIS_REPORT_COVERAGE"])("报告必须引用本轮回执；单次文案失败直接保留正式事实（%s）", async errorCode => {
   const report = vi.fn(async (input: {fallback?: boolean}) => {
     if (!input.fallback) throw new BackendApiError(422, "请引用事实", errorCode);
     return {kind: "business_report", status: "succeeded", public_answer: "已核验事实与缺口", tasks: [], org_codes: ["3200"]};
@@ -275,7 +286,6 @@ it.each(["ANALYSIS_REPORT_NUMBER", "ANALYSIS_REPORT_REFERENCE"])("报告必须�
   const input = {evidence_refs: ["e1"], summary: "错误数字", sections: []};
   expect((await runTool(tool, {...input, evidence_refs: ["e99"]}, request)).details.status).toBe("ARGUMENT_ERROR");
   expect(report).not.toHaveBeenCalled();
-  expect((await runTool(tool, input, request)).details.status).toBe("ARGUMENT_ERROR");
   const result = await runTool(tool, input, request);
   expect(result.terminate).toBe(true);
   expect(report.mock.calls.at(-1)?.[0]).toMatchObject({run_refs: ["analysis:sample"], fallback: true, summary: "错误数字", sections: []});
