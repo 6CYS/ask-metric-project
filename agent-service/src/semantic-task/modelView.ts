@@ -1,5 +1,7 @@
 import {isDeepStrictEqual} from "node:util";
 import type {AgentMessage} from "@earendil-works/pi-agent-core";
+import {compactWorkflowEvidence} from "../analysis/workflows.js";
+import {analysisEvidenceAliases} from "../analysis/verifiedFindings.js";
 
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): value is RecordValue => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -22,12 +24,23 @@ function analysisBody(evidence: RecordValue): RecordValue | undefined {
     || typeof body.next_action !== "string") return undefined;
   // 原子引用及后续目录由生产工具转换，其余同名字段必须一致；冲突时保留完整回执供诊断。
   const transformed = new Set(["evidence_items", "followup_metrics", "verified_findings"]);
+  let workflowFields: Set<string> | undefined;
+  if (record(evidence.plan) && evidence.plan.workflow_id === "profitability_ranking_v1"
+    && record(evidence.workflow_brief) && Array.isArray(evidence.evidence_items)) {
+    // 从完整正式回执重新计算允许的投影，不能因正文自称“精简”就接受任意事实或范围。
+    const compact = compactWorkflowEvidence(evidence, analysisEvidenceAliases(body.evidence_ref,
+      evidence.evidence_items as Array<{ref: string; type?: string; judgment_kind?: string}>));
+    const serialized = JSON.parse(JSON.stringify(compact)) as RecordValue;
+    workflowFields = new Set(Object.keys(compact));
+    if ([...workflowFields].some(key => !isDeepStrictEqual(body[key], serialized[key]))) return undefined;
+    for (const key of workflowFields) transformed.add(key);
+  }
   if (Object.entries(body).some(([key, value]) => Object.hasOwn(evidence, key)
     && !transformed.has(key) && !isDeepStrictEqual(evidence[key], value))) return undefined;
   // 只采用工具自己生成的发送正文，不另造摘要。保留正文以外的未知扩展字段。
   // payload 中的原子 ref 可能已转换为 e1.v1，必须与报告工具的引用协议一致。
   const extra = Object.fromEntries(Object.entries(evidence)
-    .filter(([key]) => !analysisInternalFields.has(key) && !Object.hasOwn(body, key)));
+    .filter(([key]) => !analysisInternalFields.has(key) && !workflowFields?.has(key) && !Object.hasOwn(body, key)));
   return {...extra, ...body};
 }
 
@@ -60,8 +73,11 @@ function evidenceView(evidence: RecordValue): RecordValue {
 
 /** 模型发送视图不是持久化协议；不裁行、不合并目标、不移除来源或完整性信息。 */
 export function projectSemanticFeedback(value: unknown): unknown {
-  if (!record(value) || value.protocol_version !== 2 || !record(value.state) || !record(value.state.evidence)) return value;
-  return {...value, state: {...value.state, evidence: evidenceView(value.state.evidence)}};
+  if (!record(value) || value.protocol_version !== 2 || !record(value.state)) return value;
+  if (!record(value.state.evidence) && !Object.hasOwn(value, "workflow_trace")) return value;
+  const {workflow_trace: _debugTrace, ...modelValue} = value;
+  return {...modelValue, state: {...value.state,
+    ...(record(value.state.evidence) ? {evidence: evidenceView(value.state.evidence)} : {})}};
 }
 
 export function projectSemanticModelMessages(messages: readonly AgentMessage[]): AgentMessage[] {

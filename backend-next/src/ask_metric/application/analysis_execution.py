@@ -112,13 +112,14 @@ def display_number(value: str, metric: dict, *, difference=False) -> str:
 
 
 class GeneralAnalysisService:
-    def __init__(self, tasks, execution, calculation, *, secret):
+    def __init__(self, tasks, execution, calculation, *, secret, workflow_catalog=None):
         self.tasks, self.execution, self.calculation, self.secret = (
             tasks,
             execution,
             calculation,
             secret,
         )
+        self.workflow_catalog = workflow_catalog
 
     def semantics(self, actor):
         with self.tasks.uow_factory() as uow:
@@ -129,6 +130,21 @@ class GeneralAnalysisService:
     def validate_plan(self, plan, actor, question=""):
         semantics = self.semantics(actor)
         bindings = {ref: semantics.resolve(ref) for step in plan.steps for ref in step.metric_refs}
+        if plan.workflow_id:
+            from ask_metric.application.analysis_workflows import profitability_plan
+
+            rank = next((step for step in plan.steps if step.id == "rank"), None)
+            expected = profitability_plan(
+                plan.objective, semantics=semantics, catalog=self.workflow_catalog(),
+                parameters={"position": rank.position, "top_n": rank.top_n,
+                            "explain": len(plan.requirements) > 1},
+            ) if self.workflow_catalog and rank and rank.method == "ranking" else None
+            if not expected or AnalysisPlan.model_validate(expected["plan"]) != plan:
+                raise ApplicationError(
+                    "ANALYSIS_WORKFLOW_PLAN_INVALID",
+                    "注册路线必须使用服务端准备的完整计划，不能自行替换指标或步骤。",
+                    status_code=422,
+                )
         explicit = explicit_catalog_references(
             question,
             metrics=list(semantics.items.values()),
@@ -381,6 +397,14 @@ class GeneralAnalysisService:
             from ask_metric.application.verified_findings import attach_analysis_findings
 
             attach_analysis_findings(evidence)
+            if payload.plan.workflow_id:
+                from ask_metric.application.workflow_evidence import (
+                    attach_workflow_brief,
+                    attach_workflow_execution,
+                )
+
+                attach_workflow_brief(evidence)
+                attach_workflow_execution(evidence, context)
             state.update(status="completed", result=evidence)
             self._save(run_id, lease, state)
             return evidence
@@ -406,6 +430,8 @@ class GeneralAnalysisService:
         signature = digest({"code": code, "orgs": context["org_codes"], "start": start, "end": end})
         if signature not in state["coverage"]:
             if time.monotonic() >= context["deadline"]:
+                if context["payload"].plan.workflow_id:
+                    raise TimeoutError("workflow_coverage_budget")
                 return None
             result = execute_availability(
                 AvailabilityRequest(
@@ -448,6 +474,8 @@ class GeneralAnalysisService:
         if signature in state["query_results"]:
             return state["query_results"][signature]
         if state["query_count"] >= 40 or time.monotonic() >= context["deadline"]:
+            if context["payload"].plan.workflow_id:
+                raise TimeoutError("workflow_query_budget")
             return {"facts": [], "tasks": [], "gaps": ["达到本轮查询或时间预算，本项尚未执行。"]}
         state["query_count"] += 1
         self._save(context["run_id"], context["lease"], state)
@@ -479,6 +507,8 @@ class GeneralAnalysisService:
             )
         )
         valid = query.status == "succeeded" and not query.truncated
+        if not valid and context["payload"].plan.workflow_id:
+            raise ApplicationError("QUERY_EXECUTION_FAILED", "本项查询未取得完整结果。", status_code=503)
         facts = [fact for fact in query.facts if fact.get("value") is not None] if valid else []
         result = {
             "facts": facts,
@@ -605,6 +635,17 @@ class GeneralAnalysisService:
         return None
 
     def _execute_step(self, context, step):
+        parent_context = context
+        if step.organization_from_step:
+            from ask_metric.application.workflow_evidence import bind_ranked_scope
+
+            selected, gap = bind_ranked_scope(context, step.organization_from_step)
+            if gap:
+                return {"step_id": step.id, "method": step.method, "answers": step.answers,
+                        "facts": [], "calculations": [], "observations": [], "tasks": [],
+                        "gaps": [gap], "notices": []}
+            self._authorize(context["actor"], selected["org_codes"])
+            context = {**context, **selected}
         result = {
             "step_id": step.id,
             "method": step.method,
@@ -617,10 +658,13 @@ class GeneralAnalysisService:
             "notices": [],
         }
         context["step_progress"] = result
+        parent_context["step_progress"] = result
         payload, today = context["payload"], context["today"]
         for reference in step.metric_refs:
             metric = context["bindings"][reference]
             if time.monotonic() >= context["deadline"]:
+                if payload.plan.workflow_id:
+                    raise TimeoutError("workflow_step_budget")
                 result["gaps"].append(f"{metric['name']}：执行时间预算已用尽。")
                 continue
             end = min(payload.end or payload.anchor_date or today, today)

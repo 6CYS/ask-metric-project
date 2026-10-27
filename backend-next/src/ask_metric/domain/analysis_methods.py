@@ -34,6 +34,7 @@ class AnalysisStep(BaseModel):
     position: Literal["top", "bottom"] = "top"
     top_n: int = Field(default=10, ge=1, le=100)
     relation_id: str | None = Field(default=None, max_length=100)
+    organization_from_step: str | None = Field(default=None, max_length=40)
 
 
 class AnalysisPlan(BaseModel):
@@ -43,6 +44,7 @@ class AnalysisPlan(BaseModel):
     steps: list[AnalysisStep] = Field(default_factory=list, max_length=12)
     scope_notice: str = Field(min_length=1, max_length=500)
     inquiry: AnalysisInquiry | None = None
+    workflow_id: Literal["profitability_ranking_v1"] | None = None
 
     @model_validator(mode="after")
     def validate_graph(self):
@@ -60,6 +62,11 @@ class AnalysisPlan(BaseModel):
                 raise ValueError("比较方法必须声明比较期间")
             if step.method == "structure" and not step.relation_id:
                 raise ValueError("结构分析必须引用审核后的关系")
+            if step.organization_from_step:
+                source = next((s for s in self.steps if s.id == step.organization_from_step), None)
+                if (not source or source.method != "ranking" or source.id not in seen
+                        or source.id not in step.depends_on or step.method == "ranking"):
+                    raise ValueError("结果机构必须引用已依赖的前置排名节点，不能从文字指定")
             seen.add(step.id)
             answered.update(step.answers)
         if any(item.id not in answered and not item.gap_reason for item in self.requirements):

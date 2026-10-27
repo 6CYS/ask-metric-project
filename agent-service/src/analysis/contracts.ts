@@ -4,11 +4,13 @@ import {analysisInquirySchema, type AnalysisInquiry} from "./inquiry.js";
 export interface AnalysisPlan {
   objective: string;
   scope_notice: string;
+  workflow_id?: "profitability_ranking_v1";
   inquiry?: AnalysisInquiry;
   requirements: Array<{id: string; question: string; gap_reason?: string | null}>;
   steps: Array<{id: string; method: "observe" | "compare" | "trend" | "ranking" | "structure";
     metric_refs: string[]; answers: string[]; depends_on?: string[]; comparisons?: Array<"mom" | "yoy" | "ytd">;
-    rationale: string; position?: "top" | "bottom"; top_n?: number; relation_id?: string | null}>;
+    rationale: string; position?: "top" | "bottom"; top_n?: number; relation_id?: string | null;
+    organization_from_step?: string | null}>;
 }
 
 /** 两个协议中的同一排名只绑定一次；允许补空槽，显式冲突不得覆盖或择一执行。 */
@@ -53,6 +55,7 @@ export function analysisPlanDiagnostics(plan: AnalysisPlan): AnalysisPlanDiagnos
 
 export const analysisPlanSchema = {type: "object", required: ["objective", "scope_notice", "requirements", "steps"], additionalProperties: false,
   properties: {
+    workflow_id: {const: "profitability_ranking_v1"},
     inquiry: analysisInquirySchema,
     objective: {type: "string", minLength: 1, maxLength: 500}, scope_notice: {type: "string", minLength: 1, maxLength: 500},
     requirements: {type: "array", minItems: 1, maxItems: 8, description: "需要回答的业务疑问，不是表格栏目。精确问值可直接查值；宏观目标围绕规模与收益的差异、分类是否分化、质量如何变化等实际疑问，首批事实后再确定重点，不预先认定结论。", items: {type: "object", required: ["id", "question"], additionalProperties: false,
@@ -66,7 +69,9 @@ export const analysisPlanSchema = {type: "object", required: ["objective", "scop
         depends_on: {type: "array", maxItems: 12, items: {type: "string"}},
         comparisons: {type: "array", maxItems: 3, uniqueItems: true, items: {enum: ["mom", "yoy", "ytd"]}},
         rationale: {type: "string", minLength: 1, maxLength: 500}, position: {enum: ["top", "bottom"]}, top_n: {type: "integer", minimum: 1, maximum: 100},
-        relation_id: {type: ["string", "null"], maxLength: 100}}}},
+        relation_id: {type: ["string", "null"], maxLength: 100},
+        organization_from_step: {type: ["string", "null"], maxLength: 40,
+          description: "程序从所依赖的前置排名节点选择机构并固定分析日期，不能填写机构名。"}}}},
   }};
 
 export function validateAnalysisPlanShape(raw: unknown): raw is AnalysisPlan {
@@ -95,7 +100,7 @@ export function analysisPlanProblem(raw: unknown): string | undefined {
   if (raw && typeof raw === "object") {
     const plan = raw as Partial<AnalysisPlan>;
     if (!Array.isArray(plan.steps)) return "缺少steps执行步骤。请保留requirements，按子问题填写步骤id、method、metric_refs、answers和rationale；answers逐字引用requirements.id。不能只提交分析目标而没有取数步骤。无可查指标的子问题写gap_reason，steps可以为空数组。";
-    const extra = Object.keys(raw).filter(key => !["objective", "scope_notice", "requirements", "steps", "inquiry"].includes(key));
+    const extra = Object.keys(raw).filter(key => !["objective", "scope_notice", "requirements", "steps", "inquiry", "workflow_id"].includes(key));
     if (extra.length) return `计划顶层不支持${extra.join("、")}。缺口写在对应requirements项的gap_reason中；每个可执行步骤必须有metric_refs，没有指标的子问题保留为缺口并删除空步骤。`;
     if (Array.isArray(plan.requirements) && Array.isArray(plan.steps)) {
       if (plan.steps.some(step => !step || typeof step !== "object") || plan.requirements.some(item => !item || typeof item !== "object"))

@@ -922,6 +922,9 @@
                   ],
                   "additionalProperties": false,
                   "properties": {
+                    "workflow_id": {
+                      "const": "profitability_ranking_v1"
+                    },
                     "inquiry": {
                       "type": "object",
                       "additionalProperties": false,
@@ -1093,6 +1096,14 @@
                               "null"
                             ],
                             "maxLength": 100
+                          },
+                          "organization_from_step": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "maxLength": 40,
+                            "description": "程序从所依赖的前置排名节点选择机构并固定分析日期，不能填写机构名。"
                           }
                         }
                       }

@@ -12,6 +12,7 @@ import {completeRankingSteps} from "../analysis/contracts.js";
 import {completeRankingOperation} from "../business-context/rankingEvidence.js";
 import {metricMentions} from "../business-context/metricMentions.js";
 import {retainedQueryScope, assertRetainedQueryScope, assertRecoveryComparisonBasis, completeRecoveryMetricAlternatives} from "./queryRecovery.js";
+import {bindWorkflowScopeOperations} from "../analysis/workflows.js";
 
 /** 分析计划复用既有口径校验和受治理取数，但来源、状态及执行许可统一进入语义任务。 */
 export async function resolveEnhancedAnalysis(request: AskMetricRequestContext, task: SemanticTask,
@@ -22,6 +23,8 @@ export async function resolveEnhancedAnalysis(request: AskMetricRequestContext, 
     if (declared.length !== 1 || declared[0]?.action !== "set") throw new BusinessInputError(
       "ANALYSIS_PLAN_REQUIRED", "plan", "请在当前target.analysis提交一份完整分析计划，来源和机构日期变化保留在同一target。");
     const input = JSON.parse(declared[0].value) as EnhancedAnalysis;
+    if (input.kind === "business_analysis" && input.plan.workflow_id)
+      operations = await bindWorkflowScopeOperations(operations, request, signal);
     const previous = (await request.answerEvidence?.() ?? []).filter(item =>
       ["analysis_evidence", "business_overview"].includes(item.evidence.kind) && item.evidence.status === "succeeded");
     // 回读上轮报告不等于本轮已经执行过首批取数，避免把新追问误当成同轮补查。
@@ -34,7 +37,7 @@ export async function resolveEnhancedAnalysis(request: AskMetricRequestContext, 
     // 原文已有正式身份时不再让模型suggestion阻止身份归一；未识别原文仍保留原提案供目录处理。
     const hasBoundOrganizations = request.semanticStep?.facts?.fragments.some(fragment => fragment.organizations.length);
     const organizationOperations = operations.filter(op => op.field === "organizations").map(op =>
-      hasBoundOrganizations && op.action === "set" ? {action: op.action, field: op.field, value: op.value} : op);
+      hasBoundOrganizations && op.action === "set" && !("organizationScope" in op && op.organizationScope) ? {action: op.action, field: op.field, value: op.value} : op);
     const boundOrganizations = organizationOperations.length ? bindFieldOperations(organizationOperations,
       request.semanticStep?.facts, turn.baseline?.fields ?? {}, {analysis: true}).operations
       .filter(op => op.field === "organizations") : [];
@@ -70,7 +73,7 @@ export async function resolveEnhancedAnalysis(request: AskMetricRequestContext, 
       }
       if (!["organizations", "time"].includes(op.field) || !["set", "clear"].includes(op.action)) throw new BusinessInputError(
         "ANALYSIS_SCOPE_OPERATION_UNSUPPORTED", op.field, "分析范围使用机构或日期的set/clear；选择可信source后只提交变化字段，指标和方法写入analysis.plan。");
-      changes.push({fieldHint: op.field, operation: op.action as "set" | "clear", ...("value" in op ? {rawValue: op.value} : {})});
+      changes.push({fieldHint: op.field, operation: op.action as "set" | "clear", ...("value" in op ? {rawValue: op.field === "organizations" && "organizationScope" in op && op.organizationScope ? op.organizationScope : op.value} : {})});
     }
     const recoveryScope = await retainedQueryScope(request, task, changes, input.kind === "business_analysis" ? input.plan : undefined);
     if (recoveryScope && input.kind !== "business_analysis") throw new BusinessInputError(

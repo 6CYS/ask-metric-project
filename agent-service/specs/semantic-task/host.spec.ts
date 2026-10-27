@@ -74,6 +74,54 @@ async function setup(script: Reply[], directQueryDelivery: NonNullable<AgentServ
   return {dir, model, backend, store, host, session, run, admit, deps};
 }
 
+it.each(["available", "no_data", "denied"])("注册盈利路线%s直接交付，取数后不再依赖模型调用，保留回放及权限边界", async mode => {
+  const input = {protocol_version: 2, intent: "analyze", targets: [{source: {kind: "new"},
+    operations: [{action: "set", field: "organizations", value: "合成机构甲"}, {action: "set", field: "time", value: "2025年末"}],
+    analysis: {kind: "registered_workflow", workflow_id: "profitability_ranking_v1"}}]};
+  const f = await setup([[{name: "resolve_business_turn", args: input}], "模型后续调用不应发生。"]);
+  const plan = {workflow_id: "profitability_ranking_v1", objective: "合成净利润排名", scope_notice: "隔离合成范围",
+    requirements: [{id: "rank", question: "净利润排名"}],
+    steps: [{id: "rank", method: "ranking", metric_refs: ["signed-1"], answers: ["rank"], position: "bottom", top_n: 1, rationale: "合成比较"}]};
+  const answer = mode === "no_data" ? "2025-12-31未取得有效净利润记录，缺失不等于零。" : "合成机构甲净利润100元，具体业务原因尚未证实。";
+  Object.assign(f.backend, {
+    analysisWorkflowRoute: vi.fn(async () => ({status: "matched", workflow_id: "profitability_ranking_v1", plan,
+      metrics: [{code: "M1", name: "合成指标甲", binding_ref: "signed-1"}]})),
+    analysisValidate: vi.fn(async () => ({valid: true})),
+    analysisExecute: vi.fn(async (payload: Record<string, unknown>) => ({kind: "analysis_evidence", status: "succeeded",
+      run_ref: "synthetic-workflow", scope_id: "synthetic-scope", execution_turn_id: payload.execution_turn_id,
+      org_codes: ["O1"], analysis_date: "2025-12-31", actual_dates: mode === "no_data" ? [] : ["2025-12-31"],
+      tasks: [], rows: [], gaps: [], plan: payload.plan, metric_descriptors: [], evidence_items: [],
+      workflow_execution: {steps: [{id: "rank", status: mode === "no_data" ? "no_data" : "completed", fact_count: mode === "no_data" ? 0 : 1}]},
+      workflow_brief: {outcome: mode === "no_data" ? "no_data" : "available", focus_refs: [], selected_org_codes: []}})),
+    analysisReport: vi.fn(async () => {
+      if (mode === "denied") throw new BackendApiError(403, "合成交付时撤权", "PERMISSION_DENIED");
+      return {kind: "business_report", status: "succeeded", delivery: "business_evidence_v1", answer_policy: "verified_report_v1",
+        public_answer: answer, org_codes: ["O1"], rows: [], columns: [], tasks: [], gaps: [], report: {delivery_mode: "registered_workflow"}};
+    }),
+  });
+  const result = await f.run("registered-host", "合成机构甲2025年末哪个机构净利润最低？为什么？");
+  expect(result.ok).toBe(true);
+  expect(f.model.calls()).toBe(1);
+  const entries = await f.session.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT);
+  const visible = projectEntries(entries).flatMap(message => message.role === "assistant" && message.text ? [message.text] : []).at(-1);
+  if (mode === "denied") {
+    expect(visible).toContain("当前权限已变化");
+    expect(visible).not.toContain("100元");
+  } else {
+    expect(visible).toBe(answer);
+    const receipt = entries.find(entry => entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "resolve_business_turn");
+    expect(JSON.stringify(receipt)).toContain('"kind":"analysis_evidence"');
+    expect(JSON.stringify(receipt)).toContain('"kind":"business_report"');
+    // 真实 after_tool 落盘及浏览器历史投影均保留路线，无需 QueryTask 才能诊断。
+    const projected = projectEntries(entries).find(message => message.role === "tool");
+    expect(projected?.role === "tool" && (projected.details as any).semantic_task.workflow_trace)
+      .toMatchObject({schema_version: 1, workflow_id: "profitability_ranking_v1", phase: "executed",
+        steps: [{id: "rank", status: mode === "no_data" ? "no_data" : "completed"}]});
+    const tasks = new NativeSemanticTaskStore(f.session.session);
+    if (result.ok) expect((await tasks.turn(result.operationId))?.runtime).toMatchObject({delivery_complete: true});
+  }
+});
+
 it.each(["complete", "partial", "malformed", "denied"])("漏分析子问题后原样重交也会切换局部修复，%s交付不重复查数", async mode => {
   const read = (id: string, ref: string, answer: string) => ({id, method: "observe", metric_refs: [ref], answers: [answer], rationale: "正式目录取证"});
   const analysis = {objective: "合成经营分析", scope_notice: "隔离合成环境",

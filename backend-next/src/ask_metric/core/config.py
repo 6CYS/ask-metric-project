@@ -135,6 +135,16 @@ class Settings(BaseSettings):
     backend_next_allow_non_test_database: bool = False
     model_config_path: Path = PROJECT_DIR / "config" / "model-config.json"
     model_secret_env_path: Path = PROJECT_DIR / ".env"
+    workflow_routing_enabled: bool = False
+    workflow_catalog_path: Path = PROJECT_DIR / "config" / "analysis-workflows.json"
+    workflow_model_config_path: Path = PROJECT_DIR / "config" / "workflow-model-config.json"
+    workflow_milvus_uri: str = "http://127.0.0.1:19530"
+    workflow_milvus_token: str = Field(default="", repr=False)
+    workflow_milvus_collection: str = Field(
+        default="ask_metric_analysis_workflows_v1", pattern=r"^[A-Za-z][A-Za-z0-9_]{0,127}$"
+    )
+    workflow_rerank_min_score: float = Field(default=0.5, ge=0, le=1)
+    workflow_rerank_margin: float = Field(default=0.04, ge=0, le=1)
     prompt_config_path: Path = PROJECT_DIR / "config" / "prompts.json"
     semantic_config_path: Path = PROJECT_DIR / "config" / "semantic-config.json"
     config_history_dir: Path = PROJECT_DIR / ".runtime" / "config-history"
@@ -189,6 +199,7 @@ class Settings(BaseSettings):
                 "metric_catalog_database_url",
                 "org_catalog_database_url",
                 "model_admin_token",
+                "workflow_milvus_token",
                 "trusted_proxy_token",
                 "jwt_secret",
                 "sm2_private_key",

@@ -6,6 +6,7 @@ import BaseButton from "@/components/ui/BaseButton.vue"
 import { getBackendNextTask } from "@/lib/api"
 import { toolCallLabel, type ToolCallSummary } from "@/lib/toolCallSummary"
 import type { BackendNextTaskResult } from "@/types/api"
+import type { WorkflowTrace } from "@/lib/workflowTrace"
 
 const props = defineProps<{
   question: string
@@ -14,7 +15,7 @@ const props = defineProps<{
   hasAnswer?: boolean
   startedAt?: string
   elapsedMs?: number
-  tools: { id?: string; tool: string; status: string; elapsedMs?: number; summary?: ToolCallSummary; label?: string }[]
+  tools: { id?: string; tool: string; status: string; elapsedMs?: number; summary?: ToolCallSummary; label?: string; workflowTraces?: WorkflowTrace[] }[]
   /** 理解问题阶段的非工具步骤（读取上下文、识别指标、模型分析），总在工具步骤之前 */
   activities?: { id: string; label: string; status: string; elapsedMs?: number; summary?: ToolCallSummary }[]
   /** run_terminal 携带的 agent-service 侧耗时（鉴权、各次模型调用、工具处理）；重连流或旧记录无此数据 */
@@ -99,6 +100,9 @@ function readableDuration(ms: number) {
   return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`
 }
 const mode = ref<"timing" | "debug" | null>(null)
+// 同轮多次修正只显示该路线最新回执，避免重复列出待执行与完成状态。
+const workflowTraces = computed(() => [...new Map(props.tools.flatMap(call => call.workflowTraces ?? [])
+  .map(trace => [`${trace.workflow_id}:${trace.version ?? ''}`, trace])).values()])
 const selectedId = ref("")
 const task = ref<BackendNextTaskResult>()
 const loading = ref(false)
@@ -297,7 +301,7 @@ function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? n
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="!taskIds.length">{{ pending ? '正在等待工具返回后端任务编号，暂时没有后端调试详情。' : '本轮未返回后端任务编号，无法读取后端调试详情。' }}</p>
   </div>
-  <BackendNextDebugPanel v-if="mode === 'debug'" :question="question" :task-id="task?.task_id" :task-version="task?.version" :status="task?.status" :stage="task?.current_stage" :timings="task?.timings_ms" :debug="task ? { ...task.debug, logical_dsl: task.logical_dsl ?? task.debug?.logical_dsl } : undefined" @close="mode = null">
+  <BackendNextDebugPanel v-if="mode === 'debug'" :workflow-traces="workflowTraces" :question="question" :task-id="task?.task_id" :task-version="task?.version" :status="task?.status" :stage="task?.current_stage" :timings="task?.timings_ms" :debug="task ? { ...task.debug, logical_dsl: task.logical_dsl ?? task.debug?.logical_dsl } : undefined" @close="mode = null">
     <template #status>
       <label v-if="taskIds.length > 1" class="flex items-center gap-2 text-xs">后端任务
         <select v-model="selectedId" class="min-w-0 max-w-full rounded border bg-background p-1">
@@ -306,7 +310,7 @@ function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? n
       </label>
       <p v-if="loading" role="status" class="text-sm text-muted-foreground">正在读取后端任务详情…</p>
       <p v-if="error" role="alert" class="text-sm text-destructive">{{ error }}</p>
-      <p v-if="!taskIds.length" class="text-sm text-muted-foreground">{{ pending ? '正在等待工具返回后端任务编号，暂时没有后端调试详情。' : '本轮未返回后端任务编号，无法读取后端调试详情。' }}</p>
+      <p v-if="!taskIds.length && !workflowTraces.length" class="text-sm text-muted-foreground">{{ pending ? '正在等待工具返回后端任务编号，暂时没有后端调试详情。' : '本轮未返回后端任务编号，无法读取后端调试详情。' }}</p>
     </template>
   </BackendNextDebugPanel>
 </template>

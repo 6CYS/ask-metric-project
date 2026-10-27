@@ -4,6 +4,7 @@ import { renderToString } from "@vue/server-renderer"
 import BackendNextChatPanel from "../../../src/components/chat/BackendNextChatPanel.vue"
 import type { AgentSessionDetail, AgentStreamEvent, AnswerReceipt, PendingQuestion, QuestionState } from "@/lib/agentApi"
 import * as agentApi from "@/lib/agentApi"
+import { workflowTrace } from "../../fixtures/workflowTrace"
 
 vi.mock("@/components/chat/CatalogQuestionComposer.vue", () => ({ default: { render: () => null } }))
 const authState = vi.hoisted(() => ({user: undefined as unknown as {value: {id: string; role_code: string; org_name: string} | null}}))
@@ -27,6 +28,7 @@ const detail: AgentSessionDetail = {
 }
 type TimeVariant = { label: string; start: string; end: string }
 type Message = { id: string; role: string; content: string; status?: string; failureNotice?: string; nativeAnswer?: boolean; kind?: string
+  toolCalls?: Array<{workflowTraces?: unknown[]}>
   response?: { time_variants?: TimeVariant[]; debug?: Record<string, unknown> | null }
   pendingQuestions?: PendingQuestion[]; answerReceipts?: AnswerReceipt[]; queryResults?: Array<Record<string, unknown>> }
 type Conversation = { id: string; serverId: string | null; messages: Message[]; running: boolean
@@ -69,6 +71,21 @@ beforeEach(async () => {
   vi.stubGlobal("localStorage", {getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => stored.set(key, value), removeItem: (key: string) => stored.delete(key)})
   state = await renderPanel()
   state.conversations = [{ id: "c", serverId: "offline-test", messages: [{ id: "a", role: "assistant", content: "", status: "pending", nativeAnswer: true }], running: true }]
+})
+
+it("标准路线实时回执和刷新恢复均保留调试信息，不混入回答正文", () => {
+  const details = {kind: "semantic_results", results: [{kind: "analysis_evidence", status: "succeeded"}],
+    semantic_task: {protocol_version: 2, workflow_trace: workflowTrace, state: {targets: []}}}
+  state.handleStreamEvent("c", "a", {type: "tool_end", tool: "resolve_business_turn", tool_call_id: "trace-call", details, isError: false} as AgentStreamEvent)
+  const live = state.conversations[0]!.messages[0]!
+  expect(live.toolCalls?.[0]?.workflowTraces).toEqual([workflowTrace])
+  const restored = state.conversationFromDetail({...detail, messages: [
+    {role: "user", text: "合成排名问题", timestamp: 1},
+    {role: "assistant", text: "合成结果", tool_calls: [{id: "trace-call", tool: "resolve_business_turn"}], timestamp: 2},
+    {role: "tool", tool: "resolve_business_turn", tool_call_id: "trace-call", details, is_error: false, timestamp: 3},
+  ]}).messages.find(message => message.role === "assistant")!
+  expect(restored.toolCalls?.[0]?.workflowTraces).toEqual([workflowTrace])
+  expect(restored.content).not.toContain("重排得分")
 })
 
 describe("已登录会话初始化与刷新恢复", () => {

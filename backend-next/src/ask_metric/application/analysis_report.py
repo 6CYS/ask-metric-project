@@ -460,7 +460,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
                 "同时修改summary和各段落，不保留错误数字。",
                 status_code=422,
             )
-        claims = re.finditer(
+        claim_pattern = (
             r"导致|主要原因是|原因在于|因为.+所以|由于.+导致|客户(?:已|都)?流失|"
             r"可能(?:存在|与|因|源于|来自)|(?:贡献|变化)[^。；\n]{0,10}(?:来自|来源于)|"
             r"增长主要集中|(?:增长|增量).{0,12}主要(?:来自|来源于|由)|"
@@ -477,9 +477,9 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             r"(?:不良(?:贷款)?(?:比)?率|风险水平|客户集中度|存贷比)[^。；\n]{0,20}(?:较高|较低|偏高|偏低|低位|高位)|"
             r"(?:说明|表明|反映)[^。；\n]{0,35}(?:投放|获客|揽储|清收|还款)|"
             r"(?:说明|表明|反映)[^。；\n]{0,45}(?:运用|能力|动能)[^。；\n]{0,15}(?:偏弱|偏强|更强|更弱|较强|较弱)|"
-            r"(?:说明|表明|反映)[^。；\n]{0,60}(?:抵消|驱动|支撑|拉动|传导|源于|来自|带动)",
-            remaining,
+            r"(?:说明|表明|反映)[^。；\n]{0,60}(?:抵消|驱动|支撑|拉动|传导|源于|来自|带动|转化|转为|转成|促成)"
         )
+        claims = re.finditer(claim_pattern, remaining)
         unsupported = None
         for claim in claims:
             # 明确否定与待核实说明不构成因果/达标断言；遇到转折重新判断。
@@ -591,8 +591,28 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             raise ApplicationError(
                 "ANALYSIS_REPORT_DIRECTION", "文字方向与所引比较证据不一致。", status_code=422
             )
+        # 同一数值的字面展示紧邻值占位符时只展示一次；引用关系仍按原文保留。
+        # 仅处理本段已校验的事实/计算值，不压缩不同事实或改写观察正文。
+        display_text = text
+        for ref in refs:
+            atom = atoms[ref]
+            if atom["type"] not in {"fact", "calculation"}:
+                continue
+            literal = r"(?P<literal>(?:\*\*|__)?" + re.escape(atom["display"]) + r"(?:\*\*|__)?)"
+            placeholder = r"\{\{" + re.escape(ref) + r"\}\}"
+            if atom["display"].startswith("-"):
+                absolute = r"((?:\*\*|__)?" + re.escape(atom["display"][1:]) + r"(?:\*\*|__)?)"
+                decrease = r"(减少|下降|降低|回落|降|减)(\s*)"
+                display_text = re.sub(decrease + absolute + r"[ \t]*" + placeholder,
+                                      r"\1\2\3", display_text)
+                display_text = re.sub(decrease + placeholder + r"[ \t]*" + absolute,
+                                      r"\1\2\3", display_text)
+            display_text = re.sub(literal + r"[ \t]*" + placeholder,
+                                  lambda match: match["literal"], display_text)
+            display_text = re.sub(placeholder + r"[ \t]*" + literal,
+                                  lambda match: match["literal"], display_text)
         rendered = re.sub(r"\{\{([^{}]+?)(\|cite)?\}\}",
-                          lambda match: "" if match[2] else atoms[match[1]]["display"], text)
+                          lambda match: "" if match[2] else atoms[match[1]]["display"], display_text)
         # 显示值自带单位；处理模型在引用后再次添加单位的排版重复。
         rendered = re.sub(r"(亿元|万元|元|个百分点|%|名|户|笔|倍)(?:\1)+", r"\1", rendered)
         # 原样数值紧邻同值引用时仅清除括号内的重复展示，不改写业务文字或事实。
@@ -605,7 +625,21 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
 
     summary_refs = set()
     body_evidence = []
-    if request.fallback:
+    registered_delivery = (
+        len(sources) == 1 and not reuse_view
+        and first["plan"].get("workflow_id") == "profitability_ranking_v1"
+        and bool(first.get("workflow_brief"))
+    )
+    if registered_delivery:
+        # 注册路线的业务结论由真实回执编译，模型仅选择呈现方式。
+        # 不把模型自由发挥的原因文字混入正式报告，也不依赖词表穷举拦截。
+        from ask_metric.application.workflow_evidence import workflow_fact_answer
+
+        summary, refs = workflow_fact_answer(first)
+        summary_refs.update(expanded_refs(refs))
+        body_evidence = [{"paragraph": 1, "evidence_refs": sorted(summary_refs)}]
+        sections = []
+    elif request.fallback:
         summary = (
             "部分文字分析未通过校验，以下保留已核验分析、基础事实与缺口。"
             if request.summary.strip() or request.sections
@@ -749,7 +783,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             if (cleaned := public_analysis_gap(item, metric_names))
         )
     )
-    if request.fallback:
+    if request.fallback and not first.get("workflow_brief"):
         gaps.append(
             "部分分析文字未通过证据校验，已省略；基础数据与通过校验的分析仍可查看。"
             if request.summary.strip() or request.sections
@@ -785,13 +819,15 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
     answer = "\n\n".join(
         [
             scope,
-            *defaults,
-            first["source_notice"],
+            *([] if registered_delivery else defaults),
+            *([] if registered_delivery else [first["source_notice"]]),
             # 模型的scope_notice保留在计划中，不作为默认机构、日期等已核验事实展示。
             summary,
             *[f"**{item['title']}**\n\n{item['text']}" for item in sections],
-            *([f"**{presentation['labels']['gaps']}**\n\n" + "；".join(gaps)] if gaps else []),
-            *([f"**{presentation['labels']['sources']}**\n\n" + "；".join(limitations)] if limitations else []),
+            *([f"**{presentation['labels']['gaps']}**\n\n" + "；".join(gaps)]
+              if gaps and not first.get("workflow_brief") else []),
+            *([f"**{presentation['labels']['sources']}**\n\n" + "；".join(limitations)]
+              if limitations and not first.get("workflow_brief") else []),
         ]
     )
     return {
@@ -816,6 +852,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
         "columns": first["columns"],
         "gaps": gaps,
         "report": {
+            "delivery_mode": "registered_workflow" if registered_delivery else "verified_narrative",
             "summary": summary,
             "body_evidence": body_evidence,
             "sections": sections,

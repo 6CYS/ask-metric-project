@@ -5,6 +5,8 @@ import type {AnswerReceipt, PendingQuestion} from "./questions.js";
 
 export interface SemanticFeedback {
   protocol_version: 2; status: string;
+  /** 随原生回执保存，供实时及历史调试使用；不进入普通正文。 */
+  workflow_trace?: import("../analysis/workflows.js").WorkflowDebugTrace;
   /** 真实工具最终化时持久化；展示与恢复共用严格版本解析器。 */
   direct_answer?: import("./directDelivery.js").DirectAnswerSnapshot;
   query_recovery?: import("./queryRecovery.js").QueryRecoveryFeedback;

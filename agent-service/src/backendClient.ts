@@ -346,6 +346,9 @@ export class BackendClient {
   analysisExecute(payload: Record<string, unknown>, key: string, options?: CallOptions): Promise<Record<string, unknown>> {
     return this.request("/api/v1/analysis/execute", {method: "POST", body: JSON.stringify(payload)}, {...options, idempotencyKey: key});
   }
+  analysisWorkflowRoute(question: string, options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request("/api/v1/analysis/workflows/route", {method: "POST", body: JSON.stringify({question})}, options);
+  }
   analysisReport(payload: Record<string, unknown>, options?: CallOptions): Promise<Record<string, unknown>> {
     return this.request("/api/v1/analysis/report", {method: "POST", body: JSON.stringify(payload)}, options);
   }

@@ -63,6 +63,7 @@ import {analysisFollowupToolView} from "./semantic-task/analysisToolView.js";
 import {isSemanticFeedback, semanticPublicAnswer, type SemanticFeedback} from "./semantic-task/feedback.js";
 import {normalizeParallelMetricProposal, queryRecoveryPhase} from "./semantic-task/queryRecovery.js";
 import {ANALYSIS_REPAIR, analysisRecoveryPhase, markPartialAnalysis} from "./semantic-task/analysisRecovery.js";
+import {workflowDebugTrace, workflowRoute, workflowTurnView} from "./analysis/workflows.js";
 import {SemanticPlanService} from "./semantic-task/planService.js";
 import {buildCompactSemanticSystemPrompt, buildSemanticSystemPrompt, semanticBusinessSkills} from "./semantic-task/prompt.js";
 import {projectSemanticModelMessages, appendSemanticRuntimeContext} from "./semantic-task/modelView.js";
@@ -452,7 +453,8 @@ export class HarnessHost {
         const callSeq = (request.modelCall?.attempt ?? 1) > 1 && request.answerStream
           ? request.answerStream.callSeq : (request.answerStream?.callSeq ?? 0) + 1;
         request.answerStream = {callSeq, mode: "none"};
-        let payload = semanticPublicToolDefinitions(event.payload as Record<string, unknown>);
+        let payload = semanticPublicToolDefinitions(event.payload as Record<string, unknown>,
+          await workflowRoute(request, context.abortSignal));
         if (request.modelCall) request.modelCall.payloadBytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
         if (request.modelCall?.step === "compaction" || request.modelCall?.step === "branch_summary") return {payload};
         // 业务工具由 Pi 自主选择；旧交付工具仅为读取旧操作注册，不再对模型暴露。
@@ -543,6 +545,14 @@ export class HarnessHost {
           return {payload: {...payload, tool_choice: {type: "function", function: {name: queryRecovery.tool}}}};
         }
         const lastResolution = [...current].reverse().find(message => message.role === "toolResult" && message.toolName === "resolve_business_turn");
+        if (!lastResolution && (await workflowRoute(request, context.abortSignal)).status === "matched"
+          && Array.isArray(payload.tools) && payload.tools.some(raw => {
+            const definition = raw as {name?: string; function?: {name?: string}};
+            return (definition.function?.name ?? definition.name) === "resolve_business_turn";
+          })) {
+          setStreamMode("none");
+          return {payload: {...payload, tool_choice: {type: "function", function: {name: "resolve_business_turn"}}}};
+        }
         if (!lastResolution && request.trustedAnswers?.length && Array.isArray(payload.tools)
           && payload.tools.some(raw => {const definition = raw as {name?: string; function?: {name?: string}}; return (definition.function?.name ?? definition.name) === "resolve_business_turn";})) {
           setStreamMode("none");
@@ -714,6 +724,36 @@ export class HarnessHost {
                   // 嵌套调用不经过工具异常适配器，撤权必须显式转为无正文证据的拒绝回执。
                   feedback = await new SemanticPlanService(request, context.abortSignal).rejected(feedback.state.task_ref!, error);
                 }
+              }
+            }
+          }
+          const trace = workflowDebugTrace(await workflowRoute(request, context.abortSignal), feedback.state.evidence, feedback.status);
+          if (trace) feedback = {...feedback, workflow_trace: trace};
+          const registered = feedback.state.evidence;
+          if (!event.isError && feedback.status === "succeeded"
+            && registered?.kind === "analysis_evidence" && registered.status === "succeeded"
+            && (registered.plan as {workflow_id?: string} | undefined)?.workflow_id === "profitability_ranking_v1"
+            && registered.workflow_brief && registered.execution_turn_id === request.operationId
+            && registered.result_reused !== true) {
+            // 注册路线已完成事实计算，交付复用正式报告入口；正常缺数也不再等待模型写结束语。
+            const evidence = currentTurnEvidence([...currentTurnMessages(await currentLaneMessages(lane, context)),
+              {role: "toolResult", details: feedback}]);
+            const source = evidence.find(item => (item.evidence as unknown) === registered);
+            const presenter = sessionTools.find(tool => tool.name === "analysis_report_present");
+            if (source && presenter) {
+              try {
+                const report = await presenter.execute(event.toolCallId,
+                  {evidence_refs: [source.ref], body: "交付本次注册路线的已核验结果。"}, () => {},
+                  {...request, answerEvidence: async () => evidence}, invocationOf(event.toolCallId, request), context);
+                const details = report.details as Record<string, unknown>;
+                if (details.kind === "business_report" && details.status === "succeeded") {
+                  feedback = {...feedback, continuation: {actor: "none", action: "deliver_saved_answer"},
+                    state: {...feedback.state, evidence: {kind: "semantic_results", results: [registered, details]}}};
+                  return {details: feedback as unknown as JsonValue, content: report.content, terminate: true};
+                }
+              } catch (error) {
+                if (context.abortSignal?.aborted) throw error;
+                feedback = await new SemanticPlanService(request, context.abortSignal).rejected(feedback.state.task_ref!, error);
               }
             }
           }
@@ -1021,6 +1061,7 @@ export class HarnessHost {
       const control = (await request.semanticTasks!.turn(request.operationId))?.runtime;
       const referenced = await requestedHistory(request);
       const taskContext = {...runtime,
+        registered_workflow: workflowTurnView(await workflowRoute(request, context.abortSignal)),
         ...(control && ["recover", "verify", "waiting", "stopped"].includes(control.phase) ? {runtime_control: {
           phase: control.phase, next: control.next, execution_complete: control.execution_complete,
           delivery_complete: control.delivery_complete, required: control.required, completed: control.completed,

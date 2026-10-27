@@ -17,6 +17,7 @@ import {publicTextProblem} from "../runtime/delivery.js";
 import {analysisEvidenceAliases, verifiedFindingsView, type VerifiedFindings} from "./verifiedFindings.js";
 import {rankingModelView} from "./rankingView.js";
 import {recoveryMetricCandidates} from "../semantic-task/queryRecovery.js";
+import {compactWorkflowEvidence} from "./workflows.js";
 
 export interface AnalysisEvidence extends BusinessEvidence {
   kind: "analysis_evidence"; run_ref: string; scope_id: string; frame_id?: string;
@@ -27,6 +28,7 @@ export interface AnalysisEvidence extends BusinessEvidence {
   checked_on?: string;
   metric_descriptors: Array<{binding_ref: string; code: string; name?: string}>;
   verified_findings?: VerifiedFindings;
+  workflow_brief?: Record<string, unknown>;
   evidence_items?: Array<{ref: string; type?: string; metric_code?: string; metric_name?: string;
     org_code?: string; date?: string; value?: string; display?: string; judgment_kind?: string; input_refs?: string[]}>;
 }
@@ -150,6 +152,13 @@ export function createGeneralAnalysisTool(frame: BusinessFrame): AgentHarnessToo
       const aliases = analysisEvidenceAliases(evidenceRef, result.evidence_items as Array<{ref: string; type?: string; judgment_kind?: string}>);
       const followupMetrics = catalogBindingView(request, result.followup_metrics ?? []);
       const review = analysisCoverageReview(request, [...previous.map(item => item.evidence as AnalysisEvidence), result as unknown as AnalysisEvidence]);
+      if (result.workflow_brief) return {
+        content: [{type: "text", text: JSON.stringify({...result, metric_descriptors: undefined,
+          rows: undefined, tasks: undefined, followup_metrics: undefined,
+          ...compactWorkflowEvidence(result, aliases), evidence_ref: evidenceRef})}],
+        details: {...result, execution_turn_id: request.semanticStep?.rootOperationId ?? request.operationId,
+          binding_map: catalogBindingState(request), candidate_map: analysisCandidates(request), answer_policy: "general_analysis_evidence_v1"},
+      };
       return {content: [{type: "text", text: JSON.stringify({...result, metric_descriptors: undefined, rows: undefined, tasks: undefined,
         followup_metrics: followupMetrics,
         analysis_brief: analysisInterpretationBrief(request, [...previous, {ref: evidenceRef, evidence: result as unknown as AnalysisEvidence}]),
@@ -168,7 +177,7 @@ export function createGeneralAnalysisTool(frame: BusinessFrame): AgentHarnessToo
 }
 
 const reportParameters = Type.Object({evidence_refs: Type.Array(Type.String({description: "分析回执编号，如e1、e2；原子引用e1.v1等用于body正文，不在此处填写。"}), {minItems: 1, maxItems: 6}),
-  body: Type.String({minLength: 1, maxLength: 6000, description: "必填完整自然正文，可用段落、要点或Markdown标题，无固定栏目。先回答最值得关注的发现，按证据展开判断、差异或待核验问题。只引用影响判断的关键数字，不逐行抄表，不在开篇与展开重复数字。补查后回答原疑问，说明判断获得支持、被修正或受到限制。展示关键数值用{{实际原子ref}}；无需展示数值的判断在句后用{{实际原子ref|cite}}关联依据，仍核验并保存在证据中。日期逐字采用actual_dates，不自算、不认定未经证实因果。"}),
+  body: Type.String({minLength: 1, maxLength: 6000, description: "通用分析必填完整自然正文，可用段落、要点或Markdown标题。数字用{{实际原子ref}}；不展示数字的判断用{{实际原子ref|cite}}关联依据。不认定未经证实因果。若回执含workflow_brief，则只写一句交付说明，服务端根据注册路线编译排名、比较和原因边界；不要重复生成业务结论，可用presentation选择呈现方式。"}),
   presentation: Type.Optional(Type.Object({
     profile: Type.Optional(Type.Union([
       Type.Literal("brief"), Type.Literal("snapshot"), Type.Literal("trend"),
@@ -235,7 +244,10 @@ export function createAnalysisReportTool(): AgentHarnessTool<AskMetricRequestCon
           sources.flatMap((source, index) => source.evidence_items?.filter(atom => atom.type !== "observation")
             .map((atom, atomIndex) => ({...atom, ref: `${input.evidence_refs[index]}.v${atomIndex + 1}`})) ?? []),
           analysisInterpretationBrief(request, selected as EvidenceReference[]).signals);
-        if (editorial) return editorial;
+        const registeredDelivery = !reuseOnly && sources.length === 1
+          && sources[0]?.plan?.workflow_id === "profitability_ranking_v1"
+          && sources[0]?.workflow_brief;
+        if (editorial && !registeredDelivery) return editorial;
         let details;
         try {details = await request.backend.analysisReport(payload, {signal: context.abortSignal});}
         catch (error) {

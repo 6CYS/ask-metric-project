@@ -1,0 +1,4 @@
+# 本机试点仅监听回环地址；共享或生产环境须由部署方配置 Milvus 鉴权和网络边界。
+common:
+  security:
+    authorizationEnabled: false

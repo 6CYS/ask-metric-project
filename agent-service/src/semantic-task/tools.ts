@@ -21,6 +21,7 @@ import {backendIssue} from "./backendIssue.js";
 import {recoverUnmatchedQuery, parallelMetricAlternatives, normalizeParallelMetricProposal} from "./queryRecovery.js";
 import {ANALYSIS_REPAIR, pendingAnalysisRecovery, recoverAnalysisPlan, repairAnalysisPlan} from "./analysisRecovery.js";
 import {analysisPlanSchema, type AnalysisPlan} from "../analysis/contracts.js";
+import {materializeWorkflowProposal, workflowPublicParameters, type WorkflowRoute} from "../analysis/workflows.js";
 
 type Tool = AgentHarnessTool<AskMetricRequestContext>;
 const receipt = (feedback: SemanticFeedback, evidence?: AgentToolResult<unknown>): AgentToolResult<SemanticFeedback> => {
@@ -73,7 +74,8 @@ export function createSemanticResolveTool(): Tool {
        try {
          const pending = await pendingAnalysisRecovery(request);
          if (pending) return receipt(pending);
-         const input = await normalizeParallelMetricProposal(request, prepareSemanticArguments(args));
+         const input = await normalizeParallelMetricProposal(request, prepareSemanticArguments(
+           await materializeWorkflowProposal(args, request, context.abortSignal)));
         const feedback = await new SemanticPlanService(request, context.abortSignal).resolve(input);
          return receipt(await recoverAnalysisPlan(request, await recoverUnmatchedQuery(request, feedback)));}
       catch (error) {
@@ -288,11 +290,12 @@ export function semanticRuntimeAdapter(tool: Tool): Tool {
   return tool.name === "resolve_business_turn" ? {...tool, parameters: Type.Unsafe({}), prepareArguments: raw => structuredClone(raw)} : tool;
 }
 /** 给模型的Schema始终唯一且严格；原生隔离适配器的容器形状不得公开。 */
-export function semanticPublicToolDefinitions(payload: Record<string, unknown>): Record<string, unknown> {
+export function semanticPublicToolDefinitions(payload: Record<string, unknown>, route?: WorkflowRoute): Record<string, unknown> {
   if (!Array.isArray(payload.tools)) return payload;
   return {...payload, tools: payload.tools.map(raw => {
     const definition = raw as {name?: string; function?: {name?: string}};
-    if (definition.function?.name === "resolve_business_turn") return {...definition, function: {...definition.function, parameters: semanticParameters}};
-    return definition.name === "resolve_business_turn" ? {...definition, parameters: semanticParameters} : raw;
+    const parameters = route ? workflowPublicParameters(semanticParameters, route) : semanticParameters;
+    if (definition.function?.name === "resolve_business_turn") return {...definition, function: {...definition.function, parameters}};
+    return definition.name === "resolve_business_turn" ? {...definition, parameters} : raw;
   })};
 }

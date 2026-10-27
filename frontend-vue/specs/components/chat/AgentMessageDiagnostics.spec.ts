@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { createSSRApp } from "vue"
 import { renderToString } from "@vue/server-renderer"
 import AgentMessageDiagnostics from "../../../src/components/chat/AgentMessageDiagnostics.vue"
+import { workflowTrace } from "../../fixtures/workflowTrace"
 
 const tools = [
   { id: "1", tool: "business_skill_read", status: "done" },
@@ -17,6 +18,19 @@ const render = (props: Record<string, unknown>) =>
 const count = (html: string, text: string) => html.split(text).length - 1
 
 describe("执行过程", () => {
+  it("打开调试后显示路线，即使没有底层查询任务也不误报无法读取详情", async () => {
+    const app = createSSRApp(AgentMessageDiagnostics, {question: "合成问题", taskIds: [], pending: false,
+      tools: [{id: "1", tool: "resolve_business_turn", status: "done", workflowTraces: [workflowTrace]}]})
+    app.mixin({created() {
+      if (this.$options.__name === "AgentMessageDiagnostics") {
+        (this.$ as unknown as {setupState: {mode: string | null}}).setupState.mode = "debug"
+      }
+    }})
+    const html = await renderToString(app)
+    expect(html).toContain("预设分析路线")
+    expect(html).toContain("召回依据")
+    expect(html).not.toContain("无法读取后端调试详情")
+  })
   it("执行中默认展开：标题是唯一的实时阶段，时间线只列已结束步骤及其条件和结果", async () => {
     const html = await render({ pending: true, hasAnswer: true })
     expect(html).toContain('aria-expanded="true"')

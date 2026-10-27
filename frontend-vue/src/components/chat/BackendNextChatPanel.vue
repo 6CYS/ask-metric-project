@@ -52,6 +52,7 @@ import { archiveClarificationResponse, archiveTimeVariantsResponse } from "@/lib
 import { composeQuestion, selectedClarificationAnswer, type ComposerEntity } from "@/lib/composerEntities"
 import { friendlyQueryError, withFailureNotice } from "@/lib/queryErrors"
 import { toolCallLabel, toolCallSummary, type ToolCallSummary } from "@/lib/toolCallSummary"
+import { workflowTracesFromDetails, type WorkflowTrace } from "@/lib/workflowTrace"
 
 /**
  * 指标问数面板：问答数据链路走 agent-service（pi harness）的 SSE 事件流，
@@ -69,6 +70,7 @@ type ToolCallDisplay = {
   summary?: ToolCallSummary
   /** 回执已换成查询结果时的步骤名称，见 toolCallLabel。 */
   label?: string
+  workflowTraces?: WorkflowTrace[]
 }
 
 /** 理解问题阶段的非工具步骤；只来自实时流，历史记录不保存。 */
@@ -651,6 +653,7 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
           id: item.tool_call_id || calls[index]?.id || createId(), tool: item.tool,
           status: item.is_error ? "error" : "done", elapsedMs: item.elapsed_ms,
           summary: toolCallSummary(item.details, item.is_error), label: toolCallLabel(item.tool, item.details),
+          workflowTraces: workflowTracesFromDetails(item.details),
         }
         if (index >= 0) calls[index] = call
         else calls.push(call)
@@ -1163,6 +1166,7 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
     const ended = {
       status: event.isError ? "error" as const : "done" as const,
       summary: toolCallSummary(event.details, event.isError), label: toolCallLabel(event.tool, event.details),
+      workflowTraces: workflowTracesFromDetails(event.details),
     }
     if (targetIndex >= 0) {
       const started = toolCalls[targetIndex]!

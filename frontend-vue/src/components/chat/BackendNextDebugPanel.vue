@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { Bug, X } from "@lucide/vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
+import WorkflowDebugTrace from "@/components/chat/WorkflowDebugTrace.vue"
+import type { WorkflowTrace } from "@/lib/workflowTrace"
 
-const props = defineProps<{ question: string; taskId?: string; taskVersion?: number; status?: string; stage?: string; timings?: Record<string, number>; debug?: Record<string, unknown> }>()
+const props = defineProps<{ question: string; taskId?: string; taskVersion?: number; status?: string; stage?: string; timings?: Record<string, number>; debug?: Record<string, unknown>; workflowTraces?: WorkflowTrace[] }>()
 const emit = defineEmits<{ close: [] }>()
 
 const labels: Record<string, string> = {
@@ -96,11 +98,12 @@ function routeNotice() {
   <div class="fixed inset-0 z-50 bg-black/30" @click.self="emit('close')">
     <aside class="ml-auto flex h-full w-[min(94vw,680px)] flex-col border-l bg-background shadow-xl">
       <header class="flex items-center justify-between border-b px-4 py-3">
-        <div class="flex items-center gap-2"><Bug class="size-4" /><div><h2 class="text-sm font-semibold">调试流程</h2><p class="text-xs text-muted-foreground">{{ taskId ? `Task ${taskId}${taskVersion !== undefined ? ` · v${taskVersion}` : ''}` : "尚未创建 QueryTask" }} · {{ status }} / {{ stage }}</p></div></div>
+        <div class="flex items-center gap-2"><Bug class="size-4" /><div><h2 class="text-sm font-semibold">调试流程</h2><p class="text-xs text-muted-foreground">{{ taskId ? `Task ${taskId}${taskVersion !== undefined ? ` · v${taskVersion}` : ''}` : workflowTraces?.length ? "标准分析路线与执行记录" : "尚未创建 QueryTask" }}<template v-if="status || stage"> · {{ status }} / {{ stage }}</template></p></div></div>
         <BaseButton variant="ghost" size="icon" title="关闭调试面板" @click="emit('close')"><X /></BaseButton>
       </header>
       <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
         <slot name="status" />
+        <WorkflowDebugTrace v-for="trace in workflowTraces ?? []" :key="`${trace.workflow_id}:${trace.version ?? ''}`" :trace="trace" />
         <section v-if="routeNotice()" class="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm leading-5 text-blue-900">
           {{ routeNotice() }}
         </section>

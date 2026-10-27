@@ -482,6 +482,231 @@
           }
         }
       }
+    },
+    "workflow_trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "workflow_id",
+        "name",
+        "phase",
+        "steps"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "integer",
+          "const": 1
+        },
+        "workflow_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "basis": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "planned",
+            "awaiting_input",
+            "blocked",
+            "executed"
+          ]
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "run_ref": {
+          "type": "string"
+        },
+        "retrieval": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "strategy": {
+              "type": "string"
+            },
+            "embedding_model": {
+              "type": "string"
+            },
+            "reranker_model": {
+              "type": "string"
+            },
+            "matched_document": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "text"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            },
+            "rerank_score": {
+              "type": "number"
+            },
+            "other_class_score": {
+              "type": "number"
+            },
+            "min_score": {
+              "type": "number"
+            },
+            "min_margin": {
+              "type": "number"
+            }
+          }
+        },
+        "date_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string"
+            },
+            "requested_start": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "requested_end": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "actual_dates": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requested_org_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "valid_org_count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "interpretation": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "method",
+              "status"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "method": {
+                "type": "string"
+              },
+              "rationale": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "depends_on": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "organization_from_step": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "position": {
+                "type": "string"
+              },
+              "top_n": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "metrics": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "fact_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "task_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "org_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "actual_dates": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "gaps": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "error_code": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "description": "宿主签发的版本化分析路线诊断，来自召回注册计划和实际执行回执；仅调试及回放使用，不进入模型上下文或回答正文。"
     }
   },
   "definitions": {
