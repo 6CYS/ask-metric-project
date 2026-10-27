@@ -46,7 +46,7 @@ export class BusinessContextService {
       const preserved = await this.preserveBoundConfirmation(delta, identity, context, error.field.split(","));
       if (!preserved) throw error;
       throw new BusinessInputError(error.code, error.field, error.correction,
-        {frameId: preserved.frameId}, error.recovery, error.corrections);
+        {frameId: preserved.frameId}, error.recovery, error.corrections, error.analysisDiagnostics);
     }
   }
 
@@ -328,7 +328,7 @@ export class BusinessContextService {
           const corrections = rawCorrections?.map(correction => schema.fields[correction.field]
             ? withFieldClarification(schema.fields[correction.field]!, correction) : correction);
           throw new BusinessInputError(error.code, error.field, error.correction,
-            base && delta.baseReference ? {frameId: base.frameId} : error.baseReference, error.recovery, corrections);
+            base && delta.baseReference ? {frameId: base.frameId} : error.baseReference, error.recovery, corrections, error.analysisDiagnostics);
         }
         throw error;
       }

@@ -1,3 +1,4 @@
+import {AnalysisMetricCoverageError, completeExplicitMetricCoverage, missingMetricDiagnostics} from "../analysis/metricCoverage.js";
 import { Type, StringEnum } from "@earendil-works/pi-ai";
 import {isCalendarDate} from "./shared.js";
 import type { AgentHarnessTool, AgentToolResult } from "@earendil-works/pi-agent-core";
@@ -150,12 +151,18 @@ export function resolverContext(request: AskMetricRequestContext, signal: AbortS
     analysisFallbackAvailable: typeof request.backend.analysisCatalog === "function" && typeof request.backend.analysisValidate === "function",
     ...(typeof request.backend.analysisValidate === "function" ? {async validateAnalysisPlan(plan: import("../analysis/contracts.js").AnalysisPlan) {
       try {
-        const resolved = resolveCatalogBindings(request, plan);
+        const resolved = resolveCatalogBindings(request, await completeExplicitMetricCoverage(request, plan));
         await request.backend.analysisValidate(resolved, request.originalMessage, {signal});
         return resolved;
       }
       catch (error) {
         if (!(error instanceof BackendApiError) || [401, 403].includes(error.status) || error.status >= 500) throw error;
+        if (error.code === "ANALYSIS_EXPLICIT_METRIC_MISSING") {
+          const raw = (error.details as {missing_metrics?: unknown} | undefined)?.missing_metrics;
+          const missing = Array.isArray(raw) ? raw.filter((item): item is {code: string; name: string} =>
+            !!item && typeof item.code === "string" && typeof item.name === "string") : [];
+          if (missing.length) throw new AnalysisMetricCoverageError(missingMetricDiagnostics(plan, missing));
+        }
         throw new BusinessInputError(error.code ?? "ANALYSIS_PLAN_INVALID", "plan", `${error.message} 请重新检索或修正计划，不能改写用户条件，也不要求用户填写内部字段。`);
       }
     }} : {}),
@@ -395,7 +402,8 @@ export function createExecuteBusinessFrameTool(): AgentHarnessTool<AskMetricRequ
           }
         }
         const completed = await service.finishExecution(executing, {status: succeeded ? "success" : "failed",
-          ...(resultRef ? {resultRef} : {}), resultSummary: {rowCount: Number(details.row_count ?? 0), truncated: Boolean(details.truncated)},
+          ...(resultRef ? {resultRef} : {}), resultSummary: {rowCount: Number(details.row_count ?? 0), truncated: Boolean(details.truncated),
+            ...(typeof details.complete === "boolean" ? {fields: {analysis_complete: details.complete}} : {})},
           ...(!succeeded ? {errorCode: typeof details.error_code === "string" ? details.error_code : "QUERY_FAILED"} : {})});
         return {...result, content: result.content.map(block => {
           if (block.type !== "text") return block;

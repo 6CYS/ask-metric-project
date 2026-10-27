@@ -549,16 +549,21 @@ it("新增候选与未知项一起保留，确认后仅补未知项可显式保�
   expect(f.backend.basicQueries).not.toHaveBeenCalled();
 });
 
-it("集合表达与普通名称不误判为指代，仍走目录解析", async () => {
+it("集合表达与普通名称不误判为历史指代，分别走授权集合与名称目录解析", async () => {
   const f = await fixture();
+  const scopeValue = {codes: ["cohort:1", "cohort:2"], names: ["集合机构一", "集合机构二"],
+    scope: {kind: "authorized_cohort", cohort: "rural_commercial_banks"}, scope_fingerprint: "a".repeat(64)};
+  const resolveScope = vi.fn(async () => ({status: "resolved", value: scopeValue}));
+  Object.assign(f.backend, {resolveOrganizationScope: resolveScope});
   for (const name of ["各家农商行", "合成机构1", "张家港"]) {
     const receipt = receiptJson(await runTool(createResolveBusinessTurnTool(), {...f.change, baseReference: "current",
       fieldChanges: [{fieldHint: "organizations", operation: "set", rawValue: name}]},
       {...f.request, requestId: `direct-${name}`, operationId: `direct-${name}`, originalMessage: `${name}的数据呢？`}));
     expect(receipt.status).toBe("READY");
     expect((await f.store.get(String(receipt.frameId)))!.fields.organizations?.resolvedValue)
-      .toEqual({codes: [`organization:${name}`], names: [name]});
+      .toEqual(name === "各家农商行" ? scopeValue : {codes: [`organization:${name}`], names: [name]});
   }
+  expect(resolveScope).toHaveBeenCalledTimes(1);
 });
 
 it("历史指代被声明为独立问题时指导模型改用 current 续接，不把缺项抛给用户", async () => {

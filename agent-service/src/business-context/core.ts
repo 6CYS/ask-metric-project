@@ -105,7 +105,7 @@ export function preflightFieldRecovery(schema: CapabilitySchema, base: BusinessF
           previousTurnId: typeof previous.metadata?.candidateTurnId === "string" ? previous.metadata.candidateTurnId : base.turnId}, intent);
     } catch (error) {
       if (error instanceof BusinessInputError && error.recovery) {
-        throw new BusinessInputError(error.code, change.fieldHint, error.correction, {frameId: base.frameId}, error.recovery, error.corrections);
+        throw new BusinessInputError(error.code, change.fieldHint, error.correction, {frameId: base.frameId}, error.recovery, error.corrections, error.analysisDiagnostics);
       }
       throw error;
     }
@@ -286,7 +286,7 @@ export async function mergeFields(schema: CapabilitySchema, base: BusinessFrame 
           : [withFieldClarification(definition, {field: name, reason: "invalid" as const, message: error.correction,
             ...(definition.validation?.enum ? {allowedValues: definition.validation.enum} : {}),
             ...(inputSchema ? {inputSchema} : {})})];
-        inputErrors.push(new BusinessInputError(error.code, name, error.correction, error.baseReference, error.recovery, corrections));
+        inputErrors.push(new BusinessInputError(error.code, name, error.correction, error.baseReference, error.recovery, corrections, error.analysisDiagnostics));
         continue;
       }
       fields[name] = {
@@ -320,7 +320,8 @@ export async function mergeFields(schema: CapabilitySchema, base: BusinessFrame 
     const awaiting = inputErrors.find(error => error.recovery?.action === "ask_user");
     throw new BusinessInputError((awaiting ?? inputErrors[0]!).code,
       inputErrors.map(error => error.field).join(","), inputErrors.map(error => `${error.field}: ${error.correction}`).join("\n"),
-      undefined, awaiting?.recovery, inputErrors.flatMap(error => error.corrections ?? []));
+      undefined, awaiting?.recovery, inputErrors.flatMap(error => error.corrections ?? []),
+      inputErrors.flatMap(error => error.analysisDiagnostics ?? []));
   }
   // 结构错误先交回调用方，避免语义补全掩盖未声明或重复字段的诊断。
   if (!issues.length) await schema.completeFields?.(fields, delta, context, base);

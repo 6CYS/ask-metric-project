@@ -5,6 +5,7 @@ import { BusinessInputError } from "./inputError.js";
 import { hasInputEvidence, organizationInputMembers } from "./inputEvidence.js";
 import {resolveRankingEvidence} from "./rankingEvidence.js";
 import {recentOverviewExpression, overviewTimeExpression} from "./overviewPolicy.js";
+import {organizationScopeInput} from "./organizationScope.js";
 import {analysisPlanProblem} from "../analysis/contracts.js";
 
 const invalid = (): FieldResolution => ({status: "invalid"});
@@ -209,8 +210,8 @@ export function createFieldResolvers(): FieldResolverRegistry {
         if (!context.resolveFieldReference) throw new Error("FIELD_REFERENCE_RESOLVER_UNAVAILABLE");
         return context.resolveFieldReference(raw as HistoryFieldReferenceInput, context.fieldName ?? "organizations", context.inputSource, context.previous);
       }
-      if (entity === "organization" && raw && typeof raw === "object" && !Array.isArray(raw) && "kind" in raw) {
-        const scope = raw as OrganizationScopeInput;
+      const scope = entity === "organization" ? organizationScopeInput(raw) : undefined;
+      if (scope) {
         if (typeof scope.sourceText !== "string" || !scope.sourceText.trim() || !fromCurrentInput(scope.sourceText, context)
           || (scope.kind === "children_of" && (typeof scope.parentName !== "string" || !scope.parentName.trim()
             || !fromCurrentInput(scope.parentName, context) || !hasInputEvidence(scope.sourceText, scope.parentName)))) {

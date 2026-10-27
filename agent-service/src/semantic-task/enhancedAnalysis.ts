@@ -38,7 +38,20 @@ export async function resolveEnhancedAnalysis(request: AskMetricRequestContext, 
     const boundOrganizations = organizationOperations.length ? bindFieldOperations(organizationOperations,
       request.semanticStep?.facts, turn.baseline?.fields ?? {}, {analysis: true}).operations
       .filter(op => op.field === "organizations") : [];
-    const scopeOperations = [...operations.filter(op => op.field !== "organizations"), ...boundOrganizations];
+    // 兼容模型把明确指标重复写到范围operations：先核对本轮正式身份，再由计划完整性校验接管。
+    // 不接受clear、猜测指标或借此覆盖原目标；普通查询的指标变更协议保持原样。
+    const explicitMetrics = await metricMentions(request);
+    const explicitCodes = new Set(explicitMetrics.mentions.flatMap(mention => mention.resolution.status === "resolved"
+      ? (mention.resolution.value as {codes?: string[]} | undefined)?.codes ?? [] : []));
+    const redundantMetrics = new Set<SemanticOperation>();
+    for (const op of operations.filter(item => input.kind === "business_analysis" && item.field === "metrics" && item.action === "set")) {
+      if (op.action !== "set") continue;
+      const supplied = await metricMentions(request, op.value);
+      const codes = supplied.mentions.flatMap(mention => mention.resolution.status === "resolved"
+        ? (mention.resolution.value as {codes?: string[]} | undefined)?.codes ?? [] : []);
+      if (codes.length && supplied.status !== "temporary_error" && codes.every(code => explicitCodes.has(code))) redundantMetrics.add(op);
+    }
+    const scopeOperations = [...operations.filter(op => op.field !== "organizations" && !redundantMetrics.has(op)), ...boundOrganizations];
     const changes: ContextDelta["fieldChanges"] = [{fieldHint: "plan", operation: "set", rawValue: input.plan}];
     for (const op of scopeOperations.filter(item => item.field !== "_analysis" && item.field !== "objective")) {
       if (op.field === "operation" && op.action === "set" && op.queryOperation?.kind === "ranking"
@@ -104,6 +117,7 @@ export async function resolveEnhancedAnalysis(request: AskMetricRequestContext, 
       ...resolutionContext, ...(explicitOrgs.length ? {boundOrganizationCodes: explicitOrgs} : {}),
     });
     assertRetainedQueryScope(recoveryScope, frame.fields);
+    delete task.analysisDiagnostics;
     task.capability = input.kind;
     task.target = {...task.target, fields: structuredClone(frame.fields), pending: {}, frameId: frame.frameId,
       status: frame.status === "ready" ? "ready" : "blocked"};
@@ -123,6 +137,8 @@ export async function resolveEnhancedAnalysis(request: AskMetricRequestContext, 
     const problem = error instanceof BusinessInputError ? {code: error.code, field: error.field,
       category: error.code === "QUERY_RECOVERY_ALTERNATIVES_REQUIRED" ? "catalog" : "input_shape",
       message: error.correction, remediation: "pi" as const} : backendIssue(error);
+    if (error instanceof BusinessInputError && error.analysisDiagnostics) task.analysisDiagnostics = error.analysisDiagnostics;
+    else delete task.analysisDiagnostics;
     task.issues = [problem]; task.status = "active"; task.completion = "unmet"; delete task.permit;
     await store.save(task, (await store.index()).version, turn);
     return {task, status: problem.category === "permission" ? "denied" as const

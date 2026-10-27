@@ -25,7 +25,8 @@ export function completeRankingSteps(plan: AnalysisPlan | undefined,
 }
 
 export interface AnalysisPlanDiagnostic {
-  code: "REQUIREMENT_UNCOVERED" | "STEP_INVALID" | "BINDING_INVALID";
+  code: "REQUIREMENT_UNCOVERED" | "STEP_INVALID" | "BINDING_INVALID" | "EXPLICIT_METRIC_MISSING";
+  missing_metrics?: Array<{code: string; name: string}>;
   requirement_ids: string[];
   step_ids: string[];
   next_action: "discover_metrics" | "repair_steps";

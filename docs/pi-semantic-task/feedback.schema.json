@@ -386,8 +386,28 @@
                 "enum": [
                   "REQUIREMENT_UNCOVERED",
                   "STEP_INVALID",
-                  "BINDING_INVALID"
+                  "BINDING_INVALID",
+                  "EXPLICIT_METRIC_MISSING"
                 ]
+              },
+              "missing_metrics": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "code",
+                    "name"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
               },
               "requirement_ids": {
                 "type": "array",

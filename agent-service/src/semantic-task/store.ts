@@ -23,6 +23,7 @@ export interface SemanticTarget {
   pendingChanges?: Record<string, {operations: SemanticOperation[]; baseline?: ResolvedField; sourceMessage: string}>;
 }
 export interface SemanticTask {
+  analysisDiagnostics?: import("../analysis/contracts.js").AnalysisPlanDiagnostic[];
   ref: string; owner: string; revision: number; target: SemanticTarget; originalMessage: string;
   status: "active" | "waiting_input" | "waiting_dependency" | "completed" | "stopped";
   completion: "unmet" | "partial" | "full"; issues: SemanticIssue[];
@@ -40,7 +41,7 @@ export interface SemanticPlanStep {
   /** 旧持久化记录兼容字段；运行器不再通过此字段向new目标注入条件。 */
   inheritedFields?: Record<string, ResolvedField>;
   status: SemanticTarget["status"] | "waiting_dependency"; required: boolean;
-  issues: SemanticIssue[]; evidence?: {frameId: string; resultRef?: string; truncated: boolean};
+  issues: SemanticIssue[]; evidence?: {frameId: string; resultRef?: string; truncated: boolean; complete?: boolean};
 }
 export interface SemanticPlan {
   ref: string; owner: string; revision: number; operationId: string; goalOperationId?: string; referenceYear?: number; intent: string; originalMessage: string;
@@ -114,6 +115,7 @@ export interface SemanticTurn {
     fields: Record<string, ResolvedField>}>};
   /** 仅引用原计划中的失败提案，不复制业务计划；次数在同一原生事务中累积。 */
   analysisRecovery?: {planRef: string; targetRef: string; revision: number; attempts: number;
+    diagnostics?: import("../analysis/contracts.js").AnalysisPlanDiagnostic[];
     active: boolean};
   /** 在原生Session事务中冻结入场来源；本轮重提、工具执行或焦点移动不能改变它。 */
   context?: {plan?: SemanticPlan; tasks: SemanticTask[]; clarification?: SemanticClarification};

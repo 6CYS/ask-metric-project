@@ -136,11 +136,26 @@ class GeneralAnalysisService:
             organization_aliases={},
         )["metrics"]
         selected = {item["code"] for item in bindings.values()}
-        if explicit - selected:
+        # 独立分支可先执行，但未执行的明确指标必须保留为对应子问题的缺口，不能冒充已回答。
+        deferred = set()
+        answered = {answer for step in plan.steps for answer in step.answers}
+        for requirement in plan.requirements:
+            if (requirement.gap_reason and requirement.gap_reason.strip()
+                    and requirement.id not in answered):
+                deferred.update(explicit_catalog_references(
+                    requirement.question, metrics=list(semantics.items.values()),
+                    organizations=[], organization_aliases={},
+                )["metrics"])
+        missing = explicit - selected - deferred
+        if missing:
             raise ApplicationError(
                 "ANALYSIS_EXPLICIT_METRIC_MISSING",
                 "计划遗漏了原文明示的正式指标，请补齐后再执行。",
                 status_code=422,
+                details={"missing_metrics": [
+                    {"code": code, "name": semantics.items[code].name}
+                    for code in sorted(missing)
+                ]},
             )
         for step in plan.steps:
             if step.method == "structure":
@@ -327,11 +342,40 @@ class GeneralAnalysisService:
             "today": today,
         }
         try:
+            failed = state.setdefault("failed_steps", {})
             for step in payload.plan.steps:
                 if step.id in state["completed_steps"]:
                     continue
-                result = self._execute_step(context, step)
-                state["completed_steps"][step.id] = result
+                blocked = [name for name in step.depends_on if name in failed
+                           or not any(state["completed_steps"].get(name, {}).get(key)
+                                      for key in ("facts", "calculations", "observations"))]
+                if blocked:
+                    failed[step.id] = self._failed_step(
+                        step, "ANALYSIS_DEPENDENCY_UNAVAILABLE",
+                        "依赖步骤尚未取得可用结果，本项未执行；已完成的其他结果保留。",
+                    )
+                else:
+                    context.pop("step_progress", None)
+                    try:
+                        result = self._execute_step(context, step)
+                    except (ApplicationError, TimeoutError, ConnectionError) as error:
+                        # 权限、口径、租约与未知程序错误继续抛出；只隔离明确的服务暂时故障。
+                        if isinstance(error, ApplicationError) and (
+                            error.status_code < 500 or error.code not in {
+                                "UPSTREAM_UNAVAILABLE", "QUERY_EXECUTION_FAILED",
+                                "QUERY_EXECUTION_INTERRUPTED", "QUERY_TIMEOUT", "QUERY_UNAVAILABLE",
+                            }
+                        ):
+                            raise
+                        failed[step.id] = self._failed_step(
+                            step, error.code if isinstance(error, ApplicationError)
+                            else "ANALYSIS_STEP_UNAVAILABLE",
+                            "本项查询服务暂时异常，尚未完成；不代表数据库没有数据。",
+                            context.get("step_progress"),
+                        )
+                    else:
+                        state["completed_steps"][step.id] = result
+                        failed.pop(step.id, None)
                 self._save(run_id, lease, state)
             evidence = self._finish(context)
             from ask_metric.application.verified_findings import attach_analysis_findings
@@ -346,6 +390,16 @@ class GeneralAnalysisService:
             state["updated_at"] = datetime.fromtimestamp(0, UTC).isoformat()
             self._save(run_id, lease, state)
             raise
+
+    @staticmethod
+    def _failed_step(step, code, message, progress=None):
+        # 只保留受治理接口已经返回的事实；错误文案不回显异常中的连接或业务参数。
+        result = progress or {
+            "step_id": step.id, "method": step.method, "answers": step.answers,
+            "facts": [], "calculations": [], "observations": [], "tasks": [],
+            "gaps": [], "notices": [],
+        }
+        return {**result, "execution_error": code, "gaps": [*result["gaps"], message]}
 
     def _coverage(self, context, code, start, end):
         state = context["state"]
@@ -562,6 +616,7 @@ class GeneralAnalysisService:
             "gaps": [],
             "notices": [],
         }
+        context["step_progress"] = result
         payload, today = context["payload"], context["today"]
         for reference in step.metric_refs:
             metric = context["bindings"][reference]
@@ -794,10 +849,15 @@ class GeneralAnalysisService:
 
     def _finish(self, context):
         state, payload = context["state"], context["payload"]
+        results = [
+            state["completed_steps"].get(step.id) or state.get("failed_steps", {}).get(step.id)
+            for step in payload.plan.steps
+        ]
+        results = [step for step in results if step is not None]
         prefix = context["run_id"].split(":")[1][:10]
         atoms, rows, observations, tasks, gaps = [], [], [], [], []
         seen = set()
-        for step in state["completed_steps"].values():
+        for step in results:
             gaps.extend(step["gaps"])
             tasks.extend(step["tasks"])
             for fact in step["facts"]:
@@ -878,12 +938,15 @@ class GeneralAnalysisService:
         for requirement in payload.plan.requirements:
             related = [
                 step
-                for step in state["completed_steps"].values()
+                for step in results
                 if requirement.id in step["answers"]
             ]
             status = (
                 "gap"
-                if not related
+                if not related or not any(
+                    step["facts"] or step["calculations"] or step["observations"]
+                    for step in related
+                )
                 else "partial"
                 if any(step["gaps"] for step in related)
                 else "completed"
@@ -893,7 +956,10 @@ class GeneralAnalysisService:
                     "id": requirement.id,
                     "question": requirement.question,
                     "status": status,
-                    "reason": requirement.gap_reason,
+                    "reason": requirement.gap_reason or (
+                        "；".join(dict.fromkeys(gap for step in related for gap in step["gaps"]))
+                        if status != "completed" else None
+                    ),
                     "step_ids": [step["step_id"] for step in related],
                 }
             )
@@ -944,7 +1010,7 @@ class GeneralAnalysisService:
             + scope_notices + list(
                 dict.fromkeys(
                     notice
-                    for step in state["completed_steps"].values()
+                    for step in results
                     for notice in step.get("notices", [])
                 )
             )
@@ -970,6 +1036,13 @@ class GeneralAnalysisService:
             "columns": ["metric_name", "org_name", "stat_date", "metric_value", "value_role"],
             "tasks": list({item["task_id"]: item for item in tasks}.values()),
             "requirement_dispositions": dispositions,
+            "step_dispositions": [
+                {"id": step["step_id"], "status": "blocked" if step.get("execution_error")
+                 == "ANALYSIS_DEPENDENCY_UNAVAILABLE" else "failed" if step.get("execution_error")
+                 else "partial" if step["gaps"] else "completed",
+                 **({"error_code": step["execution_error"]} if step.get("execution_error") else {})}
+                for step in results
+            ],
             "gaps": list(dict.fromkeys(gaps)),
             "limitations": limitations,
             "complete": all(item["status"] == "completed" for item in dispositions),

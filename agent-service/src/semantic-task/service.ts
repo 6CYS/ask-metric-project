@@ -1,3 +1,4 @@
+import {organizationScopeInput} from "../business-context/organizationScope.js";
 import {candidateOptions, candidateOptionGroups, displayedCandidates, preferredOption} from "./candidateOptions.js";
 import {createHash} from "node:crypto";
 import type {AskMetricRequestContext} from "../requestContext.js";
@@ -820,7 +821,16 @@ export class SemanticTaskService {
         // 建议辅助目录识别；完整原值、来源和权限与无建议路径使用同一约束。
         const suggestion = entity === "organization" && (operation.action === "set" || operation.action === "replace")
           && "suggestion" in operation ? operation.suggestion : undefined;
-        if (suggestion) {
+        const scope = entity === "organization" ? organizationScopeInput("organizationScope" in operation && operation.organizationScope || raw) : undefined;
+        if (scope) {
+          if (!hasInputEvidence(turn.originalMessage, scope.sourceText) || scope.kind === "children_of"
+            && (!scope.parentName || !hasInputEvidence(turn.originalMessage, scope.parentName)
+              || !hasInputEvidence(scope.sourceText, scope.parentName)))
+            throw new SemanticConflict(issue("ORGANIZATION_SCOPE_SOURCE_INVALID", field,
+              "机构集合和上级机构必须来自当前原文；未知范围不能扩大为全部机构。", "pi", "input_shape"));
+          response = await this.request.backend.resolveOrganizationScope(scope, {signal: this.signal});
+          if (response.status === "resolved" && checkedEntity(response.value)) response.metadata = {...response.metadata, source_codes: response.value.codes};
+        } else if (suggestion) {
           const code = typeof suggestion.code === "string" && suggestion.code.trim() ? suggestion.code.trim() : undefined;
           const name = typeof suggestion.name === "string" && suggestion.name.trim() ? suggestion.name.trim() : undefined;
           const excerpt = typeof suggestion.excerpt === "string" && suggestion.excerpt.trim() ? suggestion.excerpt.trim() : undefined;
@@ -832,19 +842,6 @@ export class SemanticTaskService {
           // 首推归属由后端按原值槽位判定，不能把另一个已定成员的建议覆盖到未决候选。
           response = {...response, metadata: {...response.metadata, ...(excerpt ? {rawExcerpt: excerpt} : {}),
             suggested: [{...(code ? {code} : {}), ...(name ? {name} : {}), ...(excerpt ? {excerpt} : {})}]}};
-        } else if (entity === "organization" && "organizationScope" in operation && operation.organizationScope) {
-          const scope = operation.organizationScope;
-          if (!hasInputEvidence(turn.originalMessage, scope.sourceText)) throw new SemanticConflict(issue("ORGANIZATION_SCOPE_SOURCE_INVALID", field,
-            "机构范围的source_text须取自当前原句中的范围表达，请修正结构化机构条件。", "pi", "input_shape"));
-          response = await this.request.backend.resolveOrganizationScope(scope, {signal: this.signal});
-          if (response.status === "resolved" && checkedEntity(response.value)) response.metadata = {...response.metadata, source_codes: response.value.codes};
-        } else if (entity === "organization" && /全部|所有|各家|全省|下辖|下属/u.test(raw)) {
-          const cohort = /农商|农村商业银行/u.test(raw) && !/下辖|下属/u.test(raw);
-          const parentName = raw.split(/(?:的)?(?:下辖|下属)/u)[0]?.replace(/^(?:查询|查看|分析|查)/u, "").trim();
-          if (!cohort && (!parentName || !hasInputEvidence(turn.originalMessage, parentName))) throw new SemanticConflict(issue("ORGANIZATION_SCOPE_NOT_DETERMINED", field, "下辖范围需要明确上级机构，不能按词语扩大范围。", "user"));
-          response = await this.request.backend.resolveOrganizationScope(cohort ? {kind: "authorized_cohort", cohort: "rural_commercial_banks", sourceText: raw}
-            : {kind: "children_of", parentName: parentName!, sourceText: raw}, {signal: this.signal});
-          if (response.status === "resolved" && checkedEntity(response.value)) response.metadata = {...response.metadata, source_codes: response.value.codes};
         } else {
         response = await resolveTurnField(this.request, entity, "values" in operation && operation.values
           ? operation.values : entity === "organization" ? await organizationValues(this.request, raw) : [raw], {signal: this.signal}, undefined, source);
@@ -1218,7 +1215,9 @@ export class SemanticTaskService {
     latest.target.status = frame?.status === "success" ? "succeeded" : frame?.status === "failed" ? "failed" : "unknown";
     latest.status = frame?.status === "success" ? "completed" : frame?.status === "failed" ? "stopped" : "waiting_dependency";
     latest.completion = frame?.status === "success" && !frame.resultSummary?.truncated ? "full" : "unmet";
-    if (frame?.status === "success" && frame.resultSummary?.truncated) {latest.status = "active"; latest.completion = "partial";}
+    if (frame?.status === "success" && (frame.resultSummary?.truncated || frame.resultSummary?.fields?.analysis_complete === false)) {
+      latest.status = "active"; latest.completion = "partial";
+    }
     await this.store.save(latest, (await this.store.index()).version, undefined, false);
     return latest;
   }

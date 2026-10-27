@@ -32,6 +32,11 @@ def is_authorized_cohort_source(cohort: str, source_text: str) -> bool:
     return cohort == "rural_commercial_banks" and _COHORT_SOURCE.fullmatch(normalized) is not None
 
 
+def cohort_source_expressions(question: str) -> list[tuple[str, int]]:
+    """候选原文仅供入场绑定；限定、正式层级和权限仍由调用方及执行端核验。"""
+    return [(match[0], match.start()) for match in _COHORT_SOURCE.finditer(question)]
+
+
 class AuthorizedCohortScope(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: Literal["authorized_cohort"]

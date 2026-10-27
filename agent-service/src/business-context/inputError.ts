@@ -7,7 +7,8 @@ export interface InputRecovery {action: "ask_user"; message: string}
 export class BusinessInputError extends Error {
   constructor(readonly code: string, readonly field: string, readonly correction: string,
     readonly baseReference?: {frameId: string}, readonly recovery?: InputRecovery,
-    readonly corrections?: FieldInputCorrection[]) {
+    readonly corrections?: FieldInputCorrection[],
+    readonly analysisDiagnostics?: import("../analysis/contracts.js").AnalysisPlanDiagnostic[]) {
     super(code);
   }
 }

@@ -373,7 +373,10 @@ export class SemanticPlanService {
       : input.intent === "prepare" ? "prepared" : input.intent === "reuse" ? "reused"
       : enhancedAnalysis && plan.steps.length > 0 && plan.steps.every(step => step.status === "succeeded") ? "succeeded" : "ready";
     plan.status = status === "succeeded" ? "completed" : status === "needs_user" ? "waiting_input" : ["denied", "unsupported", "failed"].includes(status) ? "stopped" : "active";
-    if (status === "succeeded") plan.completion = "full";
+    if (status === "succeeded") {
+      plan.completion = plan.steps.some(step => step.evidence?.complete === false) ? "partial" : "full";
+      if (plan.completion === "partial") plan.status = "active";
+    }
     for (const application of sourceAnswers) {
       const stepId = [...answerTargets].find(([, snapshots]) => snapshots.some(snapshot =>
         snapshot.answer.question_id === application.snapshot.answer.question_id))?.[0];
@@ -672,11 +675,12 @@ export class SemanticPlanService {
     const origin = task.target.frameId ? await this.request.frames?.get(task.target.frameId) : undefined;
     const state = await this.request.frames!.state();
     const frame = origin ? await this.request.frames!.get(state.operations[origin.operationFrameId] ?? origin.frameId) : undefined;
-    if (frame) step.evidence = {frameId: frame.frameId, ...(frame.resultRef ? {resultRef: frame.resultRef} : {}), truncated: !!frame.resultSummary?.truncated};
-    const successful = plan.steps.filter(item => item.status === "succeeded" && !item.evidence?.truncated).length;
+    if (frame) step.evidence = {frameId: frame.frameId, ...(frame.resultRef ? {resultRef: frame.resultRef} : {}), truncated: !!frame.resultSummary?.truncated,
+      ...(typeof frame.resultSummary?.fields?.analysis_complete === "boolean" ? {complete: frame.resultSummary.fields.analysis_complete} : {})};
+    const successful = plan.steps.filter(item => item.status === "succeeded" && !item.evidence?.truncated && item.evidence?.complete !== false).length;
     // 完成度只取已绑定目标的正式执行状态，不再复扫原话或重建另一份覆盖义务。
     plan.issues = [];
-    plan.completion = successful === plan.steps.length ? "full" : successful ? "partial" : "unmet";
+    plan.completion = successful === plan.steps.length ? "full" : plan.steps.some(item => item.status === "succeeded") ? "partial" : "unmet";
     const unknown = plan.steps.some(item => item.status === "unknown" || item.status === "executing"), failed = plan.steps.some(item => item.status === "failed");
     plan.status = plan.completion === "full" ? "completed" : unknown ? "waiting_dependency" : failed ? "stopped" : "active";
     await this.save(plan, true);
