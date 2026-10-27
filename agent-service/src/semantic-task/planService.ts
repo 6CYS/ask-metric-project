@@ -16,7 +16,7 @@ import {pendingCompletionSource, explicitContextReset, sourceSelection} from "./
 import {compileQueryRequest} from "./structuredQuery.js";
 import {inheritAnalysisState} from "../analysis/bindings.js";
 import {overviewContinuesCurrent} from "../business-context/overviewPolicy.js";
-import {normalizeRankingContinuation} from "./analysisContinuation.js";
+import {materializeTaskRequest} from "./taskMaterialization.js";
 
 type Goal = Awaited<ReturnType<AskMetricRequestContext["backend"]["inspectBusinessGoal"]>>;
 const problem = (code: string, message: string, remediation: SemanticIssue["remediation"] = "pi", category = "semantic"): SemanticIssue => ({code, message, remediation, category});
@@ -179,7 +179,7 @@ export class SemanticPlanService {
       || !["organizations", "metrics", "time"].includes(op.field) || hasInputEvidence(this.request.originalMessage, op.value)
       || inputFacts.fragments.some(fragment => op.field === "organizations" ? fragment.organizations.length
         : op.field === "metrics" ? fragment.mentions.length : fragment.calendar.ranges.length || fragment.calendar.unresolved.length));
-    input = compileQueryRequest(await normalizeRankingContinuation(this.request, input, turn.context?.plan ?? focus, inputFacts));
+    input = await materializeTaskRequest(this.request, input, turn, turn.context?.plan ?? focus, inputFacts, this.signal);
     enhancedAnalysis = input.targets.some(target => target.operations.some(op => op.field === "_analysis"));
     bindGroupOperations(input, semanticMessage);
     const answersOnlyIntent = answersOnly ? plan?.intent ?? focus?.intent : undefined;

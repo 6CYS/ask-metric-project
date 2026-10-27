@@ -78,6 +78,9 @@ export function createCapabilities(): CapabilityRegistry {
     // 组合建议只使用已解析事实；日期尚未确定时不能据缺省值猜测单日或月末。
     const time = fields.time?.resolutionStatus === "resolved"
       ? fields.time.resolvedValue as {start?: string; end?: string; dates?: string[]} | undefined : undefined;
+    if (fields.time?.resolutionStatus === "resolved" && (!time?.start || !time.end)) {
+      issues.push({field: "time", reason: "invalid", message: "时间策略尚未转换为完整查询日历，请重新编译本轮任务，保留原时间口径。"});
+    }
     const operation = fields.operation?.resolutionStatus === "resolved" ? fields.operation.resolvedValue as QueryOperation | undefined : undefined;
     const hasDates = Array.isArray(time?.dates) && time.dates.length > 0;
     // 逐日排名尚未实现，不能通过修改取数方式取消用户明确的时间序列目标。

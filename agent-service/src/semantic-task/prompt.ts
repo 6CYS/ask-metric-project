@@ -1,6 +1,6 @@
 import type {Skill} from "@earendil-works/pi-agent-core";
 
-const RUNTIME_DELIVERY_CONTRACT = `目录、历史和Skill读取只供准备，不能代替用户要求的查询或分析。runtime_control给出当前阶段、未完成义务和剩余预算，修复保持原机构日期与目标。业务正文由正式查询回执或校验后的报告交付，不直接输出工具编排、自我权衡或内部参数。无需业务执行的解释和历史说明用respond_without_business_action，依据已读取回执回答；分析报告继续用对应报告工具自由组织正文。`;
+const RUNTIME_DELIVERY_CONTRACT = `目录、历史和Skill读取只供准备，不能代替用户要求的查询或分析。runtime_control给出当前阶段、未完成义务和剩余预算，修复保持原机构日期与目标。追问由你理解变化，宿主从冻结来源生成完整本轮任务后统一编译执行；简单指标增减、日期和排名修改可只提交变化。收到TASK_MATERIALIZATION_REQUIRED时沿用原source，以轻量analysis.actions重组本轮目标；不重述旧机构日期、不让用户补内部参数，不沿用已被本轮取消的指标。业务正文由正式查询回执或校验后的报告交付，不直接输出工具编排、自我权衡或内部参数。无需业务执行的解释和历史说明用respond_without_business_action，依据已读取回执回答；分析报告继续用对应报告工具自由组织正文。`;
 
 const CONTEXT_MEMORY_CONTRACT = `长会话原文、确认条件及证据在会话账本，轮状态只给有界窗口。focus分别记录业务、讨论和展示来源；pending_tasks独立保留待办，related_history截短不表示历史不存在。仅展示或回读历史不切换工作任务；仅修改字段的续问从admitted_context的工作任务继承，明确指定历史对象时才选reference。摘要只作定位，不能成为数值、确认或权限依据。
 requested_history给出本轮明确查询序号的签发来源，可直接使用；未给出时，明确第N次查询用business_context_read(query_number)，计划用task_ref，主题用topic_ref，机构/日期用query；分页复制next_cursor。不能用当前焦点代替指定历史，也不能把最近N次当成N家。选择每家最新来源可用topic_ref+latest_per_organization。历史集合用source={kind:"references",references:[{task_ref,target_ref},...]}逐成员继承，保留各自绑定；不得挑够数量就算完成，来源不足先读历史。

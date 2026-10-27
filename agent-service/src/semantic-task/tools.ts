@@ -69,7 +69,7 @@ const readFailure = (result: AgentToolResult<unknown>) => {
     message: denied ? "当前权限不足，不能读取历史结果。" : "结果读取未成功，原查询结果仍保留。", remediation: "stop"});
 };
 export function createSemanticResolveTool(): Tool {
-  return {name: "resolve_business_turn", label: "解析业务语义任务", description: "版本2整笔业务提议。新查询用target.query输出完整结构化机构、指标、时间、取数方式与操作，真实缺项写null；排名直接给position/top_n。通用分析用intent=analyze、analysis={kind:business_analysis,actions:[{question,metrics,method}]}，选择目录k引用，默认observe；ranking另选position/count，compare另选comparisons。程序生成内部计划与依赖，不填写节点id、answers或签名。专项概览沿用business_overview。机构日期变化写同一target.operations；不混填query。继承选current/reference，已发布问题用顶层answers。程序校验目录、权限和日历后执行。",
+  return {name: "resolve_business_turn", label: "解析业务语义任务", description: "版本2整笔业务提议。新查询用target.query输出完整结构化机构、指标、时间、取数方式与操作，真实缺项写null；排名直接给position/top_n。通用分析用intent=analyze、analysis={kind:business_analysis,actions:[{question,metrics,method}]}，选择目录k引用，默认observe；ranking另选position/count，compare另选comparisons。程序生成内部计划与依赖，不填写节点id、answers或签名。专项概览沿用business_overview。机构日期变化写同一target.operations；不混填query。追问选current/reference，简单指标增减、改日期、改排名只提交operations变化，不同时附带analysis；完整新分析目标才用analysis.actions。已发布问题用顶层answers。程序校验目录、权限和日历后执行。",
     parameters: Type.Unsafe(analysisPublicParameters(semanticParameters) as Record<string, unknown>), prepareArguments: raw => structuredClone(raw),
     execute: async (_id, args, _update, request, _invocation, context) => {
        try {

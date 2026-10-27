@@ -413,7 +413,14 @@ export class SemanticTaskService {
       }
     }
     const time = target.fields.time?.resolvedValue as {start?: string; end?: string; dates?: string[]} | undefined;
-    if (!availability && target.fields.time?.resolutionStatus === "resolved" && (time?.start === time?.end && !time?.dates || time?.dates && (!target.fields.selection || target.pending.selection))) {
+    const completeCalendar = !!time && typeof time.start === "string" && typeof time.end === "string"
+      && isCalendarDate(time.start) && isCalendarDate(time.end) && time.start <= time.end;
+    if (!availability && target.fields.time?.resolutionStatus === "resolved" && !completeCalendar) {
+      target.pending.time = "已保存时间策略尚未编译为当前查询所需的完整日历";
+      task.issues.push(issue("TASK_TIME_MATERIALIZATION_REQUIRED", "time",
+        "日期策略与当前执行能力不兼容；保留机构、指标和原时间口径，以analysis.actions重新编译本轮目标，不让用户重填日期。", "pi", "input_shape"));
+    }
+    if (!availability && completeCalendar && target.fields.time?.resolutionStatus === "resolved" && (time?.start === time?.end && !time?.dates || time?.dates && (!target.fields.selection || target.pending.selection))) {
       target.fields.selection = {...resolved("指定日期", "exact", "enum"), source: "resolved"};
       delete target.pending.selection;
       delete target.pendingChanges?.selection;

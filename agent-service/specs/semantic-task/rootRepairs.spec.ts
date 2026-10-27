@@ -19,8 +19,12 @@ const plan = (steps = [step("read", "k1")]): AnalysisPlan => ({objective: "查�
 async function setup() {
   const f = await fixture(); cleanup.push(f.close);
   const backend = Object.assign(f.backend, {
-    analysisValidate: vi.fn(async () => ({valid: true})),
-    analysisExecute: vi.fn(async () => ({kind: "analysis_evidence", status: "succeeded", delivery: "business_evidence_v1",
+    analysisValidate: vi.fn(async (value: AnalysisPlan) => ({valid: true, metric_descriptors:
+      [metric("M1", "合成指标甲"), metric("M2", "合成指标乙"), metric("M3", "合成指标丙")]
+        .filter(item => value.steps.some(step => step.metric_refs.includes(item.binding_ref)))})),
+    analysisCatalog: vi.fn(async (code: string) => ({items: [metric("M1", "合成指标甲"), metric("M2", "合成指标乙"), metric("M3", "合成指标丙")]
+      .filter(item => item.code === code)})),
+    analysisExecute: vi.fn(async (_payload: Record<string, unknown> = {}, _key = "", _options?: unknown) => ({kind: "analysis_evidence", status: "succeeded", delivery: "business_evidence_v1",
       run_ref: "isolated-run", scope_id: "isolated", org_codes: ["O1"], tasks: [], rows: [], gaps: [],
       evidence_items: [], metric_descriptors: [], complete: true})),
   });
@@ -74,9 +78,11 @@ it("遗漏已明确且已发现的两项指标时程序补齐，重复metrics参
     [{action: "set", field: "metrics", value: "合成指标乙,合成指标丙"}], {kind: "current"}), request);
   expect(result.details.status, JSON.stringify(result.details)).toBe("ready");
   await runTool(createSemanticExecuteTool(), {task_ref: result.details.state.task_ref, target_ref: result.details.state.targets[0]!.target_ref}, request);
-  expect(f.backend.analysisExecute).toHaveBeenLastCalledWith(expect.objectContaining({org_codes: ["O1"], date_selection: "latest_snapshot",
-    plan: expect.objectContaining({steps: expect.arrayContaining([expect.objectContaining({metric_refs: ["signed-M2"], answers: ["q1"]}),
-      expect.objectContaining({metric_refs: ["signed-M3"], answers: ["q2"]})])})}), expect.any(String), expect.anything());
+  expect(f.backend.analysisExecute).toHaveBeenLastCalledWith(expect.objectContaining({org_codes: ["O1"], date_selection: "latest_snapshot"}),
+    expect.any(String), expect.anything());
+  const executed = f.backend.analysisExecute.mock.calls.at(-1)![0] as {plan: AnalysisPlan};
+  expect(new Set(executed.plan.steps.flatMap(step => step.metric_refs))).toEqual(new Set(["signed-M2", "signed-M3"]));
+  expect(executed.plan.requirements.some(item => item.question.includes("合成指标乙") && item.question.includes("合成指标丙"))).toBe(true);
 });
 
 it("明确指标尚未发现时发出定向发现与局部补丁任务，不重复原提案", async () => {
