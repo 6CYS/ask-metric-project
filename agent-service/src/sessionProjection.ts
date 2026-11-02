@@ -3,7 +3,7 @@
  * 历史（GET）、实时（SSE）与重连共用这里的映射，不按工具名取最近一条，
  * 一律按 entry_id/seq、operation_id、tool_call_id 稳定关联。
  */
-import type { Entry, LaneSnapshot } from "@earendil-works/pi-agent-core";
+import type { Entry, LaneSnapshot, OperationResultRecord } from "@earendil-works/pi-agent-core";
 import { businessEvidence, businessEvidences, combinedEvidenceAnswer, evidenceAnswer, presentedAnswer, type BusinessEvidence } from "./answerEvidence.js";
 import { EVIDENCE_BLOCKED_ANSWER, TOOL_LIMIT_ANSWER, mayDeliverWithoutEvidence } from "./replyGuard.js";
 import { MODEL_DEADLINE_EXCEEDED, MODEL_FIRST_RESPONSE_TIMEOUT, MODEL_STREAM_IDLE_EXCEEDED } from "./models.js";
@@ -11,8 +11,9 @@ import type { MetricAskDetails } from "./tools/shared.js";
 import {isSemanticFeedback} from "./semantic-task/feedback.js";
 import {readDirectAnswerSnapshot} from "./semantic-task/directDelivery.js";
 import type {NativeSemanticTaskStore} from "./semantic-task/store.js";
-import type {QuestionStatus} from "./semantic-task/questions.js";
+import type {AnswerReceipt, QuestionStatus} from "./semantic-task/questions.js";
 import {factualReceiptAnswer, lastReceiptDelivery, receiptDelivery, RUNTIME_INCOMPLETE} from "./runtime/delivery.js";
+import {LEGACY_OPERATION_INTERRUPTED_MESSAGE} from "./inquiry/legacyRecovery.js";
 import {AUTHENTICATION_REQUIRED, authenticationFailure} from "./runtime/authentication.js";
 
 /** 同一正式回执同时投影任务状态和结果表；不从模型正文重建业务结果。 */
@@ -23,7 +24,7 @@ function browserToolDetails(details: unknown): unknown {
 
 /** 历史消息条目（与前端 AgentSessionMessage 对齐） */
 export type ProjectedMessage =
-  | { role: "user"; text: string; timestamp: number | null; entry_id: string }
+  | { role: "user"; text: string; answer_receipts?: AnswerReceipt[]; timestamp: number | null; entry_id: string }
   | { role: "assistant"; text: string; error?: string; tools: string[]; business_protocol?: "frame_v1"; tool_calls?: { id: string; tool: string }[]; timestamp: number | null; entry_id: string }
   | {
       role: "tool";
@@ -122,7 +123,7 @@ function recoveredAssistantFailures(entries: readonly Entry[]): Set<string> {
  * 原生条目 → 页面消息。压缩与摘要条目不直接展示；
  * 旧自建 JSON 会话不进入本投影（旧历史只读能力由旧文件承担）。
  */
-export function projectEntries(entries: Entry[]): ProjectedMessage[] {
+export function projectEntries(entries: Entry[], results: readonly OperationResultRecord[] = []): ProjectedMessage[] {
   const messages: ProjectedMessage[] = [];
   const recoveredFailures = recoveredAssistantFailures(entries);
   let evidence: BusinessEvidence[] = [];
@@ -135,6 +136,11 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
   let directTurnAnswerId: string | undefined;
   const directAnswerIds = new Set<string>();
   for (const entry of entries) {
+    if (entry.type === "custom" && entry.customType === "askmetric.legacy-interrupted") {
+      messages.push({role: "assistant", text: LEGACY_OPERATION_INTERRUPTED_MESSAGE, tools: [],
+        timestamp: entry.timestamp, entry_id: entry.id});
+      continue;
+    }
     if (entry.type !== "message" || recoveredFailures.has(entry.id)) continue;
     const message = entry.message as {
       role?: string;
@@ -148,6 +154,7 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
       stopReason?: string;
       businessProtocol?: string;
       displayText?: string;
+      inquiryAdmission?: {answerReceipts: AnswerReceipt[]};
     };
     const timestamp = message.timestamp ?? entry.timestamp ?? null;
     if (message.role === "user") {
@@ -158,7 +165,7 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
       directTurnAnswerId = undefined;
       frameTurn = ["frame_v1", "semantic_v2"].includes(message.businessProtocol ?? "");
       question = visibleText(message.content);
-      messages.push({ role: "user", text: typeof message.displayText === "string" ? message.displayText : visibleText(message.content), timestamp, entry_id: entry.id });
+      messages.push({ role: "user", ...(message.inquiryAdmission?.answerReceipts.length ? {answer_receipts: message.inquiryAdmission.answerReceipts} : {}), text: typeof message.displayText === "string" ? message.displayText : visibleText(message.content), timestamp, entry_id: entry.id });
     } else if (message.role === "assistant") {
       if (directTurnAnswerId && !toolCallNames(message.content).length) {
         // 正式交付已持久化；非相邻的重放和旧兜底正文也不能再生成第二份答案。
@@ -248,11 +255,39 @@ export function projectEntries(entries: Entry[]): ProjectedMessage[] {
       }
     }
   }
+  // 工具执行或首个模型响应前取消时，Pi 只保存 operation 终态，不一定产生取消消息。
+  // 从同一持久记录补齐展示；不另写消息，也不覆盖已正式交付的业务回答。
+  const entryPositions = new Map(entries.map((entry, index) => [entry.id, index]));
+  for (const result of new Map(results.map(item => [item.operationId, item])).values()) {
+    if (result.kind !== "run" || result.status !== "aborted" || !result.tipId) continue;
+    const end = entryPositions.get(result.tipId);
+    if (end === undefined) continue;
+    const from = result.fromTipId ? (entryPositions.get(result.fromTipId) ?? -1) : -1;
+    let start = end;
+    while (start > from) {
+      const entry = entries[start];
+      if (entry?.type === "message" && entry.message.role === "user") break;
+      start -= 1;
+    }
+    if (start <= from) continue;
+    const turn = entries.slice(start, end + 1);
+    const alreadyAnswered = turn.some(entry => entry.type === "message" && (
+      entry.message.role === "assistant" && entry.message.stopReason === "aborted"
+      || entry.message.role === "toolResult" && receiptDelivery(entry.message) !== undefined
+    ));
+    if (alreadyAnswered) continue;
+    const nextUser = entries.slice(end + 1).find(entry => entry.type === "message" && entry.message.role === "user");
+    const next = nextUser ? messages.findIndex(message => message.entry_id === nextUser.id) : -1;
+    messages.splice(next < 0 ? messages.length : next, 0, {
+      role: "assistant", text: "已停止生成。", tools: [], tool_calls: [], business_protocol: "frame_v1",
+      timestamp: result.endedAt, entry_id: `operation:${result.operationId}:aborted`,
+    });
+  }
   return messages;
 }
 
 /** 快照投影：重连与进入会话时使用的完整状态 */
-export function projectSnapshot(snapshot: LaneSnapshot): {
+export function projectSnapshot(snapshot: LaneSnapshot, results: readonly OperationResultRecord[] = []): {
   running: boolean;
   operation_id: string | null;
   messages: ProjectedMessage[];
@@ -260,7 +295,7 @@ export function projectSnapshot(snapshot: LaneSnapshot): {
   return {
     running: snapshot.operation !== null,
     operation_id: snapshot.operation?.id ?? null,
-    messages: projectEntries(snapshot.transcript),
+    messages: projectEntries(snapshot.transcript, snapshot.lastResult ? [...results, snapshot.lastResult] : results),
   };
 }
 
@@ -292,7 +327,15 @@ export async function projectQuestionStates(messages: readonly ProjectedMessage[
   const ids = [...visible].slice(-100);
   if (!ids.length) return [];
   const allowed = new Set(ids);
-  return (await store.questionStates(ids)).filter(state => allowed.has(state.question_id)).slice(0, 100);
+  const states = (await store.questionStates(ids)).filter(state => allowed.has(state.question_id)).slice(0, 100);
+  for (const message of messages) if (message.role === "user") {
+    for (const receipt of message.answer_receipts ?? []) {
+      const state = states.find(item => item.question_id === receipt.question_id && item.version === receipt.version);
+      if (state && ["applied", "declined"].includes(receipt.outcome))
+        state.status = receipt.outcome === "applied" ? "answered" : "rejected";
+    }
+  }
+  return states;
 }
 
 /** 原生 watch 事件 → 浏览器事件；无关事件返回 null */

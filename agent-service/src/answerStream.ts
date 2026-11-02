@@ -1,132 +1,205 @@
-import type {HarnessEvent, LaneWatchEvent} from "@earendil-works/pi-agent-core";
-import type {AssistantMessage} from "@earendil-works/pi-ai";
-import type {AskMetricRequestContext} from "./requestContext.js";
-import {CONVERSATION_REPLY} from "./tools/turnContract.js";
+import type { HarnessEvent, LaneWatchEvent } from "@earendil-works/pi-agent-core";
+import { BackendApiError } from "./backendClient.js";
+import type { AskMetricRequestContext } from "./requestContext.js";
+import { normalizeReportParagraphs } from "./analysis/narrative.js";
 
 export type AnswerStreamMode = NonNullable<AskMetricRequestContext["answerStream"]>;
 export type AnswerResetReason = "tool_call" | "retry" | "error" | "superseded";
-export type AnswerStreamData = {call_seq: number; mode: "text" | "reply"; text: string}
-  | {call_seq: number; reason: AnswerResetReason};
+export type AnswerStreamData =
+  | { call_seq: number; mode: "text" | "reply"; text: string }
+  | { call_seq: number; reason: AnswerResetReason };
 
-/** 观察投影无业务副作用；累计文本允许丢帧，最终快照才是正式回答。 */
+/** Markdown 空行作为展示边界，围栏和未闭合引用留给后续片段；不判断业务语义。 */
+export function completeAnswerPrefix(source: string, ended: boolean): string {
+  const text = normalizeReportParagraphs(source);
+  let fence: { character: string; length: number } | undefined;
+  let boundary = 0,
+    offset = 0;
+  const lines = text.split("\n");
+  for (const [index, line] of lines.entries()) {
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
+    if (marker) {
+      const delimiter = marker[1]!;
+      if (!fence) fence = { character: delimiter[0]!, length: delimiter.length };
+      else if (
+        delimiter[0] === fence.character &&
+        delimiter.length >= fence.length &&
+        !marker[2]!.trim()
+      )
+        fence = undefined;
+    } else if (!fence && !line.trim() && index < lines.length - 1) boundary = offset;
+    offset += line.length + 1;
+  }
+  const prefix = text.slice(0, ended && !fence ? text.length : boundary).trimEnd();
+  return prefix.lastIndexOf("{{") > prefix.lastIndexOf("}}") ? "" : prefix;
+}
+
+/** 只读观察投影：完整段落经正式报告的同源核验后才发布，最终快照覆盖临时正文。 */
 export class AnswerStreamProjector {
   private stream: AnswerStreamMode | undefined;
-  private timer: ReturnType<typeof setTimeout> | undefined;
   private pending = "";
+  private processed = "";
   private sent = "";
-  private lastSentAt = -Infinity;
+  private rejectedPrefix = "";
+  private transientFailures = 0;
+  private generation = 0;
+  private controller: AbortController | undefined;
+  private inFlight = false;
   private blocked = false;
-  private endedWithTool = false;
   private closed = false;
-  private disabled = false;
 
-  constructor(private readonly send: (type: "answer_delta" | "answer_reset", data: AnswerStreamData) => void,
-    private readonly throttleMs = 80) {}
+  constructor(
+    private readonly send: (type: "answer_delta" | "answer_reset", data: AnswerStreamData) => void,
+    private readonly render: (body: string, signal: AbortSignal) => Promise<string | undefined>,
+  ) {}
 
   onWatchEvent(event: HarnessEvent | LaneWatchEvent, stream: AnswerStreamMode | undefined): void {
-    this.guard(() => {
-      if (!stream) return;
-      if (stream.callSeq !== this.stream?.callSeq) {
-        if (this.endedWithTool) this.reset("superseded");
-        this.clearCall(stream);
+    if (this.closed || !stream) return;
+    if (stream.callSeq !== this.stream?.callSeq) {
+      this.reset("superseded");
+      this.stream = stream;
+      this.blocked = false;
+    }
+    if (event.type === "retry_start") {
+      this.retry(stream.callSeq);
+      return;
+    }
+    if (event.type === "tool_start") {
+      if (event.toolName !== "analysis_answer") {
+        this.reset("tool_call");
+        this.blocked = true;
+        return;
       }
-      if (stream.mode === "none" || !this.stream) return;
-      if (event.type !== "message_update" && event.type !== "message_end") return;
-      const message = event.message;
-      if (message.role !== "assistant") return;
-      const content: AssistantMessage["content"] = message.content;
-      const calls = content.filter(block => block.type === "toolCall");
-      if (event.type === "message_end") {
-        this.endedWithTool = calls.length > 0;
-        if (["error", "aborted"].includes(message.stopReason)) {
-          this.reset("error");
-          this.blocked = true;
-          return;
-        }
-      }
-      if (this.blocked) return;
-      // 本地 watch 保留原生 event，远程 watch 只保留累计 message 与 frame；两者均只读。
-      // 同时检查累计调用，防止共享 accumulator 已更新而 toolcall_start 尚未被消费。
-      if (stream.mode === "text") {
-        if (calls.length) {
-          this.reset("tool_call");
-          this.blocked = true;
-          return;
-        }
-        if (event.type === "message_end" || (event.frame?.type ?? ("event" in event ? event.event.type : undefined)) === "text_delta") {
-          this.queue(content.filter(block => block.type === "text").map(block => block.text).join(""));
-        }
-      } else {
-        if (calls.length > 1) {
-          this.reset("superseded");
-          this.blocked = true;
-          return;
-        }
-        const call = calls[0];
-        if (call?.name === CONVERSATION_REPLY && typeof call.arguments.answer === "string"
-          && call.arguments.answer.length > this.pending.length) this.queue(call.arguments.answer);
-      }
-      if (event.type === "message_end") this.flush();
-    });
+      // 报告执行已开始，保留已发布段落，但不允许晚到预览覆盖正式回执。
+      this.invalidate();
+      this.blocked = true;
+      return;
+    }
+    if (stream.mode === "none") {
+      this.reset("error");
+      this.blocked = true;
+      return;
+    }
+    if (this.blocked) return;
+    if (event.type !== "message_update" && event.type !== "message_end") return;
+    const message = event.message;
+    if (message.role !== "assistant") return;
+    if (event.type === "message_end" && ["error", "aborted"].includes(message.stopReason)) {
+      this.reset("error");
+      this.blocked = true;
+      return;
+    }
+    const calls = message.content.flatMap((block) => (block.type === "toolCall" ? [block] : []));
+    // 普通 assistant 文本可能仍是查询计划。仅展示明确的报告正文参数，
+    // 自然正文的旧兼容路径继续由正式回执交付，不用词语过滤猜测通道。
+    const call = calls[0];
+    if (!call || !call.name) return;
+    if (calls.length !== 1 || call.name !== "analysis_answer") {
+      this.reset("tool_call");
+      this.blocked = true;
+      return;
+    }
+    const body = typeof call.arguments.body === "string" ? call.arguments.body : "";
+    const prefix = completeAnswerPrefix(body, event.type === "message_end");
+    if (!prefix.trim() || prefix === this.pending) return;
+    if (
+      this.rejectedPrefix &&
+      (prefix === this.rejectedPrefix || prefix.startsWith(this.rejectedPrefix + "\n\n"))
+    )
+      return;
+    if (this.pending && !prefix.startsWith(this.pending + "\n\n")) this.reset("superseded");
+    this.pending = prefix;
+    this.scheduleFlush();
   }
 
-  /** 原生 before_request 在重试前通知，撤回同一次调用的上一尝试。 */
   retry(callSeq: number): void {
-    this.guard(() => {
-      if (this.stream?.callSeq !== callSeq) return;
-      this.reset("retry");
-      this.clearCall(this.stream);
-    });
+    if (this.closed || this.stream?.callSeq !== callSeq) return;
+    this.reset("retry");
+    this.blocked = false;
   }
 
   close(): void {
     this.closed = true;
-    this.clearTimer();
+    this.invalidate();
   }
 
-  private clearTimer(): void {
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = undefined;
-  }
-
-  private clearCall(stream: AnswerStreamMode): void {
-    this.clearTimer();
-    this.stream = stream;
-    this.pending = this.sent = "";
-    this.lastSentAt = -Infinity;
-    this.blocked = this.endedWithTool = false;
-  }
-
-  private queue(text: string): void {
-    if (!text.trim() || text === this.pending) return;
-    this.pending = text;
-    const remaining = this.throttleMs - (performance.now() - this.lastSentAt);
-    if (remaining <= 0) this.flush();
-    else if (!this.timer) this.timer = setTimeout(() => this.guard(() => this.flush()), remaining);
-  }
-
-  private flush(): void {
-    this.clearTimer();
-    if (!this.stream || this.stream.mode === "none" || this.blocked || !this.pending || this.sent === this.pending) return;
-    this.send("answer_delta", {call_seq: this.stream.callSeq, mode: this.stream.mode, text: this.pending});
-    this.sent = this.pending;
-    this.lastSentAt = performance.now();
+  private invalidate(): void {
+    this.generation += 1;
+    this.controller?.abort();
+    this.pending = this.processed = "";
   }
 
   private reset(reason: AnswerResetReason): void {
-    this.clearTimer();
-    if (this.stream && this.sent) this.send("answer_reset", {call_seq: this.stream.callSeq, reason});
-    this.pending = this.sent = "";
+    this.invalidate();
+    if (this.stream && this.sent)
+      this.send("answer_reset", { call_seq: this.stream.callSeq, reason });
+    this.sent = "";
+    this.rejectedPrefix = "";
+    this.transientFailures = 0;
   }
 
-  private guard(action: () => void): void {
-    if (this.closed || this.disabled) return;
-    try { action(); } catch {
-      // 只记录错误类型，原始模型文本/参数不进入诊断日志。失败后继续原快照路径。
-      try { this.reset("error"); } catch { /* 发送器也可能失效。 */ }
-      this.disabled = true;
-      this.clearTimer();
-      console.warn(JSON.stringify({event: "answer_stream_failed", call_seq: this.stream?.callSeq}));
+  private scheduleFlush(): void {
+    void this.flush().catch(() => {
+      this.close();
+      console.warn(
+        JSON.stringify({ event: "answer_stream_failed", call_seq: this.stream?.callSeq }),
+      );
+    });
+  }
+
+  private async flush(): Promise<void> {
+    if (
+      this.closed ||
+      this.blocked ||
+      this.inFlight ||
+      !this.stream ||
+      this.stream.mode === "none" ||
+      !this.pending ||
+      this.pending === this.processed
+    )
+      return;
+    const mode = this.stream.mode;
+    const body = this.pending,
+      generation = this.generation,
+      stream = this.stream;
+    const controller = new AbortController();
+    this.controller = controller;
+    this.inFlight = true;
+    this.processed = body;
+    try {
+      const text = await this.render(body, controller.signal);
+      if (this.closed || generation !== this.generation || controller.signal.aborted) return;
+      this.transientFailures = 0;
+      if (!text?.trim()) {
+        // 完整段落已被拒绝，追加后文不能修复它；等待改写或新模型尝试。
+        this.rejectedPrefix = body;
+        this.processed = this.pending;
+      } else if (text !== this.sent) {
+        this.send("answer_delta", { call_seq: stream.callSeq, mode, text });
+        this.sent = text;
+      }
+    } catch (error) {
+      if (!this.closed && generation === this.generation && !controller.signal.aborted) {
+        const temporary =
+          !(error instanceof BackendApiError) ||
+          error.status >= 500 ||
+          [408, 429].includes(error.status) ||
+          error.code === "ANALYSIS_RUNNING";
+        if (temporary) {
+          // 只在下一个完整片段到达时再试一次，不增加定时重试或阻塞正式交付。
+          this.transientFailures += 1;
+          this.processed = this.pending;
+          if (this.transientFailures >= 2) this.blocked = true;
+        } else {
+          this.reset("error");
+          this.blocked = true;
+        }
+      }
+    } finally {
+      this.inFlight = false;
+      if (this.controller === controller) this.controller = undefined;
+      // 等待期间只保留最新累计前缀，避免逐 token 请求或无界队列。
+      if (!this.closed && !this.blocked && this.pending !== this.processed) this.scheduleFlush();
     }
   }
 }

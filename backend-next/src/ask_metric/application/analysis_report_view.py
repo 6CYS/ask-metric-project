@@ -1,15 +1,45 @@
 """从已授权分析证据生成追问视图和紧凑事实摘要，不修改原运行记录。"""
 
 import re
+from collections.abc import Collection
 from copy import deepcopy
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from typing import NoReturn, TypedDict
 
 from ask_metric.application.verified_findings import PERIODS, analysis_comparison
 from ask_metric.core.errors import ApplicationError
 
 
+class NarrativeParagraph(TypedDict):
+    text: str
+    evidence_refs: list[str]
+
+
+class NarrativeCoverage(TypedDict):
+    coverage: list[str]
+    replaced_gaps: list[str]
+    missing_count: int
+
+
+class FactNarrative(NarrativeCoverage):
+    paragraphs: list[NarrativeParagraph]
+    evidence_refs: list[str]
+
+
+NarrativeGroupKey = tuple[str, str | None, tuple[str, ...]]
+
+
+class _NarrativeGroup(TypedDict):
+    metric: dict
+    day: str | None
+    organizations: dict[str, str]
+    atoms: dict[str, dict]
+    rankings: set[tuple[str, int]]
+
+
 def focused_sources(sources: list[dict], references: list[str]) -> list[dict]:
+    """按所选事实及完整依据链投影，不扩入同指标的其他机构或期间。"""
     atoms = {atom["ref"]: atom for source in sources for atom in source["evidence_items"]}
     selected, visiting = set(), set()
 
@@ -40,9 +70,13 @@ def focused_sources(sources: list[dict], references: list[str]) -> list[dict]:
     views = []
     for original in sources:
         source = deepcopy(original)
-        metrics = [metric for metric in source["metric_descriptors"] if metric["code"] in codes]
-        if not metrics:
-            continue
+        source_codes = {
+            atom["metric_code"] for atom in source["evidence_items"]
+            if atom["ref"] in selected and atom.get("metric_code")
+        }
+        metrics = [
+            metric for metric in source["metric_descriptors"] if metric["code"] in source_codes
+        ]
         bindings = {metric["binding_ref"] for metric in metrics}
         steps = [
             step for step in source["plan"]["steps"] if bindings.intersection(step["metric_refs"])
@@ -51,13 +85,9 @@ def focused_sources(sources: list[dict], references: list[str]) -> list[dict]:
         observations = [
             item for item in source["observations"] if item.get("step_id") in full_steps
         ]
-        allowed = {
-            atom["ref"] for atom in source["evidence_items"] if atom.get("metric_code") in codes
-        }
-        allowed.update(item["ref"] for item in observations)
         # selected 已在全部授权来源中展开完整依据链；跨运行计算的父事实可位于另一份视图。
         # 每份视图仍只投影自己的原子，末尾统一检查所有所选依据确实保留。
-        allowed.update(selected)
+        allowed = set(selected)
         # 跨指标判断只有全部输入均在视图中才保留，不能将半条证据链当成完整结论。
         changed = True
         while changed:
@@ -73,6 +103,17 @@ def focused_sources(sources: list[dict], references: list[str]) -> list[dict]:
             for atom in source["evidence_items"]
             if atom["ref"] in allowed and set(atom.get("input_refs", [])) <= allowed
         ]
+        if not projected_atoms:
+            continue
+        selected_orgs = {atom["org_code"] for atom in projected_atoms if atom["type"] == "fact"}
+        gaps = [atom["display"] for atom in projected_atoms if atom["type"] == "gap"]
+        # 缺数原子仅有运行级归属，保留该查询的已授权范围，不从说明文字猜机构。
+        if gaps:
+            selected_orgs.update(source["org_codes"])
+        organizations = dict(zip(source["org_codes"], source["org_names"], strict=True))
+        source["org_codes"] = [code for code in source["org_codes"] if code in selected_orgs]
+        source["org_names"] = [organizations[code] for code in source["org_codes"]]
+        observations = [item for item in observations if item["ref"] in allowed]
         fact_keys = {
             (atom.get("metric_name"), atom.get("org_name"), atom.get("date"))
             for atom in projected_atoms
@@ -93,38 +134,14 @@ def focused_sources(sources: list[dict], references: list[str]) -> list[dict]:
             projected_atoms,
             observations,
         )
-        answers = {answer for step in steps for answer in step["answers"]}
         # 原计划完整保留作审计依据，投影视图不是一份可再次执行的缩减计划。
-        source["requirement_dispositions"] = [
-            item for item in source["requirement_dispositions"] if item["id"] in answers
-        ]
-        if len(steps) != len(original["plan"]["steps"]) or len(metrics) != len(
-            original["metric_descriptors"]
-        ):
-            source["gaps"] = list(
-                dict.fromkeys(
-                    [atom["display"] for atom in projected_atoms if atom["type"] == "gap"]
-                    + [
-                        item["reason"]
-                        for item in source["requirement_dispositions"]
-                        if item.get("reason")
-                    ]
-                    + (
-                        ["所选指标存在未取得的观测或比较证据，不能将未覆盖部分视为已完成。"]
-                        if any(
-                            item["status"] != "completed"
-                            for item in source["requirement_dispositions"]
-                        )
-                        else []
-                    )
-                )
-            )
+        # 所选历史事实不继承原计划的未完成项；本轮查询覆盖由调用方保留原始来源。
+        source["requirement_dispositions"] = []
+        source["gaps"] = gaps
         source["limitations"] = list(
             dict.fromkeys(note for metric in metrics for note in metric.get("limitations", []))
         )
-        source["complete"] = all(
-            item["status"] == "completed" for item in source["requirement_dispositions"]
-        )
+        source["complete"] = not gaps
         views.append(source)
     if not views or not selected <= {
         atom["ref"] for source in views for atom in source["evidence_items"]
@@ -139,9 +156,11 @@ def focused_sources(sources: list[dict], references: list[str]) -> list[dict]:
 
 def validated_report_atoms(sources: list[dict]) -> dict[str, dict]:
     """先核对整份来源的事实身份，不能靠裁剪错误段落掩盖冲突或越界证据。"""
-    atoms, identities, catalog = {}, {}, {}
+    atoms: dict[str, dict] = {}
+    identities: dict[tuple[str, str, str], tuple[Decimal | None, str, str | None, str | None]] = {}
+    catalog: dict[str, tuple[object, ...]] = {}
 
-    def reject():
+    def reject() -> NoReturn:
         raise ApplicationError(
             "ANALYSIS_REPORT_REFERENCE", "报告事实身份、数值或依据链不一致，请重新取数。",
             status_code=422,
@@ -154,13 +173,13 @@ def validated_report_atoms(sources: list[dict]) -> dict[str, dict]:
             reject()
         for metric in metrics.values():
             ref = metric["binding_ref"]
-            identity = tuple(metric.get(key) for key in (
+            metric_identity = tuple(metric.get(key) for key in (
                 "code", "name", "unit", "value_basis", "quantity_kind", "metadata_version",
                 "analysis_hint",
             ))
-            if ref in catalog and catalog[ref] != identity:
+            if ref in catalog and catalog[ref] != metric_identity:
                 reject()
-            catalog[ref] = identity
+            catalog[ref] = metric_identity
         steps = source["plan"]["steps"]
         if (not bindings <= {ref for step in steps for ref in step["metric_refs"]}
                 or any(step["method"] not in {"observe", "compare", "trend", "ranking", "structure"}
@@ -190,7 +209,9 @@ def validated_report_atoms(sources: list[dict]) -> dict[str, dict]:
             if (not metric or atom.get("metric_name") != metric["name"]
                     or atom.get("org_code") not in organizations
                     or atom.get("org_name") != organizations[atom["org_code"]]
-                    or not isinstance(atom.get("display"), str)):
+                    or not isinstance(atom.get("display"), str)
+                    or any(atom.get(key) is not None and metric.get(key) is not None
+                           and atom[key] != metric[key] for key in ("unit", "metadata_version"))):
                 reject()
             try:
                 date.fromisoformat(atom["date"])
@@ -198,12 +219,12 @@ def validated_report_atoms(sources: list[dict]) -> dict[str, dict]:
                 reject()
             if atom["date"] not in days:
                 reject()
-            identity = (atom["metric_code"], atom["org_code"], atom["date"])
+            fact_identity = (atom["metric_code"], atom["org_code"], atom["date"])
             content = (Decimal(value) if value is not None else None,
                        atom["display"], atom.get("unit"), atom.get("metadata_version"))
-            if identity in identities and identities[identity] != content:
+            if fact_identity in identities and identities[fact_identity] != content:
                 reject()
-            identities[identity] = content
+            identities[fact_identity] = content
     return atoms
 
 
@@ -211,7 +232,9 @@ def unconfirmed_ratio(metric: dict) -> bool:
     return metric.get("unit") == "%" and metric.get("value_encoding") not in {"ratio", "percent"}
 
 
-def fact_narrative(sources: list[dict]) -> dict:
+def fact_narrative(
+    sources: list[dict], *, exact_run_refs: Collection[str] = (),
+) -> FactNarrative:
     """按正式指标、日期和机构范围重建事实，不从失败草稿中挑选文字。"""
     displayed_refs = set()
     atoms = {atom["ref"]: atom for source in sources for atom in source["evidence_items"]}
@@ -224,13 +247,13 @@ def fact_narrative(sources: list[dict]) -> dict:
         if dependents <= excluded_refs:
             break
         excluded_refs.update(dependents)
-    groups = {}
+    groups: dict[NarrativeGroupKey, _NarrativeGroup] = {}
     for source in sources:
         organizations = dict(zip(source["org_codes"], source["org_names"], strict=True))
         for metric in source["metric_descriptors"]:
-            atoms = [atom for atom in source["evidence_items"]
+            metric_atoms = [atom for atom in source["evidence_items"]
                      if atom["type"] == "fact" and atom.get("metric_code") == metric["code"]]
-            days = sorted({atom["date"] for atom in atoms} or set(source["actual_dates"]))
+            days = sorted({atom["date"] for atom in metric_atoms} or set(source["actual_dates"]))
             ranking_options = {
                 (step["position"], step["top_n"])
                 for step in source["plan"]["steps"]
@@ -239,25 +262,36 @@ def fact_narrative(sources: list[dict]) -> dict:
                 and isinstance(step.get("top_n"), int) and 1 <= step["top_n"] <= 100
             }
             for day in days or [None]:
+                day_atoms = {atom["ref"]: atom for atom in metric_atoms if atom["date"] == day}
+                # 精确历史不构造未选中的指标、日期、机构组合；本轮仍按完整目标核对缺数。
+                group_organizations = organizations
+                if source["run_ref"] in exact_run_refs:
+                    selected_orgs = {atom["org_code"] for atom in day_atoms.values()}
+                    group_organizations = {
+                        code: name for code, name in organizations.items() if code in selected_orgs
+                    }
                 # 同一正式绑定、时点和范围才可合并补查；冲突已在来源校验中拒绝。
-                key = (metric["binding_ref"], day, tuple(sorted(organizations)))
+                key = (metric["binding_ref"], day, tuple(sorted(group_organizations)))
                 group = groups.setdefault(key, {"metric": metric, "day": day,
-                    "organizations": organizations, "atoms": {}, "rankings": set()})
-                group["atoms"].update({atom["ref"]: atom for atom in atoms if atom["date"] == day})
+                    "organizations": group_organizations, "atoms": {}, "rankings": set()})
+                group["atoms"].update(day_atoms)
                 group["rankings"].update(ranking_options)
-    paragraphs, references, missing = [], [], set()
-    coverage_groups, replaced_gaps = {}, []
+    paragraphs: list[NarrativeParagraph] = []
+    references: list[str] = []
+    missing: set[tuple[NarrativeGroupKey, str]] = set()
+    coverage_groups: dict[tuple[str | None, tuple[str, ...], bool], list[str]] = {}
+    replaced_gaps: list[str] = []
     compared_refs, ranked_refs = set(), set()
     for key, group in groups.items():
         metric, day, organizations = group["metric"], group["day"], group["organizations"]
         if unconfirmed_ratio(metric):
             continue
-        facts = {}
+        facts: dict[str, tuple[Decimal, dict]] = {}
         for atom in group["atoms"].values():
             if atom.get("value") is not None:
                 facts.setdefault(atom["org_code"], (Decimal(atom["value"]), atom))
         ordered = sorted(facts.values(), key=lambda item: (item[0], item[1]["org_code"]))
-        comparison = bool(ordered) and all(
+        is_comparison = bool(ordered) and all(
             analysis_comparison(atom, metric) is not None for _, atom in ordered
         )
         selected_groups = []
@@ -269,7 +303,7 @@ def fact_narrative(sources: list[dict]) -> dict:
                 label = "按已确认排序列示（从高到低）" if position == "top" \
                     else "按已确认排序列示（从低到高）"
                 selected_groups.append((label, selected))
-        elif comparison:
+        elif is_comparison:
             negative = [item for item in ordered if item[0] < 0][:10]
             positive = sorted((item for item in ordered if item[0] > 0),
                               key=lambda item: (item[0].copy_negate(), item[1]["org_code"]))[:4]
@@ -288,13 +322,13 @@ def fact_narrative(sources: list[dict]) -> dict:
         if any(selected for _, selected in selected_groups):
             # 部分列示仍代表这个指标、日期和机构范围；不再逐家补同类方向或排名。
             group_refs = {atom["ref"] for _, atom in ordered}
-            if comparison:
+            if is_comparison:
                 compared_refs.update(group_refs)
             if group["rankings"]:
                 ranked_refs.update(group_refs)
         if not single_institution and any(selected for _, selected in selected_groups):
             title = f"**{metric['name']}**" + (f"（{day}）" if day else "")
-            if comparison:
+            if is_comparison:
                 title += "\n以下仅比较已取得有效值的机构，不能据此确认整体变化或完整贡献。"
             paragraphs.append({"text": title, "evidence_refs": []})
         for label, selected in selected_groups:
@@ -371,6 +405,23 @@ def fact_narrative(sources: list[dict]) -> dict:
                 text = (f"{org}：" if org else "") + reference
             else:
                 label = atom.get("metric_name") or atom.get("label") or "已核验计算"
+                input_refs = atom.get("input_refs", [])
+                operation = {
+                    "current-base": "取值差额",
+                    "(current-base)/base": "相对差异率",
+                }.get(atom.get("formula"))
+                if operation and len(input_refs) == 2 and all(
+                    ref in atoms and atoms[ref].get("type") == "fact" for ref in input_refs
+                ):
+                    current, base = [atoms[ref] for ref in input_refs]
+                    # 比较双方与运算只取已核验回执，不能把差额或增幅写成原指标观测值。
+                    text = (
+                        f"{current['org_name']}（{current['date']}）相对"
+                        f"{base['org_name']}（{base['date']}）的{label}{operation}为{reference}。"
+                    )
+                    paragraphs.append({"text": text, "evidence_refs": [atom["ref"]]})
+                    references.append(atom["ref"])
+                    continue
                 day = atom.get("date")
                 scope = f"{day}，" if day and day not in atom["display"] else ""
                 comparison = analysis_comparison(atom, metrics.get(atom.get("metric_code"), {}))
@@ -411,20 +462,20 @@ def report_rows(sources: list[dict]) -> list[dict]:
                     continue
             except InvalidOperation:
                 continue
-            key = (atom.get("metric_name"), atom.get("org_name"),
+            value_key = (atom.get("metric_name"), atom.get("org_name"),
                    atom.get("date"), atom.get("display"))
-            values.setdefault(key, set()).add((value, atom["unit"]))
+            values.setdefault(value_key, set()).add((value, atom["unit"]))
     rows = {}
     for source in sources:
         for row in source["rows"]:
-            key = (row["metric_name"], row["org_name"], row["stat_date"])
+            row_key = (row["metric_name"], row["org_name"], row["stat_date"])
             result = {
                 name: value for name, value in row.items() if name not in {"raw_value", "unit"}
             }
-            candidates = values.get((*key, row["metric_value"]), set())
+            candidates = values.get((*row_key, row["metric_value"]), set())
             if len(candidates) == 1:
                 result["raw_value"], result["unit"] = next(iter(candidates))
-            rows[(*key, row["value_role"])] = result
+            rows[(*row_key, row["value_role"])] = result
     return list(rows.values())
 
 

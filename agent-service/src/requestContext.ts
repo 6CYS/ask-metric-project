@@ -35,7 +35,7 @@ export interface HistoryEntrySummary {
 
 /** 历史正文的服务端来源摘要；回读回执持久化它，后续轮次重新核验权限。 */
 export interface HistoryReadSources {
-  tasks: Array<{task_id: string; result_id?: string}>;
+  tasks: Array<{ task_id: string; result_id?: string }>;
   organizationScopes: string[][];
 }
 
@@ -45,16 +45,30 @@ export interface HistoryReadSources {
  */
 export interface HistoryBridge {
   /** 仅定位当前分支中已成功的分析来源并复核原回合权限，不返回旧数值。 */
-  analysisSource?(runRef: string): Promise<{run_ref: string; scope_id: string; execution_turn_id?: string} | null>;
+  analysisSource?(
+    runRef: string,
+  ): Promise<{ run_ref: string; scope_id: string; execution_turn_id?: string } | null>;
   list(
     beforeSeq?: number,
     limit?: number,
-  ): Promise<{ entries: HistoryEntrySummary[]; next_before_seq: number | null; has_more: boolean; sources?: HistoryReadSources }>;
+  ): Promise<{
+    entries: HistoryEntrySummary[];
+    next_before_seq: number | null;
+    has_more: boolean;
+    sources?: HistoryReadSources;
+  }>;
   read(
     entryId: string,
     offset?: number,
     length?: number,
-  ): Promise<{ entry_id: string; seq: number; type: string; text: string; next_offset: number | null; sources?: HistoryReadSources } | null>;
+  ): Promise<{
+    entry_id: string;
+    seq: number;
+    type: string;
+    text: string;
+    next_offset: number | null;
+    sources?: HistoryReadSources;
+  } | null>;
 }
 
 /** 单次用户请求的可信绑定，由宿主在接纳前装配，模型与工具参数不得改写 */
@@ -65,10 +79,6 @@ export interface AskMetricRequestContext {
   backend: BackendClient;
   /** 本轮原始用户输入原文 */
   originalMessage: string;
-  /** 当前请求的目录算法结果；不写入跨用户缓存或替代原生会话状态。 */
-  metricMentions?: Promise<import("./business-context/metricMentions.js").MetricMentions>;
-  semanticFacts?: Map<string, Promise<import("./semantic-task/actionBinding.js").TurnFacts>>;
-  semanticResolutions?: Map<string, Promise<import("./business-context/types.js").FieldResolution>>;
   /** 当前请求的有权机构清单；临时失败不缓存，本轮降级为原文名称解析。 */
   orgCatalog?: Promise<import("./business-context/orgCatalog.js").OrgCatalog>;
   /** 仅本轮复用权限检查，下一轮必须重新校验，不能成为会话授权票。 */
@@ -80,7 +90,7 @@ export interface AskMetricRequestContext {
   sessionId: string;
   requestId: string;
   operationId: string;
-  /** 普通问数使用直接调查链路；旧在途请求和结构化点击沿用原协议。 */
+  /** 新请求统一使用 inquiry，历史执行身份保存在原请求关联。 */
   executionFlow?: "inquiry_v1";
   /** 用户显式回复某张澄清卡片时的目标（发送时快照） */
   clarificationTarget?: { task_id: string; version: number; clarification_id: string };
@@ -91,20 +101,21 @@ export interface AskMetricRequestContext {
   /** 宿主从已鉴权 HTTP 输入绑定的可信点击；模型工具参数不能创建或覆盖。 */
   trustedAnswers?: import("./semantic-task/questions.js").ClickAnswerInput[];
   /** 读取本轮之前的原生最终工具回执，证明指定问题版本确已发布；缺失时核心不得受理新 Answer。 */
-  questionPublicationProof?: (question: import("./semantic-task/questions.js").PendingQuestion) => Promise<boolean>;
+  questionPublicationProof?: (
+    question: import("./semantic-task/questions.js").PendingQuestion,
+  ) => Promise<boolean>;
   /** 宿主绑定的口径切换时间（前端 time_override，已经路由层校验）；等同用户明确指定，模型参数不得创建或改写。 */
   timeOverride?: { start: string; end: string };
-  /** 从本轮用户消息之前的原生业务回执投影；目录工具不能改变来源。 */
-  queryCandidate?: { task_id: string; version: number } | undefined;
+  /** 宿主从已发布澄清和可信选择绑定的本轮条件；模型参数不能创建或覆盖。 */
+  inquiryAdmission?: import("./inquiry/admission.js").InquiryAdmission;
+  /** 普通问数声明的入场基线；与可信点击分开冻结，旧请求缺省不自动升级。 */
+  inquiryTargetContext?: import("./inquiry/target.js").InquiryTargetContext;
   frames?: import("./business-context/types.js").FrameStore;
-  businessResults?: Pick<import("./business-context/store.js").NativeBusinessResultStore, "get" | "save" | "linkExecution" | "executionLink">;
+  businessResults?: Pick<
+    import("./business-context/store.js").NativeBusinessResultStore,
+    "get" | "save" | "linkExecution" | "executionLink"
+  >;
   semanticTasks?: import("./semantic-task/store.js").NativeSemanticTaskStore;
-  /** 计划层已定向映射到当前子步骤的冻结回答；不进入模型 Schema。 */
-  semanticAnswers?: import("./semantic-task/store.js").SemanticAnswerSnapshot[];
-  /** 宿主绑定的任务步骤；模型参数不能切换目标来源或领取执行许可。 */
-  semanticStep?: {planRef: string; rootOperationId: string; revision: number; kind: "query" | "availability" | "calculation"; analysis: boolean; facts?: import("./semantic-task/actionBinding.js").TurnFacts; multipleTargets?: boolean; referenceYear?: number};
-  /** 仅服务端执行适配器绑定，绝不从模型参数读取。 */
-  businessExecutionFrame?: string;
   commands: CommandBridge;
   /** 原生历史受控回读；供 read 历史分支及旧工具恢复使用 */
   history: HistoryBridge;
@@ -113,14 +124,29 @@ export interface AskMetricRequestContext {
   /** 宿主绑定的当前原生回合，仅供内部交付和运行控制读取；模型不能传入另一轮记录。 */
   turnMessages?: () => Promise<import("@earendil-works/pi-agent-core").AgentMessage[]>;
   /** 原生模型步骤，仅用于诊断及隔离摘要请求，不保存业务状态。 */
-  modelCall?: { model: string; step: "assistant" | "deferred" | "compaction" | "branch_summary"; attempt: number; startedAt: number; payloadBytes?: number; finalPayloadBytes?: number };
+  modelCall?: {
+    model: string;
+    step: "assistant" | "deferred" | "compaction" | "branch_summary";
+    attempt: number;
+    startedAt: number;
+    payloadBytes?: number;
+    finalPayloadBytes?: number;
+  };
   /** 仅本次驱动的诊断耗时，不承载业务状态或模型记忆。 */
-  timings?: { startedAt: number; receivedAt?: number; reportAtSnapshot?: boolean; firstVisibleAt?: number; modelStartedAt?: number;
-    modelFirstTokenRecorded?: boolean; modelFirstTokenMs: number[];
-    toolStartedAt?: Record<string, number>; model_ms: number[]; tool_ms: number[] };
-  /** 只用于本次观察；不写入原生业务状态或模型上下文。重试沿用 callSeq。 */
-  answerStream?: {callSeq: number; mode: "none" | "text" | "reply"};
-  reportAnswerRetry?: (callSeq: number) => void;
+  timings?: {
+    startedAt: number;
+    receivedAt?: number;
+    reportAtSnapshot?: boolean;
+    firstVisibleAt?: number;
+    modelStartedAt?: number;
+    modelFirstTokenRecorded?: boolean;
+    modelFirstTokenMs: number[];
+    toolStartedAt?: Record<string, number>;
+    model_ms: number[];
+    tool_ms: number[];
+  };
+  /** 只用于本次观察，不写入业务状态或模型上下文；每次模型尝试（含重试）使用新的 callSeq。 */
+  answerStream?: { callSeq: number; mode: "none" | "text" | "reply" };
   /**
    * 仅向本次浏览器观察播报“理解问题”阶段的进度；由路由在驱动前绑定，未绑定（恢复执行等）时不播报。
    * 播报内容只用于页面展示，不写入会话、不进入模型上下文。

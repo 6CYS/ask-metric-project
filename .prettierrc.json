@@ -1,0 +1,17 @@
+{
+  "printWidth": 100,
+  "tabWidth": 2,
+  "useTabs": false,
+  "singleQuote": false,
+  "semi": true,
+  "trailingComma": "all",
+  "endOfLine": "lf",
+  "overrides": [
+    {
+      "files": "frontend-vue/**/*.{js,cjs,mjs,ts,tsx,vue}",
+      "options": {
+        "semi": false
+      }
+    }
+  ]
+}

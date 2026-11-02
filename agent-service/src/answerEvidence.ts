@@ -125,12 +125,43 @@ export function activeEvidence(evidences: BusinessEvidence[]): BusinessEvidence[
 export interface EvidenceReference { ref: string; evidence: BusinessEvidence }
 
 /** 引用由当前原生用户回合投影，压缩/重开不另存状态，也不能引用上一轮结果。 */
-export function currentTurnEvidence(messages: {role?: string; details?: unknown}[]): EvidenceReference[] {
+export function currentTurnEvidence(
+  messages: { role?: string; details?: unknown }[],
+): EvidenceReference[] {
   let start = messages.length - 1;
   while (start >= 0 && messages[start]?.role !== "user") start -= 1;
-  return messages.slice(start + 1).filter(message => message.role === "toolResult")
-    .flatMap(message => businessEvidences(message.details))
-    .map((evidence, index) => ({ref: `e${index + 1}`, evidence}));
+  const receipts = messages.slice(start + 1).filter((message) => message.role === "toolResult");
+  const primaryRuns = new Set(
+    receipts.flatMap(({ details }) => {
+      const value = details as
+        { kind?: string; status?: string; inquiry_primary_run_refs?: unknown } | undefined;
+      return value &&
+        ["inquiry_query_reuse", "semantic_results"].includes(value.kind ?? "") &&
+        ["succeeded", "partial"].includes(value.status ?? "") &&
+        Array.isArray(value.inquiry_primary_run_refs)
+        ? value.inquiry_primary_run_refs.filter((ref): ref is string => typeof ref === "string")
+        : [];
+    }),
+  );
+  return receipts
+    .flatMap((message) => businessEvidences(message.details))
+    .map((evidence) => {
+      const source = evidence as BusinessEvidence & {
+        run_ref?: string;
+        inquiry_scope_role?: "reference";
+      };
+      if (
+        source.kind !== "analysis_evidence" ||
+        !source.run_ref ||
+        !primaryRuns.has(source.run_ref)
+      )
+        return evidence;
+      // 同轮主查询复用参考结果时只投影用途，不改原始回执、不重查、不重新编号。
+      const projected = { ...source };
+      delete projected.inquiry_scope_role;
+      return projected;
+    })
+    .map((evidence, index) => ({ ref: `e${index + 1}`, evidence }));
 }
 
 export interface PresentedAnswer {
@@ -147,20 +178,4 @@ export function presentedAnswer(details: unknown): PresentedAnswer | undefined {
   return value.kind === "answer_present" && value.delivery === "business_answer_v1"
     && value.status === "delivered" && typeof value.public_answer === "string"
     && Array.isArray(value.evidence_refs) ? value : undefined;
-}
-
-/** pi 决定相关性与顺序；宿主校验引用和未解决失败，正文只取不可变回执。 */
-export function selectEvidence(references: EvidenceReference[], refs: string[]): PresentedAnswer {
-  if (!refs.length || new Set(refs).size !== refs.length) throw new Error("请选择非空且不重复的本轮证据引用。");
-  const selected = refs.map(ref => {
-    const entry = references.find(item => item.ref === ref);
-    if (!entry) throw new Error(`证据引用 ${ref} 不属于当前回合，请核对当前证据列表。`);
-    return entry.evidence;
-  });
-  const active = activeEvidence(references.map(item => item.evidence));
-  if (selected.some(item => !active.includes(item))) throw new Error("所选证据已被后续回执替代，请选择纠正后的结果。");
-  const unresolved = active.filter(item => !["succeeded", "catalog"].includes(item.status.toLowerCase()));
-  if (unresolved.some(item => !selected.includes(item))) throw new Error("本轮仍有未解决的失败或待确认状态，请继续处理，或同时引用该状态，不得仅交付局部成功。");
-  return {kind: "answer_present", delivery: "business_answer_v1", status: "delivered",
-    evidence_refs: refs, public_answer: selected.map(evidenceAnswer).join("\n\n")};
 }

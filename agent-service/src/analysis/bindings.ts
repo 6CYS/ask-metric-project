@@ -27,7 +27,7 @@ const rounds = new WeakMap<AskMetricRequestContext, number>();
 export interface QueryRecoveryCatalogSource {
   operation_id: string; plan_ref: string; step_id: string; target_ref: string; original_message: string; metric_expression: string;
 }
-export interface AnalysisCandidate {code: string; name: string; binding_ref: string; match_type?: string; base_name?: string; value_basis?: string; unit?: string;
+export interface AnalysisCandidate {code: string; name: string; binding_ref: string; match_type?: string; source_metric_code?: string; base_name?: string; value_basis?: string; unit?: string;
   query_recovery?: QueryRecoveryCatalogSource; analysis_hint?: {
   topic: string; topic_name: string; section: string; metric_id: string; comparison?: string; comparison_role?: string; default_sections: string[];
 }}
@@ -97,7 +97,7 @@ export function catalogBindingView(request: AskMetricRequestContext, value: unkn
     const descriptor = !suggestion && "binding_ref" in item && typeof item.binding_ref === "string" && !!item.binding_ref.trim();
     if (descriptor && "code" in item && typeof item.code === "string" && typeof item.binding_ref === "string")
       registry!.set(`code:${item.code}`, item.binding_ref);
-    const modelKeys = new Set(["binding_ref", "code", "name", "unit", "aliases", "description", "explanation", "value_encoding", "frequency", "quantity_kind", "business_direction", "methods", "match_type", "semantic_source", "semantic_status", "limitations", "analysis_hint", "value_basis", "base_name"]);
+    const modelKeys = new Set(["binding_ref", "code", "name", "unit", "aliases", "description", "explanation", "value_encoding", "frequency", "quantity_kind", "business_direction", "methods", "match_type", "semantic_source", "semantic_status", "limitations", "analysis_hint", "value_basis", "base_name", "source_metric_code"]);
     const output = Object.fromEntries(Object.entries(item).filter(([key, field]) =>
       (key !== "binding_ref" || descriptor) && (!descriptor || modelKeys.has(key) && field != null)).map(([key, field]) => {
       if (key !== "binding_ref" || typeof field !== "string") return [key, visit(field)];

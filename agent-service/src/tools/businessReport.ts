@@ -10,7 +10,7 @@ import {overviewComparisonSign} from "../analysis/businessReportClaims.js";
 import {publicTextProblem} from "../runtime/delivery.js";
 import {currentTurnMessages} from "./turnContract.js";
 import {buildOverviewPieChart} from "../analysis/overviewCharts.js";
-import {buildReportChart, prefersReportText, reportChartSchema, type BusinessReportChart} from "../analysis/reportCharts.js";
+import {buildReportChart, prefersReportText, reportSeriesChartSchema, type BusinessReportChart} from "../analysis/reportCharts.js";
 
 interface EvidenceItem {ref: string; display: string; label: string; type?: string; value?: string; ranked_increases?: string[]; judgment_kind?: string; input_refs?: string[]}
 export interface OverviewEvidence extends BusinessEvidence {
@@ -356,7 +356,7 @@ export function composeBusinessReport(sources: OverviewEvidence[], input: Report
 const parameters = Type.Object({
   evidence_refs: Type.Array(Type.String(), {minItems: 1, maxItems: 3, description: "本轮概览回执的 e1/e2 等引用；包含初查和补查，不引用历史数值。"}),
   body: Type.Optional(Type.String({minLength: 1, maxLength: 6000, description: "完整自然正文；仅把已有结果改为图表时可省略。先回答问题，再按需说明关键分项，无固定栏目。只引用影响判断的关键数字，完整数据留表格，不逐行复述所有比较。展示数值用{{实际原子ref}}，明确比较基期。已核验判断用于理解依据，自然组织正文，无需照搬固定句子；{{实际原子ref|cite}}可关联所依据的事实。不能推断未证实因果、资金迁移或连续趋势；不自行换算，日期沿用实际截至日。"})),
-  chart: Type.Optional(Type.Union([reportChartSchema, Type.Object({type: Type.Literal("pie"), relationship_id: Type.Optional(Type.String({minLength: 1,
+  chart: Type.Optional(Type.Union([reportSeriesChartSchema, Type.Object({type: Type.Literal("pie"), relationship_id: Type.Optional(Type.String({minLength: 1,
     description: "可选主题关系ID。省略时使用已确认且数据完整的结构分组，不把父项和子项混在同一饼图。"}))}, {additionalProperties: false})])),
   metric_ids: Type.Array(Type.String(), {maxItems: 16, description: "表格展示的主题指标ID，按用户重点排序；无数值时为空。"}),
 }, {additionalProperties: false, anyOf: [{required: ["body"]}, {required: ["chart"]}]});

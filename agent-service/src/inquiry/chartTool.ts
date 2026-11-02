@@ -4,7 +4,7 @@ import {BackendApiError} from "../backendClient.js";
 import type {EvidenceReference} from "../answerEvidence.js";
 import type {AnalysisEvidence} from "../analysis/tools.js";
 import {analysisEvidenceAliases} from "../analysis/verifiedFindings.js";
-import {buildReportChart, reportChartSchema, type ReportChartSelection} from "../analysis/reportCharts.js";
+import {buildReportChart, prefersReportText, reportChartSchema, reportChartTopic, type ReportChartSelection} from "../analysis/reportCharts.js";
 import {currentTurnMessages} from "../tools/turnContract.js";
 
 interface InquiryChartSelection {
@@ -21,7 +21,7 @@ export function latestInquiryChart(messages: AgentMessage[]): InquiryChartSelect
     if (message.role !== "toolResult" || message.toolName !== "analysis_chart" || message.isError) continue;
     const value = message.details as Partial<InquiryChartSelection> | undefined;
     if (value?.kind === "inquiry_chart" && value.status === "succeeded"
-      && ["bar", "line"].includes(value.selection?.type ?? "")
+      && ["bar", "line", "pie"].includes(value.selection?.type ?? "")
       && Array.isArray(value.source_refs) && value.source_refs.length >= 2 && value.source_refs.length <= 24
       && value.source_refs.every(ref => typeof ref === "string" && !!ref)
       && Array.isArray(value.run_refs) && value.run_refs.length > 0 && value.run_refs.every(ref => typeof ref === "string" && !!ref)
@@ -32,10 +32,24 @@ export function latestInquiryChart(messages: AgentMessage[]): InquiryChartSelect
   return undefined;
 }
 
+/** 仅结构饼图读取既有主题关系；图表不额外取数，正式输出仍先核验来源权限。 */
+export async function buildInquiryChart(sources: Parameters<typeof buildReportChart>[0], selection: ReportChartSelection | undefined,
+  request: AskMetricRequestContext, narrativeRefs?: readonly string[], signal?: AbortSignal) {
+  const topicId = selection?.type === "pie" && !prefersReportText(request.originalMessage)
+    ? reportChartTopic(sources, selection) : undefined;
+  let topic: Record<string, unknown> | undefined;
+  try { topic = topicId ? await request.backend.businessTopic(topicId, false, {signal}) : undefined; }
+  catch (error) {
+    if (signal?.aborted || error instanceof BackendApiError && [401, 403].includes(error.status)) throw error;
+    return {charts: [], notice: "暂时无法读取组成关系，已保留查询结果，本次未生成饼图。"};
+  }
+  return buildReportChart(sources, selection, request.originalMessage, narrativeRefs, topic);
+}
+
 /** 只保存引用选择；数值在最终报告鉴权成功后从所选来源重新生成。 */
 export function createInquiryChartTool(): AgentHarnessTool<AskMetricRequestContext, typeof reportChartSchema> {
   return {name: "analysis_chart", label: "选择图表", parameters: reportChartSchema,
-    description: "可选：从本轮已有结果选择有助说明的柱图或趋势图，随后正常撰写回答。只引用真实数值原子，不取数、不提交手写图值。",
+    description: "可选：从本轮已有结果选择柱图、折线图或结构饼图，随后正常撰写回答。饼图需同日总量及完整分项的余额或数量，程序计算占比；不能把总量同时画成扇区。只引用真实数值原子，不取数、不提交手写图值。",
     execute: async (_id, input, _update, request, _invocation, context) => {
       try {
         const sources = (await request.answerEvidence?.() ?? []).filter((item): item is EvidenceReference & {evidence: AnalysisEvidence} =>
@@ -46,7 +60,7 @@ export function createInquiryChartTool(): AgentHarnessTool<AskMetricRequestConte
         const selection = {...input, evidence_refs: input.evidence_refs.map(ref => aliases.get(ref) ?? ref)};
         if (selection.evidence_refs.some(ref => !known.has(ref)))
           throw new BackendApiError(422, "图表包含不属于本轮成功来源的引用，请使用取数回执中的真实引用。", "ANALYSIS_CHART_REFERENCE");
-        const generated = buildReportChart(sources, selection, request.originalMessage), chart = generated.charts[0];
+        const generated = await buildInquiryChart(sources, selection, request, undefined, context.abortSignal), chart = generated.charts[0];
         if (!chart) throw new BackendApiError(422, generated.notice ?? "本次问题要求文字回答，暂未准备图表。", "ANALYSIS_CHART_SELECTION");
         const runRefs = [...new Set(sources.filter(item => item.evidence.evidence_items?.some(atom => chart.source_refs.includes(atom.ref)))
           .map(item => item.evidence.run_ref))];

@@ -1,14 +1,20 @@
 import {Type} from "@earendil-works/pi-ai";
 import {analysisEvidenceAliases} from "./verifiedFindings.js";
-import type {BusinessPieChart} from "./overviewCharts.js";
+import {buildCompositionPieChart, type BusinessPieChart} from "./overviewCharts.js";
 
-export const reportChartSchema = Type.Object({
+export const reportSeriesChartSchema = Type.Object({
   type: Type.Union([Type.Literal("bar"), Type.Literal("line")]),
   evidence_refs: Type.Array(Type.String({minLength: 1}), {minItems: 2, maxItems: 24, uniqueItems: true,
     description: "图中每个点的真实数值原子引用。通用报告用e1.v1等，专项用personal.mom.difference等；不提交手写数值。柱图选择同日同单位同基期的可比数据，折线只选同机构同指标不同真实日期。"}),
 }, {additionalProperties: false});
 
-export interface ReportChartSelection {type: "bar" | "line"; evidence_refs: string[]}
+export const reportChartSchema = Type.Union([reportSeriesChartSchema, Type.Object({
+  type: Type.Literal("pie"),
+  evidence_refs: Type.Array(Type.String({minLength: 1}), {minItems: 3, maxItems: 21, uniqueItems: true,
+    description: "结构饼图选择同机构、同日、同单位的总量及完整互斥分项余额/数量引用（例如总存款、个人存款、对公存款）。总量只作分母，不画为扇区；程序计算占比。不要选占比、增幅或同比环比差额，不提交手写数值。"}),
+}, {additionalProperties: false})]);
+
+export interface ReportChartSelection {type: "bar" | "line" | "pie"; evidence_refs: string[]}
 export interface BusinessSeriesChart {
   type: "bar" | "line";
   title: string;
@@ -21,7 +27,8 @@ export type BusinessReportChart = BusinessPieChart | BusinessSeriesChart;
 type Source = {ref: string; evidence: object};
 type Row = Record<string, unknown>;
 type Point = {ref: string; name: string; metric: string; org: string; orgName: string; date: string;
-  unit: string; value: string; display: string; period: string; group: string};
+  unit: string; value: string; display: string; period: string; group: string;
+  metricId: string; valueBasis: string; currentFact: boolean};
 const record = (value: unknown): Row => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Row : {};
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(record) : [];
 const text = (value: unknown) => typeof value === "string" ? value : "";
@@ -69,7 +76,9 @@ function point(source: Row, atom: Row): Point | undefined {
   if (!ref || !metric || !name || !org || !orgName || !datePattern.test(date) || !unit || !display
     || !value || value.length > 220 || !numeric.test(value) || !Number.isFinite(Number(value))) return undefined;
   return {ref, name, metric, org, orgName, date, unit, value, display, period,
-    group: overview ? text(source.topic) : text(hint.topic)};
+    group: overview ? text(source.topic) : text(hint.topic), metricId: text(hint.metric_id),
+    valueBasis: text(descriptor.value_basis),
+    currentFact: atom.type === "fact" && !hint.comparison && !atom.comparison};
 }
 
 function candidates(sources: Source[]) {
@@ -99,7 +108,7 @@ function candidates(sources: Source[]) {
   return {byRef, points};
 }
 
-const unique = (points: Point[], field: keyof Point) => new Set(points.map(item => item[field]));
+const unique = <K extends keyof Point>(points: Point[], field: K) => new Set(points.map(item => item[field]));
 
 /** 正文须涉及图中的指标与统计口径，但无需逐项复述图中各机构数值。 */
 export function reportChartHasNarrativeEvidence(sources: Source[], selection: ReportChartSelection, narrativeRefs: readonly string[]): boolean {
@@ -109,6 +118,10 @@ export function reportChartHasNarrativeEvidence(sources: Source[], selection: Re
   if (!selected.length || selected.some(item => !item)) return false;
   const narrative = narrativeRefs.map(ref => available.byRef.get(ref));
   const dates = new Set(selected.map(item => item?.date));
+  // 结构图的组成由正式关系另行核对；正文涉及其中的总量或分项即可，不强迫复述每个扇区。
+  if (selection.type === "pie") return selected.some(item => item && narrative.some(context => context
+    && item.metric === context.metric && item.org === context.org && item.date === context.date
+    && item.unit === context.unit && item.period === context.period));
   return selected.every(item => item && narrative.some(context => context
     && item.metric === context.metric && item.unit === context.unit && item.period === context.period
     && (selection.type === "line" ? item.org === context.org && dates.has(context.date) : item.date === context.date)));
@@ -136,6 +149,7 @@ function distinctPoints(points: Point[]): Point[] | undefined {
 }
 
 function seriesChart(values: Point[], selection?: ReportChartSelection): BusinessSeriesChart | undefined {
+  if (selection?.type === "pie") return;
   if (values.length < 2 || values.length > 24
     || unique(values, "unit").size !== 1 || unique(values, "period").size !== 1) return;
   const first = values[0]!;
@@ -157,9 +171,48 @@ function seriesChart(values: Point[], selection?: ReportChartSelection): Busines
     source_refs: ordered.map(item => item.ref), points: chartPoints};
 }
 
+/** 主题来自正式指标描述，不按用户问句或指标名猜测组成关系。 */
+export function reportChartTopic(sources: Source[], selection: ReportChartSelection): string | undefined {
+  const available = candidates(sources);
+  const values = selection.evidence_refs.map(ref => available?.byRef.get(ref));
+  if (!values.length || values.some(item => !item)) return;
+  const groups = new Set(values.map(item => item?.group));
+  return groups.size === 1 ? values[0]?.group || undefined : undefined;
+}
+
+function compositionChart(values: Point[], topic?: Row): {charts: BusinessPieChart[]; notice?: string} {
+  const unavailable = {charts: [], notice: "饼图需要同机构、同日、同单位的总量和完整分项，且分项属于已确认的组成关系。请补齐对应余额或数量；占比和增减幅不能直接混作组成。"};
+  const first = values[0];
+  if (!first || !topic || values.length < 3 || values.length > 21
+    || (["org", "date", "unit", "period", "group"] as const).some(field => unique(values, field).size !== 1)
+    || !first.group || first.unit === "%" || values.some(item => !item.currentFact || !item.metricId)
+    || unique(values, "metricId").size !== values.length) return unavailable;
+  const definitions = rows(topic.metrics);
+  for (const relation of rows(topic.relationships)) {
+    const children = relation.children;
+    if (relation.pie_chart !== true || typeof relation.parent !== "string" || !Array.isArray(children)
+      || children.length + 1 !== values.length || !children.every((child): child is string => typeof child === "string" && child !== relation.parent)
+      || new Set(children).size !== children.length) continue;
+    const ids = [relation.parent, ...children];
+    const ordered = ids.map(id => values.find(item => item.metricId === id));
+    if (ordered.some(item => !item || !definitions.some(definition => definition.id === item.metricId
+      && text(definition.value_basis) === item.valueBasis && !!item.valueBasis
+      && (!definition.code || definition.code === item.metric)))) continue;
+    const total = ordered[0];
+    if (!total) continue;
+    const parts = ordered.slice(1).flatMap(item => item ? [{ref: item.ref,
+      name: text(definitions.find(definition => definition.id === item.metricId)?.label) || item.name,
+      value: item.value, display: item.display}] : []);
+    return buildCompositionPieChart({title: `${text(definitions.find(item => item.id === relation.parent)?.label) || total.name}结构`,
+      date: first.date, unit: first.unit, total: {ref: total.ref, value: total.value}, parts,
+      tolerance: text(relation.pie_tolerance) || "0", toleranceUnit: text(relation.pie_tolerance_unit) || first.unit});
+  }
+  return unavailable;
+}
+
 /** 调用方先核验回执归属、权限与事实；此处只从这些回执选点，不接收模型数值。 */
-export function buildReportChart(sources: Source[], selection?: ReportChartSelection, question = "", narrativeRefs?: readonly string[]):
-  {charts: BusinessSeriesChart[]; notice?: string} {
+export function buildReportChart(sources: Source[], selection?: ReportChartSelection, question = "", narrativeRefs?: readonly string[], topic?: Row):
+  {charts: BusinessReportChart[]; notice?: string} {
   if (prefersReportText(question)) return {charts: []};
   const fail = () => ({charts: [], ...(selection ? {notice: "所选数据的机构、日期、单位或比较口径不一致，暂未绘制图表。"} : {})});
   const available = candidates(sources);
@@ -170,6 +223,7 @@ export function buildReportChart(sources: Source[], selection?: ReportChartSelec
   if (selection && new Set(selection.evidence_refs).size !== selection.evidence_refs.length || selected.some(item => !item)) return fail();
   const values = distinctPoints(selected as Point[]);
   if (!values) return fail();
+  if (selection?.type === "pie") return compositionChart(values, topic);
   if (!selection && narrativeRefs !== undefined) {
     const groups = new Map<string, Point[]>();
     for (const item of values) {

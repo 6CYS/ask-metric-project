@@ -5,7 +5,7 @@ import json
 import re
 import time
 from datetime import UTC, date, datetime
-from decimal import ROUND_HALF_UP, Decimal, localcontext
+from decimal import Decimal, localcontext
 from typing import Literal
 from uuid import uuid4
 
@@ -22,9 +22,15 @@ from ask_metric.application.ports import PermissionDeniedError
 from ask_metric.application.requests import IncomingRequest
 from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.analysis_methods import AnalysisPlan
-from ask_metric.domain.basic_query import BasicQuerySpec
-from ask_metric.domain.calculation import CalculationRequest, CalculationScope
+from ask_metric.domain.basic_query import BasicQuerySpec, BasicQueryTime
+from ask_metric.domain.calculation import (
+    CalculationExpression,
+    CalculationRequest,
+    CalculationScope,
+    FactBinding,
+)
 from ask_metric.domain.organization_scope import OrganizationScopeSpec
+from ask_metric.domain.value_presentation import display_number
 from ask_metric.infrastructure.db.models import ChatConversation, ChatMessage
 
 
@@ -86,31 +92,6 @@ def month_ranges(start: date, end: date):
                 "ANALYSIS_RANGE_LIMIT", "单轮最多分析36个月，请缩小期间。", status_code=422
             )
     return result
-
-
-def display_number(value: str, metric: dict, *, difference=False) -> str:
-    with localcontext() as context:
-        context.prec = 60
-        amount = Decimal(value)
-        unit = metric.get("unit") or "（单位未提供）"
-        if unit in {"元", "万元", "亿元"}:
-            amount *= {"元": Decimal("0.00000001"), "万元": Decimal("0.0001"), "亿元": Decimal(1)}[
-                unit
-            ]
-            unit = "亿元"
-        elif unit == "%":
-            encoding = metric.get("value_encoding")
-            if encoding not in {"ratio", "percent"}:
-                return f"原始值 {value}（目录单位%，数值编码待确认）"
-            if encoding == "ratio":
-                amount *= 100
-            # 领域绑定已明确为比例的差额；不能把百分点差额展示成相对增幅。
-            hint = metric.get("analysis_hint") or {}
-            unit = "个百分点" if difference or hint.get("comparison_role") == "difference" else "%"
-        amount = amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        if not amount:
-            amount = abs(amount)
-        return f"{amount:.2f}{unit}"
 
 
 class GeneralAnalysisService:
@@ -242,7 +223,9 @@ class GeneralAnalysisService:
                             "分析仍在执行，请稍后按原请求键回查。",
                             status_code=409,
                         )
-                    state = {**state, "lease": lease, "status": "running"}
+                    # 领取与续期在同一行锁事务提交；首次进度保存前也必须排斥重复恢复。
+                    state = {**state, "lease": lease, "status": "running",
+                             "updated_at": datetime.now(UTC).isoformat()}
                     record.payload = state
                 else:
                     state = {
@@ -346,7 +329,6 @@ class GeneralAnalysisService:
         except Exception:
             # 已登记任务与覆盖保留；进程重启或临时错误后可按同一计划恢复。
             state["status"] = "interrupted"
-            state["updated_at"] = datetime.fromtimestamp(0, UTC).isoformat()
             self._save(run_id, lease, state)
             raise
 
@@ -381,7 +363,7 @@ class GeneralAnalysisService:
         spec = BasicQuerySpec(
             metric_codes=[metric["code"]],
             org_codes=codes,
-            time={
+            time=BasicQueryTime.model_validate({
                 "start": start or min(dates),
                 "end": end or max(dates),
                 **(
@@ -389,7 +371,7 @@ class GeneralAnalysisService:
                     if len(set(dates)) > 1 and selection == "exact"
                     else {}
                 ),
-            },
+            }),
             selection=selection,
         )
         signature = digest(spec.model_dump(mode="json"))
@@ -488,29 +470,29 @@ class GeneralAnalysisService:
         ):
             return None
         expressions = [
-            {
-                "name": "difference",
-                "label": f"{label}取值差额",
-                "expression": "current-base",
-            }
+            CalculationExpression(
+                name="difference",
+                label=f"{label}取值差额",
+                expression="current-base",
+            )
         ]
         if share:
             expressions = [
-                {
-                    "name": "share",
-                    "label": "分项占比",
-                    "expression": "current/base",
-                    "display": "percent",
-                }
+                CalculationExpression(
+                    name="share",
+                    label="分项占比",
+                    expression="current/base",
+                    display="percent",
+                )
             ]
         elif metric["unit"] in {"元", "万元", "亿元"} and Decimal(base["value"]) > 0:
             expressions.append(
-                {
-                    "name": "change_rate",
-                    "label": f"{label}取值变化率",
-                    "expression": "(current-base)/base",
-                    "display": "percent",
-                }
+                CalculationExpression(
+                    name="change_rate",
+                    label=f"{label}取值变化率",
+                    expression="(current-base)/base",
+                    display="percent",
+                )
             )
         response = self.calculation.calculate(
             CalculationRequest(
@@ -522,8 +504,8 @@ class GeneralAnalysisService:
                 scope_policy=scope_policy or ("same_org_date" if share else "cross_date"),
                 expressions=expressions,
                 bindings={
-                    "current": {"fact_id": current["fact_id"]},
-                    "base": {"fact_id": base["fact_id"]},
+                    "current": FactBinding(fact_id=current["fact_id"]),
+                    "base": FactBinding(fact_id=base["fact_id"]),
                 },
             ),
             context["actor"],
@@ -536,13 +518,17 @@ class GeneralAnalysisService:
                 }
             ),
         )
-        difference = next((item for item in response["results"] if item["name"] == "difference"), None)
+        difference = next(
+            (item for item in response["results"] if item["name"] == "difference"), None
+        )
         # 计算器将百分单位归一；还原目录原值属于服务端单位转换，不将换算常数塞入模型算式。
         # 原计算回执保持不变，差额展示与证据使用同一份未舍入目录值。
         with localcontext() as precision:
             precision.prec = 60
-            difference_value = (str(Decimal(difference["value"]) * (100 if metric["unit"] == "%" else 1))
-                                if difference else None)
+            difference_value = (
+                str(Decimal(difference["value"]) * (100 if metric["unit"] == "%" else 1))
+                if difference else None
+            )
         return {**response, "difference_value": difference_value,
                 "metric_descriptor": metric, "comparison": label,
                 "org_code": current["org_code"], "date": current["date"]}
@@ -634,13 +620,13 @@ class GeneralAnalysisService:
             if step.method == "compare":
                 for current in dates:
                     for comparison in step.comparisons:
-                        base = (
+                        comparison_day = (
                             shift_month(current, -1 if comparison == "mom" else -12)
                             if comparison != "ytd"
                             else date(current.year - 1, 12, 31)
                         )
-                        comparison_dates[(current, comparison)] = base
-                        query_dates.add(base)
+                        comparison_dates[(current, comparison)] = comparison_day
+                        query_dates.add(comparison_day)
             # 根据机构数量分批，避免大集合乘多个日期后被基础查询行数上限截断。
             batch_size = max(
                 1, min(36, self.execution.planner.max_limit // len(context["org_codes"]))
@@ -723,13 +709,15 @@ class GeneralAnalysisService:
                             }
                         )
             if step.method == "compare":
-                facts = {(fact["org_code"], fact["date"]): fact for fact in query["facts"]}
+                comparison_facts = {
+                    (fact["org_code"], fact["date"]): fact for fact in query["facts"]
+                }
                 for current in current_facts:
                     for comparison in step.comparisons:
                         base_day = comparison_dates[
                             (date.fromisoformat(current["date"]), comparison)
                         ]
-                        base = facts.get((current["org_code"], str(base_day)))
+                        base = comparison_facts.get((current["org_code"], str(base_day)))
                         if not base:
                             result["gaps"].append(
                                 f"{metric['name']}缺少{base_day}比较基期，不能完成该项比较。"
@@ -777,16 +765,16 @@ class GeneralAnalysisService:
                 for item in context["semantics"].relations(list(context["bindings"].values()))
                 if item["id"] == step.relation_id
             )
-            facts = {
+            structure_facts = {
                 (fact["metric_code"], fact["org_code"], fact["date"]): fact
                 for fact in result["facts"]
                 if fact["role"] == "current"
             }
-            for (code, org, day), parent in list(facts.items()):
+            for (code, org, day), parent in list(structure_facts.items()):
                 if code != relation["parent"]:
                     continue
                 for child_code in relation["children"]:
-                    child = facts.get((child_code, org, day))
+                    child = structure_facts.get((child_code, org, day))
                     if (
                         not child
                         or parent["unit"] != child["unit"]
@@ -820,8 +808,10 @@ class GeneralAnalysisService:
     def _finish(self, context):
         state, payload = context["state"], context["payload"]
         prefix = context["run_id"].split(":")[1][:10]
-        atoms, rows, observations, tasks, gaps = [], [], [], [], []
-        fact_atoms = {}
+        atoms: list[dict] = []
+        observations: list[dict] = []
+        rows, tasks, gaps = [], [], []
+        fact_atoms: dict[str, dict] = {}
         for step in state["completed_steps"].values():
             gaps.extend(step["gaps"])
             tasks.extend(step["tasks"])
@@ -887,8 +877,10 @@ class GeneralAnalysisService:
                             # 升级前已完成的节点可重放；缺少新比较元数据时仅保留旧事实。
                             "date": (calculation.get("date")
                                      or calculation["inputs"].get("current", {}).get("date")),
-                            "org_code": (calculation.get("org_code")
-                                         or calculation["inputs"].get("current", {}).get("org_code")),
+                            "org_code": (
+                                calculation.get("org_code")
+                                or calculation["inputs"].get("current", {}).get("org_code")
+                            ),
                             "comparison": calculation.get("comparison"),
                             "comparison_role": {
                                 "difference": "difference", "change_rate": "rate",

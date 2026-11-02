@@ -1,5 +1,5 @@
 /** 短引用只改变模型视图；判断与计算依据始终使用服务端不可变回执中的原子。 */
-export interface FindingAtom {ref: string; type?: string; judgment_kind?: string; input_refs?: string[]}
+export interface FindingAtom {ref: string; type?: string; judgment_kind?: string; input_refs?: string[]; fact_id?: unknown; input_fact_refs?: unknown}
 export interface VerifiedFindings {
   version: string; boundary: string;
   items: Array<{ref: string; kind: string; text: string; evidence_refs: string[]; date?: string; org_code?: string}>;
@@ -34,4 +34,20 @@ export function expandFindingRefs(refs: string[], atoms: Map<string, FindingAtom
   };
   refs.forEach(visit);
   return [...result];
+}
+
+/** 兼容历史 fact_id 依赖，选择来源与恢复正文共用同一条事实链。 */
+export function findingDependencies(atoms: readonly FindingAtom[]) {
+  const factRefs = new Map(atoms.flatMap(atom =>
+    typeof atom.fact_id === "string" ? [[atom.fact_id, atom.ref]] : [],
+  ));
+  return new Map(atoms.map(atom => [atom.ref, {
+    ...atom,
+    input_refs: [
+      ...(atom.input_refs ?? []),
+      ...(Array.isArray(atom.input_fact_refs)
+        ? atom.input_fact_refs.map((id: unknown) => typeof id === "string" ? factRefs.get(id) ?? id : "")
+        : []),
+    ],
+  }]));
 }

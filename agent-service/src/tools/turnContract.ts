@@ -1,17 +1,11 @@
 import {Type} from "@earendil-works/pi-ai";
 import type {AgentHarnessTool, AgentMessage} from "@earendil-works/pi-agent-core";
 import type {AskMetricRequestContext} from "../requestContext.js";
-import {analysisDiscoveryStarted} from "../analysis/bindings.js";
-import {metricMentions} from "../business-context/metricMentions.js";
 import {publicTextProblem} from "../runtime/delivery.js";
 import {receiptRole} from "../runtime/control.js";
-import {RUNTIME_LIMITS} from "../runtime/recovery.js";
 import {missingCatalogDefinitionAnswer} from "../runtime/queryDefinitions.js";
-import {isCurrentAnalysisEvidence} from "../answerEvidence.js";
 
 export const CONVERSATION_REPLY = "respond_without_business_action";
-export const ACTION_REQUIRED = "business_action_required";
-export const MAX_ACTION_REPAIRS = RUNTIME_LIMITS.actionRepairs;
 
 /** 只识别完整的寒暄句；“好的”“继续”等可能是业务确认，带业务目标的问候也不能在此截断。 */
 export function standaloneConversationReply(message: string): string | undefined {
@@ -20,31 +14,6 @@ export function standaloneConversationReply(message: string): string | undefined
     return "你好，请问有什么可以帮助你？";
   if (/^(?:谢谢(?:你|您)?|多谢|辛苦了|感谢(?:你|您)?)$/u.test(text)) return "不客气，有需要可以继续提问。";
   return undefined;
-}
-
-const catalogActionChecks = new WeakMap<AskMetricRequestContext, Promise<boolean>>();
-/** 目录明确匹配的请求或已有焦点的明确续接必须执行；不靠主题词代选指标、机构或分析方法。 */
-export function requiresCatalogAction(request: AskMetricRequestContext): Promise<boolean> {
-  const cached = catalogActionChecks.get(request);
-  if (cached) return cached;
-  const checking = (async () => {
-    if (!/(?:情况|表现|变化|趋势|排名|增长|下降|多少|怎么样|如何|分析|查[询看]|看看|只看|重点看|对比|比较)/u.test(request.originalMessage)) return false;
-    if (/^(?:那|继续|接着|还是|再)|呢[？?。！!\s]*$/u.test(request.originalMessage.trim()) && request.frames) {
-      const state = await request.frames.state();
-      if (state.focusFrameId) return true;
-    }
-    if (typeof request.backend.matchMetricQuestion === "function" && (await metricMentions(request)).mentions.length) return true;
-    if (typeof request.backend.searchOrganizations !== "function") return false;
-    const response = await request.backend.searchOrganizations(request.originalMessage, 20);
-    const normalize = (text: string) => text.normalize("NFKC").replace(/\s+/gu, "");
-    const question = normalize(request.originalMessage);
-    return (response?.items ?? []).some(item => [item.org_name, ...(item.aliases ?? [])].some(term => {
-      const name = normalize(term);
-      return name.length >= 2 && question.includes(name);
-    }));
-  })();
-  catalogActionChecks.set(request, checking);
-  return checking;
 }
 
 /**
@@ -66,32 +35,6 @@ export function createConversationReplyTool(): AgentHarnessTool<AskMetricRequest
       return {content: [{type: "text", text: answer}],
       details: {kind: "conversation_reply", status: "answered", answer,
         history_sources: request.replyHistorySources ?? {tasks: [], organizationScopes: []}}, terminate: true};
-    },
-  };
-}
-
-/** 仅由宿主补入的协议纠错回执，继续同一个 Pi 循环，不解析原文或代选业务动作。 */
-const actionRequiredParameters = Type.Object({reason: Type.Optional(Type.Literal("output_limit"))}, {additionalProperties: false});
-export function createActionRequiredTool(): AgentHarnessTool<AskMetricRequestContext, typeof actionRequiredParameters> {
-  return {name: ACTION_REQUIRED, label: "纠正未落地的工具调用",
-    description: "宿主内部工具，不由模型主动调用。", parameters: actionRequiredParameters,
-    execute: async (_id, params, _update, request) => {
-      if (params.reason === "output_limit") return {content: [{type: "text", text: JSON.stringify({status: "MODEL_OUTPUT_LIMIT",
-        message: "上次生成达到输出上限，截断的调用未执行。仅重发一个完整、紧凑的目标：不要复制已执行目标或重复整个计划。补查必须填写inquiry并只查询该疑问需要的新指标，保留真实来源引用；已有证据足够则直接提交报告。不增加max_tokens，不从截断参数推测业务条件。"})}],
-        details: {kind: "turn_contract", status: "MODEL_OUTPUT_LIMIT"}};
-      const pending = await request.answerEvidence?.() ?? [];
-      const fresh = pending.filter(item => isCurrentAnalysisEvidence(item.evidence, request.semanticStep?.rootOperationId ?? request.operationId));
-      const analysisPending = fresh.some(item => item.evidence.kind === "analysis_evidence");
-      const overviewPending = fresh.some(item => item.evidence.kind === "business_overview" && item.evidence.answer_policy === "overview_evidence_v2");
-      const historicalOnly = !fresh.length && pending.some(item =>
-        ["analysis_evidence", "business_overview"].includes(item.evidence.kind) && item.evidence.status === "succeeded");
-      return {content: [{type: "text", text: JSON.stringify({status: "ACTION_REQUIRED",
-        message: analysisPending ? "本轮通用分析只有中间证据。继续按证据补查或调用analysis_report_present，使用回执原子ref完成报告，不能直接结束或改为普通对话。"
-          : analysisDiscoveryStarted(request) ? "本轮只读取了目录。查数应保留原机构、日期与目标，提交resolve_business_turn：普通取值保留query，分析需求才用business_analysis计划及analysis_report_present。近似推荐需核对正式身份和含义；有歧义才澄清。只问定义时依据已读资料解释，无需新增取数。不能把目录发现当作已取得数值，也不能改写原查询范围。"
-          : overviewPending ? "本轮经营概览仅提供了中间证据，尚未交付报告。请继续补查或调用 business_report_present，使用真实原子 ref 撰写报告；不能直接结束、输出参数排查过程或改用普通对话回答。"
-          : historicalOnly ? "已读取的历史分析仅作为本次追问的背景，不要求重复旧报告。请按当前目标选择业务工具：需要新粒度或条件时规划对应查询；超出当前接口能力时调用business_capability_explain说明并结束。确需重述历史事实时仍使用报告工具和真实引用，不能手写未核验数值或把机构汇总当作客户明细。"
-          : "上一条没有形成有效的动作选择，不能作为本轮完成。请直接产生原生工具调用：业务请求使用对应业务工具；确实无需业务动作的普通对话使用 respond_without_business_action。普通回答与业务动作不能在同一条调用中混用。用户要求查数、计算或分析时，读取主题、Skill或目录不能代替resolve_business_turn规划与执行；只问定义、口径或历史失败原因时，依据已读取资料用respond_without_business_action解释，不补取数条件。没有本轮执行证据时不能调用报告工具或编造数值。不要再次输出调用计划。"})}],
-        details: {kind: "turn_contract", status: "ACTION_REQUIRED"}};
     },
   };
 }

@@ -34,7 +34,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "ruff>=0.6.0",
+  "mypy==2.4.0",
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
+  "ruff==0.16.8",
 ]
 identity-sync = [
   "openpyxl>=3.1.0,<4.0.0",
@@ -47,9 +50,30 @@ ask-metric = "ask_metric.__main__:main"
 where = ["src"]
 include = ["ask_metric*"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests", "verification"]
+pythonpath = ["src"]
+markers = ["database: requires a disposable MySQL test database"]
+
 [tool.ruff]
 line-length = 100
+target-version = "py311"
 exclude = ["pytest-cache-files-*"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+# 默认覆盖全部运行源码；脚本、迁移及 verification 尚未纳入类型检查。
+files = ["src"]
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src"
+# 渐进接入，保留无注解函数体和已声明契约的检查，不宣称全量严格类型。
+strict = false
+check_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+implicit_optional = false
+show_error_codes = true
+pretty = false

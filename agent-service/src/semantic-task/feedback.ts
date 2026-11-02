@@ -3,11 +3,20 @@ import {semanticDisplay} from "./display.js";
 import type {SemanticIssue, SemanticTask} from "./store.js";
 import type {AnswerReceipt, PendingQuestion} from "./questions.js";
 
+/** 旧回执中的恢复说明仅供历史读取，不重新进入计划执行。 */
+interface QueryRecoveryFeedback {
+  attempt: number; max_attempts: number; original_goal: string; unresolved_metrics: string[];
+  retained_conditions: SemanticFeedback["state"]["targets"];
+  fallback_answer: string;
+  previous_metrics?: Array<{target_ref: string; names: string[]; base_names: string[]}>;
+  metric_alternatives?: Array<{target_ref: string; metric: string; candidates: Array<{code: string; name: string}>}>;
+}
+
 export interface SemanticFeedback {
   protocol_version: 2; status: string;
   /** 真实工具最终化时持久化；展示与恢复共用严格版本解析器。 */
   direct_answer?: import("./directDelivery.js").DirectAnswerSnapshot;
-  query_recovery?: import("./queryRecovery.js").QueryRecoveryFeedback;
+  query_recovery?: QueryRecoveryFeedback;
   analysis_recovery?: import("./analysisRecovery.js").AnalysisRecoveryFeedback;
   analysis_discovery?: {objective: string; requirements: import("../analysis/contracts.js").AnalysisPlan["requirements"]};
   analysis_recovery_partial?: {unresolved_requirement_ids: string[]};

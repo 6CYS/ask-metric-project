@@ -1,3 +1,6 @@
+import {selectReportSources} from "../analysis/reportSources.js";
+import type {AnalysisEvidence} from "../analysis/tools.js";
+import type {EvidenceReference} from "../answerEvidence.js";
 import {Type} from "@earendil-works/pi-ai";
 import type {AgentHarnessTool, AgentMessage} from "@earendil-works/pi-agent-core";
 import type {AskMetricRequestContext} from "../requestContext.js";
@@ -5,7 +8,7 @@ import {BackendApiError} from "../backendClient.js";
 import {composePartialBusinessReport, type OverviewEvidence} from "./businessReport.js";
 import {reportSelection} from "../analysis/reportSelection.js";
 import {currentTurnMessages} from "./turnContract.js";
-import {isCurrentAnalysisEvidence} from "../answerEvidence.js";
+import {businessEvidences, isCurrentAnalysisEvidence} from "../answerEvidence.js";
 
 export const PARTIAL_ANALYSIS = "analysis_partial_present";
 export const REPORT_VALIDATION_FAILURE = "已查询的数据暂未能完成交付校验，本轮分析未完成；为避免展示未经核验的数据，本次不输出数值。原查询条件已保留。";
@@ -14,21 +17,29 @@ const evidenceErrors = new Set(["ANALYSIS_REPORT_EVIDENCE", "ANALYSIS_REPORT_REF
 
 /** 同一回合未解决的证据错误不能通过丢弃原请求、重新选择事实来转成成功。 */
 export function hasUnresolvedReportEvidenceError(messages: readonly AgentMessage[]): boolean {
-  let unresolved = false;
+  const unresolved = new Set<string>();
+  let hasEvidence = false;
   for (const message of currentTurnMessages([...messages])) {
-    if (message.role !== "toolResult" || !["business_report_present", "analysis_report_present", "analysis_answer"].includes(message.toolName)) continue;
+    if (message.role !== "toolResult") continue;
+    if (!hasEvidence && !message.isError && businessEvidences(message.details).some(
+      evidence => evidence.kind === "analysis_evidence" && evidence.status === "succeeded")) {
+      // 首次取证解决先前缺来源的前置条件；后续读取不能清除引用、范围或权限错误。
+      unresolved.delete("ANALYSIS_REPORT_EVIDENCE");
+      hasEvidence = true;
+    }
+    if (!["business_report_present", "analysis_report_present", "analysis_answer"].includes(message.toolName)) continue;
     const details = message.details as {kind?: string; status?: string; error_code?: string} | undefined;
-    if (!message.isError && details?.kind === "business_report" && details.status === "succeeded") unresolved = false;
-    else if (evidenceErrors.has(details?.error_code ?? "")) unresolved = true;
+    if (!message.isError && details?.kind === "business_report" && details.status === "succeeded") unresolved.clear();
+    else if (details?.error_code && evidenceErrors.has(details.error_code)) unresolved.add(details.error_code);
   }
-  return unresolved;
+  return unresolved.size > 0;
 }
 const parameters = Type.Object({reason: Type.Union([
   Type.Literal("corrections_exhausted"), Type.Literal("tool_budget"), Type.Literal("action_incomplete"),
   Type.Literal("model_failure"),
 ])}, {additionalProperties: false});
 const notices = {
-  corrections_exhausted: "后续规划或报告参数连续未通过校验，本轮仅交付已经取得并重新核验的部分数据；原问题尚未完整分析，未完成的主题和补查不作结论。",
+  corrections_exhausted: "本轮未能完成分析回答，以下仅列出已核验的数据，暂不作完整分析结论。",
   tool_budget: "本轮分析达到执行次数上限，仅交付已经取得并重新核验的部分数据；原问题尚未完整分析，未完成的主题和补查不作结论。",
   action_incomplete: "本轮未能完成后续分析动作，仅交付已经取得并重新核验的部分数据；原问题尚未完整分析，未完成的主题和补查不作结论。",
   model_failure: "后续模型响应失败，未能完成分析，本轮仅交付已经取得并重新核验的部分数据；原问题尚未完整分析，未完成的主题和文字分析不作结论。",
@@ -38,6 +49,21 @@ const notices = {
 function appendMissingNotices(body: string, gaps: readonly string[], otherText = ""): string {
   const visible = `${body}\n${otherText}`;
   return [body, ...gaps.filter(gap => !visible.includes(gap))].filter(Boolean).join("\n\n");
+}
+
+/** 正文、刷新恢复与交付状态使用同一部分结果说明。 */
+export function markPartialAnalysisReport(details: Record<string, unknown>, reason: keyof typeof notices): Record<string, unknown> {
+  const notice = notices[reason];
+  const body = details.public_answer as string;
+  const report = details.report as {summary?: string; sections?: Array<{title: string; text: string}>;
+    body_evidence?: Array<{paragraph: number; evidence_refs: string[]}>} | undefined;
+  const gaps = [...new Set([notice, ...(details.gaps as string[] ?? [])])];
+  const publicAnswer = appendMissingNotices([notice, body].join("\n\n"), gaps);
+  const summary = appendMissingNotices([notice, report?.summary ?? body].join("\n\n"), gaps,
+    report?.sections?.map(section => `${section.title}\n${section.text}`).join("\n"));
+  return {...details, public_answer: publicAnswer, report: {...report, summary,
+    ...(report?.body_evidence ? {body_evidence: report.body_evidence.map(item => ({...item, paragraph: item.paragraph + 1}))} : {})}, gaps,
+    partial_analysis: true, fallback_reason: reason};
 }
 
 /** 宿主的有界降级动作：不让模型重写事实，仍走原生工具回执和当前身份授权。 */
@@ -56,20 +82,14 @@ export function createPartialAnalysisTool(): AgentHarnessTool<AskMetricRequestCo
         const runRefs = [...new Set(sources.flatMap(item => "run_ref" in item.evidence && typeof item.evidence.run_ref === "string"
           ? [item.evidence.run_ref] : []))];
         const focused = request.executionFlow === "inquiry_v1"
-          ? {run_refs: runRefs, summary: "", sections: []}
+          ? {run_refs: selectReportSources(sources.filter((item): item is EvidenceReference & {evidence: AnalysisEvidence} => item.evidence.kind === "analysis_evidence"), request.operationId).runRefs, summary: "", sections: []}
           : sources.every(item => item.evidence.kind === "analysis_evidence") ? reportSelection(request, runRefs) : undefined;
         if (focused) {
           // 恢复仍核验本轮查询或追问已绑定的范围，不铺开上一轮整个经营报告。
           const details = await request.backend.analysisReport({...focused, fallback: true}, {signal: context.abortSignal});
           if (details.kind !== "business_report" || details.status !== "succeeded" || typeof details.public_answer !== "string") throw new Error("INVALID_ANALYSIS_REPORT");
-          const report = details.report as {summary?: string; sections?: Array<{title: string; text: string}>} | undefined;
-          const gaps = [...new Set([notice, ...(details.gaps as string[] ?? [])])];
-          const publicAnswer = appendMissingNotices([notice, details.public_answer].join("\n\n"), gaps);
-          const summary = appendMissingNotices([notice, report?.summary ?? details.public_answer].join("\n\n"), gaps,
-            report?.sections?.map(section => `${section.title}\n${section.text}`).join("\n"));
-          return {content: [{type: "text", text: publicAnswer}], details: {...details,
-            public_answer: publicAnswer, report: {...report, summary}, gaps,
-            partial_analysis: true, fallback_reason: input.reason}, terminate: true};
+          const partial = markPartialAnalysisReport(details, input.reason);
+          return {content: [{type: "text", text: partial.public_answer as string}], details: partial, terminate: true};
         }
         const reports: Array<Record<string, unknown>> = [];
         // 各范围分别校验和呈现，不将不同日期、主题或机构合并计算。

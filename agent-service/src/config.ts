@@ -22,13 +22,6 @@ export interface AgentServiceConfig {
   modelRetry: { enabled: boolean; maxRetries: number; baseDelayMs: number };
   /** 临时回答流式展示；最终内容仍由原生快照投影。 */
   answerStreaming?: boolean;
-  /** 仅影响新 operation；普通取值的宿主交付，observe 只记资格不省模型调用。 */
-  directQueryDelivery?: "off" | "observe" | "on";
-  /** 发送副本的回执视图；raw 保留原始工具内容，持久记录始终不变。 */
-  modelContextView?: "raw" | "compact_v1";
-  semanticPromptVariant?: "full" | "compact_v1";
-  /** 模型网关不兼容强制工具选择时使用auto；服务端业务与结果校验保持生效。 */
-  modelToolChoicePolicy?: "native" | "auto";
   model: {
     baseUrl: string;
     name: string;
@@ -92,14 +85,6 @@ function parseBoolean(raw: string | undefined, fallback: boolean, name: string):
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceConfig {
-  const directQueryDelivery = env.AGENT_DIRECT_QUERY_DELIVERY?.trim() || "on";
-  const modelToolChoicePolicy = env.AGENT_MODEL_TOOL_CHOICE_POLICY?.trim() || "native";
-  if (!["native", "auto"].includes(modelToolChoicePolicy)) throw new Error("AGENT_MODEL_TOOL_CHOICE_POLICY 必须为 native 或 auto");
-  if (!["off", "observe", "on"].includes(directQueryDelivery)) throw new Error("AGENT_DIRECT_QUERY_DELIVERY 必须为 off、observe 或 on");
-  const modelContextView = env.AGENT_MODEL_CONTEXT_VIEW?.trim() || "compact_v1";
-  if (!["raw", "compact_v1"].includes(modelContextView)) throw new Error("AGENT_MODEL_CONTEXT_VIEW 必须为 raw 或 compact_v1");
-  const semanticPromptVariant = env.AGENT_SEMANTIC_PROMPT_VARIANT?.trim() || "compact_v1";
-  if (!["full", "compact_v1"].includes(semanticPromptVariant)) throw new Error("AGENT_SEMANTIC_PROMPT_VARIANT 必须为 full 或 compact_v1");
   // 存在任一密文时必须先加载主密钥；密钥缺失或密文被篡改时拒绝启动
   const sensitiveNames = ["AGENT_MODEL_API_KEY"] as const;
   const needsKey = sensitiveNames.some((name) => isEncryptedConfigValue(env[name]));
@@ -141,10 +126,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceCo
       "AGENT_MODEL_FIRST_RESPONSE_TIMEOUT_MS"),
     modelRetry,
     answerStreaming: parseBoolean(env.AGENT_ANSWER_STREAMING, false, "AGENT_ANSWER_STREAMING"),
-    directQueryDelivery: directQueryDelivery as "off" | "observe" | "on",
-    modelToolChoicePolicy: modelToolChoicePolicy as "native" | "auto",
-    modelContextView: modelContextView as "raw" | "compact_v1",
-    semanticPromptVariant: semanticPromptVariant as "full" | "compact_v1",
     model: {
       baseUrl: requireEnv(env, "AGENT_MODEL_BASE_URL").replace(/\/+$/, ""),
       name: requireEnv(env, "AGENT_MODEL_NAME"),

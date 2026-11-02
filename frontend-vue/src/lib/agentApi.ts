@@ -130,6 +130,8 @@ export interface AgentSessionDetail {
   running: boolean
   /** 当前活动原生 operation；重连后用于显式停止 */
   operation_id?: string | null
+  /** 当前可继续展示的正文尝试；null 表示旧预览已失效。 */
+  answer_stream?: { call_seq: number; mode: "text" | "reply" | "none" } | null
   legacy?: boolean
   messages: AgentSessionMessage[]
   question_states?: QuestionState[]
@@ -205,7 +207,7 @@ export interface ClarificationChoiceSet {
   confirmation_unclear?: boolean
 }
 
-export type AgentSnapshot = Pick<AgentSessionDetail, "messages" | "running" | "operation_id" | "question_states">
+export type AgentSnapshot = Pick<AgentSessionDetail, "messages" | "running" | "operation_id" | "answer_stream" | "question_states">
 
 export interface CalculationDetails {
   sources?: Array<{ task_id: string; result_id: string; source_scope_id: string | null; historical: boolean }>
@@ -347,7 +349,7 @@ async function streamAgentSession(sessionId: string, input: AgentPromptInput | u
       headers: {
         "Content-Type": "application/json",
         Accept: "text/event-stream",
-        ...(input ? { "X-Agent-Answer-Streaming": "v1" } : {}),
+        "X-Agent-Answer-Streaming": "v1",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       ...(input ? { body: JSON.stringify({ protocol_version: 3, ...input }) } : {}),
@@ -371,30 +373,29 @@ async function streamAgentSession(sessionId: string, input: AgentPromptInput | u
 
   const decoder = new TextDecoder("utf-8")
   let buffer = ""
-  let terminated = false
   try {
     for (;;) {
       // 服务端 drive 挂起时不会主动结束响应；无超时的 read() 会让消息永久停在 pending。
       const { done, value } = await readWithIdleTimeout(reader, STREAM_IDLE_TIMEOUT_MS)
+      if (options.signal?.aborted) throw new DOMException("已停止观察", "AbortError")
       if (done) break
       // 统一 CRLF，按空行切分事件块。
       buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n")
       let boundary = buffer.indexOf("\n\n")
       while (boundary >= 0) {
+        // 取消与数据读取可能在同一帧完成，已缓冲事件也必须遵守观察生命周期。
+        if (options.signal?.aborted) throw new DOMException("已停止观察", "AbortError")
         const block = buffer.slice(0, boundary)
         buffer = buffer.slice(boundary + 2)
         const event = parseSseBlock(block)
         if (event) {
-          if (event.type === "run_terminal" || event.type === "error") terminated = true
           options.onEvent(event)
+          if (event.type === "run_terminal" || event.type === "error") return
         }
         boundary = buffer.indexOf("\n\n")
       }
-      if (terminated) return
     }
-    if (!terminated) {
-      throw new AgentApiError("智能助手连接中断，回答可能不完整；请刷新查看最终状态。", 0)
-    }
+    throw new AgentApiError("智能助手连接中断，回答可能不完整；请刷新查看最终状态。", 0)
   } catch (error) {
     if (isAgentAbortError(error) || error instanceof AgentApiError) throw error
     throw new AgentApiError("智能助手连接中断，正在重新获取执行状态。", 0)

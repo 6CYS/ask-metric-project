@@ -18,8 +18,8 @@ interface UnavailableMetric extends Row {metric_code: string; reason: string; or
 /** 只改变模型读取形式；原子身份、权限、原始精度及审计记录仍由原回执维护。 */
 export function inquiryEvidenceView(evidence: Row, evidenceRef: string): object {
   const scope = pick(evidence, ["kind", "status", "run_ref", "scope_id", "frame_id", "execution_turn_id", "actual_dates", "analysis_date",
-    "date_selection", "requested_start", "requested_end", "checked_on", "complete", "row_count", "gaps", "limitations",
-    "requirement_dispositions", "source_notice", "snapshot_notice", "defaults_applied", "plan"]);
+    "date_selection", "requested_start", "requested_end", "checked_on", "row_count", "gaps", "limitations",
+    "source_notice", "snapshot_notice", "defaults_applied", "plan"]);
   if (evidence.status !== "succeeded") return {...scope, ...pick(evidence, ["error_code", "retryable"])};
   const atoms = rows(evidence.evidence_items);
   // 必须从完整集合建立别名；不可用值仍占原编号，后面的可用事实不能前移。
@@ -61,7 +61,8 @@ export function inquiryEvidenceView(evidence: Row, evidenceRef: string): object 
     const basis = atom.comparison ?? hint.comparison ?? metric.value_basis;
     const role = atom.comparison_role ?? hint.comparison_role;
     const header = {metric_code: metricCode, metric_name: text(atom.metric_name) || text(metric.name), date, unit,
-      ...pick(metric, ["description", "explanation", "quantity_kind", "frequency", "limitations"]),
+      ...pick(metric, ["source_metric_code", "base_name", "description", "explanation", "quantity_kind", "frequency",
+        "semantic_source", "semantic_status", "limitations"]),
       ...(basis !== undefined ? {basis} : {}), ...(role !== undefined ? {comparison_role: role} : {}),
       ...(encoding !== undefined ? {value_encoding: encoding} : {})};
     const key = JSON.stringify([metricCode, date, unit, basis, role]), reason = unavailable.get(ref);
@@ -95,7 +96,15 @@ export function inquiryEvidenceView(evidence: Row, evidenceRef: string): object 
     });
   for (const table of tables.values()) table.rows.sort((left, right) =>
     (rankingOrder.get(left[0] ?? "") ?? Number.MAX_SAFE_INTEGER) - (rankingOrder.get(right[0] ?? "") ?? Number.MAX_SAFE_INTEGER));
-  return {...scope, evidence_ref: evidenceRef, organizations, tables: [...tables.values()], unavailable_metrics: [...missing.values()],
+  // 执行完成只属于这次查询，不能将局部取数成功表述为整道业务问题已得到证明。
+  const queryExecution = pick(evidence, ["complete", "requirement_dispositions"]);
+  const boundary = record(evidence.verified_findings) ? text(evidence.verified_findings.boundary) : "";
+  const followupCodes = new Set(rows(evidence.followup_metrics).map(metric => text(metric.code)));
+  // 后续指标是目录入口而非已查询数值；仅发送本回执注册过的短引用描述。
+  const followupMetrics = rows(evidence.candidate_map).filter(metric => followupCodes.has(text(metric.code)));
+  return {...scope, query_execution: queryExecution, ...(boundary ? {finding_boundary: boundary} : {}),
+    ...(followupMetrics.length ? {followup_metrics: followupMetrics} : {}),
+    evidence_ref: evidenceRef, organizations, tables: [...tables.values()], unavailable_metrics: [...missing.values()],
     findings, calculations};
 }
 

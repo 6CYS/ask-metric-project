@@ -110,9 +110,9 @@ def parse_time_expression(
         if start > end:
             raise SemanticValidationError(["time"], "Time range start is after end")
         return LogicalTimeRange(start=start, end=end)
-    value = re.sub(r"^(?:最近|过去)(?=[\d一二两三四五六七八九十])", "近", value)
     if value in {"latest", "最新", "最近", "最新一期", "最近一期", "当前最新"}:
         return LogicalTimeRange(preset="latest")
+    value = re.sub(r"^(?:最近|过去)(?=[\d一二两三四五六七八九十])", "近", value)
     year_boundary = re.fullmatch(r"(?:(\d{4})年|(今年|本年|去年|上年|前年)|年)(末|底|初)", value)
     if year_boundary:
         explicit_year, relative, boundary = year_boundary.groups()

@@ -76,12 +76,6 @@ export function failureReason(errorCode: string | null | undefined, errorMessage
   return FAILURE_REASON_BY_CODE[errorCode ?? ""] ?? "查询执行失败。";
 }
 
-/** 指标/机构目录检索共用的参数结构 */
-export const catalogSearchParameters = Type.Object({
-  keyword: Type.String({ minLength: 1, description: "检索关键词，按编码、名称、别名匹配" }),
-  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50, default: 10, description: "最多返回条数" })),
-});
-
 /** 结构化基础查询明细：与 metric_ask 同一展示契约，kind 标记取数通道 */
 export interface StructuredQueryDetails {
   retryable?: boolean;
@@ -97,12 +91,6 @@ export interface StructuredQueryDetails {
   truncated?: boolean | undefined;
   /** “近N年”备选口径（最近 N 个完整年度）；存在时前端提供“切换口径”重查。 */
   time_variants?: Array<{label: string; start: string; end: string}>;
-}
-
-export interface CatalogSearchDetails {
-  kind: "metric_catalog_search" | "org_catalog_search";
-  keyword: string;
-  total: number;
 }
 
 export interface ErrorDetails {

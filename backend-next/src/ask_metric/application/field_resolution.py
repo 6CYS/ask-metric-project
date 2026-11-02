@@ -424,6 +424,10 @@ def resolve_date_field(
                 "resolution_source": "deterministic", "businessDate": today.isoformat(),
             }}
         result = parse_time_expression(raw, today=today, reference_year=reference_year)
+        if result.preset == "latest":
+            return {"status": "resolved", "value": {"preset": "latest"}, "metadata": {
+                "resolution_source": "deterministic", "businessDate": today.isoformat(),
+            }}
         if result.start is None or result.end is None or result.start > result.end:
             return {"status": "invalid", "metadata": {
                 "reason": "incomplete_range" if incomplete_calendar_range(raw) else "unsupported_expression",

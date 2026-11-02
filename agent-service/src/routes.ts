@@ -3,7 +3,7 @@
  * 鉴权采用与前端一致的 Bearer，每次请求经后端 /api/v1/auth/me 校验，不缓存身份。
  * 页面状态是原生与业务状态的派生投影，本地不保存权威运行状态。
  */
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core";
+import { BACKGROUND_CONTEXT, operationResult } from "@earendil-works/pi-agent-core";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { BackendClient, BackendApiError, type BackendUser } from "./backendClient.js";
@@ -15,12 +15,19 @@ import { NativeSemanticTaskStore } from "./semantic-task/store.js";
 import { normalizeAnswerInput, type ClickAnswerInput } from "./semantic-task/questions.js";
 import { projectEntries, projectSnapshot, projectWatchEvent, projectBusinessTasks, projectQuestionStates, type ProjectedMessage } from "./sessionProjection.js";
 import {AnswerStreamProjector} from "./answerStream.js";
+import { createInquiryReportPreview } from "./inquiry/reportTool.js";
+import { receiptDelivery } from "./runtime/delivery.js";
 import {historySources, resolveHistoryOrganizationScopes, type HistoryQuestionReader} from "./historySources.js";
 import {isCalendarDate} from "./tools/shared.js";
 
 type Variables = { user: BackendUser; token: string; startedAt: number; authMs: number };
 
 const MESSAGE_MAX_LENGTH = 4000;
+
+async function storedOperationResults(hosted: HostedSession) {
+  const results = await hosted.session.scanValues(operationResult(""), BACKGROUND_CONTEXT);
+  return results.map(record => record.value);
+}
 
 export function createApp(
   config: AgentServiceConfig,
@@ -110,13 +117,14 @@ export function createApp(
         title: legacy.title,
         created_at: legacy.createdAt,
         running: false,
+        answer_stream: null,
         legacy: true,
         messages,
         question_states: [],
       });
     }
     const entries = await hosted.lane.findEntries({ order: "oldestFirst" }, BACKGROUND_CONTEXT);
-    const messages = await redactInaccessibleHistory(projectEntries(entries), createHistoryAuthorizer(
+    const messages = await redactInaccessibleHistory(projectEntries(entries, await storedOperationResults(hosted)), createHistoryAuthorizer(
       new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs), new NativeSemanticTaskStore(hosted.session)));
     const info = await hosted.lane.inspectExecution(BACKGROUND_CONTEXT);
     // 重启后存在未完成 operation 时，借本次已认证请求重新授权恢复
@@ -133,6 +141,7 @@ export function createApp(
       created_at: hosted.createdAt,
       running: !hosted.readOnlyReason && Boolean(info.current),
       operation_id: hosted.readOnlyReason ? null : info.current?.id ?? null,
+      answer_stream: answerStreamIdentity(hosted, info.current?.id, config.answerStreaming),
       ...(hosted.readOnlyReason ? {legacy: true, read_only_reason: hosted.readOnlyReason} : {}),
       messages,
       question_states: await projectQuestionStates(messages, new NativeSemanticTaskStore(hosted.session)),
@@ -175,55 +184,96 @@ export function createApp(
     const sessionId = hosted.sessionId;
     const backend = new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs);
     const authorize = createHistoryAuthorizer(backend, new NativeSemanticTaskStore(hosted.session));
+    const answerStreaming = config.answerStreaming && c.req.header("X-Agent-Answer-Streaming") === "v1";
     return streamSSE(c, async (stream) => {
       const send = authorizedSender(authorize, async (type, data) => stream.writeSSE({
         event: type,
         data: JSON.stringify({protocol_version: 3, session_id: sessionId, ...data}),
       }), messages => projectQuestionStates(messages, new NativeSemanticTaskStore(hosted.session)));
       if (hosted.readOnlyReason) {
-        const messages = projectEntries(await hosted.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT));
-        await send("snapshot", {messages, running: false, operation_id: null, legacy: true, read_only_reason: hosted.readOnlyReason});
+        const messages = projectEntries(await hosted.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT), await storedOperationResults(hosted));
+        await send("snapshot", {messages, running: false, operation_id: null, answer_stream: null, legacy: true, read_only_reason: hosted.readOnlyReason});
         await send("run_terminal", {run_status: "idle", answer_status: "idle", business_tasks: projectBusinessTasks(messages)});
         return;
       }
-      const watch = await host.watch(hosted);
-      const active = watch.snapshot.operation;
+      let observedOperationId: string | undefined;
+      const previewReport = createInquiryReportPreview();
+      const projector = new AnswerStreamProjector((type, data) => {
+        if (!stream.aborted) void send(type, data).catch(() => {});
+      }, (body, signal) => {
+        const activeRequest = hosted.activeRequest;
+        if (!activeRequest || activeRequest.operationId !== observedOperationId) return Promise.resolve(undefined);
+        // 只借用本轮证据，重连的读取权限由本次认证身份与客户端重新核验。
+        return previewReport(body, { ...activeRequest, actor: user, backend }, signal);
+      });
+      let watch = await host.watch(hosted);
+      stream.onAbort(() => { projector.close(); watch.unsubscribe(); });
       try {
-        await send("snapshot", projectSnapshot(watch.snapshot) as unknown as Record<string, unknown>);
+        if (!watch.snapshot.operation) {
+          // GET 可能已经推进到原生终态，但升级提示仍在持久化；完成后重新取原子快照。
+          await host.resumeOpenOperations(hosted, { actor: user, backend });
+          watch.unsubscribe();
+          watch = await host.watch(hosted);
+        }
+        const active = watch.snapshot.operation;
+        observedOperationId = active?.id;
+        const snapshot = projectSnapshot(watch.snapshot, await storedOperationResults(hosted));
+        await send("snapshot", { ...snapshot,
+          answer_stream: answerStreamIdentity(hosted, active?.id, answerStreaming) });
         if (!active) {
           // 无活动操作：直接给出终态，前端据此停止等待
-          await send("run_terminal", { run_status: "idle", answer_status: "idle", business_tasks: projectBusinessTasks(projectEntries(watch.snapshot.transcript)) });
+          await send("run_terminal", { run_status: "idle", answer_status: "idle", business_tasks: projectBusinessTasks(snapshot.messages) });
           return;
         }
+        if (stream.aborted) return;
+        if (answerStreaming && active.streamingMessage) {
+          projector.onWatchEvent({ type: "message_update", lane: watch.snapshot.lane, runId: active.id,
+            message: active.streamingMessage, event: { type: "text_delta", contentIndex: 0, delta: "", partial: active.streamingMessage } },
+          activeAnswerStream(hosted, observedOperationId));
+        }
         await new Promise<void>((resolve) => {
-          stream.onAbort(() => { watch.unsubscribe(); resolve(); });
+          let recoveryFailed = false;
+          const recoveryFailure = async () => {
+            if (recoveryFailed) return;
+            recoveryFailed = true;
+            projector.close();
+            await send("error", {message: "执行恢复暂未成功，请稍后重新打开此会话。"}).catch(() => {});
+            resolve();
+          };
+          stream.onAbort(resolve);
+          if (stream.aborted) { resolve(); return; }
           watch.start((event) => {
+            if (stream.aborted) return;
+            if (event.type === "run_end") projector.close();
             const projected = projectWatchEvent(event);
             if (projected) {
+              const answer = streamedToolAnswer(projected);
+              if (answer) projector.close();
               void send(projected.type, projected as unknown as Record<string, unknown>).catch(() => {});
-              if (projected.type === "tool_end" && projected.answer) void send("message_done", {
-                text: projected.answer.text, entry_id: projected.answer.entry_id,
+              if (answer) void send("message_done", {
+                text: answer.text, entry_id: answer.entry_id,
               }).catch(() => {});
             }
+            if (answerStreaming) projector.onWatchEvent(event, activeAnswerStream(hosted, observedOperationId));
             if (event.type === "run_end") {
               void (async () => {
-                const messages = projectEntries(await hosted.lane.findEntries({ order: "oldestFirst" }, BACKGROUND_CONTEXT));
-                await send("snapshot", { messages, running: false, operation_id: null });
+                await host.resumeOpenOperations(hosted, { actor: user, backend });
+                const messages = projectEntries(await hosted.lane.findEntries({ order: "oldestFirst" }, BACKGROUND_CONTEXT), await storedOperationResults(hosted));
+                await send("snapshot", { messages, running: false, operation_id: null, answer_stream: null });
                 await send("run_terminal", {
                   run_status: event.status, answer_status: event.status === "completed" ? "ok" : "failed",
                   business_tasks: projectBusinessTasks(messages),
                 });
-              })().catch(() => {}).finally(resolve);
+              })().catch(recoveryFailure).finally(resolve);
             }
           });
-          if (hosted.open.length) {
-            const backend = new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs);
-            void host.resumeOpenOperations(hosted, { actor: user, backend }).catch(() => {
-              void send("error", {message: "执行恢复暂未成功，请稍后重新打开此会话。"}).catch(() => {}).finally(resolve);
-            });
-          }
+          void host.resumeOpenOperations(hosted, { actor: user, backend }).catch(recoveryFailure);
         });
+      } catch {
+        projector.close();
+        await send("error", {message: "执行恢复暂未成功，请稍后重新打开此会话。"});
       } finally {
+        projector.close();
         watch.unsubscribe();
       }
     });
@@ -239,9 +289,6 @@ export function createApp(
     const body: Record<string, unknown> = await c.req.json<Record<string, unknown>>().catch(() => ({}));
     if (body.protocol_version !== 3) {
       return c.json({ detail: "客户端协议版本过旧，请刷新页面", code: "CLIENT_UPGRADE_REQUIRED" }, 400);
-    }
-    if (hosted.businessProtocol === "semantic_v2" && body.clarification_selection !== undefined) {
-      return c.json({detail: "semantic_v2 不支持旧 clarification_selection，请改用 answers 提交结构化回答。", code: "CLARIFICATION_SELECTION_UNSUPPORTED"}, 400);
     }
     const input = parsePromptInput(body);
     if (!input) {
@@ -295,41 +342,55 @@ export function createApp(
             call_seq: data.call_seq, ...(type === "answer_reset" ? {reason: data.reason} : {mode: data.mode})}));
         }
       }, messages => projectQuestionStates(messages, new NativeSemanticTaskStore(hosted.session)));
+      const previewReport = createInquiryReportPreview();
       const projector = new AnswerStreamProjector((type, data) => {
-        void send(type, data).catch(() => {});
-      });
-      if (answerStreaming) admitted.request.reportAnswerRetry = callSeq => projector.retry(callSeq);
+        if (!stream.aborted) void send(type, data).catch(() => {});
+      }, (body, signal) => previewReport(body, admitted.request, signal));
 
       // 观察与驱动分离：浏览器断线只取消观察，不中止执行
       const watch = await host.watch(hosted);
+      let heartbeat: ReturnType<typeof setInterval> | undefined;
+      const closeObservation = () => {
+        projector.close();
+        clearInterval(heartbeat);
+        watch.unsubscribe();
+      };
+      stream.onAbort(closeObservation);
       // 先投影原子快照，再订阅增量事件（原生 watch 的顺序约定）
-      await send("accepted", { snapshot: projectSnapshot(watch.snapshot) }).catch(() => {});
-      watch.start((event) => {
+      await send("accepted", { snapshot: { ...projectSnapshot(watch.snapshot, await storedOperationResults(hosted)),
+        answer_stream: answerStreamIdentity(hosted, watch.snapshot.operation?.id, answerStreaming) } }).catch(() => {});
+      if (stream.aborted) closeObservation();
+      else watch.start((event) => {
+        if (stream.aborted) return;
+        if (event.type === "run_end") projector.close();
         const projected = projectWatchEvent(event);
         if (projected) {
+          const answer = streamedToolAnswer(projected);
+          if (answer) projector.close();
           void send(projected.type, projected as unknown as Record<string, unknown>).catch(() => {});
-          if (projected.type === "tool_end" && projected.answer) void send("message_done", {
-            text: projected.answer.text, entry_id: projected.answer.entry_id,
+          if (answer) void send("message_done", {
+            text: answer.text, entry_id: answer.entry_id,
           }).catch(() => {});
         }
         if (answerStreaming) projector.onWatchEvent(event, admitted.request.answerStream);
       });
       // 模型重试与工具执行期间没有原生事件可投影；心跳既避免代理按空闲断连，
       // 也让前端能把“仍在执行”和“卡死”区分开。
-      const heartbeat = setInterval(() => {
+      if (!stream.aborted) heartbeat = setInterval(() => {
         void send("progress", { elapsed_ms: Math.round(performance.now() - c.get("startedAt")) }).catch(() => {});
       }, 15_000);
       // “理解问题”阶段没有原生事件：宿主在准备模型上下文时播报读取的话题与指标识别结果。
-      admitted.request.reportActivity = (activity) => {
-        void send("activity", activity as unknown as Record<string, unknown>).catch(() => {});
+      const reportActivity: NonNullable<typeof admitted.request.reportActivity> = (activity) => {
+        if (!stream.aborted) void send("activity", activity as unknown as Record<string, unknown>).catch(() => {});
       };
+      admitted.request.reportActivity = reportActivity;
       try {
         const driven = await host.drivePrompt(hosted, admitted)
           .catch(() => ({ok: false as const, code: "SESSION_CLOSED", message: "会话服务暂时不可用，请稍后查看最终状态。"}))
           .finally(() => projector.close());
         const record = driven.ok && driven.outcome.kind === "settled" ? driven.outcome.outcome : undefined;
-        const messages = projectEntries(await hosted.lane.findEntries({ order: "oldestFirst" }, BACKGROUND_CONTEXT));
-        await send("snapshot", { messages, running: false, operation_id: null }).catch(() => {});
+        const messages = projectEntries(await hosted.lane.findEntries({ order: "oldestFirst" }, BACKGROUND_CONTEXT), await storedOperationResults(hosted));
+        await send("snapshot", { messages, running: false, operation_id: null, answer_stream: null }).catch(() => {});
         await host.recordRequestTiming(hosted, admitted.request).catch(() => {
           console.warn(JSON.stringify({event: "agent_request_timing_failed", request_id: input.request_id}));
         });
@@ -347,10 +408,8 @@ export function createApp(
             model_first_token_ms: timings?.modelFirstTokenMs },
         }).catch(() => {});
       } finally {
-        projector.close();
-        delete admitted.request.reportAnswerRetry;
-        clearInterval(heartbeat);
-        watch.unsubscribe();
+        closeObservation();
+        if (admitted.request.reportActivity === reportActivity) delete admitted.request.reportActivity;
       }
     });
   });
@@ -358,11 +417,31 @@ export function createApp(
   return app;
 }
 
+function activeAnswerStream(hosted: HostedSession, operationId: string | undefined) {
+  const request = hosted.activeRequest;
+  return !hosted.readOnlyReason && operationId && request?.operationId === operationId
+    ? request.answerStream : undefined;
+}
+
+function answerStreamIdentity(hosted: HostedSession, operationId: string | undefined, enabled: boolean | undefined) {
+  const stream = enabled ? activeAnswerStream(hosted, operationId) : undefined;
+  return stream && stream.mode !== "none" ? {call_seq: stream.callSeq, mode: stream.mode} : null;
+}
+
 function hasCurrentAnswer(messages: ProjectedMessage[]): boolean {
   if (!Array.isArray(messages)) return false;
   let start = messages.length - 1;
   while (start >= 0 && messages[start]?.role !== "user") start -= 1;
   return messages.slice(start + 1).some(message => message.role === "assistant" && message.text?.trim());
+}
+
+/** 实时流复用正式回执的交付入口，避免只识别旧版直出快照而漏掉调查报告。 */
+function streamedToolAnswer(projected: NonNullable<ReturnType<typeof projectWatchEvent>>) {
+  if (projected.type !== "tool_end") return undefined;
+  if (projected.answer) return projected.answer;
+  const text = receiptDelivery({ role: "toolResult", toolName: projected.tool,
+    isError: projected.isError, details: projected.details });
+  return text === undefined ? undefined : { text, entry_id: `live:${projected.tool_call_id}` };
 }
 
 /** 解析并校验协议 V3 输入；非法字段整体拒绝，不猜测补齐 */
@@ -387,7 +466,6 @@ export function parsePromptInput(body: Record<string, unknown>): PromptInput | n
       return null;
     }
   }
-  if (!message && !input.answers?.length) return null;
   const target = body.clarification_target;
   if (target !== undefined) {
     if (!target || typeof target !== "object" || Array.isArray(target)) return null;
@@ -429,6 +507,7 @@ export function parsePromptInput(body: Record<string, unknown>): PromptInput | n
       || !isCalendarDate(start) || !isCalendarDate(end) || start > end) return null;
     input.time_override = {start, end};
   }
+  if (!message && !input.answers?.length && !input.clarification_selection && !input.selected_answers) return null;
   return input;
 }
 

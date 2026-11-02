@@ -43,7 +43,7 @@ export function businessPieOption(chart: BusinessPieChart): EChartsCoreOption | 
       formatter: (item: unknown) => {
         const index = (item as { dataIndex?: number } | undefined)?.dataIndex
         const point = typeof index === "number" ? chart.points[index] : undefined
-        return point ? `${escapeHtml(point.name)}<br>余额：<strong>${escapeHtml(point.display)}</strong><br>占比：${escapeHtml(point.share)}` : ""
+        return point ? `${escapeHtml(point.name)}<br><strong>${escapeHtml(point.display)}</strong><br>占比：${escapeHtml(point.share)}` : ""
       },
     },
     series: [{

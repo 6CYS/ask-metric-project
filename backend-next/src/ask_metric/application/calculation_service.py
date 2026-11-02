@@ -38,7 +38,10 @@ def build_calculation_facts(task_id: str, rows: list[dict], catalog: dict) -> li
             continue
         org_code = row.get("org_code")
         if not org_code:
-            candidates = codes_by_name.get(row.get("org_name"), set())
+            org_name = row.get("org_name")
+            if org_name is None:
+                continue
+            candidates = codes_by_name.get(org_name, set())
             if len(candidates) != 1:
                 continue
             org_code = next(iter(candidates))
@@ -91,10 +94,16 @@ class CalculationApplicationService:
 
     def _calculate(self, payload: CalculationRequest, actor, request_id: str) -> dict:
         snapshots = payload.source_policy == "conversation_snapshots"
-        if snapshots and (not payload.user_question or not payload.user_question.strip()):
-            raise ApplicationError(
-                "CALCULATION_QUESTION_REQUIRED", "快照计算必须绑定本次用户问题。", status_code=422
-            )
+        if snapshots:
+            question = payload.user_question
+            if not question or not question.strip():
+                raise ApplicationError(
+                    "CALCULATION_QUESTION_REQUIRED",
+                    "快照计算必须绑定本次用户问题。",
+                    status_code=422,
+                )
+        else:
+            question = ""
         if len({item.name for item in payload.expressions}) != len(payload.expressions):
             raise CalculationError("计算结果名称不能重复。")
         if set(payload.constants) & set(payload.bindings):
@@ -206,7 +215,8 @@ class CalculationApplicationService:
             if not snapshots and len(questions) != 1:
                 raise CalculationError("数据必须来自同一个明确的用户问题。")
             # 新计算可组合多轮快照，系数只从本轮原文核验，不能借用历史问题中的数字。
-            question = payload.user_question if snapshots else questions.pop()
+            if not snapshots:
+                question = questions.pop()
             for name, constant in payload.constants.items():
                 values[name] = Quantity(
                     validate_constant(constant.source_text, constant.value, question)
@@ -221,7 +231,8 @@ class CalculationApplicationService:
                     raise ApplicationError(
                         "CALCULATION_CONFLICT", "同一请求不能更换计算内容。", status_code=409
                     )
-                return replay["result"]
+                replayed_result: dict = replay["result"]
+                return replayed_result
             anchor = tasks[sorted(tasks)[0]][0]
             saved = list((anchor.state_json or {}).get("calculations", []))
             if len(saved) >= 50:

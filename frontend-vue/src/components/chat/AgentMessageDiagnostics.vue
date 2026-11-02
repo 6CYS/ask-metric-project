@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Bug, Check, Clock3, ChevronRight, CircleAlert, LoaderCircle } from "@lucide/vue"
-import { computed, onMounted, onUnmounted, ref, useId, watch } from "vue"
+import { computed, onUnmounted, ref, useId, watch } from "vue"
 import BackendNextDebugPanel from "@/components/chat/BackendNextDebugPanel.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import { getBackendNextTask } from "@/lib/api"
@@ -21,8 +21,8 @@ const props = defineProps<{
   runTimings?: { auth_ms?: number; total_ms?: number; model_ms?: number[]; tool_ms?: number[];
     first_visible_ms?: number | null; model_first_token_ms?: number[] }
 }>()
-// 执行中展开过程，便于看到每一步在做什么；本轮结束后自动收起，只保留摘要行，用户可再展开。
-const expanded = ref(props.pending)
+// 默认只显示当前动作，用户展开后即时查看已收到的执行记录。
+const expanded = ref(false)
 // 状态栏复用真实工具状态；没有运行中的工具时显示模型处理阶段。
 const currentStage = computed(() => {
   if (!props.pending) return "执行过程"
@@ -30,25 +30,7 @@ const currentStage = computed(() => {
   const activity = props.activities?.find(item => item.status === "running")
   if (!running && activity && !props.tools.length) return activity.label.includes("正在") ? activity.label : `正在${activity.label}`
   if (!running) return props.hasAnswer ? "正在生成回答" : props.tools.length ? "正在整理结果" : "正在理解问题"
-  const stages: Record<string, string> = {
-    resolve_business_turn: "正在解析查询条件",
-    business_skill_read: "正在确认查询方法",
-    answer_evidence_check: "正在核验回答依据",
-    answer_present: "正在生成回答",
-    business_context_read: "正在读取查询历史",
-    execute_business_frame: "正在执行指标查询",
-    read_business_result: "正在读取历史结果",
-    data_availability: "正在检查数据覆盖",
-    catalog_overview: "正在查看目录概览",
-    catalog: "正在查询目录",
-    read: "正在读取记录",
-    metric_catalog_search: "正在检索指标",
-    org_catalog_search: "正在检索机构",
-    metric_ask: "正在解析并查询",
-    metric_query_structured: "正在查询数据",
-    metric_calculate: "正在使用可靠计算工具",
-  }
-  return stages[running.tool] ?? "正在执行查询步骤"
+  return `正在${toolCallLabel(running.tool)}`
 })
 // 标题是唯一的实时进度；时间线只列已结束的步骤，进行中的步骤由标题说明，避免同一阶段出现两次。
 // 理解阶段步骤的耗时仅在明显时显示，避免“12 毫秒”一类噪声。
@@ -58,37 +40,9 @@ const allSteps = computed(() => [
 ])
 const finishedSteps = computed(() => allSteps.value.filter(call => call.status !== "running"))
 const hasDetails = computed(() => !props.pending || finishedSteps.value.length > 0)
-// 渐进式揭示：后端会在极短时间内连续报出多个已结束步骤（读取上下文、识别指标等），
-// 逐事件即时渲染会让几个阶段在同一次渲染里一齐弹出。执行中按固定节奏逐行展现，
-// 本轮结束或组件卸载时立即补齐；服务端渲染与历史消息不走挂载流程，始终完整呈现。
-const REVEAL_INTERVAL_MS = 600
-const revealedCount = ref(Number.POSITIVE_INFINITY)
-let revealTimer: ReturnType<typeof setInterval> | undefined
-function stopReveal() {
-  if (revealTimer !== undefined) {
-    clearInterval(revealTimer)
-    revealTimer = undefined
-  }
-}
-function startReveal() {
-  stopReveal()
-  revealedCount.value = finishedSteps.value.length
-  revealTimer = setInterval(() => {
-    revealedCount.value = Math.min(revealedCount.value + 1, finishedSteps.value.length)
-  }, REVEAL_INTERVAL_MS)
-}
-const visibleSteps = computed(() => finishedSteps.value.slice(0, revealedCount.value))
-watch(() => props.pending, (pending, wasPending) => {
-  if (pending) {
-    expanded.value = true
-    startReveal()
-  } else if (wasPending) {
-    expanded.value = false
-    stopReveal()
-    revealedCount.value = Number.POSITIVE_INFINITY
-  }
+watch(() => props.pending, () => {
+  expanded.value = false
 })
-onMounted(() => { if (props.pending) startReveal() })
 const stepsId = useId()
 const statusLabels: Record<string, string> = {
   running: "执行中", done: "已完成", error: "执行失败", interrupted: "已中断", unknown: "未记录执行结果",
@@ -116,7 +70,7 @@ watch(() => props.pending, (pending) => {
   now.value = Date.now()
   if (pending) timer = setInterval(() => { now.value = Date.now() }, 1000)
 }, { immediate: true })
-onUnmounted(() => { clearInterval(timer); stopReveal(); requestVersion += 1 })
+onUnmounted(() => { clearInterval(timer); requestVersion += 1 })
 watch(() => props.taskIds, (ids) => {
   if (!ids.includes(selectedId.value)) selectedId.value = ids[0] ?? ""
 }, { immediate: true })
@@ -236,7 +190,7 @@ function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? n
     </button>
     <div v-if="expanded && hasDetails" :id="stepsId" class="pt-1">
       <ol class="ml-1.5 list-none border-l border-border/60 pl-4">
-        <li v-for="(call, index) in visibleSteps" :key="call.id ?? index" class="relative py-1">
+        <li v-for="(call, index) in finishedSteps" :key="call.id ?? index" class="relative py-1">
           <span class="absolute -left-4 top-3 flex size-3 -translate-x-1/2 -translate-y-1/2 items-center justify-center bg-background" aria-hidden="true">
             <CircleAlert v-if="call.status === 'error'" class="size-3" />
             <Check v-else-if="call.status === 'done'" class="size-3 text-muted-foreground/70" />
@@ -249,9 +203,9 @@ function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? n
             <span v-if="call.elapsedMs !== undefined" class="text-muted-foreground/60 tabular-nums">· {{ call.elapsedMs >= 1000 ? (call.elapsedMs / 1000).toFixed(1) + ' 秒' : call.elapsedMs + ' 毫秒' }}</span>
           </div>
           <ul v-if="call.summary?.conditions?.length" class="mt-1 flex list-none flex-wrap gap-1.5" aria-label="查询条件">
-            <li v-for="condition in call.summary.conditions" :key="condition.label" class="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md bg-muted/60 px-1.5 py-0.5" :title="`${condition.label}：${condition.value}`">
+            <li v-for="condition in call.summary.conditions" :key="condition.label" class="inline-flex min-w-0 max-w-full gap-1 rounded-md bg-muted/60 px-1.5 py-0.5" :class="condition.wrap ? 'items-start' : 'items-center'" :title="`${condition.label}：${condition.value}`">
               <span class="shrink-0 text-muted-foreground/70">{{ condition.label }}</span>
-              <span class="min-w-0 truncate text-foreground/80">{{ condition.value }}</span>
+              <span class="min-w-0 text-foreground/80" :class="condition.wrap ? 'whitespace-pre-line break-words' : 'truncate'">{{ condition.value }}</span>
             </li>
           </ul>
         </li>

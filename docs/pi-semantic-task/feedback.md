@@ -1,6 +1,6 @@
 # Pi 语义任务反馈与引用契约
 
-这是版本 2 的工具反馈，定义业务工具回执的 `details`，不替代 Pi 原生 `AgentToolResult` 包装和证据正文。公开请求、内部规范化结果与工具反馈构成同一个闭环；实现时必须一起接入。反馈形状见 feedback.schema.json（历史参考材料，未随交付包提供），合成状态样例见 feedback-examples.json（历史参考材料，未随交付包提供）。内部状态仍以 [任务状态与执行](state-and-execution.md) 为准。
+这是版本 2 的工具反馈，定义业务工具回执的 `details`，不替代 Pi 原生 `AgentToolResult` 包装和证据正文。公开请求、内部规范化结果与工具反馈构成同一个闭环；实现时必须一起接入。反馈形状见 [feedback.schema.json](feedback.schema.json)，合成状态样例见 [feedback-examples.json](feedback-examples.json)。内部状态仍以 [任务状态与执行](state-and-execution.md) 为准。
 
 ## 固定反馈与下一步
 

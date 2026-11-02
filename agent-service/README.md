@@ -4,15 +4,15 @@
 pi 是唯一的 Agent 运行与对话控制核心：会话、模型上下文、压缩、执行状态与恢复全部使用原生能力
 （`JsonlSessionRepo` + `main` lane）；本服务承载鉴权、可信输入绑定、原生接线、Schema 驱动的业务 Frame 及页面投影。
 
-普通文本问数使用下文的直接工具循环（`inquiry_v1`）；结构化请求保留 `semantic_v2` 兼容路径。
+新会话统一使用 `semantic_v2` 业务协议，已贯通精确查询、条件准备、确认、历史重显、复合目标、比较排名、覆盖发现、正式结果计算及结果驱动规划。
 `fixed_v1` 协议及 `AGENT_BUSINESS_PROTOCOL`、`AGENT_COMPACT_TURN_ARGS` 配置已退役，不再是配置回退选项；
 旧 fixed 会话保留历史消息、工具回执与结果展示，仅只读查看，继续提问返回明确的只读状态，在途旧操作不再自动恢复。
 问数与多轮上下文的当前实现见[实现说明](../docs/pi-semantic-task/implementation-multiturn-context.md)，对话验收契约见[研发说明](../docs/问数与多轮上下文重构研发说明.md)。
-历史结构化链路的实现及回退见[阶段4说明](../docs/pi-semantic-task/implementation-phase4.md)。
+实现、检查及回退见[阶段4说明](../docs/pi-semantic-task/implementation-phase4.md)，可复制问法见[手工验收案例](../docs/pi-semantic-task/manual-acceptance-phase4.md)。
 Agent 的业务取数只调用 FastAPI 后端受治理接口并透传用户 Bearer，目录校验、权限裁剪、
 SQL builder 生成和执行与受控计算全部保留在后端；本服务不生成或执行 SQL；Frame 仅保留字段、结果引用和摘要，结果快照按需读取。
 
-当前普通文本问数使用直接工具循环：`metric_search` 找正式指标，`metric_query` 查询，
+`develop-ws` 的普通文本问数使用直接工具循环：`metric_search` 找正式指标，`metric_query` 查询，
 模型根据真实差异决定是否补查，用 `analysis_calculate` 比较已取到的同指标事实，
 用 `analysis_chart` 选择已有来源配图，再直接撰写正文。
 宿主通过内部 `analysis_answer` 校验正文与图表。它不再经过
@@ -151,11 +151,20 @@ SSE 事件：`accepted`（含快照）、`snapshot`、`tool_start`、`tool_end`�
 `returned` 只表示工具返回，业务是否成功仍看正式回执；准入拒绝或参数校验失败不记录执行耗时。
 这些日志只保留参数摘要，不记录工具结果或异常正文；模型等待和浏览器渲染不计入工具耗时。
 
-一期回答流式开关 `AGENT_ANSWER_STREAMING` 默认 `false`。开启时，提问流增加
+回答流式开关 `AGENT_ANSWER_STREAMING` 默认 `false`；启用此体验需设置 `true` 并重启 Agent。开启时，提问流与重连观察流增加
 `answer_delta`（`call_seq`、`mode: text/reply`、累计 `text`）与 `answer_reset`（同调用撤回）；
 仅向请求头声明 `X-Agent-Answer-Streaming: v1` 的新前端发送，旧页面继续原事件序列。
-80ms 合并发送，模型结束补齐。工具调用、重试或失败可撤回临时正文，最终快照整体替换。
-临时文本不参与存档、复制或导出；GET 重连流保持快照投影。关闭开关并重启 agent-service 即回退。
+模型通过既有 `analysis_answer.body` 提交的完整段落复用报告接口核验权限、来源、数值和单位后展示，不发送原始事实引用。
+普通 assistant 文本可能仍是规划，不直接流出；旧自然正文兼容路径继续通过正式回执交付。
+每条观察流至多一个预览请求在途，合并等待期间的累计前缀；不追加模型调用、日期查询或人为打字延迟。
+同一次模型尝试、相同来源上下文中，只核验新增的完整段落；来源、焦点、计算或绑定变化时重新核验全文。
+后端每次仍检查来源权限与元数据，正式报告不复用预览结论。确定的段落错误停止该前缀的重复预览；临时服务失败只在后续完整片段到达时有限恢复，不增加模型或业务查询重试。
+前端按帧更新正文；用户上翻后停止自动跟随。图表仍由正式报告交付。
+详情与快照的 `answer_stream` 标识当前有效的 `call_seq` 和 `mode`，无有效预览时为 `null`；每次模型尝试使用独立序号。
+同一活动操作、同一有效尝试的重连快照保留已显示预览，重试或失效时撤回，最终快照整体替换。临时文本不参与存档、复制或导出；
+GET 重连从活动执行继续观察，不重新提交提问。停止后关闭临时投影，刷新以原生持久化会话为准。
+取消发生在工具执行或首个模型响应前时，历史投影从原生 operation 终态恢复停止提示，并关联到对应轮次；不额外保存一份聊天状态，也不覆盖已经正式交付的回答。
+部署时先更新后端报告的 `preview` 接口，再更新 Agent 与前端；关闭开关并重启 agent-service 即回退到最终快照展示。
 
 模型统一以 semantic_v2 版本2协议调用 `resolve_business_turn`：新查询按 `target.query` 一次提交结构化机构、指标、时间、取数方式及操作；历史继承和局部修改使用 `operations`，排序修改提交结构化 `queryOperation`。程序绑定正式身份与权限并生成既有执行参数，结构化路径不再二次解析排序描述。原生会话和业务 Frame 不改写。
 协议格式见[语义任务协议](../docs/pi-semantic-task/protocol.md)。
@@ -166,8 +175,26 @@ SSE 事件：`accepted`（含快照）、`snapshot`、`tool_start`、`tool_end`�
 空授权范围、不支持的查询组合和不支持的覆盖查询范围返回 `retryable=false`；宿主结束本轮业务动作并交付原因，下一用户轮可继续新请求。
 确定失败修复和完整日期表达解析规则继续生效。
 
-`release` 不包含开发对照脚本和测试代码；相关验证在开发分支中维护。
-`answer_stream_started` / `answer_stream_reset` 日志只记录请求、调用编号和撤回原因。
+历史二期真实模型对照脚本（旧格式兼容研究；不代表固定入口的模型验收）：
+
+```bash
+node --env-file=.env --import tsx scripts/check-compact-turn-args.ts --live --repeat 3 --supplementary --report /tmp/compact-phase2.json
+```
+
+报告区分语义回归、首调用输出 token、首字时间及未完成的真实页面/数据库工具治理门禁。
+不带 `--live` 仅列计划，`--self-check` 离线核对门禁统计。验收结论见 `../docs/verification/`。
+`--concurrency 1..3` 控制独立用例对的并发，默认 1；每个用例旧/新仍串行对照，每轮全部完成后再重复。性能对比须保留报告中的并发设置。
+`answer_stream_started` / `answer_stream_reset` 日志只记录请求、调用编号和撤回原因，供统计撤回率。
+
+真实模型开关对照（业务后端为隔离合成桩，不验证真实数据库）：
+
+```bash
+node --env-file=.env --import tsx scripts/check-answer-streaming.ts --live --report /tmp/answer-streaming.json
+AGENT_ANSWER_STREAMING=true node --env-file=.env --import tsx scripts/check-query-intent-v2.ts --live --report /tmp/query-streaming.json
+```
+
+对照脚本默认各测 10 轮普通对话与 10 轮业务请求，两侧相邻交替；`--samples greeting-1,original`
+可用于小范围复测。延迟统计排除未通过语义或完成检查的轮次，原始失败与撤回仍保留在报告中。
 
 刷新或传输中断后，前端通过 GET 观察原会话，不重新 POST 问题。已认证 GET 会接管原生未完成
 operation；是否存在 `current` 不能用来判断当前进程是否已有执行器。恢复仍使用原 request 和
@@ -202,3 +229,11 @@ Frame 使用 Pi 原生事务 values 持久化，支持历史分支、独立焦�
 配套升级后端、Agent、前端，先排空活动回合；不增加依赖或数据库迁移。
 
 运行阶段、计划版本、交付完成条件及恢复预算统一接入现有语义任务账本，详见[运行控制](../docs/pi-semantic-task/runtime-control.md)。业务正文从正式回执交付；目录/Skill 成功不能替代查询完成。旧会话回放沿用相同正文检查，不批量改写原记录。
+
+结构化查询验收（当前真实模型、真实 Python 绑定与内存合成 SQL）：
+
+```bash
+node --env-file=.env --import tsx scripts/check-structured-query-model.ts --live
+```
+
+去掉 `--live` 仅检查合成目录、机构范围及 SQL fixture。报告记录实际模型参数、规范查询条件和 SQL；不连接实际业务数据库。
