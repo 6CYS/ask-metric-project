@@ -93,6 +93,32 @@ def analysis_methods(actor: Annotated[ActorContext, Depends(require_actor)]):
     return METHODS
 
 
+class CatalogBindingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    metric_codes: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
+        min_length=1, max_length=100
+    )
+
+
+@router.post("/catalog/bind")
+def bind_catalog_metrics(
+    payload: CatalogBindingRequest,
+    actor: Annotated[ActorContext, Depends(require_actor)],
+    service: Annotated[GeneralAnalysisService, Depends(get_analysis_service)],
+):
+    """主题配置只提供编码；正式描述和用户绑定仍由当前目录签发，不调用模型检索。"""
+    semantics = service.semantics(actor)
+    codes = list(dict.fromkeys(payload.metric_codes))
+    descriptors = [semantics.descriptor(code) for code in codes if code in semantics.items]
+    return {
+        "items": [
+            {**item, "binding_ref": semantics.binding(item, item["code"])}
+            for item in descriptors
+        ],
+        "missing_codes": [code for code in codes if code not in semantics.items],
+    }
+
+
 class PlanValidationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     plan: AnalysisPlan

@@ -354,6 +354,11 @@ export class BackendClient {
   analysisMethods(options?: CallOptions): Promise<Record<string, unknown>> {
     return this.request("/api/v1/analysis/methods", {}, options);
   }
+  analysisBindMetrics(metricCodes: readonly string[], options?: CallOptions): Promise<Record<string, unknown>> {
+    return this.request("/api/v1/analysis/catalog/bind", {
+      method: "POST", body: JSON.stringify({metric_codes: metricCodes}),
+    }, options);
+  }
   analysisValidate(plan: import("./analysis/contracts.js").AnalysisPlan, question: string, options?: CallOptions): Promise<Record<string, unknown>> {
     return this.request("/api/v1/analysis/validate", {method: "POST", body: JSON.stringify({plan, question})}, options);
   }
