@@ -11,6 +11,7 @@ import { MAX_INVESTIGATION_CALLS } from "./limits.js";
 export const INQUIRY_TOOLS = new Set([
   "metric_search",
   "metric_query",
+  "topic_query",
   "metric_availability",
   "analysis_read",
   "analysis_calculate",

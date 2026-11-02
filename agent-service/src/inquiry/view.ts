@@ -24,7 +24,7 @@ export function inquiryEvidenceView(evidence: Row, evidenceRef: string): object 
   const atoms = rows(evidence.evidence_items);
   // 必须从完整集合建立别名；不可用值仍占原编号，后面的可用事实不能前移。
   const aliases = new Map([...analysisEvidenceAliases(evidenceRef, atoms.map(atom => ({ref: text(atom.ref), type: text(atom.type),
-    judgment_kind: text(atom.judgment_kind)})))].map(([alias, ref]) => [ref, alias]));
+    judgment_kind: text(atom.judgment_kind), topic_alias: text(atom.topic_alias)})))].map(([alias, ref]) => [ref, alias]));
   const descriptors = new Map(rows(evidence.metric_descriptors).map(metric => [text(metric.code), metric]));
   const byFact = new Map(atoms.filter(atom => typeof atom.fact_id === "string").map(atom => [text(atom.fact_id), text(atom.ref)]));
   const inputs = (atom: Row) => [...new Set([...strings(atom.input_refs), ...strings(atom.input_fact_refs)].map(ref => byFact.get(ref) ?? ref))];

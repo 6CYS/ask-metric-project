@@ -63,7 +63,7 @@ export async function freezeInquiryTargetContext(
       } else if (message.role === "toolResult") {
         permissionFailure ||=
           authenticationFailure(message.details) || inquiryPermissionDenied(message.details);
-        if (candidate || !["metric_query", "metric_availability"].includes(message.toolName))
+        if (candidate || !["metric_query", "metric_availability", "topic_query"].includes(message.toolName))
           continue;
         const details = message.details as { inquiry_target_snapshot?: unknown } | undefined;
         candidate = readInquiryTargetSnapshot(details?.inquiry_target_snapshot);

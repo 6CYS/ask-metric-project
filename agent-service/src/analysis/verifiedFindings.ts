@@ -1,5 +1,5 @@
 /** 短引用只改变模型视图；判断与计算依据始终使用服务端不可变回执中的原子。 */
-export interface FindingAtom {ref: string; type?: string; judgment_kind?: string; input_refs?: string[]; fact_id?: unknown; input_fact_refs?: unknown}
+export interface FindingAtom {ref: string; type?: string; judgment_kind?: string; input_refs?: string[]; fact_id?: unknown; input_fact_refs?: unknown; topic_alias?: string}
 export interface VerifiedFindings {
   version: string; boundary: string;
   items: Array<{ref: string; kind: string; text: string; evidence_refs: string[]; date?: string; org_code?: string}>;
@@ -11,6 +11,12 @@ export function analysisEvidenceAliases(owner: string, atoms: readonly FindingAt
     .forEach((atom, index) => aliases.set(`${owner}.v${index + 1}`, atom.ref));
   atoms.filter(atom => atom.judgment_kind)
     .forEach((atom, index) => aliases.set(`${owner}.j${index + 1}`, atom.ref));
+  // 主题额外携带机构、指标和日期，减少数字序号的错配；原短引用继续有效。
+  const named = atoms.filter(atom => typeof atom.topic_alias === "string" && /^[A-Za-z0-9_.-]+$/u.test(atom.topic_alias));
+  const counts = new Map<string, number>();
+  for (const atom of named) counts.set(atom.topic_alias!, (counts.get(atom.topic_alias!) ?? 0) + 1);
+  for (const atom of named) if (counts.get(atom.topic_alias!) === 1)
+    aliases.set(`${owner}.${atom.topic_alias}`, atom.ref);
   return aliases;
 }
 

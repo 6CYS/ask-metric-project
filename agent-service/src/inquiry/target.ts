@@ -121,7 +121,7 @@ export function currentInquiryTarget(messages: readonly AgentMessage[], operatio
     if (message.role === "user") break;
     if (
       message.role !== "toolResult" ||
-      !["metric_query", "metric_availability"].includes(message.toolName)
+      !["metric_query", "metric_availability", "topic_query"].includes(message.toolName)
     )
       continue;
     const details = message.details as { inquiry_target_snapshot?: unknown } | undefined;
@@ -153,7 +153,7 @@ export function inquiryTargetCoverage(
       : undefined;
   const coveredDates = new Map<string, Set<string>>();
   for (const message of messages) {
-    if (message.role !== "toolResult" || message.toolName !== "metric_query") continue;
+    if (message.role !== "toolResult" || !["metric_query", "topic_query"].includes(message.toolName)) continue;
     const details = message.details as { inquiry_target_snapshot?: unknown } | undefined;
     if (readInquiryTargetSnapshot(details?.inquiry_target_snapshot)?.ref !== target.ref) continue;
     for (const evidence of businessEvidences(message.details)) {

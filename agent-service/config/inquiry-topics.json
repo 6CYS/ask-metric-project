@@ -1,0 +1,395 @@
+{
+  "version": "1",
+  "status": "trial",
+  "notice": "试行分析范围，尚非业务确认的评价标准；排名、变动方向及相关线索不等于已证明的根因。",
+  "limits": {
+    "max_metrics": 24,
+    "max_focus_orgs": 20,
+    "rank_n": 5,
+    "max_model_bytes": 64000,
+    "availability_pages": 20
+  },
+  "metrics": {
+    "net_profit": {
+      "key": "net_profit",
+      "code": "ORG_NETPRFT_AMT",
+      "name": "净利润金额当日数",
+      "unit": "元",
+      "change": "value"
+    },
+    "net_profit_yoy": {
+      "key": "net_profit_yoy",
+      "code": "ORG_NETPRFT_AMT_CMP_SAMEPRD",
+      "name": "净利润金额较同期",
+      "unit": "元",
+      "change": "yoy_amount"
+    },
+    "profit_total": {
+      "key": "profit_total",
+      "code": "ORG_PRFT_TOTAMT",
+      "name": "利润总金额当日数",
+      "unit": "元",
+      "change": "value"
+    },
+    "profit_total_yoy": {
+      "key": "profit_total_yoy",
+      "code": "ORG_PRFT_TOTAMT_CMP_SAMEPRD",
+      "name": "利润总金额较同期",
+      "unit": "元",
+      "change": "yoy_amount"
+    },
+    "revenue": {
+      "key": "revenue",
+      "code": "ORG_OPRTG_INCM_AMT",
+      "name": "营业收入金额当日数",
+      "unit": "元",
+      "change": "value"
+    },
+    "revenue_yoy": {
+      "key": "revenue_yoy",
+      "code": "ORG_OPRTG_INCM_AMT_CMP_SAMEPRD",
+      "name": "营业收入金额较同期",
+      "unit": "元",
+      "change": "yoy_amount"
+    },
+    "investment": {
+      "key": "investment",
+      "code": "ORG_IVS_PROFIT_AMT",
+      "name": "投资收益金额当日数",
+      "unit": "元",
+      "change": "value"
+    },
+    "investment_yoy": {
+      "key": "investment_yoy",
+      "code": "ORG_IVS_PROFIT_AMT_CMP_SAMEPRD",
+      "name": "投资收益金额较同期",
+      "unit": "元",
+      "change": "yoy_amount"
+    },
+    "net_interest": {
+      "key": "net_interest",
+      "code": "ORG_INT_NETINCM_AMT_DETLLST",
+      "name": "利息净收入金额当日数",
+      "unit": "元",
+      "change": "value"
+    },
+    "net_interest_yoy": {
+      "key": "net_interest_yoy",
+      "code": "ORG_INT_NETINCM_AMT_DETLLST_CMP_SAMEPRD",
+      "name": "利息净收入金额较同期",
+      "unit": "元",
+      "change": "yoy_amount"
+    },
+    "management_expense": {
+      "key": "management_expense",
+      "code": "ORG_BUSI_MGMTFEE_AMT",
+      "name": "业务及管理费金额当日数",
+      "unit": "元",
+      "change": "value"
+    },
+    "management_expense_yoy": {
+      "key": "management_expense_yoy",
+      "code": "ORG_BUSI_MGMTFEE_AMT_CMP_SAMEPRD",
+      "name": "业务及管理费金额较同期",
+      "unit": "元",
+      "change": "yoy_amount"
+    },
+    "operating_expense": {
+      "key": "operating_expense",
+      "code": "ORG_OPRTG_EXPTR_AMT",
+      "name": "营业支出金额当日数",
+      "unit": "元",
+      "change": "value"
+    },
+    "operating_expense_yoy": {
+      "key": "operating_expense_yoy",
+      "code": "ORG_OPRTG_EXPTR_AMT_CMP_SAMEPRD",
+      "name": "营业支出金额较同期",
+      "unit": "元",
+      "change": "yoy_amount"
+    },
+    "credit_impairment": {
+      "key": "credit_impairment",
+      "code": "ORG_CRDT_IMPRMT_RPTLOSS_AMT",
+      "name": "信用减值损失金额当日数",
+      "unit": "元",
+      "change": "value"
+    },
+    "credit_impairment_yoy": {
+      "key": "credit_impairment_yoy",
+      "code": "ORG_CRDT_IMPRMT_RPTLOSS_AMT_CMP_SAMEPRD",
+      "name": "信用减值损失金额较同期",
+      "unit": "元",
+      "change": "yoy_amount"
+    },
+    "asset_impairment": {
+      "key": "asset_impairment",
+      "code": "ORG_AST_IMPRMT_RPTLOSS_AMT",
+      "name": "资产减值损失金额当日数",
+      "unit": "元",
+      "change": "value"
+    },
+    "asset_impairment_yoy": {
+      "key": "asset_impairment_yoy",
+      "code": "ORG_AST_IMPRMT_RPTLOSS_AMT_CMP_SAMEPRD",
+      "name": "资产减值损失金额较同期",
+      "unit": "元",
+      "change": "yoy_amount"
+    },
+    "income_tax": {
+      "key": "income_tax",
+      "code": "ORG_INCMTAX_FEE_AMT",
+      "name": "所得税费用金额当日数",
+      "unit": "元",
+      "change": "value"
+    },
+    "income_tax_yoy": {
+      "key": "income_tax_yoy",
+      "code": "ORG_INCMTAX_FEE_AMT_CMP_SAMEPRD",
+      "name": "所得税费用金额较同期",
+      "unit": "元",
+      "change": "yoy_amount"
+    },
+    "deposit": {
+      "key": "deposit",
+      "code": "ORG_VRS_DEPT_BAL",
+      "name": "各项存款余额当日数",
+      "unit": "元",
+      "change": "value"
+    },
+    "deposit_yoy": {
+      "key": "deposit_yoy",
+      "code": "ORG_VRS_DEPT_BAL_CMP_SAMEPRD",
+      "name": "各项存款余额较同期",
+      "unit": "元",
+      "change": "yoy_amount"
+    },
+    "personal_deposit": {
+      "key": "personal_deposit",
+      "code": "ORG_PSON_DEPT_BAL",
+      "name": "个人存款余额当日数",
+      "unit": "元",
+      "change": "value"
+    },
+    "personal_deposit_yoy": {
+      "key": "personal_deposit_yoy",
+      "code": "ORG_PSON_DEPT_BAL_CMP_SAMEPRD",
+      "name": "个人存款余额较同期",
+      "unit": "元",
+      "change": "yoy_amount"
+    },
+    "corporate_deposit": {
+      "key": "corporate_deposit",
+      "code": "ORG_CORP_DEPT_BAL",
+      "name": "对公存款余额当日数",
+      "unit": "元",
+      "change": "value"
+    },
+    "corporate_deposit_yoy": {
+      "key": "corporate_deposit_yoy",
+      "code": "ORG_CORP_DEPT_BAL_CMP_SAMEPRD",
+      "name": "对公存款余额较同期",
+      "unit": "元",
+      "change": "yoy_amount"
+    },
+    "deposit_mom": {
+      "key": "deposit_mom",
+      "code": "ORG_VRS_DEPT_BAL_CMPRLATMO",
+      "name": "各项存款余额较上月",
+      "unit": "元",
+      "change": "mom_amount"
+    },
+    "personal_deposit_mom": {
+      "key": "personal_deposit_mom",
+      "code": "ORG_PSON_DEPT_BAL_CMPRLATMO",
+      "name": "个人存款余额较上月",
+      "unit": "元",
+      "change": "mom_amount"
+    },
+    "corporate_deposit_mom": {
+      "key": "corporate_deposit_mom",
+      "code": "ORG_CORP_DEPT_BAL_CMPRLATMO",
+      "name": "对公存款余额较上月",
+      "unit": "元",
+      "change": "mom_amount"
+    },
+    "loan": {
+      "key": "loan",
+      "code": "ORG_VRS_LOAN_BAL",
+      "name": "各项贷款余额_人行口径当日数",
+      "unit": "元",
+      "change": "value"
+    },
+    "loan_yoy": {
+      "key": "loan_yoy",
+      "code": "ORG_VRS_LOAN_BAL_CMP_SAMEPRD",
+      "name": "各项贷款余额_人行口径较同期",
+      "unit": "元",
+      "change": "yoy_amount"
+    },
+    "npl_balance": {
+      "key": "npl_balance",
+      "code": "ORG_BAD_LOAN_BAL",
+      "name": "不良贷款余额当日数",
+      "unit": "元",
+      "change": "value"
+    },
+    "npl_balance_yoy": {
+      "key": "npl_balance_yoy",
+      "code": "ORG_BAD_LOAN_BAL_CMP_SAMEPRD",
+      "name": "不良贷款余额较同期",
+      "unit": "元",
+      "change": "yoy_amount"
+    },
+    "npl_ratio": {
+      "key": "npl_ratio",
+      "code": "ORG_BAD_RT",
+      "name": "不良贷款比率当日数",
+      "unit": "%",
+      "change": "value"
+    },
+    "npl_ratio_yoy": {
+      "key": "npl_ratio_yoy",
+      "code": "ORG_BAD_RT_CMP_SAMEPRD",
+      "name": "不良贷款比率较同期",
+      "unit": "%",
+      "change": "yoy_amount"
+    },
+    "provision_coverage": {
+      "key": "provision_coverage",
+      "code": "ORG_PRVSN_CVR_RT",
+      "name": "拨备覆盖比率当日数",
+      "unit": "%",
+      "change": "value"
+    },
+    "provision_coverage_yoy": {
+      "key": "provision_coverage_yoy",
+      "code": "ORG_PRVSN_CVR_RT_CMP_SAMEPRD",
+      "name": "拨备覆盖比率较同期",
+      "unit": "%",
+      "change": "yoy_amount"
+    }
+  },
+  "topics": [
+    {
+      "id": "profitability",
+      "name": "收益与利润分析",
+      "description": "利润规模、收益下降、收入与费用减值变化线索；规模小与经营差分开，不能把同比金额称为增幅。",
+      "metric_keys": [
+        "net_profit",
+        "net_profit_yoy",
+        "profit_total",
+        "profit_total_yoy",
+        "revenue",
+        "revenue_yoy",
+        "investment",
+        "investment_yoy",
+        "net_interest",
+        "net_interest_yoy",
+        "management_expense",
+        "management_expense_yoy",
+        "operating_expense",
+        "operating_expense_yoy",
+        "credit_impairment",
+        "credit_impairment_yoy",
+        "asset_impairment",
+        "asset_impairment_yoy",
+        "income_tax",
+        "income_tax_yoy"
+      ],
+      "core_keys": ["net_profit", "profit_total"],
+      "rank_keys": ["net_profit", "profit_total", "net_profit_yoy", "profit_total_yoy"],
+      "date_policy": "common_core_snapshot"
+    },
+    {
+      "id": "loan_quality",
+      "name": "贷款质量",
+      "description": "贷款余额、不良余额与比率、拨备覆盖及其变化；没有风险偏好或阈值时陈述风险变化，不虚构好坏标准。",
+      "metric_keys": [
+        "loan",
+        "loan_yoy",
+        "npl_balance",
+        "npl_balance_yoy",
+        "npl_ratio",
+        "npl_ratio_yoy",
+        "provision_coverage",
+        "provision_coverage_yoy"
+      ],
+      "core_keys": ["loan", "npl_balance"],
+      "rank_keys": ["loan", "npl_balance"],
+      "date_policy": "common_core_snapshot"
+    },
+    {
+      "id": "operations",
+      "name": "经营概览与机构经营对比",
+      "description": "经营好坏及多机构经营概况：存贷规模、收入利润与贷款质量，依据已有变化列出改善和承压维度，不硬给综合评分。",
+      "metric_keys": [
+        "deposit",
+        "deposit_yoy",
+        "loan",
+        "loan_yoy",
+        "net_profit",
+        "net_profit_yoy",
+        "profit_total",
+        "profit_total_yoy",
+        "revenue",
+        "revenue_yoy",
+        "npl_balance",
+        "npl_balance_yoy",
+        "npl_ratio",
+        "npl_ratio_yoy",
+        "management_expense",
+        "management_expense_yoy",
+        "credit_impairment",
+        "credit_impairment_yoy"
+      ],
+      "core_keys": ["net_profit", "revenue"],
+      "rank_keys": ["net_profit", "revenue"],
+      "date_policy": "per_metric_latest"
+    },
+    {
+      "id": "deposit",
+      "name": "存款规模、结构与增长",
+      "compare_pairs": [
+        ["personal_deposit", "corporate_deposit"],
+        ["personal_deposit_yoy", "corporate_deposit_yoy"],
+        ["personal_deposit_mom", "corporate_deposit_mom"]
+      ],
+      "description": "各项存款、个人和对公存款规模及同比、环比金额；分项增长与总量分开，明确实际日期和同比/环比口径。",
+      "metric_keys": [
+        "deposit",
+        "deposit_yoy",
+        "personal_deposit",
+        "personal_deposit_yoy",
+        "corporate_deposit",
+        "corporate_deposit_yoy",
+        "deposit_mom",
+        "personal_deposit_mom",
+        "corporate_deposit_mom"
+      ],
+      "core_keys": ["deposit", "personal_deposit", "corporate_deposit"],
+      "rank_keys": ["deposit", "personal_deposit", "corporate_deposit"],
+      "date_policy": "common_core_snapshot"
+    },
+    {
+      "id": "expense_control",
+      "name": "费用控制与收入匹配",
+      "description": "收入、管理费、营业支出及其同比金额方向，比较是否同向，缺少基数或费用率不能宣称变化比例或效率优劣。",
+      "metric_keys": [
+        "revenue",
+        "revenue_yoy",
+        "management_expense",
+        "management_expense_yoy",
+        "operating_expense",
+        "operating_expense_yoy",
+        "credit_impairment",
+        "credit_impairment_yoy",
+        "asset_impairment",
+        "asset_impairment_yoy"
+      ],
+      "core_keys": ["revenue", "management_expense"],
+      "rank_keys": ["revenue", "management_expense"],
+      "date_policy": "common_core_snapshot"
+    }
+  ]
+}
