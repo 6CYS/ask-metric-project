@@ -156,7 +156,14 @@ const availabilityParameters = Type.Object(
   { additionalProperties: false },
 );
 const readParameters = Type.Object(
-  { run_ref: Type.String({ minLength: 1, maxLength: 128 }) },
+  {
+    run_ref: Type.String({ minLength: 1, maxLength: 128 }),
+    focus: Type.Optional(Type.Object({
+      org_code: Type.String({ minLength: 1, maxLength: 200 }),
+      metric_codes: Type.Array(Type.String({ minLength: 1, maxLength: 200 }), { minItems: 1, maxItems: 4, uniqueItems: true }),
+      offset: Type.Optional(Type.Integer({ minimum: 0 })),
+    }, { additionalProperties: false, description: "仅用于本轮主题投影省略的事实，指定一家机构和至多4个指标，按50行分页回读已有来源，不重新查询。" })),
+  },
   { additionalProperties: false },
 );
 interface InquiryEvidence extends AnalysisEvidence {
@@ -182,6 +189,7 @@ const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+const records = (value: unknown): Record<string, unknown>[] => Array.isArray(value) ? value.map(record) : [];
 const strings = (value: unknown): string[] =>
   Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string" && !!item)
@@ -299,6 +307,32 @@ function reusableObserveSubset(
     const sourceKey = queryIdentity(request, sourceRefs, orgs, date, input);
     return sourceKey === evidence.query_key || sourceKey === evidence.resolved_query_key;
   });
+}
+
+/** 主题已执行的普通观测（包括正常缺数）可覆盖后续局部补查；只收敛新主题路径。 */
+function reusableTopicObservations(
+  sources: EvidenceReference[], request: AskMetricRequestContext, refs: string[],
+  orgs: ResolvedOrganizations, date: QueryDate, input: QueryInput,
+): { sources: EvidenceReference[]; refs: string[] } | undefined {
+  if (input.method !== "observe" || input.comparisons?.length || input.relation_id) return;
+  const candidates = analysisCandidates(request);
+  const bindings = catalogBindingState(request);
+  const reusedSources: EvidenceReference[] = [], reusedRefs = new Set<string>();
+  for (const source of sources) {
+    const evidence = source.evidence as InquiryEvidence;
+    const topic = record(record(evidence).topic_execution);
+    if (evidence.execution_turn_id !== request.operationId || topic.completed !== true ||
+      !orgs.codes.every(code => evidence.inquiry_scope?.codes.includes(code))) continue;
+    const sameDate = JSON.stringify(evidence.inquiry_date) === JSON.stringify(date) ||
+      date.date_selection === "latest_snapshot" && topic.requested_date === "latest" &&
+      typeof topic.selected_date === "string" && evidence.inquiry_date?.start === topic.selected_date && evidence.inquiry_date.end === topic.selected_date;
+    if (!sameDate) continue;
+    const completed = new Set(strings(topic.completed_metric_codes));
+    const sourceRefs = new Set((evidence.plan?.steps ?? []).flatMap(step => strings(record(step).metric_refs)));
+    const covered = refs.filter(ref => !reusedRefs.has(ref) && sourceRefs.has(ref) && candidates.some(item => bindings[item.binding_ref] === ref && completed.has(item.code)));
+    if (covered.length) { reusedSources.push(source); covered.forEach(ref => reusedRefs.add(ref)); }
+  }
+  return reusedSources.length ? { sources: reusedSources, refs: [...reusedRefs] } : undefined;
 }
 
 function dateValue(value: unknown): QueryDate | undefined {
@@ -601,6 +635,7 @@ async function acceptedMetricRefs(
   );
 }
 function reused(source: EvidenceReference, primary = false, requestedMetricCodes?: string[]) {
+  const topicCompleted = record(record(source.evidence).topic_execution).completed === true;
   const reuse = {
     kind: "inquiry_query_reuse",
     status: "succeeded",
@@ -608,6 +643,7 @@ function reused(source: EvidenceReference, primary = false, requestedMetricCodes
     no_new_evidence: true,
     evidence_ref: source.ref,
     run_ref: (source.evidence as AnalysisEvidence).run_ref,
+    ...(topicCompleted ? { topic_execution: record(record(source.evidence).topic_execution) } : {}),
     ...(requestedMetricCodes
       ? {
           requested_metric_codes: requestedMetricCodes,
@@ -622,11 +658,11 @@ function reused(source: EvidenceReference, primary = false, requestedMetricCodes
       {
         type: "text" as const,
         text: JSON.stringify(
-          requestedMetricCodes
+          requestedMetricCodes || topicCompleted
             ? {
                 ...reuse,
                 notice:
-                  "所需指标已包含在本轮已有来源中，本次未重新取数；请继续使用原来源及事实引用。",
+                  "所需指标已包含在本轮已有来源中，本次未重新取数或返回新表体；使用前面的profiles及事实引用交付。仅省略的明细使用analysis_read的focus分页读取，重复无focus读取不会得到更多事实。",
               }
             : {
                 ...inquiryEvidenceView({ ...source.evidence }, source.ref),
@@ -1036,8 +1072,10 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
           }
           if (!date)
             return error("ANALYSIS_DATE_AMBIGUOUS", "当前统计期间未确定，不能改为默认最新日期。");
-          const batches = chunks(refs, PLAN_METRIC_LIMIT);
-          const received: EvidenceReference[] = [];
+          const topicReuse = reusableTopicObservations(current, request, refs, orgs, date, input);
+          const batches = chunks(refs.filter(ref => !topicReuse?.refs.includes(ref)), PLAN_METRIC_LIMIT);
+          if (!batches.length && topicReuse?.sources.length === 1) return reused(topicReuse.sources[0]!, !input.independent, [...metricCodes]);
+          const received: EvidenceReference[] = topicReuse ? [...topicReuse.sources] : [];
           const results: InquiryEvidence[] = [];
           let reusedSubset = false;
           let failure: Record<string, unknown> | undefined;
@@ -1159,7 +1197,7 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
               results.push(details);
             } catch (cause) {
               if (
-                batches.length === 1 ||
+                batches.length === 1 && !topicReuse ||
                 context.abortSignal?.aborted ||
                 (cause instanceof BackendApiError && [401, 403].includes(cause.status))
               )
@@ -1196,7 +1234,7 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
               break;
             }
           }
-          if (batches.length === 1) {
+          if (batches.length === 1 && !topicReuse) {
             if (!results.length)
               return reused(
                 received[0]!,
@@ -1245,7 +1283,10 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
                   ...reuse,
                   query_progress: progress,
                   results: [
-                    ...received.map((item) => inquiryEvidenceView({ ...item.evidence }, item.ref)),
+                    ...received.map((item) => topicReuse?.sources.includes(item)
+                      ? { kind: "inquiry_query_reuse", status: "succeeded", no_new_evidence: true, evidence_ref: item.ref,
+                          run_ref: (item.evidence as AnalysisEvidence).run_ref, notice: "已完成部分沿用原引用，本次只查询剩余指标。" }
+                      : inquiryEvidenceView({ ...item.evidence }, item.ref)),
                     ...(failure ? [failure] : []),
                   ],
                 }),
@@ -1386,7 +1427,7 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
     label: "读取已有查询结果",
     parameters: readParameters,
     description:
-      "读取当前会话分支中真实出现过的run_ref，重新核验权限并返回本轮e引用。只讨论或画已有结果时使用，无需重新查询；不能读取另一会话或猜测run_ref。",
+      "读取当前会话分支中真实出现过的run_ref，重新核验权限并返回本轮e引用。只讨论或画已有结果时使用，无需重新查询；不能读取另一会话或猜测run_ref。本轮主题省略的明细可用focus指定机构编码和指标编码分页读取，已展示事实直接复用。",
     execute: async (_id, input, _update, request, _invocation, context) => {
       const runRef = String(input.run_ref);
       const source =
@@ -1411,6 +1452,51 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
       const existing = current.find(
         (item) => successful(item.evidence) && item.evidence.run_ref === runRef,
       );
+      if (existing && input.focus) {
+        if (record(record(existing.evidence).topic_execution).completed !== true)
+          return error("TOPIC_READ_SOURCE_REQUIRED", "focus用于本轮已完成主题的省略明细；其他来源按原方式读取。");
+        const focus = input.focus;
+        const key = JSON.stringify([runRef, focus.org_code, [...focus.metric_codes].sort(), focus.offset ?? 0]);
+        const messages = (await request.turnMessages?.()) ?? [];
+        if (messages.some(message => message.role === "toolResult" && record(message.details).topic_slice_key === key))
+          return reused(existing);
+        const view = record(inquiryEvidenceView(record(existing.evidence), existing.ref));
+        // 只补尚未展示的引用，focus不能变成重复注入完整主题的旁路。
+        const shown = new Set<string>();
+        const visit = (value: unknown) => {
+          if (typeof value === "string") shown.add(value);
+          else if (Array.isArray(value)) value.forEach(visit);
+          else if (value && typeof value === "object") Object.values(value).forEach(visit);
+        };
+        for (const message of messages) if (message.role === "toolResult") for (const block of message.content) {
+          if (block.type !== "text") continue;
+          try { visit(JSON.parse(block.text)); } catch { /* 非JSON回执不提供主题事实。 */ }
+        }
+        const tables = records(view.tables).filter(table => focus.metric_codes.includes(String(table.metric_code)));
+        const selected = tables.flatMap(table => (Array.isArray(table.rows) ? table.rows : [])
+          .filter((row: unknown): row is string[] => Array.isArray(row) && row[1] === focus.org_code)
+          .map(row => ({table, row})));
+        const offset = focus.offset ?? 0;
+        const page = selected.slice(offset, offset + 50).filter(item => !shown.has(String(item.row[0])));
+        if (!page.length) return reused(existing);
+        const body = {
+          kind: "topic_evidence_slice", status: "succeeded", run_ref: runRef, evidence_ref: existing.ref,
+          organizations: { [focus.org_code]: record(view.organizations)[focus.org_code] },
+          tables: tables.flatMap(table => {
+            const rows = page.filter(item => item.table === table).map(item => item.row);
+            return rows.length ? [{...table, rows}] : [];
+          }),
+          unavailable_metrics: records(view.unavailable_metrics).filter(metric => focus.metric_codes.includes(String(metric.metric_code))),
+          next_offset: offset + 50 < selected.length ? offset + 50 : null,
+          notice: "来自同一已授权主题的省略明细；引用身份不变，无新增取数。",
+        };
+        if (Buffer.byteLength(JSON.stringify(body)) > 64000)
+          return error("TOPIC_READ_BUDGET", "本页超过展示预算，请减少本次指标数；无需重新查询。");
+        return { content: [{ type: "text", text: JSON.stringify(body) }], details: {
+          kind: "inquiry_query_reuse", status: "succeeded", run_ref: runRef,
+          no_new_evidence: true, topic_slice_key: key,
+        } };
+      }
       if (existing) return reused(existing);
       catalogBindingView(request, result.metric_descriptors);
       catalogBindingView(request, result.followup_metrics);

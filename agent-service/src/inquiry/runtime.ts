@@ -118,11 +118,15 @@ function inquiryStalled(messages: AgentMessage[]): "investigation" | "delivery" 
             code?: string;
             validation_stage?: string;
             calculation_key?: string;
+            no_new_evidence?: boolean;
+            topic_execution?: { completed?: boolean; pending_metric_codes?: string[] };
+            run_ref?: string;
           }
         | undefined;
+      const topicNoProgress = details?.no_new_evidence === true && details.topic_execution?.completed === true && !details.topic_execution.pending_metric_codes?.length;
       if (
         !receipt?.isError &&
-        !["error", "failed", "ARGUMENT_ERROR"].includes(details?.status ?? "")
+        !["error", "failed", "ARGUMENT_ERROR"].includes(details?.status ?? "") && !topicNoProgress
       )
         break;
       // 原生参数拒绝、前置条件和正文校验属于不同恢复阶段，不能累计误杀有效修正。
@@ -133,6 +137,8 @@ function inquiryStalled(messages: AgentMessage[]): "investigation" | "delivery" 
           details?.status,
           details?.error_code ?? details?.code,
           details?.validation_stage,
+          // 相同来源没有新证据时，换已展示指标子集仍是无进展；真正分页补出事实会重置。
+          ...(topicNoProgress ? [details.run_ref] : []),
           // 计算输入已变化就是一次新的尝试，不能仅凭相同错误码关闭补查工具。
           call.name === "analysis_calculate"
             ? details?.calculation_key ?? [call.arguments?.current_ref, call.arguments?.base_ref]
