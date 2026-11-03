@@ -109,7 +109,7 @@ cd ask-metric-20260824.1-linux-x86_64-py3.12
 /opt/ask-metric/current               当前版本软链接
 /etc/ask-metric/backend.env           跨版本保留的配置
 /etc/ask-metric/agent.env             智能助手服务配置（跨版本保留）
-/var/lib/ask-metric/runtime-config/    模型、提示词与业务知识（跨版本保留）
+/var/lib/ask-metric/runtime-config/    模型、提示词、业务知识与指标关系（跨版本保留）
 /var/lib/ask-metric/                   其他跨版本运行数据和配置历史
 /home/appuser/log/                     行内规范日志目录（物理目录，禁止软链接）
 ```
@@ -206,6 +206,7 @@ chmod 0640 /etc/ask-metric/config-sm4.key
 ```dotenv
 MODEL_CONFIG_PATH=/var/lib/ask-metric/runtime-config/model-config.json
 BUSINESS_KNOWLEDGE_PATH=/var/lib/ask-metric/runtime-config/business-knowledge.json
+ANALYSIS_SEMANTICS_PATH=/var/lib/ask-metric/runtime-config/analysis-semantics.json
 PROMPT_CONFIG_PATH=/var/lib/ask-metric/runtime-config/prompts.json
 SEMANTIC_CONFIG_PATH=/opt/ask-metric/current/backend/config/semantic-config.json
 MODEL_SECRET_ENV_PATH=/etc/ask-metric/backend.env
@@ -303,6 +304,10 @@ sudo /opt/ask-metric/current/venv/bin/python \
 ### 升级已有实例
 
 保留旧 release、配置及数据库备份。新包校验后执行 `install.sh`，所有自定义安装根、状态目录、端口和服务名参数须与原实例一致。需要增量迁移时先完成 DBA 审核与执行，再验收新版本。
+
+指标关系写入 `ANALYSIS_SEMANTICS_PATH`，目录发现、知识候选与分析复核读取同一文件。安装器首次迁移时优先保留当前旧 release 的 `backend/config/analysis-semantics.json`，之后不覆盖已有持久文件。独立使用 `intranet_deploy.py init-config` 时，默认尝试从原 `SEMANTIC_CONFIG_PATH` 的同目录迁移；目录不同则在切换程序前显式传入 `--legacy-analysis-semantics /旧目录/analysis-semantics.json`。已有 `ANALYSIS_SEMANTICS_PATH` 值保持不变，使用自定义路径须确认服务账号可读写其父目录。
+
+升级和回退保留持久文件及备份。回退到尚不支持该环境变量的版本时，需要按旧版本实际读取位置恢复匹配的配置；回退到不支持关系 `kind` 的版本须恢复维护前的旧格式备份，同时保留新格式持久文件供再次升级使用。不能只切换代码而假定旧版本会读取新路径。
 
 当前安装器使用 `systemctl enable --now`，对已经运行的服务不等同于重启；切换版本后需要显式执行：
 

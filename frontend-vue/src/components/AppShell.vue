@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseTooltip from "@/components/ui/BaseTooltip.vue"
 import { LogOut, PanelLeftClose, PanelLeftOpen, UserRound } from "@lucide/vue"
 import { RouterLink, useRoute } from "vue-router"
 
@@ -152,17 +153,17 @@ async function handleLogout() {
       </nav>
 
       <div class="border-t border-sidebar-border p-3">
-        <button v-if="isSidebarCollapsed" type="button" class="mx-auto flex size-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring" :title="`${accountTitle}\n退出登录`" aria-label="退出登录" @click="handleLogout">
+        <BaseTooltip v-if="isSidebarCollapsed" :content="`${accountTitle}\n退出登录`"><button type="button" class="mx-auto flex size-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring" aria-label="退出登录" @click="handleLogout">
           <UserRound class="size-5" />
-        </button>
+        </button></BaseTooltip>
         <!-- 与导航共用图标和文字对齐线，账号信息直接融入侧栏，不再套独立卡片。 -->
         <div v-else class="flex items-center gap-3 px-3 py-2">
           <UserRound class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-medium leading-5" :title="accountTitle">{{ accountName }}</p>
+            <BaseTooltip :content="accountTitle"><p tabindex="0" class="truncate text-sm font-medium leading-5">{{ accountName }}</p></BaseTooltip>
             <p class="mt-0.5 text-xs leading-4 text-muted-foreground">{{ accountRole }} · {{ accountScope }}</p>
           </div>
-          <BaseButton variant="ghost" size="icon" class="size-8 shrink-0 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground" aria-label="退出登录" title="退出登录" @click="handleLogout"><LogOut class="size-4" /></BaseButton>
+          <BaseTooltip content="退出登录"><BaseButton variant="ghost" size="icon" class="size-8 shrink-0 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground" aria-label="退出登录" @click="handleLogout"><LogOut class="size-4" /></BaseButton></BaseTooltip>
         </div>
       </div>
     </aside>
@@ -173,22 +174,19 @@ async function handleLogout() {
         <div class="flex items-center justify-between gap-3 px-4 py-3">
           <RouterLink to="/" class="font-semibold">Ask Metric</RouterLink>
           <div class="ml-auto flex items-center gap-2">
-            <BaseBadge variant="secondary" :title="accountTitle">{{ accountName }} · {{ accountScope }}</BaseBadge>
+            <BaseTooltip :content="accountTitle"><BaseBadge tabindex="0" variant="secondary">{{ accountName }} · {{ accountScope }}</BaseBadge></BaseTooltip>
             <BaseButton variant="ghost" size="icon" aria-label="退出登录" @click="handleLogout"><LogOut /></BaseButton>
           </div>
           <nav class="flex items-center gap-1" aria-label="移动端导航">
-            <RouterLink
-              v-for="item in visibleNavigationItems"
-              :key="item.href"
+            <BaseTooltip v-for="item in visibleNavigationItems" :key="item.href" :content="item.label"><RouterLink
               :to="item.href"
               class="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors"
               :class="isNavigationActive(item.href) && 'bg-primary text-primary-foreground'"
-              :title="item.label"
               :aria-current="isNavigationActive(item.href) ? 'page' : undefined"
             >
               <component :is="item.icon" class="size-4" />
               <span class="sr-only">{{ item.label }}</span>
-            </RouterLink>
+            </RouterLink></BaseTooltip>
           </nav>
         </div>
       </header>

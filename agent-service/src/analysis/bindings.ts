@@ -63,9 +63,9 @@ export const catalogBindingState = (request: AskMetricRequestContext) => Object.
 export function restoreAnalysisDiscovery(request: AskMetricRequestContext, receipts: unknown[]) {
   for (const raw of receipts) {
     const receipt = raw as {kind?: string; status?: string; plan?: AnalysisPlan; candidate_map?: AnalysisCandidate[]};
-    if (receipt?.status !== "succeeded" && !(receipt?.kind === "business_topic_read" && receipt?.status === "ok")) continue;
+    if (receipt?.status !== "succeeded" && !(["business_topic_read", "business_knowledge_search"].includes(receipt?.kind ?? "") && receipt?.status === "ok")) continue;
     if (receipt.kind === "analysis_evidence" && receipt.plan) registerAnalysisPlan(request, receipt.plan);
-    if (["analysis_catalog", "analysis_evidence", "business_topic_read"].includes(receipt.kind ?? "") && receipt.candidate_map) {
+    if (["analysis_catalog", "analysis_evidence", "business_topic_read", "business_knowledge_search"].includes(receipt.kind ?? "") && receipt.candidate_map) {
       const registry = candidates.get(request) ?? new Map<string, AnalysisCandidate>();
       for (const item of receipt.candidate_map) if (item.match_type !== "semantic" && item.binding_ref?.trim()) registry.set(item.code, item);
       candidates.set(request, registry);
@@ -74,7 +74,7 @@ export function restoreAnalysisDiscovery(request: AskMetricRequestContext, recei
   const bindingReceipts = receipts.filter((item): item is {kind: string; status: string; binding_map?: Record<string, string>; candidate_map?: AnalysisCandidate[]} =>
     !!item && typeof item === "object" && (["analysis_catalog", "analysis_evidence"].includes((item as {kind: string}).kind)
     && (item as {status?: string}).status === "succeeded"
-    || (item as {kind: string}).kind === "business_topic_read" && (item as {status?: string}).status === "ok"));
+    || ["business_topic_read", "business_knowledge_search"].includes((item as {kind: string}).kind) && (item as {status?: string}).status === "ok"));
   if (!bindingReceipts.length) return;
   const registry = registries.get(request) ?? new Map<string, string>();
   for (const catalog of bindingReceipts) {

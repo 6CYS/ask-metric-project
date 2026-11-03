@@ -15,6 +15,8 @@ import { loadConfig } from "../src/config.js";
 import { TEST_ACTOR } from "../src/tools/testUtils.js";
 import type { BackendClient } from "../src/backendClient.js";
 import { stopLegacyOperation } from "../src/inquiry/legacyRecovery.js";
+import { requireRequestContext } from "../src/requestContext.js";
+import { catalogBindingState } from "../src/analysis/bindings.js";
 
 const model: Model<"openai-completions"> = {
   id: "isolated",
@@ -74,6 +76,32 @@ describe("恢复队列与当前 operation 的身份边界", () => {
     await host.close();
     await store.close();
     await rm(directory, { recursive: true, force: true });
+  });
+
+  it("待执行工具恢复前重新绑定自动知识候选，不依赖再次调用模型", async () => {
+    const session = await host.createSession(TEST_ACTOR);
+    const backend = { searchBusinessKnowledge: vi.fn(() => Promise.resolve({
+      revision: "a".repeat(64), entries: [{id: "method", title: "分析方法", text: "结合问题选择。", role: "参考", metric_codes: ["M1"]}],
+      linked_catalog: {items: [{code: "M1", name: "正式指标", binding_ref: "signed:M1"}], total: 1, has_more: false, unavailable_codes: []},
+    })) } as unknown as BackendClient;
+    const current = {actor: TEST_ACTOR, backend};
+    const admitted = await host.admitPrompt(session,
+      {protocol_version: 3, request_id: "linked-pending", message: "看看经营情况"}, current);
+    if (!admitted.ok) throw new Error(admitted.message);
+    session.open.push(openOperation(admitted.operationId));
+    const interrupted = new Error("已检查驱动入口");
+    const drive = vi.spyOn(session.lane, "drive").mockImplementationOnce((_options, context) => {
+      expect(catalogBindingState(requireRequestContext(context ?? BACKGROUND_CONTEXT)))
+        .toMatchObject({"code:M1": "signed:M1"});
+      return Promise.reject(interrupted);
+    });
+    try {
+      await expect(host.resumeOpenOperations(session, current)).rejects.toBe(interrupted);
+      expect(modelCalls).not.toHaveBeenCalled();
+    } finally {
+      drive.mockRestore();
+      await stopLegacyOperation(session.lane, admitted.operationId, admitted.context);
+    }
   });
 
   it("打开时的旧恢复队列不能用旧上下文驱动后来接纳的新请求", async () => {

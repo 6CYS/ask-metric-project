@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseTooltip from "@/components/ui/BaseTooltip.vue"
 import { ref } from "vue"
 import { Maximize2 } from "@lucide/vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
@@ -31,10 +32,10 @@ function expand() {
 
 <template>
   <div class="flex items-start gap-1" @mouseenter="loadFullText" @focusin="loadFullText">
-    <span class="min-w-0 flex-1 line-clamp-2 whitespace-pre-line [overflow-wrap:anywhere]" :title="fullText || (loadText ? (error || '悬停加载完整信息，也可点击展开查看') : text)">{{ text }}</span>
-    <BaseButton variant="ghost" size="icon" class="size-6 shrink-0 text-muted-foreground" :title="`查看完整${label}`" :aria-label="`查看完整${label}`" @click="expand">
+    <BaseTooltip :content="fullText || (loadText ? (error || '悬停加载完整信息，也可点击展开查看') : text)"><span tabindex="0" class="min-w-0 flex-1 line-clamp-2 whitespace-pre-line [overflow-wrap:anywhere]">{{ text }}</span></BaseTooltip>
+    <BaseTooltip :content="`查看完整${label}`"><BaseButton variant="ghost" size="icon" class="size-6 shrink-0 text-muted-foreground" :aria-label="`查看完整${label}`" @click="expand">
       <Maximize2 class="size-3.5" />
-    </BaseButton>
+    </BaseButton></BaseTooltip>
     <BaseModal v-model:open="open" :title="label" size="lg">
       <p v-if="loading" class="text-sm text-muted-foreground">正在加载完整信息…</p>
       <p v-else-if="error" class="text-sm text-destructive">{{ error }}</p>

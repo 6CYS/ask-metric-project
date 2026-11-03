@@ -382,7 +382,14 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             "报告来源的会话、回合或统计范围不匹配。",
             status_code=422,
         )
-    semantics = service.semantics(actor)
+    # 预览只复核本轮来源及必要映射依赖；最终交付保留完整目录，供未查询的
+    # 规划缺口与正式指标名称转换使用，不把正文匹配规则带进目录取数。
+    semantics = (
+        service.semantics(actor, metric_codes={
+            metric["code"] for source in sources for metric in source["metric_descriptors"]
+        })
+        if request.preview else service.semantics(actor)
+    )
     for source in sources:
         for metric in source["metric_descriptors"]:
             semantics.resolve(metric["binding_ref"])
@@ -392,6 +399,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
         actor,
         sources,
         request.calculation_refs,
+        semantics=semantics,
     )
     atoms = validated_report_atoms(sources)
 

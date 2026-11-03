@@ -12,6 +12,7 @@ import type {
   MetricPayload,
   OrgItem,
   OrgPayload,
+  OrganizationLevels,
   QueryRunItem,
   AuthUser,
   LoginResponse,
@@ -21,6 +22,8 @@ import type {
   BusinessKnowledgeWriteResult,
 } from "@/types/api"
 import { encryptLoginPassword } from "@/lib/gm"
+import type { QuerySqlDetail, QuerySqlReference } from "@/types/querySql"
+import type { MetricRelationList, MetricRelationWrite, MetricRelationWriteResult } from "@/types/metricRelationships"
 import {
   clearAccessToken,
   getAccessToken,
@@ -32,6 +35,24 @@ export class ApiError extends Error {
     super(message)
     this.name = "ApiError"
   }
+}
+
+const metricRelationshipsPath = "/api/v1/catalog/metric-relationships"
+
+export function listMetricRelationships() {
+  return request<MetricRelationList>(apiUrl(backendNextBase, metricRelationshipsPath), { cache: "no-store" })
+}
+
+export function createMetricRelationship(payload: MetricRelationWrite) {
+  return request<MetricRelationWriteResult>(apiUrl(backendNextBase, metricRelationshipsPath), { method: "POST", body: JSON.stringify(payload) })
+}
+
+export function updateMetricRelationship(id: string, payload: MetricRelationWrite) {
+  return request<MetricRelationWriteResult>(apiUrl(backendNextBase, `${metricRelationshipsPath}/${encodeURIComponent(id)}`), { method: "PUT", body: JSON.stringify(payload) })
+}
+
+export function deleteMetricRelationship(id: string, revision: string) {
+  return request<{ revision: string }>(apiUrl(backendNextBase, `${metricRelationshipsPath}/${encodeURIComponent(id)}?revision=${encodeURIComponent(revision)}`), { method: "DELETE" })
 }
 
 // Cookie 仅随同源认证请求发送；不启用跨域凭据或放宽服务端 CORS。
@@ -185,6 +206,15 @@ export function getQueryRunDetail(taskId: string) {
   return request<QueryRunItem>(apiUrl(backendNextBase, `/api/v1/catalog/query-runs/${encodeURIComponent(taskId)}`))
 }
 
+export function getQuerySqlDetail(reference: QuerySqlReference, offset = 0, limit = 20, signal?: AbortSignal) {
+  const parameters = new URLSearchParams({ offset: String(offset), limit: String(limit) })
+  if (reference.run_id !== undefined) parameters.set("run_id", String(reference.run_id))
+  return request<QuerySqlDetail>(
+    apiUrl(backendNextBase, `/api/v1/catalog/query-runs/${encodeURIComponent(reference.task_id)}/sql?${parameters}`),
+    { signal, cache: "no-store" },
+  )
+}
+
 export function getSmartConfig() {
   return request<SmartConfigResponse>(apiUrl(backendNextBase, "/api/v1/model-config"))
 }
@@ -257,7 +287,7 @@ export async function deleteMetric(metricCode: string) {
 }
 
 export function listOrgs() {
-  return request<{ items: OrgItem[] }>(apiUrl(backendNextBase, "/api/v1/catalog/organizations"))
+  return request<{ items: OrgItem[]; hierarchy_levels: OrganizationLevels }>(apiUrl(backendNextBase, "/api/v1/catalog/organizations"))
 }
 
 export async function createOrg(payload: OrgPayload) {
@@ -284,8 +314,9 @@ export function listDatasets() {
 
 const businessKnowledgePath = "/api/v1/catalog/business-knowledge"
 
-export function listBusinessKnowledge() {
-  return request<BusinessKnowledgeList>(apiUrl(backendNextBase, businessKnowledgePath), { cache: "no-store" })
+export function listBusinessKnowledge(metricCode?: string) {
+  const suffix = metricCode ? `?metric_code=${encodeURIComponent(metricCode)}` : ""
+  return request<BusinessKnowledgeList>(apiUrl(backendNextBase, businessKnowledgePath + suffix), { cache: "no-store" })
 }
 
 export function createBusinessKnowledge(payload: BusinessKnowledgePayload) {

@@ -131,13 +131,22 @@ export type MetricPayload = Omit<MetricItem, "unit"> & { unit?: string }
 export type OrgItem = {
   org_code: string
   org_name: string
+  parent_org_code?: string | null
+  hierarchy_level?: string | null
   aliases: string[]
   enabled: boolean
   created_at?: string | null
   updated_at?: string | null
 }
 
-export type OrgPayload = Pick<OrgItem, "org_code" | "org_name" | "aliases" | "enabled">
+export type OrgPayload = Pick<OrgItem, "org_code" | "org_name" | "aliases" | "enabled"> &
+  Partial<Pick<OrgItem, "parent_org_code" | "hierarchy_level">>
+
+export type OrganizationLevels = {
+  root: string
+  legal_entity: string
+  branch: string
+}
 
 /** id 缺失表示后端根据 metric_values 表生成的只读默认数据集。 */
 export type DatasetItem = {
@@ -423,6 +432,7 @@ export type BusinessKnowledgePayload = {
   text: string
   enabled: boolean
   revision: string
+  metric_codes?: string[]
 }
 
 export type BusinessKnowledgeItem = Omit<BusinessKnowledgePayload, "revision"> & {

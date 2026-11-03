@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Ask Metric · 工程导读</title>
+  <style>
+    :root{--ink:#192c43;--muted:#52667d;--blue:#245ac6;--navy:#142d4b;--line:#dce4ee;--paper:#fff;--canvas:#f3f6fa;--soft:#edf3ff;--green:#187052;--amber:#946011;--red:#b23e3e;--radius:10px}
+    *{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:34px}body{margin:0;background:var(--canvas);color:var(--ink);font:15px/1.85 "Microsoft YaHei","PingFang SC",system-ui,sans-serif}a{color:var(--blue);text-underline-offset:3px}button,input{font:inherit}button{cursor:pointer}button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible{outline:3px solid #5e97ee;outline-offset:4px}button:disabled{cursor:default}h1,h2,h3,p,ul,ol{margin-top:0}h1,h2,h3{line-height:1.45}h1{font-size:38px;letter-spacing:-1px;margin-bottom:15px}h2{font-size:25px;margin-bottom:12px}h3{font-size:18px;margin-bottom:10px}p{margin-bottom:14px}ul,ol{padding-left:22px}li{margin:6px 0}code,.mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace;font-size:.88em;overflow-wrap:anywhere}code{padding:2px 5px;background:#eef2f7;border-radius:4px}small{font-size:12px}.muted{color:var(--muted)}.nowrap{white-space:nowrap}[hidden]{display:none!important}
+    .skip{position:fixed;top:-70px;left:20px;z-index:10;background:white;padding:10px 18px}.skip:focus{top:15px}
+    .sidebar{position:fixed;inset:0 auto 0 0;width:232px;background:var(--navy);color:#eaf1fc;display:flex;flex-direction:column;padding:31px 23px;overflow:auto;z-index:3}.brand{font-size:20px;letter-spacing:.4px;font-weight:700;color:white;text-decoration:none}.brand-sub{font-size:12px;color:#adbed3;margin:4px 0 28px}.nav-caption{font-size:11px;letter-spacing:2px;color:#a3b6d0;margin-bottom:9px}.sidebar nav a{display:flex;gap:13px;align-items:center;text-decoration:none;color:#cbd8e9;padding:9px 10px;border-radius:5px;font-size:13px;margin:3px -9px}.sidebar nav a span{font:11px Consolas,monospace;opacity:.65}.sidebar nav a:hover{background:#213e5d;color:white}.sidebar nav a[aria-current="location"]{background:#2d5079;color:white}.sidebar-foot{margin-top:auto;padding-top:26px;color:#b8c8dc;font-size:11px;line-height:1.9}.sidebar-foot strong{font-size:12px;color:#f3f7fd;font-weight:500}
+    .page{margin-left:232px;padding:34px 46px 80px;max-width:1600px}.toolbar{display:flex;justify-content:space-between;align-items:center;gap:20px;color:var(--muted);font-size:12px;margin-bottom:31px}.toolbar-actions{display:flex;gap:8px}.button{border:1px solid #cad6e5;border-radius:6px;background:#fff;color:var(--ink);padding:7px 13px;font-size:12px;white-space:nowrap}.button:hover{border-color:var(--blue);color:var(--blue)}.button.primary{background:var(--blue);border-color:var(--blue);color:white}.eyebrow{color:var(--blue);font:600 11px/1.5 Consolas,monospace;letter-spacing:1.8px;margin-bottom:10px}.intro{font-size:17px;color:#3b526c;max-width:860px;line-height:1.9}.hero{padding-bottom:27px;border-bottom:1px solid var(--line);margin-bottom:30px}.project-path{font-size:12px;color:#61748a;overflow-wrap:anywhere;margin:16px 0 0}.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}.tag{display:inline-flex;align-items:center;gap:5px;font-size:11px;line-height:1.55;padding:4px 8px;border-radius:4px;background:#e8effa;color:#325787}.tag.verified{background:#e7f3ee;color:#17674b}.tag.reproduced{background:#fff0df;color:#8c5708}.tag.pending{background:#f0edf7;color:#665184}.tag.scope{background:#eaf0f6;color:#496078}
+    .section{margin-top:44px;scroll-margin-top:30px}.section-head{display:flex;gap:15px;align-items:baseline;margin-bottom:18px}.section-no{color:var(--blue);font:12px Consolas,monospace}.section-head h2{margin:0}.section-desc{color:var(--muted);max-width:900px;margin-bottom:23px}.panel{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:24px;margin-bottom:18px}.panel>*:last-child{margin-bottom:0}.callout{border:1px solid #cbdcf5;background:#edf4ff;border-radius:8px;padding:16px 20px;margin:20px 0;color:#294c75}.callout.warning{background:#fff7ed;border-color:#ead9be;color:#7e5b26}.callout strong{display:block;font-size:14px;margin-bottom:3px}.callout p{font-size:13px;margin:0}.columns{display:grid;grid-template-columns:1fr 1fr;gap:18px}.columns>.panel{margin:0}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:8px;background:white}table{border-collapse:collapse;width:100%;font-size:13px;text-align:left}th,td{vertical-align:top;padding:13px 16px;border-bottom:1px solid var(--line)}th{font-size:12px;color:#4b617a;background:#f7f9fc;font-weight:600}tr:last-child td{border-bottom:0}td p{margin-bottom:6px}td:first-child{font-weight:500}caption{text-align:left;font-size:12px;color:var(--muted);padding:12px 16px}.source-link{font-size:12px;text-decoration:none;white-space:nowrap}.source-link:hover{text-decoration:underline}
+    .diagram-wrap{overflow:auto}.diagram{display:block;width:100%;min-width:760px;height:auto}.diagram text{font-family:"Microsoft YaHei","PingFang SC",sans-serif;fill:#243d59}.diagram .title{font-size:16px;font-weight:600}.diagram .sub{font-size:12px;fill:#5d728b}.diagram .wire{fill:none;stroke:#8ca6c9;stroke-width:1.5}.diagram .wire-accent{stroke:#356ec5;stroke-width:2}.diagram-note{display:flex;gap:24px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:14px;color:var(--muted);font-size:12px;margin-top:12px}.diagram-note strong{color:var(--ink)}
+    .tabs{display:flex;gap:4px;background:#e8eef6;border-radius:7px;padding:4px;width:max-content;margin-bottom:19px}.tab{font-size:13px;border:0;border-radius:5px;padding:8px 19px;color:#526b87;background:transparent}.tab[aria-selected="true"]{background:#fff;color:var(--blue);box-shadow:0 1px 3px #243c5e12;font-weight:600}.flow{list-style:none;padding:0;counter-reset:step;margin:0}.flow li{counter-increment:step;display:grid;grid-template-columns:32px 1fr;gap:14px;margin:0;padding:0 0 20px;position:relative}.flow li:last-child{padding-bottom:0}.flow li:before{content:counter(step,decimal-leading-zero);width:28px;height:28px;border-radius:50%;background:var(--soft);color:var(--blue);display:grid;place-items:center;font:11px Consolas,monospace;z-index:1}.flow li:not(:last-child):after{position:absolute;content:"";left:13px;top:31px;bottom:4px;border-left:1px solid #d8e3f2}.flow strong{font-size:14px;display:block;margin-bottom:3px}.flow p{font-size:13px;color:var(--muted);margin:0}.flow code{font-size:11px}
+    details{background:white;border:1px solid var(--line);border-radius:8px;margin:12px 0;overflow:hidden}summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:18px;align-items:center;padding:17px 20px;font-size:14px;font-weight:600}summary::-webkit-details-marker{display:none}summary:after{content:"＋";color:var(--blue);font-size:18px;font-weight:400}details[open]>summary:after{content:"−"}details[open]>summary{border-bottom:1px solid var(--line)}.detail-body{padding:18px 20px;font-size:13px}.detail-body>*:last-child{margin-bottom:0}.detail-body h3{font-size:15px}.module-tag{font-size:10px;font-weight:400;color:#6e8096;margin-left:8px}.rules{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.rule{padding:18px 0;border-top:2px solid #abc3e9}.rule h3{font-size:15px}.rule p{font-size:13px;color:var(--muted);margin-bottom:0}.inline-steps{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;line-height:2}.inline-steps span{background:#edf3fb;padding:5px 10px;border-radius:4px}.inline-steps i{font-style:normal;color:#7190b6}
+    .issue-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}.filters{display:flex;flex-wrap:wrap;gap:6px}.filter{padding:6px 12px;font-size:12px;border:1px solid #cfdbe9;border-radius:5px;background:white;color:var(--muted)}.filter[aria-pressed="true"]{background:var(--navy);color:white;border-color:var(--navy)}.issue-count{font-size:12px;color:var(--muted)}.issue summary{align-items:flex-start}.issue-title{font-size:14px}.issue-title .tag{margin-bottom:7px}.issue-title b{display:block}.issue .detail-body{background:#fff}.issue .detail-body p{margin-bottom:9px}.risk-label{font-size:11px;color:var(--red);margin-left:8px;font-weight:400}.evidence-key{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:12px}.check-list{list-style:none;padding:0;margin:0}.check-list li{display:flex;align-items:baseline;justify-content:space-between;gap:18px;border-bottom:1px solid #e8edf4;padding:9px 0;font-size:13px}.check-list li:last-child{border:0}.check-status{color:var(--green);font-weight:600;white-space:nowrap}.check-status.partial{color:var(--amber)}.check-status.unchecked{color:#69788d}
+    .source-search{display:flex;gap:10px;align-items:center;margin:15px 0}.source-search label{font-size:12px;white-space:nowrap}.source-search input{min-width:0;width:100%;padding:9px 12px;border:1px solid #cbd6e4;border-radius:6px;background:white;color:var(--ink);font-size:13px}.source-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}.source-item{border:1px solid var(--line);border-radius:7px;padding:14px 15px;background:white;scroll-margin-top:35px}.source-item:target{border-color:#78a3e7;box-shadow:0 0 0 3px #dbe8fc}.source-item h3{font-size:13px;margin:0 0 5px}.source-item p{font-size:12px;color:var(--muted);margin:0 0 9px}.source-path{display:block;font-size:11px;line-height:1.7;color:#45617f;overflow-wrap:anywhere}.source-bottom{display:flex;gap:10px;justify-content:space-between;align-items:center;margin-top:9px;font-size:11px;color:var(--muted)}.copy-btn{border:0;background:#edf2f8;color:#365a85;border-radius:4px;padding:4px 9px;font-size:11px}.copy-btn:hover{background:#deebfc}.footer{border-top:1px solid var(--line);padding-top:22px;margin-top:38px;font-size:12px;color:var(--muted);display:flex;gap:25px;justify-content:space-between}.toast{position:fixed;bottom:25px;left:calc(50% + 116px);transform:translateX(-50%);background:var(--navy);color:white;box-shadow:0 5px 20px #132b4a22;padding:10px 18px;border-radius:6px;font-size:12px;z-index:9;max-width:70vw}.empty{padding:20px;color:var(--muted);font-size:13px;text-align:center}.print-only{display:none}
+    @media(max-width:1150px){.sidebar{width:200px;padding:25px 20px}.page{margin-left:200px;padding:28px 28px 65px}h1{font-size:32px}.toast{left:calc(50% + 100px)}.rules{gap:12px}.source-list{grid-template-columns:1fr}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+    @media print{@page{size:A4;margin:15mm 12mm}body{background:white;font-size:10pt;line-height:1.65}.sidebar,.toolbar,.tabs,.issue-toolbar,.source-search,.copy-btn,.toast,.skip,.source-bottom a,.footer>a{display:none!important}.page{margin:0;max-width:none;padding:0}.section{margin-top:24px}.hero{margin-bottom:20px}.hero h1{font-size:26pt}.section h2{font-size:17pt}.panel{padding:13px;margin-bottom:12px}details{break-inside:avoid}details>summary{padding:10px 13px}.detail-body{padding:11px 13px}.tab-panel[hidden],.issue[hidden],.source-item[hidden]{display:block!important}.tab-panel{margin-bottom:20px}.print-only{display:block!important}.columns,.rules,.source-list{display:block}.columns>.panel,.rule,.source-item{margin-bottom:12px}.diagram{min-width:0}.diagram-wrap{overflow:visible}.table-wrap{overflow:visible}th,td{padding:8px;font-size:9pt}h2,h3,summary{break-after:avoid}.source-link{color:inherit;text-decoration:none}.footer{display:block;font-size:9pt}.tag{border:1px solid #bbb}a{color:inherit}.flow li{padding-bottom:11px}.flow p{font-size:9pt}.section-head{margin-bottom:12px}.project-path{font-size:9pt}}
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">跳到正文</a>
+  <aside class="sidebar" aria-label="报告目录">
+    <a class="brand" href="#overview">ASK METRIC<span aria-hidden="true" style="color:#83aaf2">.</span></a>
+    <p class="brand-sub">工程导读 · 分析增强版</p>
+    <p class="nav-caption">READING GUIDE</p>
+    <nav>
+      <a href="#overview" aria-current="location"><span>01</span> 先建立整体认识</a>
+      <a href="#request-flow"><span>02</span> 一次请求怎样完成</a>
+      <a href="#modules"><span>03</span> 三个模块各管什么</a>
+      <a href="#analysis"><span>04</span> 分析增强在哪里</a>
+      <a href="#state"><span>05</span> 多轮、存储与权限</a>
+      <a href="#frontend"><span>06</span> 页面与交互机制</a>
+      <a href="#runtime"><span>07</span> 配置、启动与部署</a>
+      <a href="#findings"><span>08</span> 已发现的问题</a>
+      <a href="#verification"><span>09</span> 验证到什么程度</a>
+      <a href="#sources"><span>10</span> 源码阅读索引</a>
+    </nav>
+    <div class="sidebar-foot"><strong>2026.10.23 · 源码探索快照</strong><br>先看链路，再进入具体实现。<br>支持离线阅读与浏览器打印。<br>本页不连接模型或业务数据源。</div>
+  </aside>
+
+  <main id="main" class="page">
+    <div class="toolbar"><span>技术导读 / Ask Metric v0.2</span><div class="toolbar-actions"><button class="button" id="expand-all" type="button">展开全部细节</button><button class="button primary" id="print" type="button">打印 / 保存 PDF</button></div></div>
+    <header class="hero" id="overview">
+      <p class="eyebrow">ENGINEERING FIELD GUIDE / 01</p>
+      <h1>从一句提问，到可信的业务答案</h1>
+      <p class="intro">Ask Metric 将自然语言理解交给模型，把任务状态、执行许可、权限与数值证据交给程序。读懂这条边界，就能串起前端、Agent 和后端的大部分设计。</p>
+      <div class="meta"><span class="tag verified">源码链路已核查</span><span class="tag scope">本地 develop · 73f1db5</span><span class="tag scope">基于 2026-10-23 探索</span><span class="tag pending">非生产验收报告</span></div>
+      <p class="project-path">项目目录：<span class="mono">zbws/ask-metric-v0.2-analysis-enhanced-windows</span></p>
+    </header>
+    <p>这是面向银行指标查询与经营分析的三服务工程。当前源码来自独立导入的快照：本地分支是 <code>develop</code>，<code>VERSION.txt</code> 记录的来源分支是 <code>v0.2-analysis-enhanced</code>。理解功能应以现行路由、工具注册与调用链为准，部分 README 保留了旧版本描述。</p>
+    <p class="muted"><small>架构图在较窄窗口中可横向滚动；点击图区后也可用左右方向键查看。</small></p>
+    <div class="panel diagram-wrap" tabindex="0" role="region" aria-label="三服务架构图，可横向滚动">
+      <svg class="diagram" viewBox="0 0 980 425" role="img" aria-labelledby="architecture-title architecture-desc">
+        <title id="architecture-title">Ask Metric 三服务架构与数据流</title>
+        <desc id="architecture-desc">Vue 页面通过 agent-api 访问 Pi Agent，通过 api 访问 FastAPI。Agent 调用 Chat 模型，管理语义任务与执行许可，再交给后端受控执行。Agent 持久化 JSONL 会话，后端保存应用数据并只读查询指标库。</desc>
+        <defs><marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7" fill="none" stroke="#8ca6c9"/></marker><marker id="arrow-blue" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7" fill="none" stroke="#356ec5"/></marker></defs>
+        <rect x="15" y="115" width="180" height="100" rx="8" fill="#f1f5fb" stroke="#cad8eb"/><text class="title" x="35" y="148">Vue 页面</text><text class="sub" x="35" y="174">聊天 · 管理 · 结果展示</text><text class="sub" x="35" y="195">frontend-vue</text>
+        <rect x="300" y="70" width="245" height="180" rx="8" fill="#edf4ff" stroke="#a8c3eb"/><text class="title" x="322" y="101">Pi Agent 宿主</text><text class="sub" x="322" y="126">语言理解 · 原生会话 · 工具循环</text><rect x="320" y="146" width="205" height="82" rx="5" fill="white" stroke="#bed2ef"/><text class="title" x="335" y="173">semantic_v2</text><text class="sub" x="335" y="194">目标 / 修订 / 澄清 / 依赖</text><text class="sub" x="335" y="214">Frame + 版本化执行许可</text>
+        <rect x="665" y="70" width="290" height="180" rx="8" fill="#f1f5fb" stroke="#cad8eb"/><text class="title" x="687" y="101">FastAPI 后端</text><text class="sub" x="687" y="126">身份 · 正式目录 · 机构范围 · 幂等</text><rect x="685" y="146" width="250" height="82" rx="5" fill="white" stroke="#cad8eb"/><text class="title" x="701" y="173">受控查询与计算</text><text class="sub" x="701" y="194">QueryPlanner → SQLGlot Builder</text><text class="sub" x="701" y="214">参数绑定 / 只读校验 / 结果证据</text>
+        <path class="wire wire-accent" d="M195 150 H296" marker-end="url(#arrow-blue)"/><text class="sub" x="211" y="138">/agent-api</text>
+        <path class="wire wire-accent" d="M545 180 H661" marker-end="url(#arrow-blue)"/><text class="sub" x="566" y="164">已校验请求</text>
+        <path class="wire" d="M100 115 V31 H810 V66" marker-end="url(#arrow)"/><text class="sub" x="198" y="22">/api · 登录、管理、结果回读与导出</text>
+        <rect x="20" y="327" width="175" height="71" rx="6" fill="#fff" stroke="#cad8eb"/><text class="title" x="39" y="356">Chat 模型</text><text class="sub" x="39" y="378">解释问题与组织答案</text>
+        <rect x="300" y="327" width="245" height="71" rx="6" fill="#fff" stroke="#cad8eb"/><text class="title" x="320" y="356">JSONL 原生会话</text><text class="sub" x="320" y="378">消息 · 任务状态 · Frame · 引用</text>
+        <rect x="625" y="327" width="165" height="71" rx="6" fill="#fff" stroke="#cad8eb"/><text class="title" x="644" y="356">应用库</text><text class="sub" x="644" y="378">账号 / 目录 / 结果 / 审计</text>
+        <rect x="810" y="327" width="165" height="71" rx="6" fill="#fff" stroke="#cad8eb"/><text class="title" x="830" y="356">指标查询库</text><text class="sub" x="830" y="378">只读业务数据源</text>
+        <path class="wire" d="M345 250 V284 H106 V323" marker-end="url(#arrow)"/><text class="sub" x="118" y="274">模型请求</text>
+        <path class="wire" d="M423 250 V323" marker-end="url(#arrow)"/>
+        <path class="wire" d="M715 250 V323" marker-end="url(#arrow)"/>
+        <path class="wire" d="M885 250 V323" marker-end="url(#arrow)"/><text class="sub" x="896" y="293">只读 SQL</text>
+      </svg>
+      <div class="diagram-note"><span><strong>模型</strong> 提出语义与计划</span><span><strong>宿主</strong> 维护可信任务与执行许可</span><span><strong>后端</strong> 再次鉴权并生成结果证据</span></div>
+    </div>
+    <div class="callout"><strong>阅读时先记住这条原则</strong><p>模型输出、工具执行成功、任务全部完成、答案正式交付是不同状态。页面上出现一段文字，或收到一次 HTTP 200，都不足以单独证明业务目标已完成。</p></div>
+
+    <section class="section" id="request-flow">
+      <div class="section-head"><span class="section-no">02</span><h2>一次请求怎样完成</h2></div>
+      <p class="section-desc">三条常见路径共用认证与受治理执行，但进入查询、补查和复用的条件不同。切换下方路径阅读。</p>
+      <div class="tabs" role="tablist" aria-label="请求路径">
+        <button class="tab" type="button" role="tab" id="tab-query" aria-selected="true" aria-controls="flow-query">基础问数</button>
+        <button class="tab" type="button" role="tab" id="tab-analysis" aria-selected="false" aria-controls="flow-analysis" tabindex="-1">经营分析</button>
+        <button class="tab" type="button" role="tab" id="tab-history" aria-selected="false" aria-controls="flow-history" tabindex="-1">历史复用与恢复</button>
+      </div>
+      <div class="panel tab-panel" id="flow-query" role="tabpanel" aria-labelledby="tab-query" tabindex="0">
+        <h3 class="print-only">基础问数</h3>
+        <ol class="flow">
+          <li><div><strong>页面提交原始问题</strong><p>首次发送创建原生会话；随后向同一 Session 提交 <code>protocol_version:3</code> 与 <code>request_id</code>。前端不自行继承业务条件。</p></div></li>
+          <li><div><strong>校验身份、归属和请求幂等</strong><p>Agent 通过后端 <code>/auth/me</code> 获取当前身份。同 ID 同输入复用原 operation，不同输入拒绝；同会话另有操作运行则返回忙碌状态。</p></div></li>
+          <li><div><strong>Pi 提案，宿主完成可信绑定</strong><p><code>resolve_business_turn → SemanticPlanService → SemanticTaskService</code>；指标、机构、日期由正式解析接口落实。缺项或歧义进入持久化澄清。</p></div></li>
+          <li><div><strong>编译 Frame，检查执行许可</strong><p>许可绑定任务、目标、版本与本轮 operation。READY 后宿主可直接推进执行，不必再让模型往返一次决定“开始查询”。</p></div></li>
+          <li><div><strong>后端规划并执行只读 SQL</strong><p><code>basic-queries → submit_question → execute → QueryPlanner → SQLGlot Builder</code>。执行前重新核验权限、目录与集合指纹，业务值通过参数绑定。</p></div></li>
+          <li><div><strong>保存事实与正式答案</strong><p>后端落库结果快照、fact 引用和运行记录；完整且符合直接交付条件的取值可直接使用后端答案，其他目标继续走证据交付流程。</p></div></li>
+        </ol>
+      </div>
+      <div class="panel tab-panel" id="flow-analysis" role="tabpanel" aria-labelledby="tab-analysis" tabindex="0" hidden>
+        <h3 class="print-only">经营分析</h3>
+        <ol class="flow">
+          <li><div><strong>发现指标与方法</strong><p>通过 <code>analysis_catalog</code> 或专项主题读取正式目录，取得宿主短引用与后端签名绑定。目录检索失败不能解释成“没有业务数据”。</p></div></li>
+          <li><div><strong>提出分析目标与步骤</strong><p>统一入口 <code>intent=analyze</code> 保存 objective、requirements、steps、依赖及范围；每个子问题必须有关联步骤或明确缺口。</p></div></li>
+          <li><div><strong>复用基础查询、覆盖和受控计算</strong><p>后端执行分析计划并保存已完成步骤。通用分析每次执行有 120 秒预算和 40 次基础查询预算；达到预算时保留真实缺口。</p></div></li>
+          <li><div><strong>根据证据决定是否补查</strong><p>Pi 结合实际发现提出 inquiry，补查应说明疑问、此前判断、依据与预期变化。相同计划与范围优先复用已有回执。</p></div></li>
+          <li><div><strong>核验报告并交付</strong><p>正文用 <code>{{e1.v1}}</code> 等事实引用，交给 <code>analysis_report_present → /analysis/report</code> 核验。已有证据而后续失败时，可交付明确的部分结果。</p></div></li>
+        </ol>
+      </div>
+      <div class="panel tab-panel" id="flow-history" role="tabpanel" aria-labelledby="tab-history" tabindex="0" hidden>
+        <h3 class="print-only">历史复用与恢复</h3>
+        <ol class="flow">
+          <li><div><strong>定位所属用户的原生会话</strong><p>Agent 从用户隔离的 JSONL 仓库打开 Session；消息、运行状态与任务账本一起恢复。旧协议会话标记为只读。</p></div></li>
+          <li><div><strong>重新核验历史访问权限</strong><p>任务、结果与分析证据读取需要当前授权。历史内容不能因为“以前查过”就跳过权限校验。</p></div></li>
+          <li><div><strong>按结果引用回读快照</strong><p>查询结果分页、导出以及已确认的历史复用读取已保存结果，不重新执行原业务 SQL。读历史通常只改讨论与展示焦点。</p></div></li>
+          <li><div><strong>运行中则重新观察，不重发问题</strong><p>刷新或断线后使用 <code>GET .../stream</code>。网络失败无法证明后端没有执行，先按原幂等关联查询状态，再决定如何恢复。</p></div></li>
+          <li><div><strong>需要停止时显式取消</strong><p>页面发送 cancel 后中止本地读取。断开 SSE 只是停止观察；即使请求被取消，也不能据此认定数据库操作已回滚。</p></div></li>
+        </ol>
+      </div>
+      <p><a class="source-link" href="#source-host">定位 Agent 宿主 ↗</a>　<a class="source-link" href="#source-task-api">定位后端查询入口 ↗</a></p>
+    </section>
+
+    <section class="section" id="modules">
+      <div class="section-head"><span class="section-no">03</span><h2>三个模块各管什么</h2></div>
+      <div class="table-wrap"><table><thead><tr><th scope="col">模块</th><th scope="col">核心职责</th><th scope="col">不应混淆的边界</th></tr></thead><tbody>
+        <tr><td><code>frontend-vue</code><br><span class="muted">Vue 3 / TypeScript / Vite</span></td><td>认证状态、会话选择、SSE 消费、澄清输入、结果表格与图表、配置及目录管理。</td><td>页面不判定可信机构范围，不生成业务 SQL，也不重新计算报告结论。</td></tr>
+        <tr><td><code>agent-service</code><br><span class="muted">Node / Hono / Pi</span></td><td>模型接入、原生 Session、语义计划、上下文焦点、执行许可、工具调度、恢复和答案交付。</td><td>工具只访问受治理后端接口；没有向模型开放 shell、任意文件读取或 SQL 执行器。</td></tr>
+        <tr><td><code>backend-next</code><br><span class="muted">FastAPI / SQLAlchemy / SQLGlot</span></td><td>身份、正式目录、机构层级、权限、查询计划、只读取数、精确计算、快照和审计。</td><td>当前主链路不由后端 Chat 模型解释整句问题；旧语义状态字段不代表旧接口仍在线。</td></tr>
+      </tbody></table></div>
+      <details><summary><span>Agent 的主入口与底层模块<span class="module-tag">semantic-task / business-context</span></span></summary><div class="detail-body"><p><code>semantic-task</code> 管目标、原文来源、修订、澄清、依赖与许可；<code>business-context</code> 管 Frame、字段解析、能力适配及结果存储。后者仍被使用，不能因为新版入口出现就直接删除。</p><p>当前工具注册集包含目录、语义提案、执行、结果回读、澄清、主题和报告工具。<strong>注册不等于模型一直可见</strong>：宿主会根据状态裁剪工具，内部修复和部分交付由宿主控制，报告工具需要相应成功证据。</p><p><a class="source-link" href="#source-tools">工具注册入口 ↗</a>　<a class="source-link" href="#source-semantic">语义计划入口 ↗</a></p></div></details>
+      <details><summary><span>后端分层与事务边界<span class="module-tag">api / application / domain / infrastructure</span></span></summary><div class="detail-body"><p>API 层负责请求契约和依赖装配；application 编排任务、查询、计算、目录和报告；domain 定义查询与计算规则；infrastructure 实现数据库、SQL 构建、模型连接、配置中心和导出。</p><p>这是当前职责分层，部分领域或应用模块直接依赖基础设施，并非完全隔离的纯领域架构。查询先在应用库保存 running 状态并提交，再使用独立业务库连接取数，最后另开事务保存终态。不存在假定的跨库原子事务。</p><p>业务失败可能位于 HTTP 200 响应的 <code>result.status=failed/unsupported</code> 中，调用方必须检查业务状态。</p></div></details>
+      <div class="callout"><strong>三个版本标签，分别理解</strong><p>HTTP 提问协议：<code>3</code>；新会话业务协议：<code>semantic_v2</code>；部分页面投影兼容标签：<code>frame_v1</code>。JSONL 目录名 <code>native-v1</code> 也不代表业务仍运行旧协议。</p></div>
+    </section>
+
+    <section class="section" id="analysis">
+      <div class="section-head"><span class="section-no">04</span><h2>分析增强在哪里</h2></div>
+      <p class="section-desc">分析增强的核心是保存完整目标、执行多个受控步骤、用新证据补充或修正判断，再形成可追溯的报告。</p>
+      <div class="panel"><div class="inline-steps" aria-label="证据链"><span>正式目录</span><i aria-hidden="true">→</i><span>签名指标引用</span><i aria-hidden="true">→</i><span>分析计划</span><i aria-hidden="true">→</i><span>查询 / 计算事实</span><i aria-hidden="true">→</i><span>核验判断</span><i aria-hidden="true">→</i><span>正式报告</span></div></div>
+      <div class="table-wrap"><table><thead><tr><th scope="col">能力</th><th scope="col">已确认的实现</th><th scope="col">适用边界</th></tr></thead><tbody>
+        <tr><td>基础问数</td><td>v2 基础接口接受取值、排名、位次；多日期取值可提供趋势所需数据。</td><td>受 BasicQuerySpec 和 QueryPlanner 支持范围限制；期间比较由分析服务或多次取数加计算编排，不是基础接口的独立操作。</td></tr>
+        <tr><td>通用分析</td><td>observe、compare、trend、ranking、structure；支持多目标及步骤依赖。</td><td>最多 8 个需求、12 步、32 个不同指标；方法存在不代表具体业务配置齐全。</td></tr>
+        <tr><td>专项主题</td><td>贷款、存款主题配置与 Skills，复用查询和计算。</td><td>与通用分析关系配置分开，不能将专项能力推导成全部主题都已支持。</td></tr>
+        <tr><td>精确计算</td><td>Decimal；四则、正负号、sum / avg / min / max / abs；事实来源可追溯。</td><td>AST 白名单；禁止属性、索引、循环、幂及任意函数。字面常量只允许 0、1，用户系数须绑定原文。</td></tr>
+        <tr><td>报告与补查</td><td>引用真实事实原子；检查数值、日期、来源和部分判断方向；支持明确的部分完成。</td><td>证据约束覆盖正式查询与报告流程，不能泛化成所有普通对话都经过业务事实核验。</td></tr>
+      </tbody></table></div>
+      <div class="callout warning"><strong>当前仓库的通用结构分析规则尚未配置</strong><p><code>backend-next/config/analysis-semantics.json</code> 中 <code>metrics</code> 与 <code>relations</code> 均为空。通用 structure 方法缺少可通过的批准关系；当前实现固定读取后端安装目录下的该文件，运行环境对应文件是否存在另行发布的规则版本，本轮未核实。</p></div>
+      <details><summary>数值、日期与缺口如何约束</summary><div class="detail-body"><ul><li>报告数字通过 <code>{{e1.v1}}</code> 等真实引用进入正文，模型不自行重算或补造事实。</li><li>缺失记录不能当零；趋势缺期不补零、不插值；排名需要披露实际参与机构和缺口。</li><li>分析未明确日期时可按实际最新记录处理，未明确机构时可采用认证账号所属机构，并说明范围；基础问数仍遵守自己的缺项规则。</li><li>未知会计口径不能假定为累计值或单月值，观测差额不能直接认定为期间发生额。</li><li>归因、预测及任意统计建模不应因报告写得完整而被当作已实现能力。</li></ul><p><a class="source-link" href="#source-analysis">分析执行实现 ↗</a>　<a class="source-link" href="#source-report">报告核验实现 ↗</a></p></div></details>
+    </section>
+
+    <section class="section" id="state">
+      <div class="section-head"><span class="section-no">05</span><h2>多轮、存储与权限</h2></div>
+      <div class="rules"><div class="rule"><h3>业务焦点</h3><p>下一轮继承业务条件的基准。新问题、修改和续接由版本化任务管理。</p></div><div class="rule"><h3>讨论焦点</h3><p>正在解释或讨论的历史对象。看历史通常不应偷换下一轮查询条件。</p></div><div class="rule"><h3>展示焦点</h3><p>当前页面显示的结果或任务，与业务继承和历史讨论分别保存。</p></div></div>
+      <div class="table-wrap"><table><thead><tr><th scope="col">位置</th><th scope="col">保存什么</th><th scope="col">维护含义</th></tr></thead><tbody>
+        <tr><td>Agent JSONL 会话</td><td>原生消息、operation、语义任务、Frame、焦点、引用及部分结果快照。</td><td>按用户身份分目录；缓存淘汰释放句柄，不删除历史。数据根为单写模式。</td></tr>
+        <tr><td>应用数据库</td><td>用户、机构/指标正式目录、会话关联、query_tasks、query_runs、结果与计算证据。</td><td>独立读写连接；历史读取仍复核归属与当前权限。仅备份 Agent 文件不够。</td></tr>
+        <tr><td>指标查询库</td><td>真实指标事实数据；适配 MySQL / GoldenDB 或 Inceptor。</td><td>独立只读账号。目录同步同步正式目录，不同步全部业务值。</td></tr>
+        <tr><td>浏览器内存 / 本地偏好</td><td>访问令牌在内存；选中会话及本地改名等偏好按用户保存。</td><td>服务器会话和本地显示状态不是同一份存储，本地改名不等于跨设备改名。</td></tr>
+      </tbody></table></div>
+      <details><summary>权限不是只在登录时检查一次</summary><div class="detail-body"><p>后端根据当前账号的启用状态、机构、角色与 session_version 验证身份；重新登录或退出使旧令牌失效。普通用户查询范围通常为自身及正式启用下级，管理员与配置中的特殊机构有更大范围，但管理员的数据查询权不等于跨用户读取聊天历史。</p><p>机构集合由正式层级展开并绑定范围指纹，执行时重算；权限或目录变化会使旧范围失效。任务、结果、计算和分析回执还要核验 owner。旧结果不能因为曾经成功就跳过当前授权。</p><p><a class="source-link" href="#source-auth">后端认证依赖 ↗</a></p></div></details>
+      <details><summary>重试、取消和结果未知</summary><div class="detail-body"><p>Agent 保存请求与 operation 的幂等关系，执行前保存后端关联。网络失败、超时或 5xx 时，可能无法确认后端是否已提交，恢复优先查询原状态，不能盲目重发 POST。</p><p>模型重试与业务执行重试分开。默认模型最多重试 1 次；首个有效响应和流闲置分别计时，持续有效输出不受固定总响应时长限制。浏览器断线不等于取消，显式取消也不代表已经执行的数据库请求一定停止。</p></div></details>
+      <p><a class="source-link" href="#source-store">原生会话与单写锁 ↗</a>　<a class="source-link" href="#source-semantic-store">语义状态账本 ↗</a></p>
+    </section>
+
+    <section class="section" id="frontend">
+      <div class="section-head"><span class="section-no">06</span><h2>页面与交互机制</h2></div>
+      <p class="section-desc">当前页面以路由注册为准：登录、聊天、问数日志、指标术语、机构别名、数据集、智能配置。智能配置额外限制 SYSTEM_ADMIN；没有独立准确率管理或归因页面。</p>
+      <div class="columns"><article class="panel"><h3>聊天主面板承担什么</h3><ul><li>首次发送才创建会话，后续继续同一 Session。</li><li>通过 SSE 消费实际进展、工具结果、正式答案和终态。</li><li>澄清题目与答案具有版本；纯目录选择可绑定已发布问题。</li><li>刷新后重新观察运行，不自动重复提问。</li><li>结果不超过 100 行时回读表格；超过 100 行提供 Excel 下载。</li></ul></article><article class="panel"><h3>认证与展示边界</h3><ul><li>访问令牌仅在内存，同源 HttpOnly Cookie 用于恢复会话。</li><li>密码传输使用 SM2 包裹一次性 SM4 密钥、SM4-CBC 加密密码。</li><li>Markdown 禁止原始 HTML，外链图片不直接加载。</li><li>表格保留十进制字符串；图表按需转数值用于展示。</li><li>旧格式会话可查看，禁止直接继续提问。</li></ul></article></div>
+      <div class="callout warning"><strong>SSE 进度流与正文逐段流要分开看</strong><p>当前新会话使用 semantic_v2，答案增量模式的开放条件仍绑定旧 frame_v1 且无 turn contract 的路径。因此新会话主要通过正式回执、message_done 与 snapshot 交付正文；仅开启 AGENT_ANSWER_STREAMING 不能证明新链路已逐 token 展示。此项为源码确认，未做真实模型流式验收。</p></div>
+      <details><summary>维护时需要注意的界面实现细节</summary><div class="detail-body"><p>聊天逻辑集中在 <code>BackendNextChatPanel.vue</code>，包括会话、流控制、历史重建、澄清和结果归并。名称保留旧架构痕迹，但新提问走 Agent 原生入口。</p><p>运行过程步骤来源于已收到事件，不过显示时还有每行 600ms 的延迟揭示；运行中默认展开，终态收起。表格数字格式化会去掉末尾零，例如 <code>1.2300 → 1.23</code>，与“保留显示小数位”的旧文档措辞不一致。</p><p>明细快照回读失败存在静默 catch；在不超过 100 行且无导出入口的分支，可能出现正文成功而明细缺失、无明确重试提示。该界面失败路径尚未浏览器复现。</p></div></details>
+      <p><a class="source-link" href="#source-chat">聊天主面板 ↗</a>　<a class="source-link" href="#source-agent-api">SSE 客户端 ↗</a>　<a class="source-link" href="#source-router">实际路由 ↗</a></p>
+    </section>
+
+    <section class="section" id="runtime">
+      <div class="section-head"><span class="section-no">07</span><h2>配置、启动与部署</h2></div>
+      <div class="table-wrap"><table><thead><tr><th scope="col">服务</th><th scope="col">文档默认</th><th scope="col">本次本机观察</th><th scope="col">验证结果</th></tr></thead><tbody>
+        <tr><td>前端</td><td>5173</td><td>127.0.0.1:5173</td><td>页面与两条代理通道响应正常</td></tr>
+        <tr><td>后端</td><td>8010</td><td><strong>127.0.0.1:8011</strong></td><td>/health、/health/ready、query-readiness 返回正常</td></tr>
+        <tr><td>Agent</td><td>8020</td><td>127.0.0.1:8020</td><td>/health 返回 ok</td></tr>
+      </tbody></table></div>
+      <p class="muted" style="font-size:12px;margin-top:10px">这是 2026-10-23 的观察记录，不是实时状态面板。默认 8010 当时属于 mfws 的另一个运行工程。没有对业务结果或真实模型完成端到端验收。</p>
+      <details open><summary>配置分成几条独立路径</summary><div class="detail-body"><ul><li><strong>后端：</strong><code>backend-next/.env</code> 或环境变量提供数据库、身份、路径等；模型/提示词/语义可加载外置 JSON。</li><li><strong>Agent：</strong><code>AGENT_MODEL_*</code> 单独决定 Chat 网关和模型行为。后台管理页修改模型配置不会自动改写这组变量。</li><li><strong>前端：</strong>开发由 Vite 代理 <code>/api</code> 与 <code>/agent-api</code>，后者剥离前缀；生产由 Nginx 同源代理。</li><li><strong>Nacos：</strong>启用配置中心后只保留必要本机引导项，中心故障拒绝启动；服务注册与业务配置是两项不同功能。</li><li><strong>敏感配置：</strong>支持 SM4 密文；主密钥与密文分开保存。HTML 不包含任何凭据。</li></ul></div></details>
+      <div class="columns"><article class="panel"><h3>本地与 Windows</h3><p>Python 依赖入口在 <code>backend-next/pyproject.toml</code>，两端 Node 依赖分别由各自 package 与锁文件管理。</p><p><code>scripts/windows-local.ps1</code> 提供 Setup / Check / Start / Stop / Status；启动器不自动初始化数据库，也不把 HTTP 存活当成问数验收。</p></article><article class="panel"><h3>行内部署与持久化</h3><p><code>deploy/package</code> 提供 Linux 原生离线构建、安装、升级与回退；另有容器方案。</p><p>升级需保留外置配置、密钥引用、Agent 会话与应用库。数据库迁移独立审核执行；Nginx 应保留 SSE 关闭缓冲的设置。</p></article></div>
+      <p style="margin-top:16px"><a class="source-link" href="#source-vite">开发代理 ↗</a>　<a class="source-link" href="#source-nacos">Agent Nacos 加载器 ↗</a>　<a class="source-link" href="#source-deploy">部署交接说明 ↗</a></p>
+    </section>
+
+    <section class="section" id="findings">
+      <div class="section-head"><span class="section-no">08</span><h2>已发现的问题</h2></div>
+      <p class="section-desc">以下是探索中形成的证据清单，不表示已修复。隔离复现使用内存输入，不连接模型或数据库；待验证项保留静态推断边界。</p>
+      <div class="issue-toolbar"><div class="filters" role="group" aria-label="按证据类型筛选问题"><button type="button" class="filter" data-filter="all" aria-pressed="true">全部</button><button type="button" class="filter" data-filter="reproduced" aria-pressed="false">隔离复现</button><button type="button" class="filter" data-filter="confirmed" aria-pressed="false">源码确认</button><button type="button" class="filter" data-filter="pending" aria-pressed="false">待运行验证</button></div><span class="issue-count" id="issue-count" aria-live="polite">7 项</span></div>
+      <details class="issue" data-evidence="reproduced" open><summary><span class="issue-title"><span class="tag reproduced">隔离复现</span><b>百分比比较公式与计算器契约冲突</b></span></summary><div class="detail-body"><p><strong>触发条件：</strong>通用 compare 已取得本期和基期事实，正式单位为 %，value_encoding 为 ratio 或 percent。</p><p><strong>冲突：</strong>分析生成 <code>(current-base)*100</code>，计算器禁止字面常量 100，调用也没有绑定替代常数。</p><p><strong>复现结果：</strong><code>current-base</code> 接受；<code>(current-base)*100</code> 被 CalculationError 拒绝。源码失败链转为 <code>CALCULATION_INVALID / 422</code>，分析记 interrupted。</p><p><strong>范围：</strong>不代表普通基础取值或全部比较功能不可用。本轮未修复。</p><a class="source-link" href="#source-analysis-percent">公式生成位置 ↗</a>　<a class="source-link" href="#source-calculation">计算器约束 ↗</a></div></details>
+      <details class="issue" data-evidence="reproduced"><summary><span class="issue-title"><span class="tag reproduced">隔离复现</span><b>分析日期批次 36 与基础查询上限 31 不一致</b></span></summary><div class="detail-body"><p><strong>触发条件：</strong>分析整理出 32–36 个离散日期，机构数量和结果行数限制未进一步缩小批次。补入基期也可能达到此区间。</p><p><strong>复现结果：</strong>BasicQueryTime 接受 31 个日期，32 / 36 个均返回 too_long。</p><p><strong>影响：</strong>服务内部构建 BasicQuerySpec 失败；按现有异常链分析记 interrupted，并可能返回 500。不是调用者请求体的普通 422 校验。</p><a class="source-link" href="#source-analysis-dates">分批位置 ↗</a></div></details>
+      <details class="issue" data-evidence="pending"><summary><span class="issue-title"><span class="tag pending">待运行验证</span><b>同标签页换账号后的管理页缓存残留<span class="risk-label">优先核查</span></b></span></summary><div class="detail-body"><p><strong>源码路径：</strong>App 按 route.name KeepAlive；退出清认证但不清所有缓存页面；问数日志只在 onMounted 载入，不监听账号变化。</p><p><strong>可能结果：</strong>A 查看日志 → 退出 → B 登录 → 再进日志，仍显示 A 已加载的数据或调试状态。聊天页另有账号切换 reset，不宜外推为全部页面都已处理。</p><p><strong>证据边界：</strong>这是明确的状态生命周期风险，尚未用真实账号做浏览器复现，不能声称已观察到数据泄露。</p><a class="source-link" href="#source-cache">页面缓存位置 ↗</a>　<a class="source-link" href="#source-logs">日志加载位置 ↗</a></div></details>
+      <details class="issue" data-evidence="confirmed"><summary><span class="issue-title"><span class="tag verified">源码确认</span><b>Nacos 配置白名单没有覆盖部分新增 Agent 配置</b></span></summary><div class="detail-body"><p>白名单未包含 <code>AGENT_MODEL_TOOL_CHOICE_POLICY</code>、<code>AGENT_DIRECT_QUERY_DELIVERY</code>、<code>AGENT_MODEL_CONTEXT_VIEW</code>、<code>AGENT_SEMANTIC_PROMPT_VARIANT</code> 和新的 stream idle timeout 键。</p><p>启用 Nacos 时，这些本机业务变量不会保留；放进中心配置则报不支持，不提供则回落默认值。旧 timeout 键仍可参与 idle fallback。本轮未连接 Nacos 验收。</p><a class="source-link" href="#source-nacos">白名单与合并逻辑 ↗</a></div></details>
+      <details class="issue" data-evidence="confirmed"><summary><span class="issue-title"><span class="tag verified">源码确认</span><b>新协议的答案增量流门禁仍停留在旧协议条件</b></span></summary><div class="detail-body"><p>唯一 setStreamMode 的开放条件是 frame_v1 且没有 turn contract；当前新消息是 semantic_v2，工具集包含 turn contract。因此进度 SSE 仍工作，但新会话不进入该 answer_delta 模式。</p><p>这是当前代码条件的结论，未通过真实模型运行比较首字响应表现；不可仅凭配置开关推断已支持正文逐 token 展示。</p><a class="source-link" href="#source-stream">流式门禁位置 ↗</a></div></details>
+      <details class="issue" data-evidence="reproduced"><summary><span class="issue-title"><span class="tag reproduced">检查复现</span><b>源码包缺少测试集，Agent 完整类型检查引用缺失文件</b></span></summary><div class="detail-body"><p>当前目录没有后端 tests / verification，也没有两端正式 specs；Agent <code>tsconfig.spec.json</code> 缺失，但 package 的 typecheck 仍调用它。</p><p>业务 src 的 tsc 通过，测试配置调用返回 <code>TS5058</code>。文档中的历史测试通过数量属于原环境记录，不能当成本副本可重现的回归证明。前端测试配置存在，但测试目录缺失。</p><a class="source-link" href="#source-agent-package">Agent 检查脚本 ↗</a></div></details>
+      <details class="issue" data-evidence="pending"><summary><span class="issue-title"><span class="tag pending">待运行验证</span><b>普通对话出口不等于业务事实核验</b></span></summary><div class="detail-body"><p><code>respond_without_business_action</code> 的执行检查主要是公开文本规则，通过后可直接终止交付；<code>requiresCatalogAction</code> 在当前 src 中没有调用方。</p><p>因此不能断言“任何业务数字都必经后端事实链”。真实模型是否会误走普通对话出口，仍需受控场景验证；当前没有冒充已复现问题。</p><a class="source-link" href="#source-conversation">普通回答工具 ↗</a></div></details>
+    </section>
+
+    <section class="section" id="verification">
+      <div class="section-head"><span class="section-no">09</span><h2>验证到什么程度</h2></div>
+      <div class="columns"><article class="panel"><h3>本轮已有证据</h3><ul class="check-list"><li><span>Agent 业务 src TypeScript 检查</span><span class="check-status">通过</span></li><li><span>前端应用与 Vite 配置类型检查</span><span class="check-status">通过</span></li><li><span>111 个后端 Python 文件语法检查</span><span class="check-status">通过</span></li><li><span>两个分析契约冲突的隔离检查</span><span class="check-status partial">已复现拒绝</span></li><li><span>本地三服务存活及后端就绪接口</span><span class="check-status">响应正常</span></li><li><span>Agent 测试配置类型检查</span><span class="check-status partial">缺文件失败</span></li><li><span>Git diff 格式检查</span><span class="check-status">通过</span></li></ul></article><article class="panel"><h3>本轮没有证明的事项</h3><ul class="check-list"><li><span>真实模型问数准确率与耗时</span><span class="check-status unchecked">未验收</span></li><li><span>业务数据来源真实性及覆盖</span><span class="check-status unchecked">未核实</span></li><li><span>真实登录、多轮、取消、刷新流程</span><span class="check-status unchecked">未验收</span></li><li><span>跨账号缓存风险的实际表现</span><span class="check-status unchecked">未复现</span></li><li><span>生产权限、SQL 兼容性与性能</span><span class="check-status unchecked">未验收</span></li><li><span>完整单元 / 集成回归</span><span class="check-status unchecked">测试集缺失</span></li></ul></article></div>
+      <div class="callout"><strong>就绪状态的证明范围有限</strong><p>/health/ready 检查目录初始化状态和应用库中四张任务/会话表是否存在；它不是业务查询库、全部表结构和模型问数的端到端验收。本轮代码探索没有修改应用代码、提交 Git 或执行数据库迁移。</p></div>
+      <details><summary>可重现的检查入口与阅读方式</summary><div class="detail-body"><p>Agent 业务源码检查：在 agent-service 目录执行 <code>node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit</code>。</p><p>前端应用检查：在 frontend-vue 目录执行 <code>node node_modules/vue-tsc/bin/vue-tsc.js -p tsconfig.app.json --noEmit --incremental false</code>；Vite 配置使用 TypeScript 对 tsconfig.node.json 做相同的无产物检查。</p><p>后端语法检查使用 Python 标准库 ast.parse，不导入应用、不启动服务。领域契约检查仅使用隔离内存值；没有将合成值注入运行环境或作为业务验收数据。</p><p>本 HTML 是上述探索结果的阅读整理。下面的源码行号是探索时定位，后续修改代码后可能变化。</p></div></details>
+    </section>
+
+    <section class="section" id="sources">
+      <div class="section-head"><span class="section-no">10</span><h2>源码阅读索引</h2></div>
+      <p class="section-desc">建议顺序：聊天入口 → Agent 宿主 → 语义任务 → 后端执行 → SQL 与证据 → 恢复与配置。路径相对于项目根目录，可复制到编辑器定位；无需网络。</p>
+      <div class="source-search"><label for="source-query">查找源码</label><input id="source-query" type="search" placeholder="输入：查询、权限、报告、Nacos 或文件名" autocomplete="off"><span id="source-count" class="nowrap muted" style="font-size:12px" aria-live="polite"></span></div>
+      <div class="source-list">
+        <article class="source-item" id="source-chat"><h3>01 · 聊天主入口</h3><p>发送、会话、流消费、历史与结果归并。</p><code class="source-path">frontend-vue/src/components/chat/BackendNextChatPanel.vue:961</code></article>
+        <article class="source-item" id="source-agent-api"><h3>02 · Agent SSE 客户端</h3><p>提问 V3、观察流、取消与事件解析。</p><code class="source-path">frontend-vue/src/lib/agentApi.ts:327</code></article>
+        <article class="source-item" id="source-host"><h3>03 · Pi 宿主</h3><p>原生会话、工具钩子、模型调用、接续执行和交付。</p><code class="source-path">agent-service/src/harnessHost.ts:238</code></article>
+        <article class="source-item" id="source-tools"><h3>04 · 现行工具注册</h3><p>确认哪些工具进入 semantic_v2 运行集合。</p><code class="source-path">agent-service/src/tools/index.ts:35</code></article>
+        <article class="source-item" id="source-semantic"><h3>05 · 语义计划入口</h3><p>目标绑定、子任务、依赖、修订与反馈。</p><code class="source-path">agent-service/src/semantic-task/planService.ts:84</code></article>
+        <article class="source-item" id="source-semantic-store"><h3>06 · 语义任务账本</h3><p>焦点、版本、题目、答案、引用与持久状态。</p><code class="source-path">agent-service/src/semantic-task/store.ts:138</code></article>
+        <article class="source-item" id="source-task-api"><h3>07 · 后端基础查询入口</h3><p>BasicQuerySpec、鉴权、幂等及任务执行接线。</p><code class="source-path">backend-next/src/ask_metric/api/routes/tasks.py:54</code></article>
+        <article class="source-item" id="source-execution"><h3>08 · 查询执行服务</h3><p>执行前后权限校验、计划、事务、结果与审计。</p><code class="source-path">backend-next/src/ask_metric/application/query_execution_service.py:98</code></article>
+        <article class="source-item" id="source-sql"><h3>09 · 确定性 SQL 构建</h3><p>固定场景、SQLGlot、方言适配及参数绑定。</p><code class="source-path">backend-next/src/ask_metric/infrastructure/query/sql_builder.py:897</code></article>
+        <article class="source-item" id="source-analysis"><h3>10 · 通用分析执行</h3><p>计划、范围、预算、步骤保存与证据汇总。</p><code class="source-path">backend-next/src/ask_metric/application/analysis_execution.py:277</code></article>
+        <article class="source-item" id="source-report"><h3>11 · 报告证据校验</h3><p>核验来源、日期、数值、引用与判断，再组装报告。</p><code class="source-path">backend-next/src/ask_metric/application/analysis_report.py:131</code></article>
+        <article class="source-item" id="source-calculation"><h3>12 · Decimal 计算器</h3><p>AST 白名单、单位与常量限制。</p><code class="source-path">backend-next/src/ask_metric/domain/calculation.py:125</code></article>
+        <article class="source-item" id="source-store"><h3>13 · 原生会话持久化</h3><p>用户隔离 JSONL 仓库与数据根单写锁。</p><code class="source-path">agent-service/src/nativeSessions.ts:19</code></article>
+        <article class="source-item" id="source-auth"><h3>14 · 后端身份与依赖</h3><p>当前账号、角色、机构及 session_version 校验。</p><code class="source-path">backend-next/src/ask_metric/api/dependencies.py:101</code></article>
+        <article class="source-item" id="source-router"><h3>15 · 当前页面路由</h3><p>实际页面、登录守卫及配置页角色限制。</p><code class="source-path">frontend-vue/src/router/index.ts:13</code></article>
+        <article class="source-item" id="source-vite"><h3>16 · 开发代理</h3><p>/api、/agent-api 路径及本机目标配置。</p><code class="source-path">frontend-vue/vite.config.ts:23</code></article>
+        <article class="source-item" id="source-nacos"><h3>17 · Agent Nacos 加载</h3><p>业务字段白名单、本机引导项与中心配置合并。</p><code class="source-path">agent-service/src/nacosConfig.ts:7</code></article>
+        <article class="source-item" id="source-deploy"><h3>18 · 行内 UAT 部署交接</h3><p>两机现有环境、配置保留、打包、升级与回退边界。</p><code class="source-path">docs/行内UAT部署交接与打包说明.md:1</code></article>
+        <article class="source-item" id="source-analysis-percent"><h3>问题定位 · 百分比公式</h3><p>分析内部生成乘以 100 的差额表达式。</p><code class="source-path">backend-next/src/ask_metric/application/analysis_execution.py:483</code></article>
+        <article class="source-item" id="source-analysis-dates"><h3>问题定位 · 日期分批</h3><p>分析批次大小与基础查询日期上限的冲突。</p><code class="source-path">backend-next/src/ask_metric/application/analysis_execution.py:623</code></article>
+        <article class="source-item" id="source-cache"><h3>问题定位 · 页面缓存</h3><p>KeepAlive 以路由名作为组件缓存 key。</p><code class="source-path">frontend-vue/src/App.vue:6</code></article>
+        <article class="source-item" id="source-logs"><h3>问题定位 · 日志页面生命周期</h3><p>首次挂载加载列表，缺少账号切换清理。</p><code class="source-path">frontend-vue/src/views/QueryRunsView.vue:133</code></article>
+        <article class="source-item" id="source-stream"><h3>问题定位 · 答案流门禁</h3><p>旧协议与 turn contract 的开放条件。</p><code class="source-path">agent-service/src/harnessHost.ts:496</code></article>
+        <article class="source-item" id="source-agent-package"><h3>检查入口 · Agent scripts</h3><p>业务类型检查与缺失的测试类型配置。</p><code class="source-path">agent-service/package.json:10</code></article>
+        <article class="source-item" id="source-conversation"><h3>边界定位 · 普通对话回答</h3><p>文本规则与业务事实验证的不同边界。</p><code class="source-path">agent-service/src/tools/turnContract.ts:25</code></article>
+      </div>
+      <p id="source-empty" class="empty" hidden>没有匹配的源码条目，请换一个关键词。</p>
+    </section>
+    <footer class="footer"><div>Ask Metric · 工程导读<br>依据 2026-10-23 源码探索与有限检查整理。状态、行号和本机端口均为当时快照。<br>单文件离线阅读，无外部字体、脚本或图片依赖。</div><a href="#overview">回到顶部 ↑</a></footer>
+  </main>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <noscript><p style="margin-left:250px;padding:20px">JavaScript 已关闭，折叠内容仍可手动展开；请求路径切换、筛选及复制功能需要启用 JavaScript。</p><style>.tab-panel[hidden]{display:block!important}.tabs{display:none}.print-only{display:block!important}</style></noscript>
+  <script>
+    "use strict";
+    const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+    const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
+    function selectTab(tab) {
+      tabs.forEach(item => { const selected = item === tab; item.setAttribute('aria-selected', String(selected)); item.tabIndex = selected ? 0 : -1; });
+      tabPanels.forEach(panel => { panel.hidden = panel.id !== tab.getAttribute('aria-controls'); });
+    }
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => selectTab(tab));
+      tab.addEventListener('keydown', event => {
+        let next;
+        if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+        if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
+        if (event.key === 'Home') next = 0;
+        if (event.key === 'End') next = tabs.length - 1;
+        if (next === undefined) return;
+        event.preventDefault(); selectTab(tabs[next]); tabs[next].focus();
+      });
+    });
+    const expandButton = document.getElementById('expand-all');
+    const disclosures = Array.from(document.querySelectorAll('details'));
+    function updateExpandButton() { expandButton.textContent = disclosures.every(item => item.open) ? '收起全部细节' : '展开全部细节'; }
+    expandButton.addEventListener('click', () => { const open = !disclosures.every(item => item.open); disclosures.forEach(item => { item.open = open; }); updateExpandButton(); });
+    disclosures.forEach(item => item.addEventListener('toggle', updateExpandButton));
+    const filterButtons = Array.from(document.querySelectorAll('[data-filter]'));
+    const issues = Array.from(document.querySelectorAll('.issue'));
+    filterButtons.forEach(button => button.addEventListener('click', () => {
+      const filter = button.dataset.filter;
+      filterButtons.forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+      issues.forEach(item => { item.hidden = filter !== 'all' && item.dataset.evidence !== filter; });
+      document.getElementById('issue-count').textContent = issues.filter(item => !item.hidden).length + ' 项';
+    }));
+    const sourceItems = Array.from(document.querySelectorAll('.source-item'));
+    const sourceInput = document.getElementById('source-query');
+    function filterSources() {
+      const query = sourceInput.value.trim().toLocaleLowerCase();
+      sourceItems.forEach(item => { item.hidden = !item.textContent.toLocaleLowerCase().includes(query); });
+      const count = sourceItems.filter(item => !item.hidden).length;
+      document.getElementById('source-count').textContent = count + ' 条';
+      document.getElementById('source-empty').hidden = count !== 0;
+    }
+    sourceInput.addEventListener('input', filterSources);
+    let toastTimer;
+    function showToast(message) {
+      const toast = document.getElementById('toast'); toast.textContent = message; toast.hidden = false;
+      clearTimeout(toastTimer); toastTimer = setTimeout(() => { toast.hidden = true; }, 4000);
+    }
+    sourceItems.forEach(item => {
+      const path = item.querySelector('.source-path').textContent;
+      const bottom = document.createElement('div'); bottom.className = 'source-bottom';
+      const label = document.createElement('span'); label.textContent = '项目相对路径 · 行号';
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'copy-btn'; button.textContent = '复制定位'; button.setAttribute('aria-label', '复制源码定位：' + path);
+      button.addEventListener('click', async () => {
+        try {
+          if (!navigator.clipboard) throw new Error('clipboard-unavailable');
+          await navigator.clipboard.writeText(path); showToast('已复制源码路径与行号');
+        } catch {
+          const selection = window.getSelection(); const range = document.createRange(); range.selectNodeContents(item.querySelector('.source-path')); selection.removeAllRanges(); selection.addRange(range);
+          showToast('浏览器未允许自动复制，已选中路径，请按 Ctrl+C 或 ⌘C');
+        }
+      });
+      bottom.append(label, button); item.append(bottom);
+    });
+    filterSources();
+    document.querySelectorAll('a[href^="#source-"]').forEach(link => link.addEventListener('click', () => {
+      sourceInput.value = ''; filterSources();
+    }));
+    const navLinks = Array.from(document.querySelectorAll('.sidebar nav a'));
+    const sections = navLinks.map(link => document.querySelector(link.getAttribute('href')));
+    let scrollScheduled = false;
+    function updateCurrentSection() {
+      let current = sections[0];
+      sections.forEach(section => { if (section.getBoundingClientRect().top <= 140) current = section; });
+      navLinks.forEach(link => { if (link.hash === '#' + current.id) link.setAttribute('aria-current', 'location'); else link.removeAttribute('aria-current'); });
+      scrollScheduled = false;
+    }
+    window.addEventListener('scroll', () => { if (!scrollScheduled) { scrollScheduled = true; requestAnimationFrame(updateCurrentSection); } }, {passive:true});
+    updateCurrentSection();
+    let beforePrintOpen = [];
+    window.addEventListener('beforeprint', () => { beforePrintOpen = disclosures.map(item => item.open); disclosures.forEach(item => { item.open = true; }); });
+    window.addEventListener('afterprint', () => { disclosures.forEach((item,index) => { item.open = beforePrintOpen[index] ?? item.open; }); updateExpandButton(); });
+    document.getElementById('print').addEventListener('click', () => window.print());
+  </script>
+</body>
+</html>

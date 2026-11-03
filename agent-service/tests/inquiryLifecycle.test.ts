@@ -52,7 +52,7 @@ describe("直接调查的原生会话链路", () => {
       auth: {apiKey: {name: "isolated", resolve: async () => ({auth: {apiKey: "unused"}})}}, api: {stream, streamSimple: stream}}));
     const backend = {
       searchBusinessKnowledge: vi.fn(async (_question: string, terms: string[]) => ({
-        revision: "a".repeat(64), entries: terms.includes("个人活期存款余额当日数")
+        revision: "a".repeat(64), entries: terms.includes("DEPOSIT 个人活期存款余额当日数")
           ? [{id: "deposit", title: "活期存款分析方法", text: "观察可比期的活期存款变化。", role: "分析参考"}] : [],
       })),
       resolveBusinessField: vi.fn(async () => ({status: "resolved", value: {codes: [TEST_ACTOR.org_code]}})),
@@ -93,7 +93,7 @@ describe("直接调查的原生会话链路", () => {
         .toEqual(["我行活期存款情况", "江南的呢？"]);
       expect(backend.getTask).toHaveBeenCalledWith("source-task");
       expect(backend.searchBusinessKnowledge.mock.calls.map(call => call[1]))
-        .toEqual([[], ["个人活期存款余额当日数"], [], ["个人活期存款余额当日数"]]);
+        .toEqual([[], ["DEPOSIT 个人活期存款余额当日数"], [], ["DEPOSIT 个人活期存款余额当日数"]]);
       // 每轮开始只按原问检索；本轮成功取数后，相关知识才进入下一次模型调用。
       expect(modelContexts.map(context => context.includes("活期存款分析方法")))
         .toEqual([false, true, false, true]);

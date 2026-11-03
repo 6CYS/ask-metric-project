@@ -25,6 +25,7 @@ const router = createRouter({
     },
     { path: "/query-runs", name: "query-runs", component: QueryRunsView, meta: { requiresAuth: true } },
     { path: "/chat", name: "chat", component: ChatView, meta: { requiresAuth: true } },
+    { path: "/evaluations", name: "evaluations", component: () => import("@/views/EvaluationView.vue"), meta: { requiresAuth: true } },
     { path: "/llm", name: "llm", component: LlmView, meta: { requiresAuth: true } },
     { path: "/knowledge", name: "knowledge", component: KnowledgeView, meta: { requiresAuth: true } },
     { path: "/metrics", name: "metrics", component: MetricsView, meta: { requiresAuth: true } },

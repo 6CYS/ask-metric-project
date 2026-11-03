@@ -7,7 +7,7 @@ from typing import NoReturn
 from pydantic import BaseModel, ConfigDict, Field
 
 from ask_metric.application.analysis_report_view import validated_report_atoms
-from ask_metric.application.metric_semantics import digest
+from ask_metric.application.metric_semantics import MetricSemantics, digest
 from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.calculation import CalculationScope
 from ask_metric.domain.value_presentation import display_number
@@ -32,7 +32,10 @@ def reject(message: str, *, code: str = "ANALYSIS_CALCULATION_SOURCE") -> NoRetu
     raise ApplicationError(code, message, status_code=422)
 
 
-def comparison_inputs(service, actor, sources, atoms, current_ref, base_ref):
+def comparison_inputs(
+    service, actor, sources, atoms, current_ref, base_ref, *,
+    semantics: MetricSemantics | None = None,
+):
     current, base = atoms.get(current_ref), atoms.get(base_ref)
     if any(
         not item
@@ -61,7 +64,8 @@ def comparison_inputs(service, actor, sources, atoms, current_ref, base_ref):
             code="ANALYSIS_CALCULATION_METRIC_MISMATCH",
         )
     metric = metrics[0]
-    service.semantics(actor).resolve(metric["binding_ref"])
+    current_semantics = semantics if semantics is not None else service.semantics(actor)
+    current_semantics.resolve(metric["binding_ref"])
     if (
         not metric.get("unit")
         or current.get("unit") != metric["unit"]
@@ -178,7 +182,10 @@ def calculate_analysis_results(service, actor, request: AnalysisCalculationReque
     }
 
 
-def attach_calculation_sources(service, actor, sources, references: list[CalculationReference]):
+def attach_calculation_sources(
+    service, actor, sources, references: list[CalculationReference], *,
+    semantics: MetricSemantics | None = None,
+):
     if not references:
         return sources
     sources = deepcopy(sources)
@@ -226,6 +233,7 @@ def attach_calculation_sources(service, actor, sources, references: list[Calcula
             atoms,
             selected[0]["ref"],
             selected[1]["ref"],
+            semantics=semantics,
         )
         owner = next(source for source in sources if current in source["evidence_items"])
         for atom in comparison_atoms(result, metric, current, base):

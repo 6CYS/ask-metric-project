@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseTooltip from "@/components/ui/BaseTooltip.vue"
 import { BarChart, LineChart, PieChart } from "echarts/charts"
 import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components"
 import { init, use, type ECharts, type EChartsCoreOption } from "echarts/core"
@@ -146,7 +147,7 @@ onBeforeUnmount(() => { resizeObserver?.disconnect(); chart?.dispose() })
 
 <template>
   <div v-if="chartOption" class="min-w-0 max-w-full overflow-hidden">
-    <p class="truncate px-3 pt-2 text-xs text-muted-foreground" :title="chartTitle">{{ chartTitle }}</p>
+    <BaseTooltip :content="chartTitle"><p tabindex="0" class="truncate px-3 pt-2 text-xs text-muted-foreground">{{ chartTitle }}</p></BaseTooltip>
     <div
       ref="chartElement"
       class="w-full max-w-full"

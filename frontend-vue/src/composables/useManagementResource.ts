@@ -12,24 +12,33 @@ export function useManagementResource<T>(loader: () => Promise<{ items: T[] }>) 
   const isMutating = ref(false)
   const loadError = ref("")
   const mutationError = ref("")
+  let loadSequence = 0
 
   const isBlockingError = computed(() => Boolean(loadError.value) && !hasLoaded.value)
   const isRefreshError = computed(() => Boolean(loadError.value) && hasLoaded.value)
 
   async function load(refresh = false) {
+    const sequence = ++loadSequence
     if (refresh) isRefreshing.value = true
     else isLoading.value = true
     loadError.value = ""
     try {
-      items.value = (await loader()).items
-      hasLoaded.value = true
+      const result = await loader()
+      // 手动刷新与保存后刷新可能交叠，只有最近请求更新展示状态。
+      if (sequence === loadSequence) {
+        items.value = result.items
+        hasLoaded.value = true
+      }
       return true
     } catch (error) {
-      loadError.value = error instanceof Error ? error.message : "请求失败，请稍后重试。"
+      if (sequence === loadSequence)
+        loadError.value = error instanceof Error ? error.message : "请求失败，请稍后重试。"
       return false
     } finally {
-      isLoading.value = false
-      isRefreshing.value = false
+      if (sequence === loadSequence) {
+        isLoading.value = false
+        isRefreshing.value = false
+      }
     }
   }
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseTooltip from "@/components/ui/BaseTooltip.vue"
 import { computed } from "vue"
 import { LoaderCircle, Send } from "@lucide/vue"
 
@@ -68,11 +69,11 @@ function handleKeydown(event: KeyboardEvent) {
         @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
         @keydown="handleKeydown"
       />
-      <BaseButton type="submit" size="icon" class="size-12" :variant="variant === 'hero' ? 'default' : 'secondary'" :class="variant === 'hero' ? 'border-primary' : 'border-border bg-input'" :disabled="!trimmedValue || isTooLong || isSubmitting" title="发送">
+      <BaseTooltip content="发送"><span class="inline-flex shrink-0 rounded-lg focus-visible:outline-2 focus-visible:outline-ring" :tabindex="!trimmedValue || isTooLong || isSubmitting ? 0 : undefined" :aria-disabled="!trimmedValue || isTooLong || isSubmitting || undefined" aria-label="发送"><BaseButton type="submit" size="icon" class="size-12" :variant="variant === 'hero' ? 'default' : 'secondary'" :class="variant === 'hero' ? 'border-primary' : 'border-border bg-input'" :disabled="!trimmedValue || isTooLong || isSubmitting">
         <LoaderCircle v-if="isSubmitting" class="size-5 animate-spin" />
         <Send v-else class="size-5" />
         <span class="sr-only">发送</span>
-      </BaseButton>
+      </BaseButton></span></BaseTooltip>
     </div>
     <div
       v-if="showLengthStatus"

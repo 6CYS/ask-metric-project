@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import BaseTooltip from "@/components/ui/BaseTooltip.vue"
 import { stripInternalDisplayHints } from "@/lib/replyPresentation"
 import { Bug, ChartColumn, Check, Copy, Download, LoaderCircle, Search, Table2 } from "@lucide/vue"
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, useId, watch } from "vue"
 
 import BaseBadge from "@/components/ui/BaseBadge.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
+import BaseDisclosure from "@/components/ui/BaseDisclosure.vue"
+import BaseSelect from "@/components/ui/BaseSelect.vue"
 import ListPagination from "@/components/ListPagination.vue"
 import ChatMarkdown from "@/components/chat/ChatMarkdown.vue"
 import type { ChatResponse } from "@/types/api"
@@ -41,6 +44,7 @@ const resultMode = computed<ResultView>(() => {
 })
 const resultPage = ref(1)
 const resultPageSize = ref<number>(RESULT_PAGE_SIZE_OPTIONS[0])
+const resultPageSizeOptions = RESULT_PAGE_SIZE_OPTIONS.map(value => ({ value, label: `${value} 条` }))
 const isDownloading = ref(false)
 const downloadError = ref("")
 // 有图表或自然报告时先展示结论，完整明细仍可按需展开。
@@ -128,6 +132,8 @@ const answerMarkdown = computed(() => answerStreamComplete.value && responseBloc
   : renderedAnswer.value.trim())
 const resultRowCount = computed(() => props.response.result?.table?.rows.length ?? 0)
 const hasResultRows = computed(() => resultRowCount.value > 0)
+const hasDataToolbar = computed(() => props.showDataDetails && answerStreamComplete.value
+  && Boolean(props.response.result?.table) && hasResultRows.value)
 // 版本化报告按语义区块展示；旧消息与普通查数仍沿用原来的正文路径。
 const analysisReport = computed(() => answerStreamComplete.value ? props.response.analysis_report : undefined)
 const narrativeReport = computed(() => analysisReport.value?.body_mode === "narrative")
@@ -247,7 +253,8 @@ async function copyAnswer() {
         <button type="button" class="inline-flex items-center gap-1 rounded-sm text-muted-foreground/75 underline-offset-4 transition-colors hover:text-muted-foreground hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :aria-expanded="isDataDetailsOpen" :aria-controls="dataDetailsId" @click="isDataDetailsOpen = !isDataDetailsOpen">
           <Table2 class="size-3.5" />{{ isDataDetailsOpen ? "收起数据明细" : `查看 ${resultRowCount} 条数据明细` }}
         </button>
-        <button v-if="copyInDataToolbar && answerMarkdown" type="button" class="ml-auto flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :title="isAnswerCopied ? '已复制' : '复制回答'" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button>
+        <slot name="actions" />
+        <BaseTooltip v-if="copyInDataToolbar && answerMarkdown" :content="isAnswerCopied ? '已复制' : '复制回答'"><button type="button" class="ml-auto flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button></BaseTooltip>
       </div>
       <div v-else class="flex items-start gap-2 border-y border-[#DCE3EF] py-2.5 text-xs text-[#66759B]" role="status">
         <Search class="mt-0.5 size-3.5 shrink-0" />
@@ -255,18 +262,16 @@ async function copyAnswer() {
       </div>
       <div v-if="isDataDetailsOpen" :id="dataDetailsId" class="w-full min-w-0 max-w-full overflow-hidden border-y border-border/70">
         <div v-if="sharedMetricName" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/70 px-2 py-1.5">
-          <span v-if="sharedMetricName" class="min-w-0 truncate px-1 text-xs text-muted-foreground" :title="sharedMetricName">指标：{{ sharedMetricName }}</span>
+          <BaseTooltip v-if="sharedMetricName" :content="sharedMetricName"><span tabindex="0" class="min-w-0 truncate px-1 text-xs text-muted-foreground">指标：{{ sharedMetricName }}</span></BaseTooltip>
         </div>
         <div class="min-w-0 max-w-full">
           <div class="max-h-[30rem] w-full min-w-0 max-w-full overflow-auto overscroll-x-contain">
-            <table class="w-full min-w-max text-sm"><thead><tr class="border-b bg-muted/50"><th v-for="column in resultColumns" :key="column" class="sticky top-0 z-10 h-9 bg-muted/95 px-3 font-medium whitespace-nowrap backdrop-blur-sm" :class="[getResultColumnClass(column), getResultColumnAlignClass(column)]">{{ getResultColumnLabel(column) }}</th></tr></thead><tbody><tr v-for="(row, rowIndex) in paginatedResultRows" :key="(resultPage - 1) * resultPageSize + rowIndex" class="border-b last:border-b-0 hover:bg-muted/40"><td v-for="column in resultColumns" :key="column" class="px-3 py-2.5 align-top whitespace-nowrap" :class="[getResultColumnClass(column), getResultColumnAlignClass(column)]"><BaseBadge v-if="column === 'status' && getResultCellValue(row, column)" variant="outline" class="max-w-full"><span class="block truncate" :title="String(formatCell(getResultCellValue(row, column), column, row))">{{ formatCell(getResultCellValue(row, column), column, row) }}</span></BaseBadge><!-- 显示值可能附带口径说明；允许完整换行，避免固定列宽下溢出到相邻列。 --><span v-else class="block" :class="shouldTruncateResultColumn(column) ? 'truncate' : 'whitespace-normal break-words [overflow-wrap:anywhere]'" :title="shouldTruncateResultColumn(column) ? String(formatCell(getResultCellValue(row, column), column, row)) : undefined">{{ formatCell(getResultCellValue(row, column), column, row) }}</span></td></tr></tbody></table>
+            <table class="w-full min-w-max text-sm"><thead><tr class="border-b bg-muted/50"><th v-for="column in resultColumns" :key="column" class="sticky top-0 z-10 h-9 bg-muted/95 px-3 font-medium whitespace-nowrap backdrop-blur-sm" :class="[getResultColumnClass(column), getResultColumnAlignClass(column)]">{{ getResultColumnLabel(column) }}</th></tr></thead><tbody><tr v-for="(row, rowIndex) in paginatedResultRows" :key="(resultPage - 1) * resultPageSize + rowIndex" class="border-b last:border-b-0 hover:bg-muted/40"><td v-for="column in resultColumns" :key="column" class="px-3 py-2.5 align-top whitespace-nowrap" :class="[getResultColumnClass(column), getResultColumnAlignClass(column)]"><BaseBadge v-if="column === 'status' && getResultCellValue(row, column)" variant="outline" class="max-w-full"><BaseTooltip :content="String(formatCell(getResultCellValue(row, column), column, row))"><span tabindex="0" class="block truncate">{{ formatCell(getResultCellValue(row, column), column, row) }}</span></BaseTooltip></BaseBadge><!-- 显示值可能附带口径说明；允许完整换行，避免固定列宽下溢出到相邻列。 --><BaseTooltip v-else :content="shouldTruncateResultColumn(column) ? String(formatCell(getResultCellValue(row, column), column, row)) : undefined"><span tabindex="0" class="block" :class="shouldTruncateResultColumn(column) ? 'truncate' : 'whitespace-normal break-words [overflow-wrap:anywhere]'">{{ formatCell(getResultCellValue(row, column), column, row) }}</span></BaseTooltip></td></tr></tbody></table>
           </div>
           <div v-if="resultRowCount > RESULT_PAGE_SIZE_OPTIONS[0]" class="border-t border-border/70">
             <div class="flex justify-end px-3 pt-2">
-              <label class="flex items-center gap-2 text-xs text-muted-foreground">每页
-                <select v-model.number="resultPageSize" class="h-8 rounded-md border border-input bg-background px-2 text-foreground" aria-label="每页显示条数">
-                  <option v-for="size in RESULT_PAGE_SIZE_OPTIONS" :key="size" :value="size">{{ size }} 条</option>
-                </select>
+              <label class="flex items-center gap-2 text-xs whitespace-nowrap text-muted-foreground">每页
+                <BaseSelect v-model="resultPageSize" :options="resultPageSizeOptions" class="h-8 w-auto min-w-20 px-2 text-foreground" aria-label="每页显示条数" />
               </label>
             </div>
             <ListPagination :page="resultPage" :page-size="resultPageSize" :total-items="resultRowCount" :total-pages="resultPageCount" @change="resultPage = $event" />
@@ -274,10 +279,10 @@ async function copyAnswer() {
           <p v-if="chartWasLimited" class="border-t border-border/70 px-3 py-2 text-xs text-muted-foreground">数据量超出图表核实范围，本次仅展示分页表格。</p>
         </div>
       </div>
-      <details v-if="statusDefinitions.length" class="border-t border-border/70 pt-2 text-xs text-muted-foreground">
-        <summary class="cursor-pointer select-none hover:text-foreground">查看状态说明</summary>
+      <BaseDisclosure v-if="statusDefinitions.length" class="border-t border-border/70 pt-2 text-xs text-muted-foreground" trigger-class="select-none hover:text-foreground">
+        <template #trigger>查看状态说明</template>
         <ul class="mt-1.5 space-y-1"><li v-for="item in statusDefinitions" :key="item.value"><code class="rounded bg-muted px-1 py-0.5 text-foreground">{{ item.value }}</code>：{{ item.label }}</li></ul>
-      </details>
+      </BaseDisclosure>
     </div>
 
     <div v-else-if="answerStreamComplete && response.download" class="border-y border-border/70 py-3">
@@ -298,15 +303,18 @@ async function copyAnswer() {
           :pie="chart.type === 'pie' ? chart : undefined" :series="chart.type !== 'pie' ? chart : undefined" />
         <!-- 必要限制由正文说明；来源、分析依据与完成状态保留在回执中，不额外渲染卡片。 -->
       </template>
-      <details v-else-if="response.analysis_plan?.length" class="mb-3 rounded-md border bg-muted/30 px-3 py-2 text-sm">
-        <summary class="cursor-pointer font-medium">分析思路</summary>
+      <BaseDisclosure v-else-if="response.analysis_plan?.length" class="mb-3 rounded-md border bg-muted/30 px-3 py-2 text-sm" trigger-class="font-medium">
+        <template #trigger>分析思路</template>
         <ul class="mt-2 list-disc space-y-1 pl-5"><li v-for="question in [...new Set(response.analysis_plan)]" :key="question">{{ question }}</li></ul>
-      </details>
+      </BaseDisclosure>
       <ChatMarkdown v-if="!analysisReport" :source="answerMarkdown" />
       <span v-if="!answerStreamComplete" class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" />
-      <button v-if="answerStreamComplete && answerMarkdown && !copyInDataToolbar" type="button" class="absolute -top-1 right-0 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :title="isAnswerCopied ? '已复制' : '复制回答'" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button>
+      <BaseTooltip v-if="answerStreamComplete && answerMarkdown && !copyInDataToolbar" :content="isAnswerCopied ? '已复制' : '复制回答'"><button type="button" class="absolute -top-1 right-0 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button></BaseTooltip>
     </div>
     <p v-if="answerCopyError" class="text-xs text-[#78663E]">{{ answerCopyError }}</p>
+    <div v-if="answerStreamComplete && !hasDataToolbar && $slots.actions" class="order-last flex flex-wrap items-center gap-3 text-xs">
+      <slot name="actions" />
+    </div>
 
     <div v-if="showDebugButton && response.debug"><BaseButton variant="outline" size="sm" @click="emit('debug')"><Bug />详细调试信息</BaseButton></div>
   </div>

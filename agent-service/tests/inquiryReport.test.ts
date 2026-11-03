@@ -412,6 +412,52 @@ describe("问数正文预览复用报告来源转换", () => {
     preview_text: "甲行净利润较同期减少5.00元。",
   };
 
+  it.each(["未声明目标", "已可信受理"])("%s的预览不读取无用历史，正式报告仍读取", async (mode) => {
+    const test = harness();
+    if (mode === "已可信受理") {
+      test.request.inquiryTargetContext = { version: 1 };
+      test.request.inquiryAdmission = { targets: [], answerReceipts: [] };
+    }
+    const turnMessages = vi
+      .fn<() => Promise<AgentMessage[]>>()
+      .mockRejectedValue(new Error("无关历史读取暂不可用"));
+    test.request.turnMessages = turnMessages;
+    test.analysisReport.mockResolvedValueOnce(previewResponse);
+
+    expect(await createInquiryReportPreview()("甲行{{e1.v1}}。", test.request)).toBe(
+      previewResponse.preview_text,
+    );
+    expect(turnMessages).not.toHaveBeenCalled();
+
+    turnMessages.mockResolvedValue([]);
+    expect(await executeInquiryReport({ body: "甲行{{e1.v1}}。" }, test.request)).toMatchObject({
+      terminate: true,
+      details: { status: "succeeded", public_answer: answer },
+    });
+    expect(turnMessages).toHaveBeenCalledOnce();
+  });
+
+  it("历史标题前缀等待真实引用，补齐后继续预览，未知引用仍拒绝", async () => {
+    const test = harness([{ ref: "e1", evidence: source("history", "old-op") }]);
+    const preview = createInquiryReportPreview();
+    const title = "**关键数据**";
+    expect(await preview(title, test.request)).toBeNull();
+    expect(test.analysisReport).not.toHaveBeenCalled();
+
+    const text = title + "\n\n甲行净利润较同期减少5.00元。";
+    test.analysisReport.mockResolvedValue({ ...previewResponse, preview_text: text });
+    expect(await preview(title + "\n\n甲行{{e1.v1}}。", test.request)).toBe(text);
+    expect(test.analysisReport.mock.calls[0]?.[0]).toMatchObject({
+      summary: "**关键数据**\n\n甲行{{history.f1}}。",
+      context_run_refs: ["history"],
+      focus_refs: ["history.f1"],
+      preview: true,
+    });
+
+    expect(await preview(title + "\n\n甲行{{e99.v1}}。", test.request)).toBeUndefined();
+    expect(test.analysisReport).toHaveBeenCalledOnce();
+  });
+
   it("仅返回后端核验文本，转换短引用和坐标，不携带日期查询或正式交付状态", async () => {
     const test = harness();
     const messages: AgentMessage[] = [
@@ -1683,11 +1729,11 @@ describe("普通调查的事实回答出口", () => {
     );
   });
 
-  it("只读历史不允许缺少关注引用后默认展示全部旧主题", async () => {
+  it.each(["已有结果可以参考。", "**关键数据**"])("只读历史正文%s缺少关注引用时仍拒绝正式交付", async (body) => {
     const test = harness([{ ref: "e1", evidence: source("run-1", "old-op") }]);
     const result: unknown = await runTool(
       createInquiryReportTool(),
-      { body: "已有结果可以参考。" },
+      { body },
       test.request,
     );
     expect(result).toHaveProperty("details.error_code", "ANALYSIS_REPORT_REFERENCE");
@@ -1803,6 +1849,19 @@ describe("增量正文预览", () => {
     expect(test.analysisReport.mock.calls.map(([payload]) => payload.summary)).toEqual([
       "甲行{{run-1.f1}}。",
       "继续说明。",
+    ]);
+  });
+
+  it("单换行追加列表重新核验累计正文，不重复拼接已显示内容", async () => {
+    const test = setup();
+    const first = "- 甲行{{e1.v1}}。";
+    expect(await test.preview(first, test.request)).toBe("- 甲行-5.00元。");
+    expect(await test.preview(first + "\n- 具体原因还需核实。", test.request)).toBe(
+      "- 甲行-5.00元。\n- 具体原因还需核实。",
+    );
+    expect(test.analysisReport.mock.calls.map(([payload]) => payload.summary)).toEqual([
+      "- 甲行{{run-1.f1}}。",
+      "- 甲行{{run-1.f1}}。\n- 具体原因还需核实。",
     ]);
   });
 

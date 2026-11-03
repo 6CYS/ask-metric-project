@@ -2,6 +2,8 @@ import type { BackendNextClarification } from "@/types/api"
 import type { CalculationDetails, MetricAskDetails } from "./agentApi"
 import type { AvailabilityDetails } from "./dataAvailability"
 import type { CatalogOverviewDetails } from "./replyPresentation"
+import type { QuerySqlReference } from "@/types/querySql"
+import { appendQuerySqlReferences } from "./querySql"
 
 /** 仅保存服务端交付与展示附件；工具进度、会话和组件生命周期仍由面板管理。 */
 export interface ChatToolResultState {
@@ -9,6 +11,7 @@ export interface ChatToolResultState {
   nativeAnswer?: boolean
   answerDelivered?: boolean
   taskIds?: string[]
+  querySqlReferences?: QuerySqlReference[]
   metricAskDetails?: MetricAskDetails
   queryResults?: MetricAskDetails[]
   calculations?: CalculationDetails[]
@@ -42,6 +45,9 @@ export function applyChatToolResult<T extends ChatToolResultState>(state: T, val
   if (!value || typeof value !== "object" || Array.isArray(value)) return state
   const receipt = value as Record<string, unknown>
   if (receipt.answer_selected === false) return state
+  const previousReferences = state.querySqlReferences ?? []
+  const querySqlReferences = appendQuerySqlReferences(previousReferences, receipt)
+  if (querySqlReferences !== previousReferences) state = { ...state, querySqlReferences }
   if (
     ((receipt.kind === "answer_present" && receipt.delivery === "business_answer_v1") ||
       (receipt.kind === "runtime_delivery" &&

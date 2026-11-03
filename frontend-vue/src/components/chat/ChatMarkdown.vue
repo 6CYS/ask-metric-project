@@ -1,15 +1,69 @@
 <script setup lang="ts">
-import { computed } from "vue"
+import { computed, h, type FunctionalComponent, type VNodeChild } from "vue"
+import type { Token } from "markdown-it"
 
-import { renderAssistantHtml } from "@/lib/assistantMarkdown"
+import BaseTooltip from "@/components/ui/BaseTooltip.vue"
+import { parseAssistantMarkdown } from "@/lib/assistantMarkdown"
 
 const props = defineProps<{ source: string }>()
-const html = computed(() => renderAssistantHtml(props.source))
+const tokens = computed(() => parseAssistantMarkdown(props.source))
+
+function renderElement(token: Token, children: VNodeChild[]): VNodeChild {
+  if (token.hidden) return children
+  const attrs = Object.fromEntries(token.attrs ?? [])
+  if (token.tag === "a") {
+    const { title, ...linkAttrs } = attrs
+    const link = () =>
+      h("a", { ...linkAttrs, target: "_blank", rel: "noopener noreferrer nofollow" }, children)
+    return title ? h(BaseTooltip, { content: String(title) }, { default: link }) : link()
+  }
+  return h(token.tag, attrs, children)
+}
+
+// 复用 Markdown token 结构，让链接接入 Vue 提示组件，避免动态 HTML 绕过公共控件。
+function renderTokens(source: readonly Token[]): VNodeChild[] {
+  const root: VNodeChild[] = []
+  const stack: Array<{ token: Token; children: VNodeChild[] }> = []
+  let children = root
+  for (const token of source) {
+    if (token.nesting === 1) {
+      stack.push({ token, children })
+      children = []
+    } else if (token.nesting === -1) {
+      const parent = stack.pop()
+      if (parent) {
+        const element = renderElement(parent.token, children)
+        children = parent.children
+        children.push(element)
+      }
+    } else if (token.type === "inline") {
+      children.push(...renderTokens(token.children ?? []))
+    } else if (token.type === "softbreak" || token.type === "hardbreak") {
+      children.push(h("br"), "\n")
+    } else if (token.type === "code_inline") {
+      children.push(h("code", token.content))
+    } else if (token.type === "fence" || token.type === "code_block") {
+      const language = token.info.trim().split(/\s+/)[0]
+      children.push(
+        h("pre", h("code", language ? { class: `language-${language}` } : {}, token.content)),
+      )
+    } else if (token.type === "image" || !token.tag) {
+      children.push(token.content)
+    } else {
+      children.push(renderElement(token, token.content ? [token.content] : []))
+    }
+  }
+  return root
+}
+
+const MarkdownContent: FunctionalComponent<{ tokens: Token[] }> = (input) =>
+  renderTokens(input.tokens)
 </script>
 
 <template>
-  <!-- 渲染前规范异常 Markdown 排版；html:false 保持原始 HTML 转义，正文事实不变。 -->
-  <div class="chat-markdown min-w-0 break-words leading-7" v-html="html" />
+  <div class="chat-markdown min-w-0 break-words leading-7">
+    <MarkdownContent :tokens="tokens" />
+  </div>
 </template>
 
 <style scoped>

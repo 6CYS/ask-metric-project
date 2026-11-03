@@ -30,7 +30,7 @@ def setup_comparison(*, unit="%", encoding="ratio", current="0.035", base="0.01"
     source = service._finish(context)
     service.tasks = SimpleNamespace(uow_factory=service.execution.uow_factory)
     service.authorized_evidence = lambda actor, ref: deepcopy(source)
-    service.semantics = lambda actor: SimpleNamespace(
+    service.semantics = lambda actor, **_scope: SimpleNamespace(
         resolve=lambda ref: metric, items={metric["code"]: SimpleNamespace(name=metric["name"])},
     )
     request = AnalysisCalculationRequest(

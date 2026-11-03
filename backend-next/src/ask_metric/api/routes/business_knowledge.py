@@ -2,8 +2,9 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from sqlalchemy import select
 
 from ask_metric.api.dependencies import require_actor
 from ask_metric.application.business_knowledge import (
@@ -13,6 +14,8 @@ from ask_metric.application.business_knowledge import (
 from ask_metric.application.requests import ActorContext
 from ask_metric.core.config import PROJECT_DIR
 from ask_metric.core.errors import ApplicationError
+from ask_metric.infrastructure.db.models import MetricTerm
+from ask_metric.infrastructure.db.session import app_read_session
 from ask_metric.infrastructure.model.configuration import resolve_config_path
 
 
@@ -44,8 +47,26 @@ def knowledge_store(request: Request) -> BusinessKnowledgeStore:
 
 
 @router.get("")
-def list_knowledge(request: Request) -> dict:
-    return knowledge_store(request).read()
+def list_knowledge(
+    request: Request,
+    metric_code: Annotated[str | None, Query(min_length=1, max_length=150)] = None,
+) -> dict:
+    return knowledge_store(request).read(metric_code=metric_code)
+
+
+def validate_metric_links(metric_codes: list[str]) -> None:
+    if not metric_codes:
+        return
+    with app_read_session() as session:
+        existing = set(session.scalars(select(MetricTerm.metric_code).where(
+            MetricTerm.metric_code.in_(metric_codes),
+        )))
+    missing = [code for code in metric_codes if code not in existing]
+    if missing:
+        raise ApplicationError(
+            "BUSINESS_KNOWLEDGE_METRIC_NOT_FOUND",
+            "关联指标不存在，请刷新指标目录后重新选择。", status_code=422,
+        )
 
 
 @router.post("", status_code=201)
@@ -53,6 +74,7 @@ def create_knowledge(payload: KnowledgeWrite, request: Request) -> dict:
     fields = KnowledgeFields.model_validate(
         payload.model_dump(exclude={"revision"}, exclude_unset=True),
     )
+    validate_metric_links(fields.metric_codes)
     return knowledge_store(request).create(fields, payload.revision)
 
 
@@ -61,6 +83,7 @@ def update_knowledge(entry_id: str, payload: KnowledgeWrite, request: Request) -
     fields = KnowledgeFields.model_validate(
         payload.model_dump(exclude={"revision"}, exclude_unset=True),
     )
+    validate_metric_links(fields.metric_codes)
     return knowledge_store(request).update(entry_id, fields, payload.revision)
 
 

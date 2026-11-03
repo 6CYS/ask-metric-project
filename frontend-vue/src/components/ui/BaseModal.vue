@@ -27,16 +27,16 @@ function updateOpen(nextOpen: boolean) {
     <DialogPortal>
       <DialogOverlay class="fixed inset-0 z-50 bg-black/15 backdrop-blur-[2px] data-[state=open]:animate-[fade-in_120ms_ease-out]" />
       <DialogContent
-        class="fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-hidden rounded-lg border bg-popover p-5 text-popover-foreground shadow-xl outline-none data-[state=open]:animate-[dialog-in_140ms_ease-out]"
+        class="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-hidden rounded-lg border bg-popover p-5 text-popover-foreground shadow-xl outline-none data-[state=open]:animate-[dialog-in_140ms_ease-out]"
         :class="widthClasses[size]"
       >
-        <div class="space-y-1.5 pr-8">
+        <div class="shrink-0 space-y-1.5 pr-8">
           <DialogTitle class="text-base font-semibold">{{ title }}</DialogTitle>
           <DialogDescription v-if="description" class="text-sm leading-5 text-muted-foreground">{{ description }}</DialogDescription>
           <DialogDescription v-else class="sr-only">请查看并确认当前对话框中的内容。</DialogDescription>
         </div>
-        <div class="min-h-0 overflow-y-auto pr-1"><slot /></div>
-        <div v-if="$slots.footer" class="-mx-5 -mb-5 flex flex-col-reverse gap-2 border-t bg-muted/40 p-4 sm:flex-row sm:justify-end"><slot name="footer" /></div>
+        <div class="min-h-0 flex-1 overflow-y-auto pr-1"><slot /></div>
+        <div v-if="$slots.footer" class="-mx-5 -mb-5 flex shrink-0 flex-col-reverse gap-2 border-t bg-muted/40 p-4 sm:flex-row sm:justify-end"><slot name="footer" /></div>
         <BaseButton variant="ghost" size="icon" class="absolute top-3 right-3 text-muted-foreground" :disabled="busy" aria-label="关闭弹窗" @click="updateOpen(false)"><X /></BaseButton>
       </DialogContent>
     </DialogPortal>

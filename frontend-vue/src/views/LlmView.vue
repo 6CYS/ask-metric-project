@@ -7,6 +7,8 @@ import PageHeader from "@/components/PageHeader.vue"
 import BaseAlert from "@/components/ui/BaseAlert.vue"
 import BaseBadge from "@/components/ui/BaseBadge.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
+import BaseNumberField from "@/components/ui/BaseNumberField.vue"
+import BaseSelect from "@/components/ui/BaseSelect.vue"
 import BaseSwitch from "@/components/ui/BaseSwitch.vue"
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton.vue"
 import {
@@ -250,30 +252,30 @@ onActivated(() => loadAll())
           <label class="form-field">接口路径<input v-model="modelDraft.models[role.key].path" class="form-control" placeholder="/v1/..." /></label>
           <label class="form-field">模型名称<input v-model="modelDraft.models[role.key].model" class="form-control" /></label>
           <BaseSwitch v-model="modelDraft.models[role.key].send_model" label="发送 model 字段" />
-          <label class="form-field">鉴权方式<select v-model="modelDraft.models[role.key].authentication.type" class="form-control"><option value="none">无鉴权</option><option value="bearer">Bearer Token</option><option value="header">自定义请求头</option></select></label>
+          <label class="form-field">鉴权方式<BaseSelect v-model="modelDraft.models[role.key].authentication.type" :options="[{ value: 'none', label: '无鉴权' }, { value: 'bearer', label: 'Bearer Token' }, { value: 'header', label: '自定义请求头' }]" /></label>
           <label class="form-field">鉴权请求头<input v-model="modelDraft.models[role.key].authentication.header" class="form-control" :disabled="modelDraft.models[role.key].authentication.type === 'none'" placeholder="accessKey" /></label>
           <label class="form-field">值前缀<input v-model="modelDraft.models[role.key].authentication.prefix" class="form-control" :disabled="modelDraft.models[role.key].authentication.type === 'none'" placeholder="Bearer " /></label>
           <label class="form-field">密钥环境变量<input v-model="modelDraft.models[role.key].api_key_env" class="form-control" :disabled="modelDraft.models[role.key].authentication.type === 'none'" placeholder="MODEL_CHAT_API_KEY" /></label>
-          <label class="form-field">请求超时（秒）<input v-model.number="modelDraft.models[role.key].timeout_seconds" type="number" min="1" max="600" class="form-control" /></label>
+          <div class="form-field"><label :for="`${role.key}-timeout`">请求超时（秒）</label><BaseNumberField :id="`${role.key}-timeout`" v-model="modelDraft.models[role.key].timeout_seconds" :min="1" :max="600" :aria-label="`${role.label}请求超时（秒）`" /></div>
           <label class="form-field md:col-span-2">API Key<span class="text-xs font-normal text-muted-foreground">连接测试会直接使用当前输入；点击“保存全部模型配置”后才会持久化。</span><input v-model="apiKeys[role.key]" type="password" class="form-control" :disabled="modelDraft.models[role.key].authentication.type === 'none'" :placeholder="configResponse?.api_key_configured[role.key] ? '留空则使用已保存密钥' : '输入 API Key'" /></label>
         </div>
         <div v-if="role.key === 'chat'" class="grid gap-4 border-t pt-4 md:grid-cols-4">
-          <label class="form-field">Temperature<input v-model.number="modelDraft.models.chat.temperature" type="number" min="0" max="2" step="0.1" class="form-control" /></label>
-          <label class="form-field">Max tokens<input v-model.number="modelDraft.models.chat.max_tokens" type="number" min="1" class="form-control" /></label>
-          <label class="form-field">响应格式<select v-model="modelDraft.models.chat.response_format" class="form-control"><option value="json_object">JSON Object</option><option value="text">Text</option></select></label>
+          <div class="form-field"><label for="chat-temperature">Temperature</label><BaseNumberField id="chat-temperature" v-model="modelDraft.models.chat.temperature" :min="0" :max="2" :step="0.1" nullable aria-label="Temperature" /></div>
+          <div class="form-field"><label for="chat-max-tokens">Max tokens</label><BaseNumberField id="chat-max-tokens" v-model="modelDraft.models.chat.max_tokens" :min="1" nullable aria-label="Max tokens" /></div>
+          <label class="form-field">响应格式<BaseSelect v-model="modelDraft.models.chat.response_format" :options="[{ value: 'json_object', label: 'JSON Object' }, { value: 'text', label: 'Text' }]" /></label>
           <BaseSwitch v-model="modelDraft.models.chat.send_response_format" label="发送 response_format 参数" />
           <BaseSwitch v-model="modelDraft.models.chat.chat_template_kwargs.enable_thinking" label="Chat Template 深度思考" />
           <BaseSwitch v-model="modelDraft.models.chat.send_enable_thinking" label="兼容旧接口：发送顶层 enable_thinking" />
           <label class="form-field md:col-span-2">用户消息后缀<input v-model="modelDraft.models.chat.user_message_suffix" class="form-control" placeholder="例如：&#10;/no_think" /></label>
         </div>
         <div v-else-if="role.key === 'embedding'" class="grid gap-4 border-t pt-4 md:grid-cols-2">
-          <label class="form-field">向量维度（可留空）<input v-model.number="modelDraft.models.embedding.dimensions" type="number" min="1" class="form-control" /></label>
-          <label class="form-field">编码格式<select v-model="modelDraft.models.embedding.encoding_format" class="form-control"><option value="float">float</option><option value="base64">base64</option></select></label>
+          <div class="form-field"><label for="embedding-dimensions">向量维度（可留空）</label><BaseNumberField id="embedding-dimensions" v-model="modelDraft.models.embedding.dimensions" :min="1" nullable aria-label="向量维度（可留空）" /></div>
+          <label class="form-field">编码格式<BaseSelect v-model="modelDraft.models.embedding.encoding_format" :options="[{ value: 'float', label: 'float' }, { value: 'base64', label: 'base64' }]" /></label>
           <label class="form-field">User 字段（可留空）<input v-model="modelDraft.models.embedding.user" class="form-control" placeholder="user" /></label>
         </div>
         <div v-else class="grid gap-4 border-t pt-4 md:grid-cols-2">
-          <label class="form-field">候选字段名<select v-model="modelDraft.models.reranker.documents_field" class="form-control"><option value="documents">documents</option><option value="texts">texts（行内 bge 接口）</option></select></label>
-          <label class="form-field">Rerank Top N<input v-model.number="modelDraft.models.reranker.top_n" type="number" min="1" max="1000" class="form-control" /></label>
+          <label class="form-field">候选字段名<BaseSelect v-model="modelDraft.models.reranker.documents_field" :options="[{ value: 'documents', label: 'documents' }, { value: 'texts', label: 'texts（行内 bge 接口）' }]" /></label>
+          <div class="form-field"><label for="reranker-top-n">Rerank Top N</label><BaseNumberField id="reranker-top-n" v-model="modelDraft.models.reranker.top_n" :min="1" :max="1000" aria-label="Rerank Top N" /></div>
           <BaseSwitch v-model="modelDraft.models.reranker.send_top_n" label="发送 top_n 字段" />
           <BaseSwitch v-model="modelDraft.models.reranker.send_return_documents" label="发送 return_documents 字段" />
         </div>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseTooltip from "@/components/ui/BaseTooltip.vue"
 import {applyProvisionalAnswer, clearProvisionalAnswer} from "@/lib/provisionalAnswer"
 import { createChatScrollFollow, createProvisionalAnswerScheduler, reconcileAnswerSnapshot } from "@/lib/answerStreamPresentation"
 import ChatProvisionalAnswer from "./ChatProvisionalAnswer.vue"
@@ -14,6 +15,8 @@ import CatalogQuestionComposer from "@/components/chat/CatalogQuestionComposer.v
 import AgentMessageDiagnostics from "@/components/chat/AgentMessageDiagnostics.vue"
 import ChatMarkdown from "@/components/chat/ChatMarkdown.vue"
 import ChatResultContent from "@/components/chat/ChatResultContent.vue"
+import QuerySqlButton from "@/components/chat/QuerySqlButton.vue"
+import type { QuerySqlReference } from "@/types/querySql"
 import CalculationResult from "@/components/chat/CalculationResult.vue"
 import StructuredClarificationForm from "@/components/chat/StructuredClarificationForm.vue"
 import TimeVariantChoices from "@/components/chat/TimeVariantChoices.vue"
@@ -97,6 +100,7 @@ type DisplayMessage = {
   toolCalls?: ToolCallDisplay[]
   activities?: ActivityDisplay[]
   taskIds?: string[]
+  querySqlReferences?: QuerySqlReference[]
   elapsedMs?: number
   /** run_terminal 携带的 agent-service 侧耗时：鉴权、各次模型调用与工具处理（重连流无此数据） */
   runTimings?: { auth_ms?: number; total_ms?: number; model_ms?: number[]; tool_ms?: number[];
@@ -1318,7 +1322,9 @@ async function stopActiveConversation() {
       else await cancelAgentOperation(conversation.serverId, operationId!)
     } catch {
       // 停止观察不代表后台已取消；保留未确认状态，不能交付“已停止”的成功说明。
-      if (pending) pending.cancelFailure = new Error("停止请求尚未确认，后台任务可能仍在执行，请重新打开会话核对状态。")
+      const notice = "停止请求尚未确认，后台任务可能仍在执行，请重新打开会话核对状态。"
+      if (pending) pending.cancelFailure = new Error(notice)
+      else historyError.value = notice
     }
   }
   abortControllers.get(conversation.id)?.abort()
@@ -1342,21 +1348,21 @@ function pendingAnswer(chatMessage: DisplayMessage): string | undefined {
     <aside v-if="!isHistoryCollapsed" class="flex min-h-0 flex-col border-b bg-muted/30 sm:border-r sm:border-b-0">
       <div class="flex h-[var(--workspace-header-height)] shrink-0 items-center gap-2 border-b px-3">
         <BaseButton variant="outline" class="min-w-0 flex-1 justify-start border-border/70 bg-background/70 text-foreground shadow-none hover:bg-muted/70" @click="handleNewConversation"><Plus />新建对话</BaseButton>
-        <BaseButton variant="ghost" size="icon" class="shrink-0 text-muted-foreground" title="收起历史对话" aria-label="收起历史对话" @click="isHistoryCollapsed = true"><PanelLeftClose /></BaseButton>
+        <BaseTooltip content="收起历史对话"><BaseButton variant="ghost" size="icon" class="shrink-0 text-muted-foreground" aria-label="收起历史对话" @click="isHistoryCollapsed = true"><PanelLeftClose /></BaseButton></BaseTooltip>
       </div>
       <div class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-2.5 py-2 [scrollbar-gutter:stable]" @scroll="onHistoryScroll">
         <LoadingSkeleton v-if="isHistoryLoading" :rows="3" row-class="h-14" />
         <div v-else class="flex flex-col gap-1.5">
           <div v-for="conversation in visibleConversations" :key="conversation.id" class="group/history flex h-[82px] w-full min-w-0 shrink-0 items-start gap-1.5 rounded-xl border border-border/70 bg-background px-2.5 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:border-muted-foreground/35 hover:bg-background" :class="conversation.id === activeConversation?.id && 'border-primary/35 bg-primary/[0.025] ring-1 ring-primary/10'">
-            <button type="button" class="min-w-0 flex-1 px-1 text-left text-sm" @click="selectConversation(conversation.id)">
+            <BaseTooltip :content="`会话创建时间：${formatConversationDate(conversation.createdAt)}`"><button type="button" class="min-w-0 flex-1 px-1 text-left text-sm" @click="selectConversation(conversation.id)">
               <span class="flex items-center gap-1.5"><span class="line-clamp-1 min-w-0 flex-1 font-medium">{{ conversation.title }}</span><span v-if="conversation.legacy" class="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">旧会话</span><LoaderCircle v-if="sendingConversationIds.has(conversation.id) || conversation.running" class="size-3.5 animate-spin" /></span>
               <span class="mt-0.5 block h-4 truncate text-xs text-muted-foreground">{{ conversation.preview || conversation.title }}</span>
-              <span class="mt-1.5 block text-[11px] text-muted-foreground/80" :title="`会话创建时间：${formatConversationDate(conversation.createdAt)}`">{{ formatConversationDate(conversation.createdAt) }}</span>
-            </button>
+              <span class="mt-1.5 block text-[11px] text-muted-foreground/80">{{ formatConversationDate(conversation.createdAt) }}</span>
+            </button></BaseTooltip>
             <PopoverRoot v-if="!conversation.legacy">
-              <PopoverTrigger as-child>
-                <BaseButton variant="ghost" size="icon" class="size-7 shrink-0 text-muted-foreground" title="会话操作"><Ellipsis /></BaseButton>
-              </PopoverTrigger>
+              <BaseTooltip content="会话操作"><PopoverTrigger as-child>
+                <BaseButton variant="ghost" size="icon" class="size-7 shrink-0 text-muted-foreground" aria-label="会话操作"><Ellipsis /></BaseButton>
+              </PopoverTrigger></BaseTooltip>
               <PopoverPortal>
                 <PopoverContent side="right" :side-offset="6" align="start" class="z-50 w-36 rounded-md border bg-popover p-1 text-popover-foreground shadow-lg">
                   <button type="button" class="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm hover:bg-muted" @click="openRenameConversation(conversation)"><Pencil class="size-3.5" />修改名称</button>
@@ -1371,7 +1377,7 @@ function pendingAnswer(chatMessage: DisplayMessage): string | undefined {
     </aside>
     <aside v-else class="flex min-h-0 flex-col border-r bg-muted/30">
       <div class="flex h-[var(--workspace-header-height)] shrink-0 items-center justify-center border-b">
-      <BaseButton variant="ghost" size="icon" class="text-muted-foreground" title="展开历史对话" aria-label="展开历史对话" @click="isHistoryCollapsed = false"><PanelLeftOpen /></BaseButton>
+      <BaseTooltip content="展开历史对话"><BaseButton variant="ghost" size="icon" class="text-muted-foreground" aria-label="展开历史对话" @click="isHistoryCollapsed = false"><PanelLeftOpen /></BaseButton></BaseTooltip>
       </div>
     </aside>
 
@@ -1389,10 +1395,10 @@ function pendingAnswer(chatMessage: DisplayMessage): string | undefined {
               <template v-if="chatMessage.role === 'user'">
                 <div class="rounded-2xl rounded-br-md border border-border/70 bg-muted/65 px-4 py-3 text-sm text-foreground shadow-none"><p class="whitespace-pre-wrap break-words leading-6">{{ chatMessage.content }}</p></div>
                 <div class="flex justify-end opacity-0 transition-opacity group-hover/user:opacity-100 group-focus-within/user:opacity-100">
-                  <BaseButton variant="ghost" size="icon" class="size-7 text-muted-foreground" :title="copiedMessageId === chatMessage.id ? '已复制' : '复制'" :aria-label="copiedMessageId === chatMessage.id ? '已复制' : '复制问题'" @click="copyUserQuestion(chatMessage)">
+                  <BaseTooltip :content="copiedMessageId === chatMessage.id ? '已复制' : '复制'"><BaseButton variant="ghost" size="icon" class="size-7 text-muted-foreground" :aria-label="copiedMessageId === chatMessage.id ? '已复制' : '复制问题'" @click="copyUserQuestion(chatMessage)">
                     <Check v-if="copiedMessageId === chatMessage.id" class="size-3.5 text-emerald-600" />
                     <Copy v-else class="size-3.5" />
-                  </BaseButton>
+                  </BaseButton></BaseTooltip>
                 </div>
               </template>
               <template v-else>
@@ -1414,8 +1420,17 @@ function pendingAnswer(chatMessage: DisplayMessage): string | undefined {
                 </div>
                 <CalculationResult v-for="(calculation, index) in chatMessage.calculations" :key="calculation.calculation_id ?? index" :calculation="calculation" />
                 <ChatProvisionalAnswer v-if="chatMessage.status === 'pending'" :text="pendingAnswer(chatMessage)" />
-                <ChatResultContent v-else-if="chatMessage.response" :response="chatMessage.response" :show-data-details="!(chatMessage.queryResults && chatMessage.queryResults.length > 1) && !chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)" />
-                <ChatMarkdown v-else class="leading-6" :source="chatMessage.content" />
+                <ChatResultContent v-else-if="chatMessage.response" :response="chatMessage.response" :show-data-details="!(chatMessage.queryResults && chatMessage.queryResults.length > 1) && !chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)">
+                  <template v-if="chatMessage.querySqlReferences?.length" #actions>
+                    <QuerySqlButton :references="chatMessage.querySqlReferences" />
+                  </template>
+                </ChatResultContent>
+                <template v-else>
+                  <ChatMarkdown class="leading-6" :source="chatMessage.content" />
+                  <div v-if="chatMessage.querySqlReferences?.length" class="mt-3">
+                    <QuerySqlButton :references="chatMessage.querySqlReferences" />
+                  </div>
+                </template>
                 <template v-if="chatMessage.status !== 'pending' && chatMessage.queryResults && chatMessage.queryResults.length > 1">
                   <ChatResultContent v-for="result in chatMessage.queryResults" :key="result.task_id" :response="{ ...responseFromMetricAsk(result, ''), answer: '', answer_blocks: undefined }" :question="questionForMessage(chatMessage)" />
                 </template>

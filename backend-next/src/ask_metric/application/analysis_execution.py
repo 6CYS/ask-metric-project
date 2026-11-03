@@ -4,8 +4,10 @@ import calendar
 import json
 import re
 import time
+from collections.abc import Collection
 from datetime import UTC, date, datetime
 from decimal import Decimal, localcontext
+from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
@@ -16,7 +18,12 @@ from sqlalchemy.exc import IntegrityError
 from ask_metric.application.catalog_references import explicit_catalog_references
 from ask_metric.application.commands import ExecuteQueryCommand, SubmitQuestionCommand
 from ask_metric.application.data_availability import AvailabilityRequest, execute_availability
-from ask_metric.application.metric_semantics import METHOD_VERSION, MetricSemantics, digest
+from ask_metric.application.metric_semantics import (
+    METHOD_VERSION,
+    MetricSemantics,
+    digest,
+    load_business_topics,
+)
 from ask_metric.application.organization_query_scope import resolve_query_scope
 from ask_metric.application.ports import PermissionDeniedError
 from ask_metric.application.requests import IncomingRequest
@@ -94,20 +101,50 @@ def month_ranges(start: date, end: date):
     return result
 
 
+def load_analysis_semantics(
+    uow_factory, *, secret, actor_id, metric_codes=None, semantics_path: Path | None = None,
+):
+    """目录发现、知识关联与执行复核共用同一份正式元数据绑定。"""
+    topics = load_business_topics() if metric_codes is not None else None
+    with uow_factory() as uow:
+        # 签发和复核绑定必须读取真实元数据；秒级updated_at缓存键可能漏掉同秒修改。
+        if metric_codes is None:
+            catalog = uow.metric_catalog.list_enabled(refresh=True)
+        else:
+            codes, names = set(metric_codes), set()
+            # 主题基础指标可能决定被引用指标的编码与口径。保留全部同名候选，
+            # 交给原绑定规则判断歧义，不能裁掉竞争者后把模糊映射变成唯一命中。
+            for topic in (topics or {}).values():
+                for definition in topic["metrics"]:
+                    if definition.get("disabled_reason"):
+                        continue
+                    if definition.get("code"):
+                        codes.add(definition["code"])
+                    else:
+                        names.update(definition["names"])
+            catalog = uow.metric_catalog.list_enabled_matching(codes=codes, names=names)
+    return MetricSemantics(catalog, secret=secret, actor_id=actor_id, topics=topics,
+                           semantics_path=semantics_path)
+
+
 class GeneralAnalysisService:
-    def __init__(self, tasks, execution, calculation, *, secret):
+    def __init__(
+        self, tasks, execution, calculation, *, secret, semantics_path: Path | None = None,
+    ):
         self.tasks, self.execution, self.calculation, self.secret = (
             tasks,
             execution,
             calculation,
             secret,
         )
+        self.semantics_path = semantics_path
 
-    def semantics(self, actor):
-        with self.tasks.uow_factory() as uow:
-            # 签发和复核绑定必须读取真实元数据；秒级updated_at缓存键可能漏掉同秒修改。
-            catalog = uow.metric_catalog.list_enabled(refresh=True)
-        return MetricSemantics(catalog, secret=self.secret, actor_id=actor.user_id or actor.subject)
+    def semantics(self, actor, *, metric_codes: Collection[str] | None = None):
+        return load_analysis_semantics(
+            self.tasks.uow_factory, secret=self.secret,
+            actor_id=actor.user_id or actor.subject, metric_codes=metric_codes,
+            semantics_path=self.semantics_path,
+        )
 
     def validate_plan(self, plan, actor, question="", *, require_all_explicit=True):
         semantics = self.semantics(actor)

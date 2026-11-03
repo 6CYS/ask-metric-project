@@ -44,6 +44,9 @@ def get_analysis_service(
         execution,
         CalculationApplicationService(execution),
         secret=request.app.state.settings.jwt_secret,
+        semantics_path=resolve_config_path(
+            PROJECT_DIR, request.app.state.settings.analysis_semantics_path,
+        ),
     )
 
 

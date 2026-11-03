@@ -33,7 +33,7 @@ def setup_report(body, *, availability=True, **coverage_changes):
     uow = SimpleNamespace(organization_catalog=SimpleNamespace(list_enabled=lambda: organizations))
     service = SimpleNamespace(
         authorized_evidence=lambda _actor, _ref: deepcopy(source),
-        semantics=lambda _actor: semantics,
+        semantics=lambda _actor, **_scope: semantics,
         execution=execution,
         tasks=SimpleNamespace(uow_factory=lambda: nullcontext(uow)),
     )

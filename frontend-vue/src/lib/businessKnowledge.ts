@@ -1,8 +1,13 @@
 import type { BusinessKnowledgePayload } from "@/types/api"
 
-export type BusinessKnowledgeForm = Omit<BusinessKnowledgePayload, "revision">
+export type BusinessKnowledgeForm = Omit<BusinessKnowledgePayload, "revision" | "metric_codes"> & {
+  metric_codes: string[]
+}
 
-export function knowledgePayload(form: BusinessKnowledgeForm, revision: string): BusinessKnowledgePayload {
+export function knowledgePayload(
+  form: Omit<BusinessKnowledgePayload, "revision">,
+  revision: string,
+): BusinessKnowledgePayload {
   const text = (value: string, label: string, max: number) => {
     const trimmed = value.trim()
     if (!trimmed) throw new Error(`请填写${label}。`)
@@ -12,5 +17,13 @@ export function knowledgePayload(form: BusinessKnowledgeForm, revision: string):
   const title = text(form.title, "标题", 200)
   const content = text(form.text, "知识内容", 8000)
   if (!revision) throw new Error("请先重新读取业务知识，再保存。")
-  return { title, text: content, enabled: form.enabled, revision }
+  return {
+    title,
+    text: content,
+    enabled: form.enabled,
+    revision,
+    metric_codes: [
+      ...new Set((form.metric_codes ?? []).map((code) => code.trim()).filter(Boolean)),
+    ],
+  }
 }

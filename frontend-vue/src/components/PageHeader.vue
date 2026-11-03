@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineProps<{
-  eyebrow: string
+  eyebrow?: string
   title: string
   description: string
   stats?: Array<{ label: string; value: string; detail?: string }>
@@ -10,8 +10,8 @@ defineProps<{
 <template>
   <section class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
     <div class="max-w-3xl">
-      <p class="text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">{{ eyebrow }}</p>
-      <h1 class="mt-3 text-3xl leading-tight font-semibold text-foreground">{{ title }}</h1>
+      <p v-if="eyebrow" class="text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">{{ eyebrow }}</p>
+      <h1 :class="eyebrow && 'mt-3'" class="text-3xl leading-tight font-semibold text-foreground">{{ title }}</h1>
       <p class="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">{{ description }}</p>
     </div>
     <div v-if="$slots.actions" class="flex items-center justify-start gap-2 lg:justify-end">

@@ -1385,6 +1385,11 @@ export class HarnessHost {
           resumed += 1;
           continue;
         }
+        // 恢复可能从已落盘的工具调用继续，先重读自动资料中的正式候选，不能依赖进程内目录状态。
+        await loadTurnBusinessKnowledge(
+          requestContext,
+          businessKnowledgeContextTerms(await requestContext.turnMessages?.() ?? []),
+        );
         const ownsActiveRequest = !hosted.activeRequest;
         if (ownsActiveRequest) hosted.activeRequest = requestContext;
         const result = await hosted.lane

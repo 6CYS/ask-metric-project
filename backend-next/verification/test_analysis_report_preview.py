@@ -29,7 +29,7 @@ def setup_preview(body="余额为{{total}}。", **changes):
     )
     service = SimpleNamespace(
         authorized_evidence=Mock(side_effect=lambda _actor, _ref: deepcopy(source)),
-        semantics=lambda _actor: semantics,
+        semantics=lambda _actor, **_scope: semantics,
     )
     request = AnalysisReportRequest(
         run_refs=[source["run_ref"]], summary=body, preview=True, **changes
@@ -54,6 +54,80 @@ def test_preview_returns_only_rendered_body_without_mutating_sources():
         "preview_text": "余额为100元。\n\n个人存款60元。",
     }
     assert source == original
+
+
+@pytest.mark.parametrize(("first_marker", "second_marker"), [("-", "-"), ("1.", "2.")])
+def test_list_prefixes_preserve_evidence_context_and_final_text(first_marker, second_marker):
+    first = f"{first_marker} 余额{{{{total}}}}。"
+    full = first + f"\n{second_marker} 个人存款{{{{personal}}}}。"
+    source, service, request = setup_preview(first)
+    original = deepcopy(source)
+    actor = object()
+    assert compose_analysis_report(service, actor, request)["preview_text"] == (
+        f"{first_marker} 余额100元。"
+    )
+    request = request.model_copy(update={"summary": full})
+    preview = compose_analysis_report(service, actor, request)
+    final = compose_analysis_report(service, actor, request.model_copy(update={"preview": False}))
+    assert preview["preview_text"] == final["report"]["summary"] == (
+        f"{first_marker} 余额100元。\n{second_marker} 个人存款60元。"
+    )
+    with pytest.raises(ApplicationError) as caught:
+        compose_analysis_report(service, actor, request.model_copy(update={
+            "summary": first + f"\n{second_marker} 个人存款{{{{personal}}}}（999元）。",
+        }))
+    assert caught.value.code == "ANALYSIS_REPORT_NUMBER"
+    assert source == original
+
+
+@pytest.mark.parametrize("preview", [True, False])
+def test_report_scopes_metadata_to_all_source_metrics_including_unmentioned_values(preview):
+    source, service, request = setup_preview()
+    actor = object()
+    service.semantics = Mock(wraps=service.semantics)
+    result = compose_analysis_report(
+        service, actor, request.model_copy(update={"preview": preview}),
+    )
+    assert result["status"] == "succeeded"
+    if preview:
+        service.semantics.assert_called_once_with(
+            actor, metric_codes={metric["code"] for metric in source["metric_descriptors"]},
+        )
+    else:
+        service.semantics.assert_called_once_with(actor)
+
+
+@pytest.mark.parametrize("preview", [True, False])
+def test_report_reuses_fresh_semantics_for_multiple_calculation_references(preview):
+    service, actor, query, source, _saved = setup_comparison()
+    calculations = [calculate_analysis_results(service, actor, query, key)
+                    for key in ("first", "second")]
+    service.semantics = Mock(wraps=service.semantics)
+    ref = calculations[0]["evidence_items"][0]["ref"]
+    request = AnalysisReportRequest(
+        run_refs=[source["run_ref"]], preview=preview, summary="两期差额{{" + ref + "}}。",
+        calculation_refs=[item["calculation_ref"] for item in calculations],
+    )
+    for attempt in range(2):
+        result = compose_analysis_report(service, actor, request)
+        text = result["preview_text"] if preview else result["report"]["summary"]
+        assert text == "两期差额2.50个百分点。"
+        assert service.semantics.call_count == attempt + 1
+
+
+def test_final_report_preserves_unqueried_catalog_names_in_planning_gaps():
+    _, service, request = setup_preview()
+    actor = object()
+    service.semantics(actor).items["ORG_OTHER"] = SimpleNamespace(name="客户k1收益率")
+    service.semantics = Mock(wraps=service.semantics)
+    request = request.model_copy(update={
+        "preview": False,
+        "planning_gaps": ["ORG_OTHER（k2）尚未确认", "客户k1收益率（k2）待确认"],
+    })
+    result = compose_analysis_report(service, actor, request)
+    service.semantics.assert_called_once_with(actor)
+    assert "客户k1收益率尚未确认" in result["gaps"]
+    assert "客户k1收益率待确认" in result["gaps"]
 
 
 @pytest.mark.parametrize(

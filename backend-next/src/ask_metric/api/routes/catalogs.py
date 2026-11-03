@@ -1,8 +1,10 @@
+import re
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints, field_validator
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only
 
 from ask_metric.api.dependencies import get_model_service, require_actor
@@ -18,8 +20,14 @@ from ask_metric.application.ports import (
     PermissionDeniedError,
     ScopedOrganizationPermissionService,
 )
+from ask_metric.application.query_run_details import QueryRunSqlDetail, read_query_run_sql
 from ask_metric.application.requests import ActorContext
 from ask_metric.core.config import PROJECT_DIR, Settings
+from ask_metric.domain.organization_scope import (
+    OrganizationHierarchyNode,
+    OrganizationHierarchySnapshot,
+    OrganizationScopeError,
+)
 from ask_metric.domain.semantics import MetricCatalogItem
 from ask_metric.infrastructure.db.models import (
     ChatConversation,
@@ -44,6 +52,10 @@ class MetricCatalogResponse(BaseModel):
     items: list[dict[str, object]] = Field(default_factory=list)
 
 
+class OrganizationCatalogResponse(MetricCatalogResponse):
+    hierarchy_levels: dict[str, str]
+
+
 class MetricPayload(BaseModel):
     metric_code: str = Field(min_length=1, max_length=150)
     metric_name: str = Field(min_length=1, max_length=300)
@@ -55,10 +67,19 @@ class MetricPayload(BaseModel):
 
 
 class OrganizationPayload(BaseModel):
-    org_code: str = Field(min_length=1, max_length=128)
-    org_name: str = Field(min_length=1, max_length=300)
+    org_code: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
+    org_name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
     aliases: list[str] = Field(default_factory=list)
     enabled: bool = True
+    parent_org_code: str | None = Field(default=None, max_length=128)
+    hierarchy_level: str | None = Field(default=None, max_length=8)
+
+    @field_validator("parent_org_code", "hierarchy_level", mode="before")
+    @classmethod
+    def normalize_optional_code(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
 
 
 class DatasetPayload(BaseModel):
@@ -360,26 +381,18 @@ def delete_metric(
         uow.commit()
 
 
-@router.get("/organizations", response_model=MetricCatalogResponse)
+@router.get("/organizations", response_model=OrganizationCatalogResponse)
 def list_organizations(
     uow: Annotated[SqlAlchemyUnitOfWork, Depends(get_uow)],
-) -> MetricCatalogResponse:
+    settings: Annotated[Settings, Depends(get_overview_settings)],
+) -> OrganizationCatalogResponse:
     with uow:
         organizations = list(
             uow.session.execute(select(OrgTerm).order_by(OrgTerm.org_code)).scalars()
         )
-    return MetricCatalogResponse(
-        items=[
-            {
-                "org_code": item.org_code,
-                "org_name": item.org_name,
-                "aliases": item.aliases or [],
-                "enabled": item.enabled,
-                "created_at": item.created_at,
-                "updated_at": item.updated_at,
-            }
-            for item in organizations
-        ]
+    return OrganizationCatalogResponse(
+        items=[_organization_response(item) for item in organizations],
+        hierarchy_levels=_organization_levels(settings),
     )
 
 
@@ -408,9 +421,72 @@ def _organization_response(term: OrgTerm) -> dict[str, object]:
         "org_name": term.org_name,
         "aliases": term.aliases or [],
         "enabled": term.enabled,
+        "parent_org_code": term.parent_org_code,
+        "hierarchy_level": term.hierarchy_level,
         "created_at": term.created_at,
         "updated_at": term.updated_at,
     }
+
+
+def _organization_levels(settings: Settings) -> dict[str, str]:
+    return {
+        "root": settings.sit_org_head_office_hier_code,
+        "legal_entity": settings.sit_org_legal_entity_hier_code,
+        "branch": settings.sit_org_branch_hier_code,
+    }
+
+
+def _validate_organization_structure(
+    term: OrgTerm, organizations: list[OrgTerm], settings: Settings,
+) -> None:
+    by_code = {item.org_code: item for item in organizations}
+    nodes = tuple(OrganizationHierarchyNode(
+        code=item.org_code, name=item.org_name, parent_code=item.parent_org_code,
+        hierarchy_level=item.hierarchy_level,
+    ) for item in organizations)
+    if not term.enabled:
+        descendants = OrganizationHierarchySnapshot(nodes).descendants_including(term.org_code)
+        if any(by_code[code].enabled for code in descendants - {term.org_code}):
+            raise HTTPException(409, "存在启用的下级机构，请先调整或停用下级机构。")
+    levels = _organization_levels(settings)
+    if term.hierarchy_level not in levels.values() and (term.enabled or term.hierarchy_level):
+        raise HTTPException(422, "请选择有效的机构层级。")
+    seen = {term.org_code}
+    parent = term.parent_org_code
+    while parent:
+        if parent in seen:
+            raise HTTPException(422, "上级机构不能是自身或下级机构。")
+        seen.add(parent)
+        ancestor = by_code.get(parent)
+        if ancestor is None:
+            raise HTTPException(422, "上级机构不存在，请重新选择。")
+        if term.enabled and not ancestor.enabled:
+            raise HTTPException(422, "启用机构的上级必须处于启用状态。")
+        parent = ancestor.parent_org_code
+    snapshot = OrganizationHierarchySnapshot(
+        nodes=tuple(node for node in nodes if by_code[node.code].enabled),
+        root_level=levels["root"], cohort_level=levels["legal_entity"],
+    )
+    try:
+        snapshot.validated_root()
+    except OrganizationScopeError as error:
+        raise HTTPException(
+            422, "机构层级不符合查询规则：须有唯一省级根，法人直属该根，其他机构上级链须完整。",
+        ) from error
+
+
+def _is_duplicate_organization_code(error: IntegrityError) -> bool:
+    original = error.orig
+    constraint = getattr(getattr(original, "diag", None), "constraint_name", None)
+    if constraint == "org_terms_org_code_key":
+        return True
+    if getattr(original, "sqlite_errorname", None) == "SQLITE_CONSTRAINT_UNIQUE":
+        return str(original) == "UNIQUE constraint failed: org_terms.org_code"
+    args: tuple[object, ...] = getattr(original, "args", ())
+    if len(args) < 2 or args[0] != 1062:
+        return False
+    key = re.search(r"for key '([^']+)'\s*$", str(args[1]))
+    return key is not None and key.group(1).split(".")[-1] == "org_terms_org_code_key"
 
 
 @router.post("/organizations", status_code=status.HTTP_201_CREATED)
@@ -418,24 +494,31 @@ def create_organization(
     payload: OrganizationPayload,
     uow: Annotated[SqlAlchemyUnitOfWork, Depends(get_uow)],
     actor: Annotated[ActorContext, Depends(require_actor)],
+    settings: Annotated[Settings, Depends(get_overview_settings)],
 ) -> dict[str, object]:
     _require_system_admin(actor)
-    with uow:
-        existing = uow.session.execute(
-            select(OrgTerm.id).where(OrgTerm.org_code == payload.org_code)
-        ).scalar_one_or_none()
-        if existing is not None:
-            raise HTTPException(status_code=409, detail="Organization already exists")
-        term = OrgTerm(
-            org_code=payload.org_code,
-            org_name=payload.org_name,
-            aliases=_normalized_aliases(payload.aliases),
-            enabled=payload.enabled,
-        )
-        uow.session.add(term)
-        uow.commit()
-        uow.session.refresh(term)
-        return _organization_response(term)
+    try:
+        with uow:
+            # 结构写入按相同顺序锁定目录，避免并发调整上级形成环。
+            organizations = list(uow.session.scalars(
+                select(OrgTerm).order_by(OrgTerm.org_code).with_for_update()
+            ))
+            if any(item.org_code == payload.org_code for item in organizations):
+                raise HTTPException(409, "机构编号已存在；已停用机构请直接重新启用。")
+            term = OrgTerm(
+                org_code=payload.org_code, org_name=payload.org_name,
+                aliases=_normalized_aliases(payload.aliases), enabled=payload.enabled,
+                parent_org_code=payload.parent_org_code, hierarchy_level=payload.hierarchy_level,
+            )
+            _validate_organization_structure(term, [*organizations, term], settings)
+            uow.session.add(term)
+            uow.commit()
+            uow.session.refresh(term)
+            return _organization_response(term)
+    except IntegrityError as error:
+        if _is_duplicate_organization_code(error):
+            raise HTTPException(409, "机构编号已存在，请刷新目录后重试。") from error
+        raise
 
 
 @router.put("/organizations/{org_code}")
@@ -444,19 +527,29 @@ def update_organization(
     payload: OrganizationPayload,
     uow: Annotated[SqlAlchemyUnitOfWork, Depends(get_uow)],
     actor: Annotated[ActorContext, Depends(require_actor)],
+    settings: Annotated[Settings, Depends(get_overview_settings)],
 ) -> dict[str, object]:
     _require_system_admin(actor)
+    org_code = org_code.strip()
     if payload.org_code != org_code:
-        raise HTTPException(status_code=400, detail="Organization code cannot be changed")
+        raise HTTPException(status_code=400, detail="机构编号不可修改。")
     with uow:
-        term = uow.session.execute(
-            select(OrgTerm).where(OrgTerm.org_code == org_code)
-        ).scalar_one_or_none()
+        organizations = list(uow.session.scalars(
+            select(OrgTerm).order_by(OrgTerm.org_code).with_for_update()
+        ))
+        term = next((item for item in organizations if item.org_code == org_code), None)
         if term is None:
-            raise HTTPException(status_code=404, detail="Organization not found")
+            raise HTTPException(status_code=404, detail="机构不存在。")
+        before = (term.parent_org_code, term.hierarchy_level, term.enabled)
         term.org_name = payload.org_name
         term.aliases = _normalized_aliases(payload.aliases)
         term.enabled = payload.enabled
+        if "parent_org_code" in payload.model_fields_set:
+            term.parent_org_code = payload.parent_org_code
+        if "hierarchy_level" in payload.model_fields_set:
+            term.hierarchy_level = payload.hierarchy_level
+        if before != (term.parent_org_code, term.hierarchy_level, term.enabled):
+            _validate_organization_structure(term, organizations, settings)
         uow.commit()
         uow.session.refresh(term)
         return _organization_response(term)
@@ -467,15 +560,19 @@ def delete_organization(
     org_code: str,
     uow: Annotated[SqlAlchemyUnitOfWork, Depends(get_uow)],
     actor: Annotated[ActorContext, Depends(require_actor)],
+    settings: Annotated[Settings, Depends(get_overview_settings)],
 ) -> None:
     _require_system_admin(actor)
     with uow:
-        term = uow.session.execute(
-            select(OrgTerm).where(OrgTerm.org_code == org_code)
-        ).scalar_one_or_none()
+        organizations = list(uow.session.scalars(
+            select(OrgTerm).order_by(OrgTerm.org_code).with_for_update()
+        ))
+        term = next((item for item in organizations if item.org_code == org_code.strip()), None)
         if term is None:
-            raise HTTPException(status_code=404, detail="Organization not found")
-        term.enabled = False
+            raise HTTPException(status_code=404, detail="机构不存在。")
+        if term.enabled:
+            term.enabled = False
+            _validate_organization_structure(term, organizations, settings)
         uow.commit()
 
 
@@ -719,6 +816,22 @@ def get_query_run_organizations(
             "matched_org_name": matched,
             "notice": "历史记录仅保留了截断摘要，缺失部分无法恢复。" if incomplete else None,
         }
+
+
+@router.get("/query-runs/{task_id}/sql", response_model=QueryRunSqlDetail)
+def get_query_run_sql(
+    task_id: str,
+    uow: Annotated[SqlAlchemyUnitOfWork, Depends(get_uow)],
+    actor: Annotated[ActorContext, Depends(require_actor)],
+    permissions: Annotated[ScopedOrganizationPermissionService, Depends(get_overview_permissions)],
+    run_id: Annotated[int | None, Query(ge=1)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> QueryRunSqlDetail:
+    return read_query_run_sql(
+        uow=uow, actor=actor, permissions=permissions,
+        task_id=task_id, run_id=run_id, offset=offset, limit=limit,
+    )
 
 
 @router.get("/query-runs/{task_id}")

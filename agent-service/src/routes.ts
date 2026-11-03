@@ -19,6 +19,8 @@ import { createInquiryReportPreview } from "./inquiry/reportTool.js";
 import { receiptDelivery } from "./runtime/delivery.js";
 import {historySources, resolveHistoryOrganizationScopes, type HistoryQuestionReader} from "./historySources.js";
 import {isCalendarDate} from "./tools/shared.js";
+import { createEvaluationRoutes } from "./evaluation/routes.js";
+import type { EvaluationService } from "./evaluation/service.js";
 
 type Variables = { user: BackendUser; token: string; startedAt: number; authMs: number };
 
@@ -33,6 +35,7 @@ export function createApp(
   config: AgentServiceConfig,
   host: HarnessHost,
   store: NativeSessionStore,
+  evaluations?: EvaluationService,
 ): Hono<{ Variables: Variables }> {
   const app = new Hono<{ Variables: Variables }>();
 
@@ -66,6 +69,9 @@ export function createApp(
     }
   });
 
+  if (evaluations) app.route("/evaluations", createEvaluationRoutes(evaluations));
+  else app.all("/evaluations/*", c => c.json({code: "EVALUATION_UNAVAILABLE", detail: "测评存储暂不可用，请联系管理员检查"}, 503));
+
   app.post("/sessions", async (c) => {
     const user = c.get("user");
     const hosted = await host.createSession(user);
@@ -76,7 +82,15 @@ export function createApp(
   app.get("/sessions", async (c) => {
     const user = c.get("user");
     const items: Array<Record<string, unknown>> = [];
+    let evaluationSessions = new Set<string>();
+    try {
+      evaluationSessions = new Set(evaluations?.listSessionIds(user.id) ?? []);
+    } catch {
+      // 测评索引异常不能阻断原会话；列表仍由原生仓库和当前账号权限控制。
+      console.warn("测评会话索引不可读取，暂按原生会话列表展示");
+    }
     for (const metadata of await store.list(user.id)) {
+      if (evaluationSessions.has(metadata.id)) continue;
       // 标题存在原生会话 name 里；未打开的会话临时读取后即释放，不因浏览列表常驻内存。
       // 运行状态只可能来自本宿主已打开的会话
       const title = await host.sessionTitle(user.id, metadata).catch(() => undefined);
@@ -128,7 +142,7 @@ export function createApp(
       new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs), new NativeSemanticTaskStore(hosted.session)));
     const info = await hosted.lane.inspectExecution(BACKGROUND_CONTEXT);
     // 重启后存在未完成 operation 时，借本次已认证请求重新授权恢复
-    if (!hosted.readOnlyReason && hosted.open.length > 0) {
+    if (c.req.query("resume") !== "false" && !hosted.readOnlyReason && hosted.open.length > 0) {
       const backend = new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs);
       void host.resumeOpenOperations(hosted, { actor: user, backend }).catch((error: unknown) => {
         console.error(`会话 ${hosted.sessionId} 恢复未完成操作失败:`, error instanceof Error ? error.message : error);
@@ -207,7 +221,13 @@ export function createApp(
         return previewReport(body, { ...activeRequest, actor: user, backend }, signal);
       });
       let watch = await host.watch(hosted);
-      stream.onAbort(() => { projector.close(); watch.unsubscribe(); });
+      let heartbeat: ReturnType<typeof setInterval> | undefined;
+      const closeObservation = () => {
+        projector.close();
+        clearInterval(heartbeat);
+        watch.unsubscribe();
+      };
+      stream.onAbort(closeObservation);
       try {
         if (!watch.snapshot.operation) {
           // GET 可能已经推进到原生终态，但升级提示仍在持久化；完成后重新取原子快照。
@@ -236,15 +256,22 @@ export function createApp(
           const recoveryFailure = async () => {
             if (recoveryFailed) return;
             recoveryFailed = true;
-            projector.close();
+            closeObservation();
             await send("error", {message: "执行恢复暂未成功，请稍后重新打开此会话。"}).catch(() => {});
             resolve();
           };
           stream.onAbort(resolve);
           if (stream.aborted) { resolve(); return; }
+          // 重连观察复用提问流的心跳协议，覆盖模型重试与工具执行的静默期间。
+          heartbeat = setInterval(() => {
+            void send("progress", { elapsed_ms: Math.round(performance.now() - c.get("startedAt")) }).catch(() => {});
+          }, 15_000);
           watch.start((event) => {
             if (stream.aborted) return;
-            if (event.type === "run_end") projector.close();
+            if (event.type === "run_end") {
+              projector.close();
+              clearInterval(heartbeat);
+            }
             const projected = projectWatchEvent(event);
             if (projected) {
               const answer = streamedToolAnswer(projected);
@@ -270,11 +297,10 @@ export function createApp(
           void host.resumeOpenOperations(hosted, { actor: user, backend }).catch(recoveryFailure);
         });
       } catch {
-        projector.close();
+        closeObservation();
         await send("error", {message: "执行恢复暂未成功，请稍后重新打开此会话。"});
       } finally {
-        projector.close();
-        watch.unsubscribe();
+        closeObservation();
       }
     });
   });

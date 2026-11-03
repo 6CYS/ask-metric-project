@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import BaseTooltip from "@/components/ui/BaseTooltip.vue"
 import { Bug, Check, Clock3, ChevronRight, CircleAlert, LoaderCircle } from "@lucide/vue"
 import { computed, onUnmounted, ref, useId, watch } from "vue"
 import BackendNextDebugPanel from "@/components/chat/BackendNextDebugPanel.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
+import BaseSelect from "@/components/ui/BaseSelect.vue"
 import { getBackendNextTask } from "@/lib/api"
 import { toolCallLabel, type ToolCallSummary } from "@/lib/toolCallSummary"
 import type { BackendNextTaskResult } from "@/types/api"
@@ -54,6 +56,7 @@ function readableDuration(ms: number) {
 }
 const mode = ref<"timing" | "debug" | null>(null)
 const selectedId = ref("")
+const taskOptions = computed(() => props.taskIds.map((value, index) => ({ value, label: `任务 ${index + 1} · ${value}` })))
 const task = ref<BackendNextTaskResult>()
 const loading = ref(false)
 const error = ref("")
@@ -203,10 +206,10 @@ function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? n
             <span v-if="call.elapsedMs !== undefined" class="text-muted-foreground/60 tabular-nums">· {{ call.elapsedMs >= 1000 ? (call.elapsedMs / 1000).toFixed(1) + ' 秒' : call.elapsedMs + ' 毫秒' }}</span>
           </div>
           <ul v-if="call.summary?.conditions?.length" class="mt-1 flex list-none flex-wrap gap-1.5" aria-label="查询条件">
-            <li v-for="condition in call.summary.conditions" :key="condition.label" class="inline-flex min-w-0 max-w-full gap-1 rounded-md bg-muted/60 px-1.5 py-0.5" :class="condition.wrap ? 'items-start' : 'items-center'" :title="`${condition.label}：${condition.value}`">
+            <BaseTooltip v-for="condition in call.summary.conditions" :key="condition.label" :content="`${condition.label}：${condition.value}`"><li tabindex="0" class="inline-flex min-w-0 max-w-full gap-1 rounded-md bg-muted/60 px-1.5 py-0.5" :class="condition.wrap ? 'items-start' : 'items-center'">
               <span class="shrink-0 text-muted-foreground/70">{{ condition.label }}</span>
               <span class="min-w-0 text-foreground/80" :class="condition.wrap ? 'whitespace-pre-line break-words' : 'truncate'">{{ condition.value }}</span>
-            </li>
+            </li></BaseTooltip>
           </ul>
         </li>
         <li v-if="!pending && !allSteps.length" class="py-1">本轮没有执行步骤记录。</li>
@@ -214,8 +217,8 @@ function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? n
     </div>
   </div>
   <div class="absolute right-1 top-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/assistant:opacity-100 group-focus-within/assistant:opacity-100">
-    <button type="button" class="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" title="执行耗时查询" aria-label="执行耗时查询" :aria-expanded="mode === 'timing'" @click="toggle('timing')"><Clock3 class="size-3.5" /></button>
-    <BaseButton variant="ghost" size="icon" class="size-7 text-muted-foreground" title="调试" aria-label="调试" :aria-expanded="mode === 'debug'" @click="toggle('debug')"><Bug class="size-3.5" /></BaseButton>
+    <BaseTooltip content="执行耗时查询"><button type="button" class="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" aria-label="执行耗时查询" :aria-expanded="mode === 'timing'" @click="toggle('timing')"><Clock3 class="size-3.5" /></button></BaseTooltip>
+    <BaseTooltip content="调试"><BaseButton variant="ghost" size="icon" class="size-7 text-muted-foreground" aria-label="调试" :aria-expanded="mode === 'debug'" @click="toggle('debug')"><Bug class="size-3.5" /></BaseButton></BaseTooltip>
   </div>
   <div v-if="mode === 'timing'" class="mt-3 border-t border-border/70 pt-3 text-xs text-muted-foreground">
     <div class="mb-1.5 flex items-center justify-between gap-3">
@@ -223,26 +226,24 @@ function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? n
       <button type="button" class="text-xs text-muted-foreground hover:text-foreground" @click="mode = null">收起</button>
     </div>
     <label v-if="taskIds.length > 1" class="flex items-center gap-2">后端任务
-      <select v-model="selectedId" class="min-w-0 max-w-full rounded border bg-background p-1">
-        <option v-for="(id, index) in taskIds" :key="id" :value="id">任务 {{ index + 1 }} · {{ id }}</option>
-      </select>
+      <BaseSelect v-model="selectedId" :options="taskOptions" class="min-w-0 max-w-full flex-1" aria-label="后端任务" />
     </label>
     <template v-if="mode === 'timing'">
       <div class="grid gap-x-6 sm:grid-cols-2">
-        <div v-for="timing in timings" :key="timing.key" class="flex min-w-0 items-center justify-between gap-3 border-b border-border/50 py-1.5 text-xs last:border-b-0" :class="timing.key === 'total_ms' && 'font-medium text-foreground sm:col-span-2'" :title="timing.description">
+        <BaseTooltip v-for="timing in timings" :key="timing.key" :content="timing.description"><div tabindex="0" class="flex min-w-0 items-center justify-between gap-3 border-b border-border/50 py-1.5 text-xs last:border-b-0" :class="timing.key === 'total_ms' && 'font-medium text-foreground sm:col-span-2'">
           <span class="truncate text-muted-foreground" :class="timing.key === 'total_ms' && 'text-foreground'">{{ timing.label }}</span>
           <span class="shrink-0 font-mono tabular-nums" :class="timingValueClass(timing)">{{ timing.formatted }}</span>
-        </div>
+        </div></BaseTooltip>
         <template v-if="runTimingRows.length">
           <div class="pt-1 text-xs font-medium text-muted-foreground sm:col-span-2">模型与编排耗时（agent-service）</div>
-          <div v-for="row in runTimingRows" :key="row.key" class="flex min-w-0 items-center justify-between gap-3 border-b border-border/50 py-1.5 text-xs last:border-b-0" :class="row.total && 'font-medium text-foreground sm:col-span-2'" :title="row.description">
+          <BaseTooltip v-for="row in runTimingRows" :key="row.key" :content="row.description"><div tabindex="0" class="flex min-w-0 items-center justify-between gap-3 border-b border-border/50 py-1.5 text-xs last:border-b-0" :class="row.total && 'font-medium text-foreground sm:col-span-2'">
             <span class="truncate text-muted-foreground" :class="row.total && 'text-foreground'">{{ row.label }}</span>
             <span class="shrink-0 font-mono tabular-nums" :class="row.total ? 'text-[#466987]' : 'text-[#52606D]'">{{ row.formatted }}</span>
-          </div>
+          </div></BaseTooltip>
         </template>
-        <div v-if="elapsed !== undefined" class="flex min-w-0 items-center justify-between gap-3 py-1.5 text-xs sm:col-span-2" title="包含 pi 编排、工具请求与网络等待，与后端累计处理耗时分别统计。">
+        <BaseTooltip v-if="elapsed !== undefined" content="包含 pi 编排、工具请求与网络等待，与后端累计处理耗时分别统计。"><div tabindex="0" class="flex min-w-0 items-center justify-between gap-3 py-1.5 text-xs sm:col-span-2">
           <span>{{ pending ? '本轮已等待' : '本轮总耗时' }}</span><span class="shrink-0 font-mono tabular-nums text-[#466987]">{{ formatDuration(elapsed) }}</span>
-        </div>
+        </div></BaseTooltip>
       </div>
       <p v-if="task && !loading && !timings.length">该任务暂无阶段耗时记录。</p>
       <p v-if="!pending && elapsed === undefined && !timings.length && !loading">该历史消息未记录整轮耗时。</p>
@@ -254,9 +255,7 @@ function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? n
   <BackendNextDebugPanel v-if="mode === 'debug'" :question="question" :task-id="task?.task_id" :task-version="task?.version" :status="task?.status" :stage="task?.current_stage" :timings="task?.timings_ms" :debug="task ? { ...task.debug, logical_dsl: task.logical_dsl ?? task.debug?.logical_dsl } : undefined" @close="mode = null">
     <template #status>
       <label v-if="taskIds.length > 1" class="flex items-center gap-2 text-xs">后端任务
-        <select v-model="selectedId" class="min-w-0 max-w-full rounded border bg-background p-1">
-          <option v-for="(id, index) in taskIds" :key="id" :value="id">任务 {{ index + 1 }} · {{ id }}</option>
-        </select>
+        <BaseSelect v-model="selectedId" :options="taskOptions" class="min-w-0 max-w-full flex-1" aria-label="后端任务" />
       </label>
       <p v-if="loading" role="status" class="text-sm text-muted-foreground">正在读取后端任务详情…</p>
       <p v-if="error" role="alert" class="text-sm text-destructive">{{ error }}</p>

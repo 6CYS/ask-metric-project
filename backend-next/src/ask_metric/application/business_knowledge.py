@@ -44,6 +44,14 @@ class KnowledgeFields(BaseModel):
     url: str | None = Field(default=None, max_length=2000)
     date: str | None = None
     enabled: StrictBool = True
+    metric_codes: list[Annotated[str, Field(min_length=1, max_length=150)]] = Field(
+        default_factory=list, max_length=100,
+    )
+
+    @field_validator("metric_codes")
+    @classmethod
+    def distinct_metric_codes(cls, values: list[str]) -> list[str]:
+        return list(dict.fromkeys(values))
 
     @field_validator("url", "date", mode="before")
     @classmethod
@@ -123,17 +131,26 @@ class BusinessKnowledgeStore:
             ) from error
         return document, hashlib.sha256(data).hexdigest()
 
-    def read(self, topic: str | None = None, *, enabled_only: bool = False) -> dict:
+    def read(
+        self, topic: str | None = None, *, enabled_only: bool = False,
+        metric_code: str | None = None,
+    ) -> dict:
         with _LOCK:
             document, revision = self._load()
             return {"items": [entry.model_dump(mode="json") for entry in document.entries
                               if (topic is None or entry.topic == topic)
-                              and (not enabled_only or entry.enabled)], "revision": revision}
+                              and (not enabled_only or entry.enabled)
+                              and (metric_code is None or metric_code in entry.metric_codes)],
+                    "revision": revision}
 
     def search(self, query: str, context_terms: list[str]) -> dict:
         snapshot = self.read(enabled_only=True)
         question = _search_terms(query)
         context = set().union(*(_search_terms(term) for term in context_terms))
+        explicit_terms = question | context | {
+            part for term in [query, *context_terms]
+            for part in unicodedata.normalize("NFKC", term).casefold().split()
+        }
         documents = [(_search_terms(entry["title"]), _search_terms(entry["text"]),
                       _search_terms(entry["role"])) for entry in snapshot["items"]]
         frequency = Counter(term for parts in documents for term in set().union(*parts))
@@ -148,16 +165,24 @@ class BusinessKnowledgeStore:
                     )
             return total
 
+        def has_metric_match(entry: dict) -> bool:
+            return any(unicodedata.normalize("NFKC", code).casefold() in explicit_terms
+                       for code in entry["metric_codes"])
+
+        # 正式编码命中优先召回；关联只提供相关性，未绑定知识仍按正文参与检索。
         ranked = sorted(zip(snapshot["items"], documents, strict=True),
-                        key=lambda item: score(item[1]), reverse=True)
+                        key=lambda item: (has_metric_match(item[0]), score(item[1])),
+                        reverse=True)
         entries, remaining = [], 8000
         for entry, parts in ranked:
-            if score(parts) <= 0:
+            if not has_metric_match(entry) and score(parts) <= 0:
                 break
             # 保留完整正文，不能为节省上下文截掉末尾的适用条件或使用边界。
             if len(entry["text"]) > remaining:
                 continue
-            entries.append({key: entry[key] for key in ("id", "title", "text", "role")})
+            entries.append({key: entry[key] for key in (
+                "id", "title", "text", "role", "metric_codes",
+            )})
             remaining -= len(entry["text"])
             if len(entries) == 3:
                 break

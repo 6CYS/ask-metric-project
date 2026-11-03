@@ -200,6 +200,13 @@ if [[ ! -f "$RUNTIME_CONFIG_ROOT/business-knowledge.json" ]]; then
   cp "$FINAL_RELEASE/backend/config/business-knowledge.json" \
     "$RUNTIME_CONFIG_ROOT/business-knowledge.json"
 fi
+if [[ ! -f "$RUNTIME_CONFIG_ROOT/analysis-semantics.json" ]]; then
+  LEGACY_ANALYSIS_CONFIG="$INSTALL_ROOT/current/backend/config/analysis-semantics.json"
+  if [[ ! -f "$LEGACY_ANALYSIS_CONFIG" ]]; then
+    LEGACY_ANALYSIS_CONFIG="$FINAL_RELEASE/backend/config/analysis-semantics.json"
+  fi
+  cp "$LEGACY_ANALYSIS_CONFIG" "$RUNTIME_CONFIG_ROOT/analysis-semantics.json"
+fi
 if [[ ! -f "$RUNTIME_CONFIG_ROOT/prompts.json" ]]; then
   cp "$FINAL_RELEASE/backend/config/prompts.json" "$RUNTIME_CONFIG_ROOT/prompts.json"
 else

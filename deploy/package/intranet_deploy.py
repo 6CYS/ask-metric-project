@@ -57,22 +57,41 @@ def init_config(args: argparse.Namespace) -> None:
     ):
         directory.mkdir(parents=True, exist_ok=True)
 
+    legacy_semantics = getattr(args, "legacy_analysis_semantics", None)
+    if legacy_semantics is None and config_file.exists():
+        from dotenv import dotenv_values
+
+        # 旧版分析语义与查询语义放在同一发布目录；切换程序前保留维护后的原文件。
+        previous_path = dotenv_values(config_file, interpolate=False).get("SEMANTIC_CONFIG_PATH")
+        if previous_path and Path(previous_path).is_absolute():
+            candidate = Path(previous_path).with_name("analysis-semantics.json")
+            if candidate.is_file():
+                legacy_semantics = candidate
+
     mappings = {
         BUNDLE_ROOT / "backend/runtime/config/model-config.json": runtime_config
         / "model-config.json",
         BUNDLE_ROOT / "backend/runtime/config/prompts.json": runtime_config / "prompts.json",
         BUNDLE_ROOT / "backend/runtime/config/business-knowledge.json": runtime_config
         / "business-knowledge.json",
+        legacy_semantics or BUNDLE_ROOT / "backend/runtime/config/analysis-semantics.json":
+        runtime_config / "analysis-semantics.json",
     }
     for source, target in mappings.items():
         print(f"{_copy_once(source, target)}: {target}")
     if config_file.exists():
         existing = config_file.read_text(encoding="utf-8")
-        if not re.search(r"(?m)^\s*(?:export\s+)?BUSINESS_KNOWLEDGE_PATH\s*=", existing):
-            knowledge_path = runtime_config / "business-knowledge.json"
+        additions = []
+        for name, filename in (
+            ("BUSINESS_KNOWLEDGE_PATH", "business-knowledge.json"),
+            ("ANALYSIS_SEMANTICS_PATH", "analysis-semantics.json"),
+        ):
+            if not re.search(rf"(?m)^\s*(?:export\s+)?{name}\s*=", existing):
+                additions.append(f"{name}={runtime_config / filename}\n")
+        if additions:
             with config_file.open("a", encoding="utf-8") as output:
                 output.write(("" if not existing or existing.endswith("\n") else "\n")
-                             + f"BUSINESS_KNOWLEDGE_PATH={knowledge_path}\n")
+                             + "".join(additions))
         print(f"kept: {config_file}")
     else:
         template = (BUNDLE_ROOT / "ops/backend.env.example").read_text(encoding="utf-8")
@@ -467,6 +486,8 @@ def parse_args() -> argparse.Namespace:
     init_parser.add_argument("--config-root", type=Path, required=True)
     init_parser.add_argument("--state-root", type=Path, required=True)
     init_parser.add_argument("--backend-port", type=int, default=8010)
+    init_parser.add_argument("--legacy-analysis-semantics", type=Path,
+                             help="Existing analysis-semantics.json to preserve before upgrading")
     init_parser.set_defaults(handler=init_config)
 
     validate_parser = subparsers.add_parser("validate-config")

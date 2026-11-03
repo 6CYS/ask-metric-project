@@ -56,6 +56,7 @@ export class InquiryTargetError extends Error {
   constructor(
     readonly code: string,
     message: string,
+    readonly validationStage?: string,
   ) {
     super(message);
     this.name = "InquiryTargetError";
@@ -242,39 +243,60 @@ export async function resolveInquiryTarget(
   change: InquiryTargetChange,
   context: TargetResolution,
 ): Promise<InquiryTargetSnapshot> {
-  const invalid = (message: string): never => {
-    throw new InquiryTargetError("INQUIRY_TARGET_INVALID", message);
+  const invalid = (message: string, stage: string): never => {
+    throw new InquiryTargetError("INQUIRY_TARGET_INVALID", message, stage);
   };
-  if (!Check(inquiryTargetChangeSchema, change)) return invalid("目标变更格式不完整。");
+  if (!Check(inquiryTargetChangeSchema, change))
+    return invalid("目标变更格式不完整。", "target_schema");
   const base = change.mode === "new" ? undefined : context.baseline;
   if (change.mode !== "new" && (!base || change.base_ref !== base.ref))
     throw new InquiryTargetError(
       "INQUIRY_TARGET_STALE",
       "请使用本轮参考资料中的目标引用，不从历史查询集合合并目标。",
     );
-  if (
-    change.mode === "new" &&
-    (change.base_ref || !change.topic || !change.date || change.organizations?.mode !== "replace")
-  )
+  // 只记录尚未满足的结构条件，补齐一项可继续；改写已有主题或日期不构成格式纠正。
+  const invalidNewFields = [
+    ...(change.base_ref ? ["base_ref"] : []),
+    ...(!change.topic ? ["topic"] : []),
+    ...(!change.date ? ["date"] : []),
+    ...(change.organizations?.mode !== "replace" ? ["organizations"] : []),
+  ];
+  if (change.mode === "new" && invalidNewFields.length)
     return invalid(
       "新目标须明确主题、机构和期间；存量会话没有目标时依据用户问题声明，不能自动把来源升级为目标。",
+      `target_new:${invalidNewFields.join(",")}`,
     );
   if (change.mode === "continue" && (change.topic || change.date || change.organizations))
-    return invalid("沿用目标不包含字段修改；有明确变化请使用update。");
+    return invalid(
+      "沿用目标不包含字段修改；有明确变化请使用update。",
+      `target_continue:${[
+        change.topic && "topic",
+        change.date && "date",
+        change.organizations && "organizations",
+      ]
+        .filter(Boolean)
+        .join(",")}`,
+    );
   if (change.mode === "update" && !change.topic && !change.date && !change.organizations)
-    return invalid("update须说明改变的字段；全部沿用时使用continue。");
+    return invalid("update须说明改变的字段；全部沿用时使用continue。", "target_update");
   const selection = change.organizations;
   if (
     selection &&
     ((selection.scope === "named" && !selection.names?.length) ||
       (selection.scope === "all_banks" && selection.names))
   )
-    return invalid("named须明确机构；all_banks不混入手写机构清单。");
+    return invalid(
+      "named须明确机构；all_banks不混入手写机构清单。",
+      `target_organizations:${selection.scope}`,
+    );
   if (
     selection?.mode === "add" &&
     (!base || selection.scope !== "named" || base.organizations.scope)
   )
-    return invalid("追加比较用于明确机构集合；改变动态机构范围时请完整替换范围。");
+    return invalid(
+      "追加比较用于明确机构集合；改变动态机构范围时请完整替换范围。",
+      "target_organizations_add",
+    );
   const prior = base?.organizations;
   const selected = selection
     ? await context.resolveOrganizations(selection.scope, selection.names)
@@ -284,7 +306,8 @@ export async function resolveInquiryTarget(
           prior.scope?.kind === "authorized_cohort" ? undefined : prior.codes,
         )
       : undefined;
-  if (!selected?.codes.length) return invalid("机构尚未解析，不能创建查询目标。");
+  if (!selected?.codes.length)
+    return invalid("机构尚未解析，不能创建查询目标。", "target_organizations_empty");
   const sameMembers = (left: string[], right: string[]) =>
     JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
   if (!selection && prior && !prior.scope && !sameMembers(selected.codes, prior.codes))

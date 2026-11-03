@@ -140,6 +140,7 @@ class Settings(BaseSettings):
     prompt_config_path: Path = PROJECT_DIR / "config" / "prompts.json"
     semantic_config_path: Path = PROJECT_DIR / "config" / "semantic-config.json"
     business_knowledge_path: Path = PROJECT_DIR / "config" / "business-knowledge.json"
+    analysis_semantics_path: Path = PROJECT_DIR / "config" / "analysis-semantics.json"
     config_history_dir: Path = PROJECT_DIR / ".runtime" / "config-history"
     query_result_limit: int = Field(default=1000, gt=0, le=10_000)
     query_statement_timeout_ms: int = Field(default=30_000, gt=0, le=600_000)

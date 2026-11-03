@@ -13,9 +13,12 @@ from ask_metric.application.business_overview import bind_metrics
 from ask_metric.application.catalog_search import search_metrics
 from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.metric_matching import normalize_semantic_text
+from ask_metric.domain.metric_relationships import MetricRelation
 
 CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
 METHOD_VERSION = "general-analysis-v1"
+DISCOVERY_RELATION_LIMIT = 8
+DISCOVERY_RELATED_METRIC_LIMIT = 24
 
 
 class MetricExtension(BaseModel):
@@ -31,21 +34,6 @@ class MetricExtension(BaseModel):
     def require_approved_source(self):
         if self.status == "approved" and not self.source.strip():
             raise ValueError("审核后的语义配置必须注明依据")
-        return self
-
-
-class MetricRelation(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    id: str = Field(min_length=1)
-    status: Literal["draft", "approved", "retired"] = "draft"
-    parent: str = Field(min_length=1)
-    children: list[str] = Field(min_length=1, max_length=15)
-    source: str = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def unique_members(self):
-        if self.parent in self.children or len(set(self.children)) != len(self.children):
-            raise ValueError("指标关系不能自包含或重复")
         return self
 
 
@@ -71,8 +59,16 @@ def digest(value) -> str:
     ).hexdigest()
 
 
+def load_business_topics() -> dict:
+    path = CONFIG_DIR / "business-topics.json"
+    return json.loads(path.read_text(encoding="utf-8"))["topics"] if path.exists() else {}
+
+
 class MetricSemantics:
-    def __init__(self, catalog, *, secret: str, actor_id: str):
+    def __init__(
+        self, catalog, *, secret: str, actor_id: str, topics: dict | None = None,
+        semantics_path: Path | None = None,
+    ):
         if not secret:
             raise ApplicationError(
                 "ANALYSIS_CONFIGURATION_ERROR", "指标绑定配置缺失。", status_code=503
@@ -80,11 +76,20 @@ class MetricSemantics:
         self.items = {item.code: item for item in catalog}
         self.secret = secret.encode()
         self.actor_id = actor_id
-        path = CONFIG_DIR / "analysis-semantics.json"
+        path = semantics_path or CONFIG_DIR / "analysis-semantics.json"
         try:
-            self.extensions = SemanticExtensions.model_validate_json(
+            extensions = SemanticExtensions.model_validate_json(
                 path.read_text(encoding="utf-8") if path.exists() else "{}"
-            ).model_dump(mode="json")
+            )
+            self.extensions = extensions.model_dump(mode="json")
+            # 旧关系未声明类型时沿用分类含义，不因补默认字段使历史指标引用失效。
+            self.extensions["relations"] = [
+                relation.model_dump(
+                    mode="json",
+                    exclude={"kind"} if "kind" not in relation.model_fields_set else set(),
+                )
+                for relation in extensions.relations
+            ]
         except (OSError, ValidationError) as exc:
             raise ApplicationError(
                 "ANALYSIS_CONFIGURATION_ERROR",
@@ -94,11 +99,10 @@ class MetricSemantics:
         self.topic_attributes = {}
         self.topic_groups = {}
         # 复用既有专业增强中的显式编码与数值编码；不按名称或后缀推导未知口径。
-        topics_path = CONFIG_DIR / "business-topics.json"
-        if topics_path.exists():
-            for topic_id, topic in json.loads(topics_path.read_text(encoding="utf-8"))[
-                "topics"
-            ].items():
+        if topics is None:
+            topics = load_business_topics()
+        if topics:
+            for topic_id, topic in topics.items():
                 bound, _ = bind_metrics(topic, list(self.items.values()))
                 self.topic_groups[topic_id] = {
                     "name": topic["name"],
@@ -339,6 +343,7 @@ class MetricSemantics:
                 for key, group in groups.items()
             ],
             "items": items,
+            **self._related_discovery(selected, keyword),
             # 相似度只帮助发现；完整名称查证后才签发可执行引用。
             "semantic_suggestions": [
                 {**self.descriptor(hit.code), "match_type": hit.match_type, "score": hit.score}
@@ -349,6 +354,42 @@ class MetricSemantics:
                 "按完整名称、定义和限定词选择；绑定引用仅证明正式目录来源。"
             ),
         }
+
+    def _related_discovery(self, selected: list[str], keyword: str) -> dict:
+        """只展开当前候选的一层已确认关系，不扩散到整张图或猜测比例公式。"""
+        selected_codes = set(selected)
+        related_codes: list[str] = []
+        relations: list[dict] = []
+        has_more = False
+        for relation in self.extensions["relations"]:
+            members = [relation["parent"], *relation["children"]]
+            if (
+                relation["status"] != "approved"
+                or not selected_codes.intersection(members)
+                or any(code not in self.items for code in members)
+            ):
+                continue
+            added = [
+                code for code in members
+                if code not in selected_codes and code not in related_codes
+            ]
+            if (
+                len(relations) >= DISCOVERY_RELATION_LIMIT
+                or len(related_codes) + len(added) > DISCOVERY_RELATED_METRIC_LIMIT
+            ):
+                has_more = True
+                continue
+            kind = relation.get("kind", "classification")
+            view = {**relation, "kind": kind}
+            if kind == "ratio":
+                view.update(numerator=relation["children"][0], denominator=relation["children"][1])
+            relations.append(view)
+            related_codes.extend(added)
+        metrics = []
+        for code in related_codes:
+            descriptor = self.descriptor(code)
+            metrics.append({**descriptor, "binding_ref": self.binding(descriptor, keyword)})
+        return {"related_metrics": metrics, "relations": relations, "has_more_relations": has_more}
 
     def comparison_candidates(self, descriptors: list[dict]) -> list[dict]:
         """提供已绑定指标的正式比较入口，不猜编码，不证明指定机构当前有数。"""
@@ -379,5 +420,7 @@ class MetricSemantics:
         return [
             relation
             for relation in self.extensions.get("relations", [])
-            if relation.get("status") == "approved" and relation.get("parent") in codes
+            if relation.get("status") == "approved"
+            and relation.get("parent") in codes
+            and relation.get("kind", "classification") != "ratio"
         ]

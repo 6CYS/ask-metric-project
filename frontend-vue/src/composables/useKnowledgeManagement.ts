@@ -11,7 +11,7 @@ type KnowledgeApi = {
   setEnabled: (id: string, payload: { enabled: boolean; revision: string }) => Promise<BusinessKnowledgeWriteResult>
 }
 const defaultApi: KnowledgeApi = { list: listBusinessKnowledge, create: createBusinessKnowledge, update: updateBusinessKnowledge, setEnabled: setBusinessKnowledgeEnabled }
-const emptyForm = (): BusinessKnowledgeForm => ({ title: "", text: "", enabled: true })
+const emptyForm = (): BusinessKnowledgeForm => ({ title: "", text: "", enabled: true, metric_codes: [] })
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : "请求失败，请稍后重试。"
 
 export function useKnowledgeManagement(api: KnowledgeApi = defaultApi) {
@@ -23,6 +23,7 @@ export function useKnowledgeManagement(api: KnowledgeApi = defaultApi) {
   const isMutating = ref(false)
   const loadError = ref("")
   const actionError = ref("")
+  const actionConflict = ref(false)
   const formError = ref("")
   const editorOpen = ref(false)
   const editingId = ref<string | null>(null)
@@ -44,6 +45,7 @@ export function useKnowledgeManagement(api: KnowledgeApi = defaultApi) {
       revision.value = result.revision
       hasLoaded.value = true
       actionError.value = ""
+      actionConflict.value = false
       return true
     } catch (error) {
       if (sequence === loadSequence) loadError.value = errorMessage(error)
@@ -56,12 +58,13 @@ export function useKnowledgeManagement(api: KnowledgeApi = defaultApi) {
     }
   }
 
-  function openEditor(item?: BusinessKnowledgeItem) {
+  function openEditor(item?: BusinessKnowledgeItem, metricCodes: string[] = []) {
     if (!hasLoaded.value || isMutating.value) return
     editingId.value = item?.id ?? null
     form.value = item ? {
       title: item.title, text: item.text, enabled: item.enabled,
-    } : emptyForm()
+      metric_codes: [...(item.metric_codes ?? [])],
+    } : { ...emptyForm(), metric_codes: [...metricCodes] }
     // 编辑期间列表可以刷新，但不能用新版本静默覆盖他人的修改。
     formRevision = revision.value
     formError.value = ""
@@ -83,6 +86,7 @@ export function useKnowledgeManagement(api: KnowledgeApi = defaultApi) {
     revision.value = result.revision
     loadError.value = ""
     actionError.value = ""
+    actionConflict.value = false
   }
 
   async function save() {
@@ -101,7 +105,11 @@ export function useKnowledgeManagement(api: KnowledgeApi = defaultApi) {
       return true
     } catch (error) {
       hasConflict.value = error instanceof ApiError && error.status === 409
-      formError.value = hasConflict.value ? "业务知识已被其他人修改。本次输入已保留，请重新读取最新内容后再编辑。" : errorMessage(error)
+      formError.value = hasConflict.value
+        ? editingId.value
+          ? "业务知识已被其他人修改。本次输入已保留，请重新读取最新内容后再编辑。"
+          : "知识列表已被其他人修改。本次输入已保留，请重新读取版本后再保存。"
+        : errorMessage(error)
       return false
     } finally {
       isMutating.value = false
@@ -113,8 +121,15 @@ export function useKnowledgeManagement(api: KnowledgeApi = defaultApi) {
       formError.value = loadError.value || "重新读取失败，请稍后重试。"
       return false
     }
-    const item = editingId.value ? items.value.find(item => item.id === editingId.value) : undefined
-    if (editingId.value && !item) {
+    if (!editingId.value) {
+      // 新建草稿没有可重读的服务端正文，只更新写入版本，保留用户当前的关联选择。
+      formRevision = revision.value
+      formError.value = ""
+      hasConflict.value = false
+      return true
+    }
+    const item = items.value.find(item => item.id === editingId.value)
+    if (!item) {
       formError.value = "这条知识已不存在，请关闭表单后重新选择。"
       return false
     }
@@ -140,9 +155,41 @@ export function useKnowledgeManagement(api: KnowledgeApi = defaultApi) {
     }
   }
 
+  async function linkMetric(id: string, metricCode: string) {
+    if (!hasLoaded.value || !revision.value || isMutating.value || actionConflict.value) return false
+    const current = items.value.find(entry => entry.id === id)
+    if (!current || !metricCode.trim()) {
+      actionError.value = "知识或指标已不存在，请重新读取后选择。"
+      return false
+    }
+    if (current.metric_codes?.includes(metricCode)) return true
+    beginMutation()
+    actionError.value = ""
+    try {
+      // 关联只追加当前指标，不重写正文，也不覆盖其他指标的关联。
+      applyWrite(await api.update(id, {
+        title: current.title,
+        text: current.text,
+        enabled: current.enabled,
+        metric_codes: [...(current.metric_codes ?? []), metricCode],
+        revision: revision.value,
+      }))
+      return true
+    } catch (error) {
+      actionConflict.value = error instanceof ApiError && error.status === 409
+      actionError.value = actionConflict.value
+        ? "业务知识已被其他人修改，请重新读取后再关联。之前成功的关联已保留。"
+        : errorMessage(error)
+      return false
+    } finally {
+      isMutating.value = false
+    }
+  }
+
   return {
-    items, revision, hasLoaded, isLoading, isRefreshing, isMutating, loadError, actionError,
-    formError, editorOpen, editingId, form, hasConflict, load, save, reloadEditor, toggle,
-    openCreate: () => openEditor(), openEdit: (item: BusinessKnowledgeItem) => openEditor(item),
+    items, revision, hasLoaded, isLoading, isRefreshing, isMutating, loadError, actionError, actionConflict,
+    formError, editorOpen, editingId, form, hasConflict, load, save, reloadEditor, toggle, linkMetric,
+    openCreate: (metricCodes: string[] = []) => openEditor(undefined, metricCodes),
+    openEdit: (item: BusinessKnowledgeItem) => openEditor(item),
   }
 }

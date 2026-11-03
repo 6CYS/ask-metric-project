@@ -25,6 +25,7 @@ import { businessDate } from "../business-context/resolvers.js";
 import { inquiryCatalogView, inquiryEvidenceView } from "./view.js";
 import { MAX_QUERY_METRICS, PLAN_METRIC_LIMIT } from "./limits.js";
 import { isCalendarDate } from "../tools/shared.js";
+import { currentTurnMessages } from "../tools/turnContract.js";
 import type { InquiryAcceptedTarget } from "./admission.js";
 import {
   inquiryTargetChangeSchema,
@@ -111,7 +112,7 @@ const queryParameters = Type.Object(
       ],
       {
         description:
-          "observe直接读取正式指标（含正式差额、增幅）；compare从同一指标的不同期间值计算变化，不能把变化额当作原指标的上期值。",
+          "observe直接读取正式指标（含正式差额、增幅）；compare从同一指标的不同期间值计算变化，不能把变化额当作原指标的上期值；ranking对所选指标在机构间排序，不要求另找名称含排名的指标。",
       },
     ),
     comparisons: Type.Optional(
@@ -195,7 +196,13 @@ const strings = (value: unknown): string[] =>
     ? value.filter((item): item is string => typeof item === "string" && !!item)
     : [];
 
-function error(code: string, message: string, resolution?: unknown) {
+function error(
+  code: string,
+  message: string,
+  resolution?: unknown,
+  correctionFields?: readonly (keyof QueryInput | "start" | "end")[],
+  validation?: { validation_stage?: string; target_ref?: string },
+) {
   return {
     isError: true,
     content: [
@@ -204,7 +211,13 @@ function error(code: string, message: string, resolution?: unknown) {
         text: JSON.stringify({ code, message, ...(resolution ? { resolution } : {}) }),
       },
     ],
-    details: { kind: "inquiry_query_error", status: "error", code },
+    details: {
+      kind: "inquiry_query_error",
+      status: "error",
+      code,
+      ...(correctionFields ? { correction_fields: correctionFields } : {}),
+      ...validation,
+    },
   };
 }
 function successful(value: unknown): value is InquiryEvidence {
@@ -232,6 +245,71 @@ async function laneEvidence(
 }
 function bindingSnapshot(request: AskMetricRequestContext) {
   return { binding_map: catalogBindingState(request), candidate_map: analysisCandidates(request) };
+}
+
+/** 失败仍保留正式目录身份，便于核对部分纠正；不把它转为成功取数证据。 */
+function preserveFailureBindings(
+  result: AgentToolResult<unknown>,
+  request: AskMetricRequestContext,
+) {
+  return "isError" in result && result.isError === true
+    ? { ...result, details: { ...record(result.details), ...bindingSnapshot(request) } }
+    : result;
+}
+
+interface CatalogSearchPage {
+  keyword: string;
+  page: number;
+  page_size: number;
+  total: number;
+  has_more: boolean;
+  exact_refs: string[];
+}
+
+function catalogSearchPage(value: unknown): CatalogSearchPage | undefined {
+  const data = record(value);
+  const { keyword, page, page_size: pageSize, total, has_more: hasMore } = data;
+  if (
+    typeof keyword !== "string" ||
+    typeof hasMore !== "boolean" ||
+    typeof page !== "number" ||
+    !Number.isSafeInteger(page) ||
+    page < 1 ||
+    typeof pageSize !== "number" ||
+    !Number.isSafeInteger(pageSize) ||
+    pageSize < 1 ||
+    typeof total !== "number" ||
+    !Number.isSafeInteger(total) ||
+    total < 0
+  )
+    return undefined;
+  return {
+    keyword,
+    page,
+    page_size: pageSize,
+    total,
+    has_more: hasMore,
+    exact_refs: strings(data.exact_refs),
+  };
+}
+
+/** 只采用本轮实际检索回执；旧轮次或缺少分页元数据不能成为停止依据。 */
+function catalogSearchPages(messages: AgentMessage[]): CatalogSearchPage[] {
+  return currentTurnMessages(messages).flatMap((message) => {
+    if (message.role !== "toolResult" || message.toolName !== "metric_search" || message.isError)
+      return [];
+    const details = record(message.details);
+    if (
+      details.kind !== "analysis_catalog" ||
+      details.status !== "succeeded" ||
+      !Array.isArray(details.search_pages)
+    )
+      return [];
+    return details.search_pages.flatMap((value: unknown) => {
+      const page = catalogSearchPage(value);
+      return page ? [page] : [];
+    });
+  });
 }
 async function conversationId(request: AskMetricRequestContext, signal?: AbortSignal) {
   let conversation = await request.commands.getConversationId();
@@ -600,6 +678,8 @@ async function acceptedMetricRefs(
       {
         target_ref: target.targetRef,
       },
+      ["target_ref"],
+      { target_ref: target.targetRef },
     );
   const matches: Array<Record<string, unknown> | undefined> = [];
   // 旧目标可以包含100项，目录重绑定保持有限并发，不能一次发出全部请求。
@@ -627,6 +707,8 @@ async function acceptedMetricRefs(
     return error(
       "INQUIRY_TARGET_METRIC_UNAVAILABLE",
       "已确认指标未取得当前正式目录引用，请核对目录状态，不能换用相似指标或旧绑定。",
+      { target_ref: target.targetRef },
+      ["target_ref"],
       { target_ref: target.targetRef },
     );
   catalogBindingView(request, { items: matches });
@@ -780,7 +862,14 @@ async function executeWithInquiryTarget(
       target = { ...target, ...(current.parentRef ? { parentRef: current.parentRef } : {}) };
     }
   } catch (cause) {
-    if (cause instanceof InquiryTargetError) return error(cause.code, cause.message);
+    if (cause instanceof InquiryTargetError)
+      return error(
+        cause.code,
+        cause.message,
+        undefined,
+        cause.validationStage ? [] : undefined,
+        cause.validationStage ? { validation_stage: cause.validationStage } : undefined,
+      );
     throw cause;
   }
   let result: AgentToolResult<unknown>;
@@ -832,24 +921,91 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
     label: "检索业务指标",
     parameters: searchParameters,
     description:
-      "按业务目标检索正式指标，返回名称、定义、单位、可用方法与k引用。可合并相关关键词；分页未完不能断言不存在。semantic_suggestions只有推荐含义，须再按名称或编码检索取得正式引用。",
+      "按业务目标检索正式指标，返回名称、定义、单位、可用方法与k引用。已有符合业务目标与口径的正式候选即可metric_query，无需翻完目录；exact仅表示名称、编码或别名匹配，不代表口径适用。仅候选不足且has_more=true时继续分页，has_more=false时该关键词没有下一页；可以换词检索其他指标。分页未完不能断言不存在。semantic_suggestions只有推荐含义，须再按名称或编码检索取得正式引用。",
     execute: async (_id, input, _update, request, _invocation, context) => {
-      await laneEvidence(request);
+      const messages = (await request.turnMessages?.()) ?? [];
+      await laneEvidence(request, messages);
+      const previousPages = catalogSearchPages(messages);
+      const page = input.page ?? 1,
+        pageSize = input.page_size ?? 12;
+      const existingRefs = new Set<string>();
       const results = await Promise.all(
-        [...new Set(input.keywords.map((value) => value.trim()))].map(async (keyword) => ({
-          keyword,
-          ...(await request.backend.analysisCatalog(
+        [...new Set(input.keywords.map((value) => value.trim()))].map(async (keyword) => {
+          const previous = previousPages.filter((item) => item.keyword === keyword);
+          const latest = previous.at(-1);
+          previous.forEach((item) => item.exact_refs.forEach((ref) => existingRefs.add(ref)));
+          const endKnown =
+            latest && previous.some((item) => !item.has_more && item.total === latest.total);
+          // 总量与请求偏移量比较，允许换页大小后仍有数据的页；第一页可显式重新检索。
+          if (page > 1 && latest && endKnown && (page - 1) * pageSize >= latest.total) {
+            return {
+              keyword,
+              page,
+              page_size: pageSize,
+              total: latest.total,
+              has_more: false,
+              next_page: null,
+              pagination_status: "exhausted",
+              items: [],
+              notice:
+                "该关键词已无后续页，本次未重复访问目录。请核对已有候选的定义、单位和方法后取数；不适用时换关键词，不再增加该关键词页码。",
+            };
+          }
+          const result = {
             keyword,
-            input.page ?? 1,
-            input.page_size ?? 12,
-            { signal: context.abortSignal },
-          )),
-        })),
+            ...(await request.backend.analysisCatalog(keyword, page, pageSize, {
+              signal: context.abortSignal,
+            })),
+          };
+          const returned = catalogSearchPage(result);
+          return {
+            ...result,
+            ...(returned ? { next_page: returned.has_more ? returned.page + 1 : null } : {}),
+          };
+        }),
       );
-      const view = catalogBindingView(request, { results });
+      const view = record(catalogBindingView(request, { results }));
+      const searchPages = (Array.isArray(view.results) ? view.results : []).flatMap(
+        (value: unknown) => {
+          const result = record(value),
+            page = catalogSearchPage(result);
+          if (!page || result.pagination_status === "exhausted") return [];
+          return [
+            {
+              ...page,
+              exact_refs: (Array.isArray(result.items) ? result.items : []).flatMap(
+                (value: unknown) => {
+                  const item = record(value);
+                  return item.match_type === "exact" && typeof item.binding_ref === "string"
+                    ? [item.binding_ref]
+                    : [];
+                },
+              ),
+            },
+          ];
+        },
+      );
+      // 已注册的短引用直接复用，不能再次当作后端签名注册，也不自动替用户选定指标。
+      const returnedRefs = new Set(
+        (Array.isArray(view.results) ? view.results : []).flatMap((value: unknown) => {
+          const result = record(value);
+          return (Array.isArray(result.items) ? result.items : []).map(
+            (item: unknown) => record(item).binding_ref,
+          );
+        }),
+      );
+      const existingCandidates = analysisCandidates(request).filter(
+        (item) => existingRefs.has(item.binding_ref) && !returnedRefs.has(item.binding_ref),
+      );
+      if (existingCandidates.length) view.existing_candidates = existingCandidates;
       return {
         content: [{ type: "text", text: JSON.stringify(inquiryCatalogView(view)) }],
-        details: { kind: "analysis_catalog", status: "succeeded", ...bindingSnapshot(request) },
+        details: {
+          kind: "analysis_catalog",
+          status: "succeeded",
+          search_pages: searchPages,
+          ...bindingSnapshot(request),
+        },
       };
     },
   };
@@ -858,9 +1014,9 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
     label: "查询指标数据",
     parameters: queryParameters,
     description:
-      "使用metric_search的k引用直接取数；按原问题选择指标和方法，可依据结果继续补查。参考资料有已接纳目标时，多目标须选target_ref、单目标可省略；宿主重新绑定已确认指标、机构和日期，模型参数不能覆盖。目标都已完成取数后可用independent=true独立补查。普通问数每轮首次调用通过target_change声明会话主目标；后续省略声明。scope/org_names/date只选择本次取数的机构和期间，省略时继承主目标；可选择主目标内的部分机构或其他期间，不改写主目标。主目标之外的参考机构使用independent=true，不携带target_change。旧无目标协议显式提交机构，date可指定期间，省略时按所选机构和指标沿用已确认期间；不同期间返回date_groups，按对应分组分别查询。正文机构以回执为准，不能把全省汇总、账号机构和用户指定机构互称别名。observe也适用于正式差额/同比指标直接取值；compare用于同指标基期计算。",
+      "使用metric_search或业务知识linked_catalog的正式binding_ref直接取数；按原问题选择指标和方法，可依据结果继续补查。参考资料有已接纳目标时，多目标须选target_ref、单目标可省略；宿主重新绑定已确认指标、机构和日期，模型参数不能覆盖。目标都已完成取数后可用independent=true独立补查。普通问数每轮首次调用通过target_change声明会话主目标；后续省略声明。scope/org_names/date只选择本次取数的机构和期间，省略时继承主目标；可选择主目标内的部分机构或其他期间，不改写主目标。主目标之外的参考机构使用independent=true，不携带target_change。旧无目标协议显式提交机构，date可指定期间，省略时按所选机构和指标沿用已确认期间；不同期间返回date_groups，按对应分组分别查询。正文机构以回执为准，不能把全省汇总、账号机构和用户指定机构互称别名。observe也适用于正式差额/同比指标直接取值；compare用于同指标基期计算。",
     execute: async (_id, input, _update, request, _invocation, context) => {
-      return executeWithInquiryTarget(
+      const result = await executeWithInquiryTarget(
         input,
         request,
         context.abortSignal,
@@ -907,9 +1063,18 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
             return error(
               "ANALYSIS_BINDING_INVALID",
               "指标引用不属于当前目录回执，请先用metric_search检索。不能编造引用或直接传入签名。",
+              undefined,
+              ["metric_refs"],
+              { validation_stage: "binding_resolution" },
             );
           if (new Set(refs).size !== refs.length)
-            return error("ANALYSIS_BINDING_INVALID", "同一批查询不要重复选择同一正式指标。");
+            return error(
+              "ANALYSIS_BINDING_INVALID",
+              "同一批查询不要重复选择同一正式指标。",
+              undefined,
+              ["metric_refs"],
+              { validation_stage: "binding_duplicates" },
+            );
           if (input.method === "structure" && refs.length > STEP_METRIC_LIMIT)
             return error(
               "ANALYSIS_METHOD_BATCH_UNSUPPORTED",
@@ -933,11 +1098,15 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
             return error(
               "ANALYSIS_METHOD_INVALID",
               "compare须提供comparisons：mom、yoy或ytd。直接读取正式比较指标时使用observe。",
+              undefined,
+              ["method", "comparisons"],
             );
           if (input.method === "structure" && !input.relation_id)
             return error(
               "ANALYSIS_METHOD_INVALID",
               "structure须使用目录返回的审核关系relation_id；没有关系时可先observe，不计算未经确认的占比。",
+              undefined,
+              ["method", "relation_id"],
             );
           const current = ((await request.answerEvidence?.()) ?? []).filter((item) =>
             successful(item.evidence),
@@ -1296,13 +1465,20 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
               kind: "semantic_results",
               status,
               ...reuse,
-              ...(!input.independent ? { inquiry_primary_run_refs: received.map(item => (item.evidence as AnalysisEvidence).run_ref) } : {}),
+              ...(!input.independent
+                ? {
+                    inquiry_primary_run_refs: received.map(
+                      (item) => (item.evidence as AnalysisEvidence).run_ref,
+                    ),
+                  }
+                : {}),
               query_progress: progress,
               results: [...results, ...(failure ? [failure] : [])],
             },
           };
         },
       );
+      return preserveFailureBindings(result, request);
     },
   };
   const availability: AgentHarnessTool<AskMetricRequestContext, typeof availabilityParameters> = {
@@ -1312,7 +1488,7 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
     description:
       "指定日期没有数据或需要确认哪天有记录时，用正式k引用查看日期覆盖。target_change、target_ref与independent边界同metric_query：已接纳目标的指标与机构由宿主绑定，覆盖查询本身不算目标已完成取数。默认不填start/end，返回所选指标与授权机构的全部已有日期范围、最早/最新日期及分页。仅查特定区间时成对填写start/end，局部区间为空不能推断整体没有数据。覆盖查询不改变原问数日期，发现其他日期不能静默替换用户条件。有记录不等于数值有效或连续覆盖。",
     execute: async (_id, input, _update, request, _invocation, context) => {
-      return executeWithInquiryTarget(
+      const result = await executeWithInquiryTarget(
         input,
         request,
         context.abortSignal,
@@ -1345,6 +1521,13 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
             return error(
               "ANALYSIS_BINDING_INVALID",
               "请使用metric_search返回的非重复正式指标引用，不能编造编码或签名。",
+              undefined,
+              ["metric_refs"],
+              {
+                validation_stage: metrics.some((item) => !item.code)
+                  ? "binding_resolution"
+                  : "binding_duplicates",
+              },
             );
           const orgs =
             queryConditions?.organizations ??
@@ -1363,6 +1546,8 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
             return error(
               "AVAILABILITY_DATE_REQUIRED",
               "限定覆盖区间时请成对填写有效start/end；查看该指标和机构的全部已有日期时都省略，不必猜测日期范围。",
+              undefined,
+              ["start", "end"],
             );
           const spec = {
             dimension: "dates" as const,
@@ -1420,6 +1605,7 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
           };
         },
       );
+      return preserveFailureBindings(result, request);
     },
   };
   const read: AgentHarnessTool<AskMetricRequestContext, typeof readParameters> = {

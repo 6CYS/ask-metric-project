@@ -9,10 +9,11 @@ export type AnswerStreamData =
   | { call_seq: number; mode: "text" | "reply"; text: string }
   | { call_seq: number; reason: AnswerResetReason };
 
-/** Markdown 空行作为展示边界，围栏和未闭合引用留给后续片段；不判断业务语义。 */
+/** 普通正文可按完整句子交付；Markdown 块仍等待空行或同级列表下一项。 */
 export function completeAnswerPrefix(source: string, ended: boolean): string {
   const text = normalizeReportParagraphs(source);
   let fence: { character: string; length: number } | undefined;
+  let listIndent: number | undefined;
   let boundary = 0,
     offset = 0;
   const lines = text.split("\n");
@@ -27,16 +28,44 @@ export function completeAnswerPrefix(source: string, ended: boolean): string {
         !marker[2]!.trim()
       )
         fence = undefined;
-    } else if (!fence && !line.trim() && index < lines.length - 1) boundary = offset;
+    } else if (!fence) {
+      if (!line.trim() && index < lines.length - 1) {
+        boundary = offset;
+        listIndent = undefined;
+      } else {
+        const item = /^( {0,3})(?:[-+*]|\d{1,9}[.)])[ \t]+\S/u.exec(line);
+        if (item) {
+          const indent = item[1]!.length;
+          // 下一同级项确认前项结束；子列表和普通续行不提前截断父项。
+          if (listIndent !== undefined && indent <= listIndent) boundary = offset;
+          listIndent = Math.min(listIndent ?? indent, indent);
+        }
+      }
+    }
     offset += line.length + 1;
+  }
+  if (!ended && !fence && listIndent === undefined) {
+    const start = boundary;
+    // 只屏蔽完整引用并保留位置，不让引用内容里的标点成为正文边界。
+    const tail = text.slice(start).replace(/\{\{[^{}]+\}\}/gu, (ref) => "x".repeat(ref.length));
+    const structure = tail.replace(/\{\{[^{}]*$/u, "");
+    if (!/^(?: {4}|\t| {0,3}(?:#{1,6}(?:[ \t]|$)|>|(?:=+|-+)[ \t]*$))|\|/mu.test(structure)) {
+      // 复杂内联格式沿用块边界；只定位一次，不逐句重扫累计正文。
+      const inlineBoundary = tail.search(/[\\`*_~[\]{}()（）“”‘’"<>|]/u);
+      for (const match of tail.matchAll(/[。！？]/gu)) {
+        if (inlineBoundary >= 0 && match.index >= inlineBoundary) break;
+        boundary = start + match.index + 1;
+      }
+    }
   }
   const prefix = text.slice(0, ended && !fence ? text.length : boundary).trimEnd();
   return prefix.lastIndexOf("{{") > prefix.lastIndexOf("}}") ? "" : prefix;
 }
 
-/** 只读观察投影：完整段落经正式报告的同源核验后才发布，最终快照覆盖临时正文。 */
+/** 只读观察投影：完整片段经正式报告的同源核验后才发布，最终快照覆盖临时正文。 */
 export class AnswerStreamProjector {
   private stream: AnswerStreamMode | undefined;
+  private source = "";
   private pending = "";
   private processed = "";
   private sent = "";
@@ -50,7 +79,10 @@ export class AnswerStreamProjector {
 
   constructor(
     private readonly send: (type: "answer_delta" | "answer_reset", data: AnswerStreamData) => void,
-    private readonly render: (body: string, signal: AbortSignal) => Promise<string | undefined>,
+    private readonly render: (
+      body: string,
+      signal: AbortSignal,
+    ) => Promise<string | null | undefined>,
   ) {}
 
   onWatchEvent(event: HarnessEvent | LaneWatchEvent, stream: AnswerStreamMode | undefined): void {
@@ -101,13 +133,20 @@ export class AnswerStreamProjector {
     }
     const body = typeof call.arguments.body === "string" ? call.arguments.body : "";
     const prefix = completeAnswerPrefix(body, event.type === "message_end");
-    if (!prefix.trim() || prefix === this.pending) return;
+    if (
+      this.pending &&
+      !prefix.startsWith(this.pending) &&
+      (!this.pending.startsWith(prefix) || !body.startsWith(this.source))
+    )
+      this.reset("superseded");
+    this.source = body;
+    // 原文仅追加时，后续 Markdown 可能让候选边界退回；已核验前文仍有效。
+    if (!prefix.trim() || this.pending.startsWith(prefix)) return;
     if (
       this.rejectedPrefix &&
       (prefix === this.rejectedPrefix || prefix.startsWith(this.rejectedPrefix + "\n\n"))
     )
       return;
-    if (this.pending && !prefix.startsWith(this.pending + "\n\n")) this.reset("superseded");
     this.pending = prefix;
     this.scheduleFlush();
   }
@@ -126,7 +165,7 @@ export class AnswerStreamProjector {
   private invalidate(): void {
     this.generation += 1;
     this.controller?.abort();
-    this.pending = this.processed = "";
+    this.source = this.pending = this.processed = "";
   }
 
   private reset(reason: AnswerResetReason): void {
@@ -170,10 +209,13 @@ export class AnswerStreamProjector {
       const text = await this.render(body, controller.signal);
       if (this.closed || generation !== this.generation || controller.signal.aborted) return;
       this.transientFailures = 0;
+      // 历史回答的标题可能先于引用到达；等待依据，不把未完整的前缀永久判错。
+      if (text === null) return;
       if (!text?.trim()) {
-        // 完整段落已被拒绝，追加后文不能修复它；等待改写或新模型尝试。
+        // 后续段落不能修复已拒绝的段落；同段补齐依据后仍需核验累计正文。
         this.rejectedPrefix = body;
-        this.processed = this.pending;
+        if (this.pending === body || this.pending.startsWith(body + "\n\n"))
+          this.processed = this.pending;
       } else if (text !== this.sent) {
         this.send("answer_delta", { call_seq: stream.callSeq, mode, text });
         this.sent = text;

@@ -11,6 +11,7 @@ from ask_metric.api.dependencies import (
 )
 from ask_metric.api.query_readiness import require_query_ready
 from ask_metric.api.routes.business_knowledge import knowledge_store
+from ask_metric.application.analysis_execution import load_analysis_semantics
 from ask_metric.application.business_knowledge import KnowledgeSearch
 from ask_metric.application.business_overview import (
     BusinessOverviewService,
@@ -21,7 +22,10 @@ from ask_metric.application.ports import PermissionDeniedError
 from ask_metric.application.query_execution_service import QueryExecutionApplicationService
 from ask_metric.application.requests import ActorContext
 from ask_metric.application.task_service import QueryTaskApplicationService
+from ask_metric.core.config import PROJECT_DIR
 from ask_metric.core.errors import ApplicationError
+from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
+from ask_metric.infrastructure.model.configuration import resolve_config_path
 
 router = APIRouter(prefix="/api/v1", tags=["business-overview"])
 
@@ -62,7 +66,33 @@ def search_knowledge(
     payload: KnowledgeSearch, request: Request,
     actor: Annotated[ActorContext, Depends(require_actor)],
 ) -> dict:
-    return knowledge_store(request).search(payload.query, payload.context_terms)
+    result = knowledge_store(request).search(payload.query, payload.context_terms)
+    codes = list(dict.fromkeys(
+        code for entry in result["entries"] for code in entry["metric_codes"]
+    ))
+    if not codes:
+        return result
+    # 沿用目录单页30项上限；超出部分仍保留显式编码，按本次问题继续精确检索。
+    selected = codes[:30]
+    semantics = load_analysis_semantics(
+        SqlAlchemyUnitOfWork, secret=request.app.state.settings.jwt_secret,
+        actor_id=actor.user_id or actor.subject, metric_codes=selected,
+        semantics_path=resolve_config_path(
+            PROJECT_DIR, request.app.state.settings.analysis_semantics_path,
+        ),
+    )
+    items = []
+    for code in selected:
+        if code not in semantics.items:
+            continue
+        descriptor = semantics.descriptor(code)
+        items.append({**descriptor, "binding_ref": semantics.binding(descriptor, code),
+                      "match_type": "exact"})
+    result["linked_catalog"] = {
+        "items": items, "total": len(codes), "has_more": len(codes) > len(selected),
+        "unavailable_codes": [code for code in selected if code not in semantics.items],
+    }
+    return result
 
 
 @router.post("/business-overviews", dependencies=[Depends(require_query_ready)])

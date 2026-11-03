@@ -15,8 +15,9 @@ from sqlalchemy.exc import IntegrityError
 from ask_metric.application.catalog_references import explicit_catalog_references
 from ask_metric.application.commands import SubmitQuestionCommand
 from ask_metric.application.metric_candidates import conflicting_metric_references
-from ask_metric.application.ports import PermissionDeniedError, PermissionService
+from ask_metric.application.ports import PermissionService
 from ask_metric.application.requests import ActorContext
+from ask_metric.application.result_repository import authorize_saved_result
 from ask_metric.application.task_results import (
     BasicQueryStatus,
     TaskCommandResult,
@@ -478,23 +479,7 @@ class QueryTaskApplicationService:
             self._authorize_saved_result(actor, {**dsl, "orgs": sorted(result_orgs)})
 
     def _authorize_saved_result(self, actor: ActorContext, dsl: dict | None) -> None:
-        """结果引用不是授权票据；任一组成机构失权时拒绝整个快照。"""
-        if self.permission_service is None:
-            return
-        if not dsl or not dsl.get("orgs"):
-            raise ApplicationError(
-                "RESULT_SCOPE_UNAVAILABLE", "历史结果缺少可信机构范围，无法安全读取，请重新查询。",
-                status_code=409,
-            )
-        try:
-            authorized = self.permission_service.authorize_logical_dsl(
-                actor=actor, logical_dsl=dsl,
-            )
-            if set(authorized.get("orgs", [])) != set(dsl.get("orgs", [])):
-                raise PermissionDeniedError("结果机构范围已变化")
-        except PermissionDeniedError as exc:
-            raise ApplicationError("ORG_SCOPE_FORBIDDEN", "无权访问该查询结果。",
-                                   status_code=403) from exc
+        authorize_saved_result(actor, dsl, self.permission_service)
 
     def export_task_result(self, task_id: str, actor: ActorContext) -> tuple[str, bytes]:
         with self.uow_factory() as uow:

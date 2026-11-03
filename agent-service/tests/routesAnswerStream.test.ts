@@ -192,7 +192,9 @@ function fixture(snapshotAnswer = false) {
     unsubscribe,
     admitPrompt,
     drivePrompt,
+    resumeOpenOperations,
     abort,
+    ready: ready.promise,
     emit,
     finish,
     open,
@@ -222,11 +224,80 @@ beforeEach(() => {
   preview.mockResolvedValue("已核验的公开正文。\n\n");
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe("正文 SSE 的观察边界", () => {
+  it("GET 活动观察在 150 秒静默期间持续发送 progress，终态后释放心跳", async () => {
+    vi.useFakeTimers();
+    const test = fixture();
+    const response = await test.open("GET");
+    let text = "";
+    const decoder = new TextDecoder();
+    if (!response.body) throw new Error("缺少 SSE 响应流");
+    const consumed = response.body.pipeTo(new WritableStream<Uint8Array>({
+      write: (chunk) => { text += decoder.decode(chunk); },
+    }));
+    try {
+      await test.ready;
+      await vi.advanceTimersByTimeAsync(150_000);
+      const progress = text.split("\n\n").filter(frame => frame.startsWith("event: progress\n"))
+        .map(frame => JSON.parse(frame.split("\ndata: ")[1] ?? "null") as Record<string, unknown>);
+      expect(progress).toHaveLength(10);
+      expect(progress[0]).toEqual({ protocol_version: 3, session_id: "session-1", elapsed_ms: 15_000 });
+      expect(progress.at(-1)).toEqual({ protocol_version: 3, session_id: "session-1", elapsed_ms: 150_000 });
+      expect(text).not.toContain("event: run_terminal");
+      expect(test.admitPrompt).not.toHaveBeenCalled();
+      expect(test.drivePrompt).not.toHaveBeenCalled();
+    } finally {
+      await test.finish();
+      await consumed;
+    }
+    expect(text).toContain("event: run_terminal");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("GET 断开释放心跳且不中止活动操作", async () => {
+    vi.useFakeTimers();
+    const test = fixture();
+    const response = await test.open("GET");
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("缺少 SSE 响应流");
+    try {
+      await reader.read();
+      await test.ready;
+      expect(vi.getTimerCount()).toBe(1);
+      await reader.cancel();
+      expect(vi.getTimerCount()).toBe(0);
+      expect(test.abort).not.toHaveBeenCalled();
+    } finally {
+      await reader.cancel();
+      await test.finish();
+    }
+  });
+
+  it("GET 恢复失败后交付错误并释放心跳", async () => {
+    vi.useFakeTimers();
+    const test = fixture();
+    test.resumeOpenOperations.mockRejectedValueOnce(new Error("隔离的恢复失败"));
+    const text = await (await test.open("GET")).text();
+    expect(text).toContain("event: error");
+    expect(text).not.toContain("event: run_terminal");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("GET 无活动操作直接交付终态，不发送心跳", async () => {
+    vi.useFakeTimers();
+    const test = fixture();
+    test.snapshot.operation = null;
+    const text = await (await test.open("GET")).text();
+    expect(text).toContain("event: run_terminal");
+    expect(text).not.toContain("event: progress");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it.each(["model", "tool"] as const)("%s阶段停止后，详情刷新与只读重连均保留停止且不重新执行", async phase => {
     const test = fixture();
     const entries: Entry[] = [{id: "question", parentId: null, seq: 1, timestamp: 1, type: "message",

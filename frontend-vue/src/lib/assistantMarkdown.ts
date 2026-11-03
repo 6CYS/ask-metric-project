@@ -1,7 +1,6 @@
 /**
  * 助手回答的渲染入口：保留标准 Markdown，仅规范异常段落换行和过长的标题、加粗。
- * 安全边界固定为：html:false（原始 HTML 转义为文本）、禁用图片、外链强制新窗口 + noopener；
- * markdown-it 自带链接协议校验（javascript: 等不会生成链接）。
+ * html:false 保留原始 HTML 为文本，markdown-it 校验链接协议；组件负责安全节点与统一提示。
  * 数据正确性由后端证据链与回答核验负责，渲染层不改写事实或补写结论。
  */
 import MarkdownIt from "markdown-it"
@@ -70,17 +69,6 @@ md.core.ruler.after("inline", "assistant_readability", state => {
   }
 })
 
-// 图片不加载外链资源：输出 alt 文本占位，避免泄露请求或撑破版式
-md.renderer.rules.image = (tokens, index) => md.utils.escapeHtml(tokens[index]?.content ?? "")
-
-const defaultLinkOpen = md.renderer.rules.link_open
-md.renderer.rules.link_open = (tokens, index, options, env, self) => {
-  const token = tokens[index]!
-  token.attrSet("target", "_blank")
-  token.attrSet("rel", "noopener noreferrer nofollow")
-  return defaultLinkOpen ? defaultLinkOpen(tokens, index, options, env, self) : self.renderToken(tokens, index, options)
-}
-
 // 旧版追问回答会在末尾追加“已保存条件”段落；条件已随结构化回执展示，
 // 这里只隐藏该历史后缀，不影响模型正文或其它段落。
 const LEGACY_SAVED_CONDITIONS = /(?:\r?\n){2,}已保存条件：[^\r\n]*(?=\r?\n|$)/u
@@ -89,8 +77,8 @@ export function stripLegacySavedConditions(source: string): string {
   return source.replace(LEGACY_SAVED_CONDITIONS, "")
 }
 
-export function renderAssistantHtml(source: string): string {
-  return md.render(stripLegacySavedConditions(normalizeAssistantParagraphs(source)))
+export function parseAssistantMarkdown(source: string) {
+  return md.parse(stripLegacySavedConditions(normalizeAssistantParagraphs(source)), {})
 }
 
 function escapeTableCell(text: string): string {

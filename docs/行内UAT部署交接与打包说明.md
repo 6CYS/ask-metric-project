@@ -118,6 +118,7 @@ sh run.sh check
 ## 4. 必须保留的内容
 
 - 原 `backend.env`、`agent.env`、模型/提示词/语义运行时 JSON 及其路径；某些本地 JSON 位于 `config/nacos/`，目录名不等于正在使用 Nacos。
+- 指标关系维护后的 `analysis-semantics.json`。包含指标关系维护功能的升级包须在切换 `~/ws` 前，将旧文件首次迁移到 `~/ask-metric-pi/state/runtime-config/analysis-semantics.json`，并仅在缺省时补充 `ANALYSIS_SEMANTICS_PATH`。已有路径或持久文件不得覆盖；维护、目录发现、知识关联及分析复核必须共用该路径。
 - 模型地址、模型名、认证头/前缀、API Key 密文、SM4 主密钥及读取权限。不得为升级重新生成主密钥或把密文改成明文。
 - 应用数据库、业务数据源、现有用户及密码摘要、用户机构归属、启用状态与权限。
 - `~/ask-metric-pi/state/agent/` 中的会话及其他原持久目录；旧会话协议的续问限制按产品实际行为说明。
@@ -127,6 +128,8 @@ sh run.sh check
 发布包中不得包含现场 `.env`、API Key、SM4 主密钥、JWT/数据库秘密、真实账号表、日志和业务数据。清单可以记录文件相对路径与哈希；不要采集秘密值。服务器上的受控备份也不要作为打包输入上传。
 
 如果必须补充工具选择开关，只允许白名单修改这一非敏感项，并逐项证明其他配置值未变；已有 `auto` 应保留。不要用模板整份覆盖 env，也不要顺手重设超时、Token、上下文预算、Embedding/Reranker 或机构范围。
+
+指标关系路径迁移同样仅允许追加缺省的非敏感 `ANALYSIS_SEMANTICS_PATH`，不覆盖原 env。现有 `intranet_deploy.py init-config` 支持用 `--legacy-analysis-semantics` 指定正在使用的旧文件，首次复制后会保留目标文件；迁移及后续保存须核对服务账号对持久目录的权限。回退至不支持该路径的版本时，按旧版读取位置恢复匹配备份；不支持关系 `kind` 的旧版使用维护前备份，并保留新格式持久文件。此项代码与隔离验证不代表已在行内服务器执行迁移。
 
 ## 5. Codex 准备源码与必要适配
 

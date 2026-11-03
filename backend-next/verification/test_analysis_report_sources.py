@@ -52,7 +52,7 @@ def setup_report_sources(count, mode, *, historical=False):
         paragraphs.append(f"{org_name}存款余额为{{{{{atom['ref']}}}}}。")
     service = SimpleNamespace(
         authorized_evidence=Mock(side_effect=lambda _actor, ref: deepcopy(sources[ref])),
-        semantics=lambda _actor: SimpleNamespace(
+        semantics=lambda _actor, **_scope: SimpleNamespace(
             resolve=lambda _ref: None,
             items={"total": SimpleNamespace(name="各项存款余额当日数")},
         ),

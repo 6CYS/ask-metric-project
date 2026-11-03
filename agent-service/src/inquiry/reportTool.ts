@@ -148,11 +148,12 @@ async function prepareInquiryReport(
       "本轮还没有成功查询或已鉴权读取的来源，请先取得所需数据。",
       "ANALYSIS_REPORT_EVIDENCE",
     );
-  const messages = (await request.turnMessages?.()) ?? [];
-  const target =
-    request.inquiryTargetContext && !request.inquiryAdmission
-      ? currentInquiryTarget(messages, request.operationId)
-      : undefined;
+  const needsTargetCoverage = Boolean(request.inquiryTargetContext && !request.inquiryAdmission);
+  // 预览不选图或复查可用日期，仅目标覆盖检查需要消息；来源仍逐段交后端复核。
+  const messages = !preview || needsTargetCoverage ? ((await request.turnMessages?.()) ?? []) : [];
+  const target = needsTargetCoverage
+    ? currentInquiryTarget(messages, request.operationId)
+    : undefined;
   const targetCoverage = target ? inquiryTargetCoverage(messages, target) : undefined;
   if (targetCoverage && !targetCoverage.complete && !fallback)
     throw new BackendApiError(
@@ -218,6 +219,7 @@ async function prepareInquiryReport(
       422,
       "请用正文中的真实引用明确本次追问关注的指标；数字使用{{e1.v1}}，已写数值紧随{{e1.v1|cite}}关联依据。",
       "ANALYSIS_REPORT_REFERENCE",
+      { reason: "missing_body_reference" },
     );
   const factBindings: Array<{
     ref: string;
@@ -342,7 +344,7 @@ export function createInquiryReportPreview() {
     body: string,
     request: AskMetricRequestContext,
     signal?: AbortSignal,
-  ): Promise<string | undefined> => {
+  ): Promise<string | null | undefined> => {
     try {
       signal?.throwIfAborted();
       const { payload } = await prepareInquiryReport({ body }, request, { preview: true });
@@ -388,6 +390,17 @@ export function createInquiryReportPreview() {
       throw new Error("Invalid report preview response");
     } catch (error) {
       if (signal?.aborted) throw error;
+      if (
+        error instanceof BackendApiError &&
+        error.status === 422 &&
+        error.code === "ANALYSIS_REPORT_REFERENCE" &&
+        error.details !== null &&
+        typeof error.details === "object" &&
+        "reason" in error.details &&
+        error.details.reason === "missing_body_reference"
+      )
+        // 首个完整段落可能尚未包含引用，允许后续段落补齐后继续核验。
+        return null;
       if (
         error instanceof NarrativeReferenceError ||
         (error instanceof BackendApiError &&

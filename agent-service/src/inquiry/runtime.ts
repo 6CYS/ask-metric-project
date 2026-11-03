@@ -7,6 +7,7 @@ import { hasUnresolvedReportEvidenceError, PARTIAL_ANALYSIS } from "../tools/par
 
 import { createInquiryReportTool, executeInquiryReport } from "./reportTool.js";
 import { MAX_INVESTIGATION_CALLS } from "./limits.js";
+import { businessKey } from "../business-context/service.js";
 
 export const INQUIRY_TOOLS = new Set([
   "metric_search",
@@ -96,6 +97,147 @@ export function inquiryAnswerAttempts(messages: AgentMessage[]): number {
   return attempts;
 }
 
+type FailedToolDetails = {
+  kind?: string;
+  status?: string;
+  error_code?: string;
+  code?: string;
+  validation_stage?: string;
+  calculation_key?: string;
+  correction_fields?: string[];
+  target_ref?: string;
+  no_new_evidence?: boolean;
+  topic_execution?: { completed?: boolean; pending_metric_codes?: string[] };
+  run_ref?: string;
+};
+
+const inputRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
+type ExecutionValue = string | number | boolean | string[];
+function executionFields(
+  input: Record<string, unknown>,
+  keys: readonly string[],
+): Record<string, ExecutionValue> {
+  const fields: Record<string, ExecutionValue> = {};
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim()) fields[key] = value.trim();
+    else if (typeof value === "number" || typeof value === "boolean") fields[key] = value;
+    else if (Array.isArray(value)) {
+      const values = value
+        .filter((item): item is string => typeof item === "string" && !!item.trim())
+        .map((item) => item.trim())
+        .sort();
+      if (values.length) fields[key] = values;
+    }
+  }
+  return fields;
+}
+
+/** 只比较会改变执行选择的协议字段；业务目的、标题和集合顺序不提供新的修正机会。 */
+function failedAttemptInput(
+  tool: string,
+  args: unknown,
+  details: FailedToolDetails | undefined,
+  bindings: ReadonlyMap<string, string>,
+): unknown {
+  const input = inputRecord(args);
+  if (tool === "analysis_calculate")
+    return details?.calculation_key ?? executionFields(input, ["current_ref", "base_ref"]);
+  if (tool === "topic_query")
+    return executionFields(
+      input,
+      // 主题通过标识选择指标，内部引用失败须映射到实际决定指标集的字段。
+      details?.correction_fields?.map((field) => field === "metric_refs" ? "topic_id" : field) ?? [
+        "topic_id",
+        "scope",
+        ...(input.scope === "all_banks" ? [] : ["org_names"]),
+        "date",
+      ],
+    );
+  if (tool === "metric_query" || tool === "metric_availability") {
+    const correctionFields = details?.correction_fields;
+    const selected = executionFields(
+      details?.target_ref ? { ...input, target_ref: details.target_ref } : input,
+      correctionFields !== undefined
+        ? correctionFields
+        : [
+            "target_ref",
+            "independent",
+            "metric_refs",
+            "scope",
+            ...(input.scope === "all_banks" ? [] : ["org_names"]),
+            ...(tool === "metric_query"
+              ? ["date", "method"]
+              : ["start", "end", "page", "page_size"]),
+            ...(input.method === "compare" ? ["comparisons"] : []),
+            ...(input.method === "ranking" ? ["top_n", "position"] : []),
+            ...(input.method === "structure" ? ["relation_id"] : []),
+          ],
+    );
+    if (Array.isArray(selected.metric_refs)) {
+      const refs = selected.metric_refs.map(
+        (ref) => bindings.get(ref) ?? bindings.get(`code:${ref}`),
+      );
+      if (correctionFields?.includes("metric_refs")) {
+        // 校验方明确拒绝了引用时，只认正式绑定变化，编造不同引用不是纠错。
+        const resolved = refs.filter((ref): ref is string => ref !== undefined);
+        // 重复校验保留正式身份的次数；未知引用校验仍忽略额外别名，不能借此伪造进展。
+        selected.metric_refs = (
+          details?.validation_stage === "binding_duplicates" ? resolved : [...new Set(resolved)]
+        ).sort();
+        selected.unresolved = refs.some((ref) => ref === undefined);
+      } else
+        selected.metric_refs = selected.metric_refs.map((ref, index) => refs[index] ?? ref).sort();
+    }
+    // 前置错误由校验方声明负责字段，其他参数无法使同一错误获得新的机会。
+    // 显式空列表表示只看校验方的阶段；历史未声明的回执仍使用默认执行字段。
+    if (correctionFields !== undefined) return selected;
+    const target = inputRecord(input.target_change);
+    const organizations = inputRecord(target.organizations);
+    return {
+      ...selected,
+      target_change: {
+        ...executionFields(target, ["mode", "base_ref", "date"]),
+        organizations: executionFields(organizations, [
+          "mode",
+          "scope",
+          ...(organizations.scope === "all_banks" ? [] : ["names"]),
+        ]),
+      },
+    };
+  }
+  if (tool === "metric_search") return executionFields(input, ["keywords", "page", "page_size"]);
+  if (tool === "analysis_read") return executionFields(input, ["run_ref"]);
+  if (tool === "business_knowledge_search") return executionFields(input, ["query"]);
+  if (tool === "business_skill_read") return executionFields(input, ["name"]);
+  if (tool === "session_history_read")
+    return executionFields(
+      input,
+      input.kind === "entry"
+        ? ["kind", "entry_id", "offset", "length"]
+        : ["kind", "before_seq", "limit"],
+    );
+  if (tool === "analysis_chart") return executionFields(input, ["type", "evidence_refs"]);
+  // 正文修正另有独立预算，改写正文不能重置调查及交付失败计数。
+  return undefined;
+}
+
+function collectAttemptBindings(bindings: Map<string, string>, value: unknown) {
+  const details = inputRecord(value);
+  const catalog =
+    details.status === "succeeded" &&
+    ["analysis_catalog", "analysis_evidence"].includes(String(details.kind));
+  const knowledge = details.kind === "business_knowledge_search" && details.status === "ok";
+  const failedQuery = details.kind === "inquiry_query_error" && details.status === "error";
+  if (!catalog && !knowledge && !failedQuery) return;
+  for (const [ref, binding] of Object.entries(inputRecord(details.binding_map)))
+    if (typeof binding === "string" && binding) bindings.set(ref, binding);
+}
+
 /** 只比较已完成的原生工具批次；同批并行失败不能冒充多次修正机会。 */
 function inquiryStalled(messages: AgentMessage[]): "investigation" | "delivery" | undefined {
   const current = currentTurnMessages(messages);
@@ -103,30 +245,26 @@ function inquiryStalled(messages: AgentMessage[]): "investigation" | "delivery" 
   let previous = "",
     repeated = 0,
     delivery = false;
+  const bindings = new Map<string, string>();
   for (const message of current) {
+    if (message.role === "toolResult") collectAttemptBindings(bindings, message.details);
     if (message.role !== "assistant") continue;
     const calls = message.content.filter((block) => block.type === "toolCall");
     if (!calls.length || calls.some((call) => !saved.has(call.id))) continue;
     const failures: string[] = [];
     for (const call of calls) {
       const receipt = saved.get(call.id);
-      const details = receipt?.details as
-        | {
-            kind?: string;
-            status?: string;
-            error_code?: string;
-            code?: string;
-            validation_stage?: string;
-            calculation_key?: string;
-            no_new_evidence?: boolean;
-            topic_execution?: { completed?: boolean; pending_metric_codes?: string[] };
-            run_ref?: string;
-          }
-        | undefined;
-      const topicNoProgress = details?.no_new_evidence === true && details.topic_execution?.completed === true && !details.topic_execution.pending_metric_codes?.length;
+      const details = receipt?.details as FailedToolDetails | undefined;
+      // 自动提供的目录也随失败回执保存；部分引用已纠正时不能丢失这份正式绑定。
+      collectAttemptBindings(bindings, details);
+      const topicNoProgress =
+        details?.no_new_evidence === true &&
+        details.topic_execution?.completed === true &&
+        !details.topic_execution.pending_metric_codes?.length;
       if (
         !receipt?.isError &&
-        !["error", "failed", "ARGUMENT_ERROR"].includes(details?.status ?? "") && !topicNoProgress
+        !["error", "failed", "ARGUMENT_ERROR"].includes(details?.status ?? "") &&
+        !topicNoProgress
       )
         break;
       // 原生参数拒绝、前置条件和正文校验属于不同恢复阶段，不能累计误杀有效修正。
@@ -137,12 +275,10 @@ function inquiryStalled(messages: AgentMessage[]): "investigation" | "delivery" 
           details?.status,
           details?.error_code ?? details?.code,
           details?.validation_stage,
-          // 相同来源没有新证据时，换已展示指标子集仍是无进展；真正分页补出事实会重置。
-          ...(topicNoProgress ? [details.run_ref] : []),
-          // 计算输入已变化就是一次新的尝试，不能仅凭相同错误码关闭补查工具。
-          call.name === "analysis_calculate"
-            ? details?.calculation_key ?? [call.arguments?.current_ref, call.arguments?.base_ref]
-            : undefined,
+          // 已完成主题没有新增事实时只比较来源，换指标子集不能冒充有效纠错。
+          topicNoProgress
+            ? details.run_ref
+            : businessKey(failedAttemptInput(call.name, call.arguments, details, bindings)),
         ]),
       );
     }
@@ -425,9 +561,9 @@ export function inquirySystemPrompt(
 先查看可用业务方法。经营评价、差异和原因分析匹配分析方法时，先用business_skill_read读取；可以与首次指标检索同一轮调用。当前上下文已经保留的相同版本不重复读取。方法是分析指导，不提供业务数值或代替正式口径。
 按问题选择最短路径：简单查值直接取所问值；目录或定义问题只读目录；${topicsEnabled ? "综合评价、变化解释与原因线索分析先按主题能力描述选择topic_query，不需要先检索该主题的指标。问题提到指标名称、具体日期或季度不改变其分析性质。只有单纯取值、指标增删、排名或主题不支持的任务才走默认路径；默认路径先查核心事实并根据差异补查。" : "分析问题先查核心事实，根据差异继续调查，"}${answerChannel}不要输出内部规划或自我讨论。
 ${topicsEnabled ? "主题选择与执行契约：在现有理解步骤按业务含义选择路径，不额外请求分类模型。收益利润、贷款质量、经营概况、存款结构、费用收入分析若匹配topic_query描述，优先一次执行该主题完整方案；机构和期间仍依据原问题。明确指标查值、增删指标、排名走原metric_search/metric_query；要求使用历史结果且不重查时走analysis_read/analysis_calculate。主题执行完成后直接解释已有事实，正常缺数与未知单位不代表执行失败，不为理想措辞重新调查。默认能力只补主题未覆盖的目标或未完成部分，保留已得结果。相同来源只使用一次，不在主题与默认路径间重跑。宽泛好坏评价须说明采用的维度；相关变化是线索，不能称唯一原因或严格贡献。" : ""}
-metric_search返回正式定义和k引用，metric_query使用引用取数；可合并相关检索词和独立指标，避免重复目录和查询。只有当前会话真实run_ref能交给analysis_read，重验权限后用于追问。没有来源不能给业务数值。
+本轮linked_catalog已有适用的正式候选时，metric_query直接使用其binding_ref取数；候选缺失或不适用时，再用metric_search获取正式定义和引用。可合并相关检索词和独立指标，避免重复目录和查询。只有当前会话真实run_ref能交给analysis_read，重验权限后用于追问。没有来源不能给业务数值。
 已有两条同指标事实需要比较时，用analysis_calculate复用引用计算差额及支持的增幅；历史事实先analysis_read，不为计算重复取数。跨机构对齐日期、跨日期保持机构一致。它只提供算术比较，机构贡献仍需审核后的汇总关系，业务原因须另有依据。
-当前业务资料不足时，可用business_knowledge_search在取数前查相关含义、方法或案例。结合本轮问题和已授权历史明确检索主题，尤其是省略追问；已有适用资料无需重复检索。知识辅助选指标和调查方向，正式口径仍以metric_search为准，案例不代表当前机构的实际原因。
+当前业务资料不足时，可用business_knowledge_search在取数前查相关含义、方法或案例。结合本轮问题和已授权历史明确检索主题，尤其是省略追问；已有适用资料无需重复检索。知识检索返回linked_catalog时，结合本轮问题选择其中适用指标的binding_ref引用直接取数，不强制查询全部关联指标；候选缺失或不适用时继续metric_search。知识辅助选指标和调查方向，正式口径以metric_search或知识检索linked_catalog中的正式目录候选为准，案例不代表当前机构的实际原因。
 指定日期没有数据时，用metric_availability确认相关期间的真实可用日期，避免反复试查或猜日期。清楚说明原统计期无法回答；其他日期只能作为明确标注的参考，不能把月中数说成月末数，也不能用最新值替代历史问题。
 ${targetContextEnabled ? "普通问数参考资料中的current_target是当前业务目标，历史sources只是回答依据。每轮首次metric_query或metric_availability使用target_change：新主题用new并声明topic、机构replace及日期；追问用update与base_ref，只填用户本轮改变的字段；完全沿用用continue。切换对象使用replace，追加比较使用add，只改日期不重填机构；未改字段由宿主继承。同轮后续查询不重复声明目标。明确目标后，scope/org_names/date只选择本次取数的机构子集及期间，省略则继承主目标，不改变会话主目标。主目标之外的参考机构补查使用independent=true。存量会话没有current_target时，根据问题和已授权历史明确声明一次，不能把全部历史来源合并成目标。" : "本轮使用原有查询协议：用scope/org_names/date明确提交机构和期间，不填写target_change。连续追问仅改变用户明确条件；已接纳可信选择使用target_ref，不能覆盖确认条件。"}
 指标选择仍由业务目标和正式定义决定，分析可分批调查不同指标，不把首批指标清单当作整个分析主题。继承最新期间时，跨机构比较须检查实际统计日是否一致，不同日期不能直接作同日比较。历史助手正文不能代替证据；本轮涉及历史数值时先analysis_read，拿到本轮引用再回答。

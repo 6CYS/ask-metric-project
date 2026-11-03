@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseTooltip from "@/components/ui/BaseTooltip.vue"
 import { Bug, X } from "@lucide/vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 
@@ -97,7 +98,7 @@ function routeNotice() {
     <aside class="ml-auto flex h-full w-[min(94vw,680px)] flex-col border-l bg-background shadow-xl">
       <header class="flex items-center justify-between border-b px-4 py-3">
         <div class="flex items-center gap-2"><Bug class="size-4" /><div><h2 class="text-sm font-semibold">调试流程</h2><p class="text-xs text-muted-foreground">{{ taskId ? `Task ${taskId}${taskVersion !== undefined ? ` · v${taskVersion}` : ''}` : "尚未创建 QueryTask" }} · {{ status }} / {{ stage }}</p></div></div>
-        <BaseButton variant="ghost" size="icon" title="关闭调试面板" @click="emit('close')"><X /></BaseButton>
+        <BaseTooltip content="关闭调试面板"><BaseButton variant="ghost" size="icon" aria-label="关闭调试面板" @click="emit('close')"><X /></BaseButton></BaseTooltip>
       </header>
       <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
         <slot name="status" />

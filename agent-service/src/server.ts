@@ -10,6 +10,9 @@ import { HarnessHost } from "./harnessHost.js";
 import { acquireWriterLock, NativeSessionStore } from "./nativeSessions.js";
 import { createAskMetricTools } from "./tools/index.js";
 import { createApp } from "./routes.js";
+import { createSessionEvaluationClient } from "./evaluation/sessionClient.js";
+import { EvaluationStore } from "./evaluation/store.js";
+import { EvaluationService } from "./evaluation/service.js";
 
 async function main(): Promise<void> {
   const config = await loadRuntimeConfig();
@@ -24,14 +27,27 @@ async function main(): Promise<void> {
     [...createAskMetricTools({ topicsEnabled: config.topicQueryEnabled ?? false }), createBusinessSkillReadTool(skills)],
     { skills },
   );
-  const app = createApp(config, host, store);
+  // 复用同一组会话路由和鉴权；内部请求不绕开当前账号权限，也不另建 Agent。
+  const evaluationClient = createSessionEvaluationClient((path, init) => Promise.resolve(app.request(path, init)));
+  let evaluations: EvaluationService | undefined;
+  try {
+    evaluations = new EvaluationService(new EvaluationStore(config.dataDir), evaluationClient, config);
+  } catch {
+    // 独立维护模块不可用时保留现有问数服务，测评接口明确返回不可用。
+    console.error("测评存储初始化失败，测评接口暂不可用");
+  }
+  const app = createApp(config, host, store, evaluations);
 
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
     console.log(`ask-metric-agent-service listening on ${info.address}:${info.port}`);
   });
 
   const shutdown = () => {
+    const evaluationShutdown = evaluations?.shutdown().catch(() => {
+      console.warn("测评任务未能在停机前完全结束，下次启动将标记为中断");
+    });
     server.close(async () => {
+      await evaluationShutdown;
       // 正确关闭：停止接纳并关闭原生句柄，不删除任何历史
       await host.close();
       await store.close();

@@ -60,7 +60,177 @@ def test_list_keeps_legacy_defaults_and_does_not_rewrite_file(environment):
     assert set(data) == {"items", "revision"}
     assert data["items"][0]["enabled"] is True
     assert data["items"][0]["updated_at"] is None
+    assert data["items"][0]["metric_codes"] == []
     assert path.read_bytes() == before
+
+
+@pytest.fixture
+def metric_catalog(environment, monkeypatch, tmp_path):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from ask_metric.infrastructure.db import session as database_session
+    from ask_metric.infrastructure.db import unit_of_work
+    from ask_metric.infrastructure.db.models import MetricSynonym, MetricTerm
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'catalog.db'}")
+    MetricTerm.__table__.create(engine)
+    MetricSynonym.__table__.create(engine)
+    factory = sessionmaker(bind=engine)
+    with factory() as session:
+        session.add_all([
+            MetricTerm(metric_code="ORG_A", metric_name="测试指标甲"),
+            MetricTerm(metric_code="ORG_B", metric_name="测试指标乙", enabled=False),
+        ])
+        session.commit()
+    monkeypatch.setattr(database_session, "get_app_session_factory", lambda: factory)
+    monkeypatch.setattr(unit_of_work, "get_app_session_factory", lambda: factory)
+    environment[2].state.settings.jwt_secret = "test-only-knowledge-binding-secret"
+    semantics_path = tmp_path / "analysis-semantics.json"
+    semantics_path.write_text('{"relations": []}', encoding="utf-8")
+    environment[2].state.settings.analysis_semantics_path = semantics_path
+    yield environment
+    engine.dispose()
+
+
+def test_metric_links_round_trip_preserve_legacy_and_allow_clear(metric_catalog):
+    client, _, _ = metric_catalog
+    initial = client.get(URL).json()
+    linked = client.put(URL + "/legacy", json={
+        "title": "关联知识", "text": "正文适用条件。", "revision": initial["revision"],
+        "metric_codes": [" ORG_A ", "ORG_A", "ORG_B"],
+    })
+    assert linked.status_code == 200
+    data = linked.json()
+    assert data["item"]["metric_codes"] == ["ORG_A", "ORG_B"]
+    assert data["item"]["source"] == "测试来源"
+    edited = client.put(URL + "/legacy", json={
+        "title": "修改标题", "text": "修改正文。", "revision": data["revision"],
+    })
+    assert edited.status_code == 200
+    assert edited.json()["item"]["metric_codes"] == ["ORG_A", "ORG_B"]
+    filtered = client.get(URL, params={"metric_code": "ORG_A"}).json()
+    assert [item["id"] for item in filtered["items"]] == ["legacy"]
+    assert filtered["revision"] == edited.json()["revision"]
+    assert client.get(URL, params={"metric_code": "OTHER"}).json()["items"] == []
+    cleared = client.put(URL + "/legacy", json={
+        "title": "修改标题", "text": "修改正文。", "revision": edited.json()["revision"],
+        "metric_codes": [],
+    })
+    assert cleared.status_code == 200
+    assert cleared.json()["item"]["metric_codes"] == []
+    assert client.get(URL, params={"metric_code": "ORG_A"}).json()["items"] == []
+
+
+def test_unknown_metric_link_never_writes_knowledge(metric_catalog):
+    client, path, _ = metric_catalog
+    before = path.read_bytes()
+    revision = client.get(URL).json()["revision"]
+    for method, suffix in [("post", ""), ("put", "/legacy")]:
+        response = getattr(client, method)(URL + suffix, json={
+            "title": "关联知识", "text": "知识正文。", "revision": revision,
+            "metric_codes": ["ORG_A", "UNKNOWN"],
+        })
+        assert response.status_code == 422
+        assert response.json()["code"] == "BUSINESS_KNOWLEDGE_METRIC_NOT_FOUND"
+        assert path.read_bytes() == before
+
+
+def test_create_metric_links_keeps_revision_conflict_protection(metric_catalog):
+    client, path, _ = metric_catalog
+    revision = client.get(URL).json()["revision"]
+    created = client.post(URL, json={
+        "title": "新关联知识", "text": "知识正文。", "revision": revision,
+        "metric_codes": ["ORG_A"],
+    })
+    assert created.status_code == 201
+    item = created.json()["item"]
+    assert item["metric_codes"] == ["ORG_A"]
+    after = path.read_bytes()
+    conflict = client.put(URL + "/" + item["id"], json={
+        "title": "旧版本修改", "text": "不能覆盖新版本。", "revision": revision,
+        "metric_codes": ["ORG_B"],
+    })
+    assert conflict.status_code == 409
+    assert path.read_bytes() == after
+
+
+@pytest.mark.parametrize("context_term", ["ORG_A", "ORG_A 测试指标", "org_a 测试指标"])
+def test_explicit_metric_context_recalls_links_without_filtering_other_knowledge(
+    metric_catalog, context_term,
+):
+    client, path, _ = metric_catalog
+    path.write_text(json.dumps({"entries": [
+        {"id": "general", "title": "存款变化", "text": "分析存款要先对齐统计时点。"},
+        {"id": "linked", "title": "相关说明", "text": "仅用于比较同一时点的占比。",
+         "metric_codes": ["ORG_A"]},
+        {"id": "prefix", "title": "其他说明", "text": "不能混用统计范围。",
+         "metric_codes": ["ORG_A_EXT"]},
+        {"id": "disabled", "title": "停用说明", "text": "已停用。",
+         "metric_codes": ["ORG_A"], "enabled": False},
+    ]}, ensure_ascii=False), encoding="utf-8")
+    result = client.post("/api/v1/business-knowledge/search", json={
+        "query": "存款变化", "context_terms": [context_term],
+    }).json()
+    assert {item["id"] for item in result["entries"]} == {"linked", "general"}
+    assert result["entries"][0]["id"] == "linked"
+    plain = client.post("/api/v1/business-knowledge/search", json={"query": "存款变化"})
+    assert [item["id"] for item in plain.json()["entries"]] == ["general"]
+
+
+def test_runtime_links_supply_only_formal_enabled_candidates(metric_catalog, monkeypatch):
+    from ask_metric.application.metric_semantics import MetricSemantics
+    from ask_metric.domain.semantics import MetricCatalogItem
+    from ask_metric.infrastructure.semantic.catalogs import SqlAlchemyMetricCatalogRepository
+
+    client, path, app = metric_catalog
+    monkeypatch.setattr(SqlAlchemyMetricCatalogRepository, "list_enabled",
+                        lambda *args, **kwargs: pytest.fail("关联目录不能全量读取"))
+    path.write_text(json.dumps({"entries": [{
+        "id": "linked", "title": "存款分析", "text": "先核对余额口径。",
+        "metric_codes": ["ORG_A", "ORG_B", "MISSING"],
+    }]}), encoding="utf-8")
+    data = client.post("/api/v1/business-knowledge/search", json={"query": "存款"}).json()
+    assert data["entries"][0]["metric_codes"] == ["ORG_A", "ORG_B", "MISSING"]
+    catalog = data["linked_catalog"]
+    assert [item["code"] for item in catalog["items"]] == ["ORG_A"]
+    assert catalog["items"][0]["name"] == "测试指标甲"
+    assert catalog["items"][0]["binding_ref"].startswith("m1.")
+    assert catalog["items"][0]["methods"] == ["observe", "compare", "trend", "ranking"]
+    assert catalog["unavailable_codes"] == ["ORG_B", "MISSING"]
+    assert catalog["total"] == 3
+    assert catalog["has_more"] is False
+    semantics = MetricSemantics(
+        [MetricCatalogItem(code="ORG_A", name="测试指标甲")],
+        secret=app.state.settings.jwt_secret, actor_id="test-user",
+    )
+    assert semantics.resolve(catalog["items"][0]["binding_ref"])["code"] == "ORG_A"
+    other_actor = MetricSemantics(
+        list(semantics.items.values()), secret=app.state.settings.jwt_secret, actor_id="other-user",
+    )
+    with pytest.raises(ApplicationError, match="不属于当前用户"):
+        other_actor.resolve(catalog["items"][0]["binding_ref"])
+
+
+def test_runtime_linked_catalog_is_bounded_and_preserves_remaining_codes(metric_catalog):
+    from ask_metric.infrastructure.db.models import MetricTerm
+    from ask_metric.infrastructure.db.session import get_app_session_factory
+
+    client, path, _ = metric_catalog
+    codes = [f"LINKED_{index}" for index in range(35)]
+    with get_app_session_factory()() as session:
+        session.add_all([MetricTerm(metric_code=code, metric_name=f"关联指标{index}")
+                         for index, code in enumerate(codes)])
+        session.commit()
+    path.write_text(json.dumps({"entries": [{
+        "id": "linked", "title": "存款分析", "text": "仅按问题选择相关指标。",
+        "metric_codes": codes,
+    }]}), encoding="utf-8")
+    data = client.post("/api/v1/business-knowledge/search", json={"query": "存款"}).json()
+    assert data["entries"][0]["metric_codes"] == codes
+    assert len(data["linked_catalog"]["items"]) == 30
+    assert data["linked_catalog"]["total"] == 35
+    assert data["linked_catalog"]["has_more"] is True
 
 
 def test_minimal_create_and_edit_preserve_legacy_metadata(environment):
@@ -255,6 +425,8 @@ def test_management_requires_admin_and_authentication(environment, method, path)
     {"text": "x" * 8001}, {"source": "x" * 301}, {"role": "x" * 501},
     {"url": "javascript:alert(1)"}, {"url": "https://example.com/" + "x" * 2000},
     {"date": "2026-02-30"}, {"date": "20261025"}, {"enabled": "false"},
+    {"metric_codes": [""]}, {"metric_codes": ["  "]}, {"metric_codes": [123]},
+    {"metric_codes": ["a" * 151]}, {"metric_codes": [str(i) for i in range(101)]},
     {"id": "chosen-by-client"}, {"updated_at": "2026-10-25T00:00:00Z"},
 ])
 def test_invalid_input_never_changes_file(environment, changes):
@@ -347,7 +519,8 @@ def test_deploy_initialization_preserves_runtime_knowledge_and_custom_path(tmp_p
     bundle = tmp_path / "bundle"
     source = bundle / "backend/runtime/config"
     source.mkdir(parents=True)
-    for name in ("model-config.json", "prompts.json", "business-knowledge.json"):
+    for name in ("model-config.json", "prompts.json", "business-knowledge.json",
+                 "analysis-semantics.json"):
         (source / name).write_text('{"seed": true}', encoding="utf-8")
     config = tmp_path / "config"
     config.mkdir()
