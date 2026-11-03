@@ -13,6 +13,7 @@ COPY --from=builder /app/package.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY skills ./skills
+COPY config ./config
 RUN mkdir /app/data && chown node:node /app/data
 USER node
 EXPOSE 8020

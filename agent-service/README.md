@@ -1,5 +1,7 @@
 # Ask Metric 智能助手服务
 
+可选主题批量查询通过 `AGENT_TOPIC_QUERY_ENABLED=true` 启用，默认关闭，原有工具始终保留。输入输出、目录批量绑定、日期与复用规则见[主题查询选择与执行契约](../docs/主题查询选择与执行契约.md)。
+
 基于 pi AgentHarness 原生运行时（`@earendil-works/pi-ai` + `@earendil-works/pi-agent-core`）的问数代理服务。
 pi 是唯一的 Agent 运行与对话控制核心：会话、模型上下文、压缩、执行状态与恢复全部使用原生能力
 （`JsonlSessionRepo` + `main` lane）；本服务承载鉴权、可信输入绑定、原生接线、Schema 驱动的业务 Frame 及页面投影。

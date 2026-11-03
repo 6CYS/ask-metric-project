@@ -107,6 +107,7 @@ def _build_agent_service(target: Path, build_root: Path, *, skip_build: bool) ->
             raise RuntimeError("npm is required to build the agent service")
         _copy_tree(agent / "src", work / "src")
         _copy_tree(agent / "skills", work / "skills")
+        _copy_tree(agent / "config", work / "config")
         for filename in ("package.json", "package-lock.json", "tsconfig.json", "tsconfig.build.json"):
             shutil.copy2(agent / filename, work / filename)
         _run([npm, "ci"], cwd=work)
@@ -120,6 +121,7 @@ def _build_agent_service(target: Path, build_root: Path, *, skip_build: bool) ->
     shutil.copy2(agent / "package.json", target / "package.json")
     _copy_tree(agent / "dist", target / "dist")
     _copy_tree(agent / "skills", target / "skills")
+    _copy_tree(agent / "config", target / "config")
     _copy_tree(agent / "node_modules", target / "node_modules")
 
 

@@ -468,6 +468,7 @@ export class HarnessHost {
               }).format(new Date()),
               false,
               this.config.answerStreaming,
+              this.config.topicQueryEnabled,
             ),
           compaction: {
             enabled: this.config.compaction.enabled,
@@ -815,6 +816,7 @@ export class HarnessHost {
               date,
               Boolean(request.inquiryTargetContext),
               this.config.answerStreaming,
+              this.config.topicQueryEnabled,
             ) +
             (methods.length
               ? "\n可用业务方法（business_skill_read按name读取）：" + JSON.stringify(methods)
@@ -836,6 +838,7 @@ export class HarnessHost {
             date,
             Boolean(request.inquiryTargetContext),
             this.config.answerStreaming,
+            this.config.topicQueryEnabled,
           ),
         };
       }

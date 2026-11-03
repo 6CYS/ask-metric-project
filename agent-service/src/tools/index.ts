@@ -10,10 +10,17 @@ import { createInquiryAnswerTool } from "../inquiry/runtime.js";
 import { createInquiryChartTool } from "../inquiry/chartTool.js";
 import { createInquiryKnowledgeTool } from "../inquiry/knowledgeTool.js";
 import { createInquiryCalculationTool } from "../inquiry/calculationTool.js";
+import { createTopicQueryTool } from "../inquiry/topics/tool.js";
 
-export function createAskMetricTools(): AgentHarnessTool<AskMetricRequestContext>[] {
+export function createAskMetricTools(
+  options: { topicsEnabled?: boolean } = {},
+): AgentHarnessTool<AskMetricRequestContext>[] {
+  const queries = createInquiryQueryTools();
   return [
-    ...createInquiryQueryTools(),
+    ...(options.topicsEnabled
+      ? [createTopicQueryTool(queries.find((tool) => tool.name === "metric_query")!)]
+      : []),
+    ...queries,
     createSessionHistoryReadTool(),
     createInquiryKnowledgeTool(),
     createInquiryCalculationTool(),

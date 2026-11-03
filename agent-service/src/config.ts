@@ -22,6 +22,8 @@ export interface AgentServiceConfig {
   modelRetry: { enabled: boolean; maxRetries: number; baseDelayMs: number };
   /** 临时回答流式展示；最终内容仍由原生快照投影。 */
   answerStreaming?: boolean;
+  /** 可灰度关闭的主题查询入口；默认能力与历史会话保持可用。 */
+  topicQueryEnabled?: boolean;
   model: {
     baseUrl: string;
     name: string;
@@ -126,6 +128,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceCo
       "AGENT_MODEL_FIRST_RESPONSE_TIMEOUT_MS"),
     modelRetry,
     answerStreaming: parseBoolean(env.AGENT_ANSWER_STREAMING, false, "AGENT_ANSWER_STREAMING"),
+    topicQueryEnabled: parseBoolean(env.AGENT_TOPIC_QUERY_ENABLED, false, "AGENT_TOPIC_QUERY_ENABLED"),
     model: {
       baseUrl: requireEnv(env, "AGENT_MODEL_BASE_URL").replace(/\/+$/, ""),
       name: requireEnv(env, "AGENT_MODEL_NAME"),
