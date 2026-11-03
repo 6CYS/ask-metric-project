@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue"
+import { computed, nextTick, ref, watch } from "vue"
 import BaseAlert from "@/components/ui/BaseAlert.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import BaseSelect from "@/components/ui/BaseSelect.vue"
@@ -10,6 +10,9 @@ import {
   turnDuration,
 } from "@/lib/evaluation"
 import EvaluationStatusBadge from "./EvaluationStatusBadge.vue"
+import EvaluationEvidenceComparison from "./EvaluationEvidenceComparison.vue"
+import { useEvaluationComparisonDetails } from "@/composables/useEvaluationComparisonDetails"
+import type { EvaluationComparisonRow } from "@/lib/evaluation"
 import type { EvaluationRun } from "@/types/evaluation"
 const props = defineProps<{ runs: EvaluationRun[] }>()
 const emit = defineEmits<{ detail: [runId: string, turnId: string] }>()
@@ -21,6 +24,14 @@ const runOptions = computed(() =>
 )
 const beforeId = ref("")
 const afterId = ref("")
+const expandedId = ref("")
+const comparisonDetails = useEvaluationComparisonDetails()
+const { before: beforeDetail, after: afterDetail } = comparisonDetails
+watch(() => props.runs, comparisonDetails.syncRuns)
+watch([beforeId, afterId], () => {
+  expandedId.value = ""
+  comparisonDetails.clear()
+})
 watch(
   () => props.runs.map((run) => run.id),
   (ids) => {
@@ -36,6 +47,29 @@ const comparison = computed(() =>
     ? compareEvaluationRuns(before.value, after.value)
     : null,
 )
+async function closeComparison() {
+  const previousId = expandedId.value
+  expandedId.value = ""
+  comparisonDetails.clear()
+  await nextTick()
+  document.getElementById(`compare-evidence-trigger-${previousId}`)?.focus({ preventScroll: true })
+}
+async function openComparison(row: EvaluationComparisonRow) {
+  if (!before.value || !after.value) return
+  if (expandedId.value === row.id) return closeComparison()
+  expandedId.value = row.id
+  const loaded = comparisonDetails.load(
+    row.before ? { runId: before.value.id, turn: row.before } : null,
+    row.after ? { runId: after.value.id, turn: row.after } : null,
+  )
+  await nextTick()
+  if (expandedId.value === row.id) {
+    const panel = document.getElementById(`compare-evidence-${row.id}`)
+    panel?.focus({ preventScroll: true })
+    panel?.scrollIntoView({ block: "start", behavior: "smooth" })
+  }
+  await loaded
+}
 </script>
 <template>
   <section class="evaluation-panel">
@@ -46,17 +80,15 @@ const comparison = computed(() =>
       </div>
     </header>
     <div class="grid gap-5 border-b p-5 lg:grid-cols-2">
-      <label class="evaluation-field"
+      <label class="form-field"
         >基准批次<BaseSelect
           v-model="beforeId"
-          class="evaluation-input"
           :options="runOptions"
           placeholder="选择基准批次"
           aria-label="基准批次" /></label
-      ><label class="evaluation-field"
+      ><label class="form-field"
         >对比批次<BaseSelect
           v-model="afterId"
-          class="evaluation-input"
           :options="runOptions"
           placeholder="选择对比批次"
           aria-label="对比批次"
@@ -117,7 +149,12 @@ const comparison = computed(() =>
         </div>
       </div>
       <div class="overflow-x-auto">
-        <table class="evaluation-table min-w-[800px]">
+        <table class="evaluation-table evaluation-comparison-table min-w-[800px]">
+          <colgroup>
+            <col style="width: 34%" />
+            <col span="4" style="width: 13%" />
+            <col style="width: 14%" />
+          </colgroup>
           <thead>
             <tr>
               <th>题目 / 可比性</th>
@@ -125,60 +162,101 @@ const comparison = computed(() =>
               <th>基准业务复核</th>
               <th>对比执行</th>
               <th>对比业务复核</th>
+              <th>依据对比</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in comparison.rows" :key="row.id">
-              <td class="max-w-xs">
-                <p class="whitespace-pre-wrap break-words">
-                  {{ row.after?.question || row.before?.question }}
-                </p>
-                <p class="evaluation-note" :class="{ 'text-amber-700': !row.comparable }">
-                  {{
-                    row.comparable
-                      ? "题目及前文一致"
-                      : row.changes.join("、") + "；不能直接判断改进"
-                  }}
-                </p>
-              </td>
-              <td>
-                <template v-if="row.before"
-                  ><EvaluationStatusBadge :status="row.before.status" />
-                  <p class="evaluation-note">{{ turnDuration(row.before) }}</p></template
-                ><span v-else>—</span>
-              </td>
-              <td>
-                {{ reviewLabel(row.before)
-                }}<BaseButton
-                  v-if="row.before"
-                  variant="link"
-                  size="sm"
-                  class="block"
-                  @click="emit('detail', before.id, row.id)"
-                  >查看依据</BaseButton
-                >
-              </td>
-              <td>
-                <template v-if="row.after"
-                  ><EvaluationStatusBadge :status="row.after.status" />
-                  <p class="evaluation-note">{{ turnDuration(row.after) }}</p></template
-                ><span v-else>—</span>
-              </td>
-              <td>
-                {{ reviewLabel(row.after)
-                }}<BaseButton
-                  v-if="row.after"
-                  variant="link"
-                  size="sm"
-                  class="block"
-                  @click="emit('detail', after.id, row.id)"
-                  >查看依据</BaseButton
-                >
-              </td>
-            </tr>
+            <template v-for="row in comparison.rows" :key="row.id">
+              <tr :class="{ selected: expandedId === row.id }">
+                <td class="max-w-xs">
+                  <p class="whitespace-pre-wrap break-words">
+                    {{ row.after?.question || row.before?.question }}
+                  </p>
+                  <p class="evaluation-note" :class="{ 'text-amber-700': !row.comparable }">
+                    {{
+                      row.comparable
+                        ? "题目及前文一致"
+                        : row.changes.join("、") + "；不能直接判断改进"
+                    }}
+                  </p>
+                </td>
+                <td>
+                  <template v-if="row.before"
+                    ><EvaluationStatusBadge :status="row.before.status" />
+                    <p class="evaluation-note">{{ turnDuration(row.before) }}</p></template
+                  ><span v-else>—</span>
+                </td>
+                <td>
+                  {{ reviewLabel(row.before)
+                  }}<BaseButton
+                    v-if="row.before"
+                    variant="link"
+                    size="sm"
+                    class="block"
+                    @click="emit('detail', before.id, row.id)"
+                    >查看依据</BaseButton
+                  >
+                </td>
+                <td>
+                  <template v-if="row.after"
+                    ><EvaluationStatusBadge :status="row.after.status" />
+                    <p class="evaluation-note">{{ turnDuration(row.after) }}</p></template
+                  ><span v-else>—</span>
+                </td>
+                <td>
+                  {{ reviewLabel(row.after)
+                  }}<BaseButton
+                    v-if="row.after"
+                    variant="link"
+                    size="sm"
+                    class="block"
+                    @click="emit('detail', after.id, row.id)"
+                    >查看依据</BaseButton
+                  >
+                </td>
+                <td>
+                  <BaseButton
+                    :id="`compare-evidence-trigger-${row.id}`"
+                    variant="outline"
+                    size="sm"
+                    :aria-label="`对比依据：${row.after?.question || row.before?.question}`"
+                    :aria-expanded="expandedId === row.id"
+                    :aria-controls="
+                      expandedId === row.id ? `compare-evidence-${row.id}` : undefined
+                    "
+                    @click="openComparison(row)"
+                    >对比依据</BaseButton
+                  >
+                </td>
+              </tr>
+              <tr v-if="expandedId === row.id">
+                <td colspan="6" class="evaluation-comparison-expanded">
+                  <EvaluationEvidenceComparison
+                    :id="`compare-evidence-${row.id}`"
+                    :before="before"
+                    :after="after"
+                    :row="row"
+                    :before-detail="beforeDetail"
+                    :after-detail="afterDetail"
+                    @close="closeComparison"
+                    @retry="comparisonDetails.retry"
+                  />
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
     </template>
   </section>
 </template>
+
+<style scoped>
+.evaluation-comparison-table {
+  table-layout: fixed;
+}
+.evaluation-comparison-table > tbody > tr > .evaluation-comparison-expanded {
+  padding: 12px;
+  background: var(--muted);
+}
+</style>

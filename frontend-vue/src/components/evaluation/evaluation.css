@@ -54,36 +54,6 @@
   outline-offset: 3px;
   border-radius: 3px;
 }
-.evaluation-input {
-  width: 100%;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--background);
-  padding: 8px 10px;
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--foreground);
-}
-.evaluation-input:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
-}
-.evaluation-input:disabled {
-  opacity: 0.55;
-}
-.evaluation-field {
-  display: grid;
-  gap: 7px;
-  color: var(--foreground);
-  font-size: 13px;
-  font-weight: 500;
-}
-.evaluation-field textarea {
-  resize: vertical;
-  font-weight: 400;
-}
 .evaluation-empty {
   display: flex;
   min-height: 240px;
@@ -173,7 +143,7 @@
   text-align: left;
   font-size: 13px;
 }
-.evaluation-table th {
+.evaluation-table > thead > tr > th {
   padding: 12px 18px;
   border-block: 1px solid var(--border);
   background: var(--muted);
@@ -182,15 +152,15 @@
   font-weight: 500;
   white-space: nowrap;
 }
-.evaluation-table td {
+.evaluation-table > tbody > tr > td {
   padding: 15px 18px;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
 }
-.evaluation-table tr:last-child td {
+.evaluation-table > tbody > tr:last-child > td {
   border-bottom: 0;
 }
-.evaluation-table tr.selected {
+.evaluation-table > tbody > tr.selected {
   background: color-mix(in srgb, var(--primary) 5%, var(--background));
 }
 .evaluation-link {

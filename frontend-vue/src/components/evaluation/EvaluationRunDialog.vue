@@ -93,11 +93,10 @@ async function start() {
       <BaseAlert v-if="blocked" title="已有执行中的批次"
         >请等待当前批次结束，或先停止当前批次。</BaseAlert
       >
-      <label class="evaluation-field"
+      <label class="form-field"
         >问题集<BaseSelect
           name="datasetId"
           v-model="datasetId"
-          class="evaluation-input"
           :options="datasetOptions"
           :disabled="busy"
           placeholder="选择问题集"
@@ -110,30 +109,30 @@ async function start() {
         冻结 v{{ dataset.version }} · {{ dataset.groups.length }} 组 ·
         {{ datasetTurnCount(dataset) }} 轮；当前编辑中的未保存修改不会进入本次测评。
       </p>
-      <label class="evaluation-field"
+      <label class="form-field"
         >批次名称<input
           v-model="name"
-          class="evaluation-input"
+          class="form-control"
           maxlength="120"
           :aria-invalid="Boolean(validationError && (!name.trim() || name.length > 120))"
           :aria-describedby="validationError ? errorId : undefined"
           required
           :disabled="busy"
       /></label>
-      <label class="evaluation-field"
+      <label class="form-field"
         >待测版本说明<input
           v-model="versionLabel"
-          class="evaluation-input"
+          class="form-control"
           maxlength="200"
           :aria-invalid="Boolean(validationError && versionLabel.length > 200)"
           :aria-describedby="validationError ? errorId : undefined"
           :disabled="busy"
           placeholder="人工登记当前待测版本或改动说明（选填）"
       /></label>
-      <label class="evaluation-field"
+      <label class="form-field"
         >数据条件说明<textarea
           v-model="dataLabel"
-          class="evaluation-input"
+          class="form-control resize-y py-2 leading-6"
           rows="2"
           maxlength="1000"
           :aria-invalid="Boolean(validationError && dataLabel.length > 1000)"

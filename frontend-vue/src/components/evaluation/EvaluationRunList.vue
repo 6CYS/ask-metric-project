@@ -47,7 +47,7 @@ function handleSearchEscape(event: KeyboardEvent) {
           v-model="keyword"
           type="text"
           role="searchbox"
-          class="evaluation-input pr-9!"
+          class="form-control pr-9!"
           aria-label="搜索测评批次"
           placeholder="搜索批次、版本或问题集"
           @keydown.esc="handleSearchEscape"
