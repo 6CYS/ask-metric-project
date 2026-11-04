@@ -6,7 +6,7 @@
 
 指标目录：从事实表最新快照读取最终 `indcr_no`、`orig_indcr_no` 和口径 `indcr_nm`；用 `orig_indcr_no` 关联配置表 `indcr_no`；配置名称去掉开头“机构”，再拼接口径。最终 `indcr_no` 写入 `znws.metric_terms.metric_code`，完整名称写入 `metric_name`。`metric_synonyms` 不自动修改。
 
-机构目录：从机构表最新 `etl_date` 快照中严格按现场 SQL 的范围筛选 61 家机构：`corpt_no <= '134'`、排除 `086`，并满足 `((org_hier_code = '3' AND corpt_no <> '000') OR org_hier_code = '1')`。`corpt_no` 和 `org_hier_code` 只参与筛选，不写应用库；最终仅将 `org_no`、`org_chn_nm` 写入 `znws.org_terms.org_code`、`org_name`。已有别名保留，新机构别名为空。
+机构目录：从机构表最新 `etl_date` 快照中按现场 SQL 的范围筛选机构（默认预期 61 家，仅用于数量告警）：`corpt_no <= '134'`、排除 `086`，并满足 `((org_hier_code = '3' AND corpt_no <> '000') OR org_hier_code = '1')`。`corpt_no` 和 `org_hier_code` 只参与筛选，不写应用库；最终仅将 `org_no`、`org_chn_nm` 写入 `znws.org_terms.org_code`、`org_name`。已有别名保留，新机构别名为空。
 
 业务查询：用应用目录解析出的 `org_code` 和 `metric_code` 直接过滤事实表 `org_no` 和 `indcr_no`，返回后再用 GoldenDB 目录补齐显示名称。
 
@@ -72,7 +72,7 @@ SIT_LATEST_PARTITION_LOOKBACK_DAYS=1095
 映射检查通过后，使用 [主数据、可选别名和模型验收](CATALOG_AND_MODELS.md) 的新流程：
 
 1. 校验应用配置及实际模型协议，确认 JSON 输出约束与关闭思考参数已发送。
-2. `sync_catalog_data.py organizations` 预览及同步审核快照中的 61 家机构。
+2. `sync_catalog_data.py organizations` 预览及同步审核快照中的合格机构，数量不足只告警。
 3. `sync_catalog_data.py metrics` 预览及同步完整历史正式指标编码、名称、启用状态及审核单位。
 4. 等待目录向量就绪，用正式机构和指标名称验收。没有别名不阻断启动，但模型或主数据错误仍须处理。
 5. 指标、机构别名使用 `sync_catalog_aliases.py` 分别作为可选步骤审核和补录。

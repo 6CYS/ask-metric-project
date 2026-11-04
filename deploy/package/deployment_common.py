@@ -48,7 +48,10 @@ def write_report(path: Path, operation: Callable[[], dict]) -> int:
                 report["unresolved_units"] = exc.names
             if type(exc).__name__ == "OrganizationScopeError":
                 report["outside_scope_codes"] = exc.codes
+            if type(exc).__name__ == "CatalogSyncError":
+                report["summary"] = exc.summary
             report["hint"] = "核对输入、单位映射、目录名称、数据库权限和配置；未输出原始异常"
         json.dump(report, output, ensure_ascii=False, indent=2)
     print(json.dumps({"status": report["status"], "report": str(path)}, ensure_ascii=False))
-    return 0 if report["status"] == "PASS" else 2
+    # 部分合格记录已正常同步，隔离项留给报告复核；硬错误仍返回非零。
+    return 0 if report["status"] in {"PASS", "PARTIAL"} else 2

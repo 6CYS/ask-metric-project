@@ -419,6 +419,8 @@ def initialize_synchronized_catalogs(args: argparse.Namespace) -> None:
             or org_summary.selected_rows <= 0
             or metric_summary.errors
             or org_summary.errors
+            or metric_summary.warnings
+            or org_summary.warnings
         ):
             raise RuntimeError("Data-lake catalog synchronization was incomplete; cleanup refused")
         fallback_org_code = args.user_org_code

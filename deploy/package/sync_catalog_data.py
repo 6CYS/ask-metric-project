@@ -20,9 +20,7 @@ def synchronize(args: argparse.Namespace) -> dict:
 
     get_settings.cache_clear()
     reset_database_runtime()
-    settings = get_settings()
-    if settings.sit_org_expected_count != 61:
-        raise ValueError("本部署入口要求已确认的61家机构范围")
+    get_settings()
     command = ["sync-metric-catalog" if args.catalog == "metrics" else "sync-org-catalog"]
     if not args.apply:
         command.append("--dry-run")
@@ -30,7 +28,7 @@ def synchronize(args: argparse.Namespace) -> dict:
         # 初始化覆盖历史正式编码，单位仅取审核映射，不把未知单位猜成金额。
         command.extend(["--all-snapshots", "--units", str(args.units)])
     else:
-        command.extend(["--strict-scope", "--snapshot-date", args.snapshot_date.isoformat()])
+        command.extend(["--snapshot-date", args.snapshot_date.isoformat()])
     captured = io.StringIO()
     try:
         with contextlib.redirect_stdout(captured):
@@ -38,11 +36,8 @@ def synchronize(args: argparse.Namespace) -> dict:
         summary = json.loads(captured.getvalue())
     finally:
         reset_database_runtime()
-    clean = summary["selected_rows"] > 0 and summary["errors"] == 0
-    if args.catalog == "organizations":
-        clean = clean and summary["selected_rows"] == 61
     return {
-        "status": "PASS" if clean else "BLOCKED",
+        "status": summary["status"],
         "catalog": args.catalog, "applied": args.apply, "aliases": "not_requested",
         "summary": summary,
     }
