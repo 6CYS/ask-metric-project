@@ -189,6 +189,7 @@ onDeactivated(() => { metricsLoaded.value = false })
               <tr v-for="item in pageItems" :key="item.id" class="border-b last:border-0 hover:bg-muted/35">
                 <td class="table-cell font-medium">
                   <BaseTooltip :content="item.title"><span tabindex="0" class="line-clamp-2 break-words">{{ item.title }}</span></BaseTooltip>
+                  <BaseBadge v-if="item.batch_query_enabled" variant="secondary" class="mt-1">支持批量取数</BaseBadge>
                 </td>
                 <td class="table-cell">
                   <span class="line-clamp-2 break-words">{{ item.text }}</span>

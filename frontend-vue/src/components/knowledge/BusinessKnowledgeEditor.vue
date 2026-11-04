@@ -5,6 +5,7 @@ import { LoaderCircle, RefreshCw } from "@lucide/vue"
 import MetricPicker from "@/components/metrics/MetricPicker.vue"
 import BaseAlert from "@/components/ui/BaseAlert.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
+import BaseCheckbox from "@/components/ui/BaseCheckbox.vue"
 import BaseDisclosure from "@/components/ui/BaseDisclosure.vue"
 import BaseModal from "@/components/ui/BaseModal.vue"
 import BaseSwitch from "@/components/ui/BaseSwitch.vue"
@@ -157,6 +158,21 @@ function toggleMetrics(open: boolean) {
           />
         </template>
       </BaseDisclosure>
+      <div class="space-y-1.5">
+        <label class="inline-flex items-center gap-2 text-sm font-medium">
+          <BaseCheckbox
+            :model-value="modelValue.batch_query_enabled ?? false"
+            :disabled="busy || (!modelValue.batch_query_enabled && !modelValue.metric_codes.length)"
+            @update:model-value="updateField('batch_query_enabled', $event)"
+          />
+          支持批量取数
+        </label>
+        <p class="text-xs leading-5 text-muted-foreground">
+          适用的分析问题可按关联指标统一取数，机构和日期沿用用户的问题。
+          <span v-if="!modelValue.metric_codes.length">请先关联指标。</span>
+          <span v-else>每个方案最多关联 24 个指标；未开启时仍按需自主查询。</span>
+        </p>
+      </div>
       <p
         v-if="modelValue.metric_codes.length"
         class="break-words text-xs leading-5 text-muted-foreground"

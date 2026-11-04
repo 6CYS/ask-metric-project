@@ -64,6 +64,7 @@ export function useKnowledgeManagement(api: KnowledgeApi = defaultApi) {
     form.value = item ? {
       title: item.title, text: item.text, enabled: item.enabled,
       metric_codes: [...(item.metric_codes ?? [])],
+      ...(item.batch_query_enabled !== undefined ? { batch_query_enabled: item.batch_query_enabled } : {}),
     } : { ...emptyForm(), metric_codes: [...metricCodes] }
     // 编辑期间列表可以刷新，但不能用新版本静默覆盖他人的修改。
     formRevision = revision.value

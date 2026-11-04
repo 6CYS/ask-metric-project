@@ -433,6 +433,7 @@ export type BusinessKnowledgePayload = {
   enabled: boolean
   revision: string
   metric_codes?: string[]
+  batch_query_enabled?: boolean
 }
 
 export type BusinessKnowledgeItem = Omit<BusinessKnowledgePayload, "revision"> & {

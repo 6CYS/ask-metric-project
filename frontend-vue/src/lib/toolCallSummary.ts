@@ -86,6 +86,7 @@ type Details = {
   retryable?: unknown
   repeated_failure?: unknown
   gaps?: unknown
+  topic_execution?: unknown
 }
 
 function asDetails(value: unknown): Details {
@@ -95,6 +96,12 @@ function asDetails(value: unknown): Details {
 /** 解析条件后宿主会就地执行查询，此时同一步骤的回执已是查询结果。 */
 export function toolCallLabel(tool: string, details?: unknown) {
   const value = asDetails(details)
+  if (tool === "topic_query") {
+    const execution = value.topic_execution as { topic_name?: unknown } | undefined
+    return typeof execution?.topic_name === "string"
+      ? `${value.kind === 'inquiry_query_reuse' ? '复用分析方案结果' : '执行分析方案'}：${execution.topic_name}`
+      : value.kind === "inquiry_query_reuse" ? "复用分析方案结果" : "按分析方案批量取数"
+  }
   if (tool === "metric_query" && (value.result_reused === true || value.reused === true || value.kind === "inquiry_query_reuse")) return "读取已有查询结果"
   if (value.kind === "analysis_evidence" && tool !== "metric_query" && tool !== "analysis_read") return "规划并执行分析步骤"
   if (value.kind === "business_overview") return "规划并查询经营指标"
@@ -175,10 +182,12 @@ function analysisResultNote(details: Details) {
   const count = typeof details.row_count === "number" && Number.isInteger(details.row_count) && details.row_count >= 0
     ? details.row_count : Array.isArray(rows) ? rows.length : undefined
   const reused = details.result_reused === true
-  if (count === 0 && details.complete === false) return "本次未取得可用数据，部分查询尚未完成"
+  if (count === 0 && details.complete === false && (details.topic_execution as { completed?: unknown } | undefined)?.completed !== true) return "本次未取得可用数据，部分查询尚未完成"
   let note = reused ? "已读取已有查询结果" : "查询完成"
   if (count === 0) note = "未查到符合条件的数据"
   else if (count !== undefined) note = reused ? `已读取 ${count} 条已有数据` : `已取得 ${count} 条数据`
+  if ((details.topic_execution as { completed?: unknown } | undefined)?.completed === true)
+    return details.complete === false ? `${note}，批量处理已结束，部分指标未取得可用结果` : `${note}，批量处理已完成`
   return details.complete === false ? `${note}，部分查询尚未完成` : note
 }
 
