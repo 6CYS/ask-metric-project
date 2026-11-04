@@ -90,9 +90,9 @@ export function createTopicQueryTool(
     label: "按主题查询并整理事实",
     parameters,
     description:
-      "业务分析主题批量取数，一次执行完整指标方案，不需要先metric_search。由Agent根据业务含义选择，程序不按关键词路由。" +
+      "业务分析主题批量取数，一次执行完整指标方案；方案与所需分析范围一致时优先使用，无需先逐项metric_search。明确限定指标或口径时用metric_query批量查询所需指标，不扩大范围。可用主题：" +
       registry.topics.map((t) => `${t.id}（${t.name}）：${t.description}`).join("；") +
-      "。上述范围的综合评价、变化解释或原因线索分析优先使用本工具。问题带有具体指标名称或明确月份/季度仍可使用主题；机构和期间不会被主题替换。仅查指定指标取值、增删指标、排名用原metric_search/metric_query；不重新查询的要求用analysis_read/analysis_calculate。主题不覆盖的额外目标由原工具局部补充。输出正式引用、同日排名、完整范围分布、实际日期、缺口及执行完成标记；正常缺数不重试。返回执行完成后据已有事实回答，不因缺少理想指标重新跑整题。",
+      "。主题不替换原问题确定的具体分析范围、机构和期间。输出正式引用、同日排名、完整范围分布、实际日期、缺口及执行完成标记；正常缺数不重试。完成仅表示批量取数结束，不证明解释成立；依据已有事实回答，不因缺少理想指标重新跑整题。",
     execute: async (id, raw, update, request, invocation, context) => {
       const input = raw as {
         topic_id: string;
@@ -320,15 +320,12 @@ export function createTopicQueryTool(
         data_status: records(details.evidence_items).some((atom) => atom.type === "fact")
           ? "available_or_partial"
           : "no_data",
-        next_action: missing.length
-          ? "answer_available_and_supplement_only_unbound_metrics"
-          : "answer_from_existing_evidence",
         no_retry_for_missing_data: true,
       };
       const body = topicEvidenceView(details, `e${offset + 1}`, topic, registry);
       body.topic_execution = execution;
       body.execution_notice =
-        "主题全指标已按正式目录执行。日期与机构以原事实为准；缺数、未知比例编码和未覆盖分析原因须披露。只对pending_metric_codes或额外未覆盖目标使用默认工具，勿整体重做。";
+        "主题已按匹配的正式目录执行，完成标记不证明解释成立。pending_metric_codes为未绑定指标，并非必查清单。日期与机构以原事实为准；缺数、未知比例编码和未覆盖分析原因须披露。默认工具仅处理未完成部分或额外未覆盖目标，保留已有事实，勿整体重做。";
       if (Buffer.byteLength(JSON.stringify(body)) > registry.limits.max_model_bytes) {
         // 不抛弃已取得的事实；有界投影超限时保留正式来源和执行状态，定向回读而非重新取数。
         const bounded = {

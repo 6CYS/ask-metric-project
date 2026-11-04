@@ -3,6 +3,7 @@ import { businessEvidences } from "../answerEvidence.js";
 import type { AskMetricRequestContext } from "../requestContext.js";
 import { safeWorkingHistory } from "../semantic-task/contextMemory.js";
 import { sourceConditions } from "./sourceConditions.js";
+import { inquiryCatalogView } from "./view.js";
 
 type Row = Record<string, unknown>;
 const record = (value: unknown): value is Row =>
@@ -11,6 +12,9 @@ const text = (value: unknown): string => (typeof value === "string" ? value : ""
 const MAX_HISTORY_TURNS = 3;
 const MAX_SOURCES_PER_TURN = 16;
 const MAX_ANSWER_LENGTH = 6000;
+const MAX_RELATED_RELATIONS = 8;
+const MAX_RELATED_METRICS = 24;
+const rows = (value: unknown): Row[] => (Array.isArray(value) ? value.filter(record) : []);
 function turns(messages: readonly AgentMessage[]): AgentMessage[][] {
   const output: AgentMessage[][] = [];
   for (const message of messages) {
@@ -56,6 +60,95 @@ function historicalAnswer(messages: AgentMessage[]): string {
   return "上一轮未完成可交付的回答。";
 }
 
+/** 只投影同轮已查询对象的目录邻居；原引用由执行入口从授权原生回执恢复。 */
+function relatedCatalog(messages: AgentMessage[], sources: Row[]): unknown {
+  const queried = new Set(
+    sources.flatMap((source) => rows(source.metrics).map((metric) => text(metric.code))),
+  );
+  if (!queried.size) return undefined;
+  const metrics = new Map<string, Row>(),
+    relations = new Map<string, Row>();
+  let hasMore = false;
+  for (const message of [...messages].reverse()) {
+    if (
+      message.role !== "toolResult" ||
+      message.isError ||
+      !record(message.details) ||
+      message.details.kind !== "analysis_catalog" ||
+      message.details.status !== "succeeded"
+    )
+      continue;
+    const bindings = record(message.details.binding_map) ? message.details.binding_map : {};
+    const registered = new Map(
+      rows(message.details.candidate_map)
+        .filter((item) => item.match_type !== "semantic")
+        .map((item) => [text(item.code), text(item.binding_ref)]),
+    );
+    for (const block of message.content) {
+      if (block.type !== "text") continue;
+      let payload: unknown;
+      try {
+        payload = JSON.parse(block.text);
+      } catch {
+        continue;
+      }
+      const view = inquiryCatalogView(payload);
+      if (!record(view)) continue;
+      const pages = Array.isArray(view.results) ? rows(view.results) : [view];
+      // 正文描述已通过目录视图筛选；内部 candidate_map 仅校验原引用，不直接发送。
+      const candidates = new Map(
+        [...rows(view.items), ...pages.flatMap((page) => rows(page.related_metrics))]
+          .filter((item) => {
+            const code = text(item.code),
+              ref = text(item.binding_ref),
+              signed = text(bindings[ref]);
+            return (
+              item.match_type !== "semantic" &&
+              registered.get(code) === ref &&
+              signed &&
+              signed === bindings[`code:${code}`]
+            );
+          })
+          .map((item) => [text(item.code), item]),
+      );
+      for (const page of pages) {
+        for (const relation of rows(page.relations)) {
+          if (!text(relation.id) || !Array.isArray(relation.children)) continue;
+          const members = [text(relation.parent), ...relation.children.map(text)];
+          if (
+            !members.some((code) => queried.has(code)) ||
+            members.some((code) => !code || !candidates.has(code))
+          )
+            continue;
+          hasMore ||= page.has_more_relations === true;
+          if (relations.has(text(relation.id))) continue;
+          const additional = members.filter((code) => !metrics.has(code));
+          if (
+            relations.size >= MAX_RELATED_RELATIONS ||
+            metrics.size + additional.length > MAX_RELATED_METRICS
+          ) {
+            hasMore = true;
+            continue;
+          }
+          relations.set(text(relation.id), relation);
+          for (const code of members) {
+            const descriptor = candidates.get(code);
+            if (descriptor) metrics.set(code, descriptor);
+          }
+        }
+      }
+    }
+  }
+  if (!relations.size) return undefined;
+  return inquiryCatalogView({
+    items: [...metrics.values()],
+    relations: [...relations.values()],
+    has_more_relations: hasMore,
+    notice:
+      "以下仅为已查询指标的一跳目录导航，不是已查询事实或完整组成证明；按本轮目标选择引用取数。",
+  });
+}
+
 function compactTurn(messages: AgentMessage[]): { messages: AgentMessage[]; reference?: Row } {
   const user = messages[0],
     assistant = [...messages].reverse().find((message) => message.role === "assistant");
@@ -92,7 +185,9 @@ function compactTurn(messages: AgentMessage[]): { messages: AgentMessage[]; refe
             .map((block) => block.text)
             .join("\n")
       : "";
-  // 来源条件独立交给参考资料入口，不能伪装成助手已经向用户说过的正文。
+  const visibleSources = sources.slice(0, MAX_SOURCES_PER_TURN);
+  const catalog = relatedCatalog(messages, visibleSources);
+  // 来源条件与目录导航独立交给参考资料入口，不能伪装成已查询事实或助手正文。
   return {
     messages: [
       user,
@@ -102,7 +197,8 @@ function compactTurn(messages: AgentMessage[]): { messages: AgentMessage[]; refe
       ? {
           reference: {
             question,
-            sources: sources.slice(0, MAX_SOURCES_PER_TURN),
+            sources: visibleSources,
+            ...(catalog ? { related_catalog: catalog } : {}),
             ...(sources.length > MAX_SOURCES_PER_TURN ? { sources_truncated: true } : {}),
           },
         }

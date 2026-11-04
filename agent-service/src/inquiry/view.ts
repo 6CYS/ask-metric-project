@@ -13,7 +13,10 @@ const decimal = /^[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/u;
 interface EvidenceTable extends Row {
   metric_code: string; date: string; unit: string; columns: ["ref", "org", "value"]; rows: string[][]; step_ids: string[];
 }
-interface UnavailableMetric extends Row {metric_code: string; reason: string; org_codes: string[]; row_count: number}
+interface UnavailableMetric extends Row {
+  metric_code: string; reason: string; org_codes: string[]; row_count: number;
+  data_status: "present" | "missing"; data_notice: string;
+}
 
 /** 只改变模型读取形式；原子身份、权限、原始精度及审计记录仍由原回执维护。 */
 export function inquiryEvidenceView(evidence: Row, evidenceRef: string): object {
@@ -67,7 +70,12 @@ export function inquiryEvidenceView(evidence: Row, evidenceRef: string): object 
       ...(encoding !== undefined ? {value_encoding: encoding} : {})};
     const key = JSON.stringify([metricCode, date, unit, basis, role]), reason = unavailable.get(ref);
     if (reason) {
-      const id = `${key}:${reason}`, group = missing.get(id) ?? {...header, reason, org_codes: [], row_count: 0};
+      // 数值是否存在与能否引用分开表达；元数据未确认不能被压缩成“没有数据”。
+      const dataStatus = atom.value === null || atom.value === undefined || atom.value === "" ? "missing" : "present";
+      const id = `${key}:${reason}:${dataStatus}`, group = missing.get(id) ?? {...header, reason,
+        data_status: dataStatus, data_notice: dataStatus === "present"
+          ? "本次已取得数值；当前不可用原因属于展示或计算限制，不代表没有数据。"
+          : "本次未取得该项数值。", org_codes: [], row_count: 0};
       if (org && !group.org_codes.includes(org)) group.org_codes.push(org);
       group.row_count++; missing.set(id, group); continue;
     }

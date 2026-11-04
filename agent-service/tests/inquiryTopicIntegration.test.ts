@@ -62,7 +62,7 @@ describe("主题查询与流式交付整合", () => {
       config.answerStreaming,
       config.topicQueryEnabled,
     );
-    expect(prompt.includes("主题选择与执行契约")).toBe(topics);
+    expect(prompt.includes("topic_query")).toBe(topics);
     expect(prompt.includes("直接调用analysis_answer，将最终业务正文放入body")).toBe(streaming);
     expect(prompt.includes("直接写正常assistant正文，不把全文封装成工具参数")).toBe(!streaming);
   });

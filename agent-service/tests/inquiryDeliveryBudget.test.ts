@@ -344,7 +344,7 @@ async function replayDelivery(
         return Promise.reject(
           new BackendApiError(
             422,
-            "两条事实须为相同正式指标及口径；跨指标计算需要另外确认业务关系。",
+            "本工具仅比较同一正式指标及口径的两条事实，不支持跨指标运算。",
             "ANALYSIS_CALCULATION_SOURCE",
           ),
         );
@@ -459,7 +459,9 @@ describe("误用普通出口后的真实宿主交付预算", () => {
         error_code: "ANALYSIS_CALCULATION_SOURCE",
       },
     });
-    expect(result.contexts[2]).toContain("两条事实须为相同正式指标及口径");
+    expect(result.contexts[2]).toContain(
+      "本工具仅比较同一正式指标及口径的两条事实，不支持跨指标运算。",
+    );
     expect(
       result.projected.find((item) => item.role === "tool" && item.tool === "analysis_calculate"),
     ).toMatchObject({ is_error: true });

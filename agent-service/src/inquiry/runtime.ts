@@ -108,8 +108,35 @@ type FailedToolDetails = {
   target_ref?: string;
   no_new_evidence?: boolean;
   topic_execution?: { completed?: boolean; pending_metric_codes?: string[] };
+  topic_slice_key?: string;
+  requested_metric_codes?: string[];
+  source_metric_codes?: string[];
+  evidence_refs?: string[];
+  query_progress?: { requested_metric_codes?: string[] };
   run_ref?: string;
 };
+
+/** 复用身份来自实际来源与指标选择；请求别名和工具切换不能产生新证据。 */
+function reusedEvidenceKey(details: FailedToolDetails | undefined): string | undefined {
+  if (details?.no_new_evidence !== true || details.topic_slice_key) return undefined;
+  if (
+    details.run_ref &&
+    details.topic_execution?.completed === true &&
+    !details.topic_execution.pending_metric_codes?.length
+  )
+    return businessKey({ run_ref: details.run_ref });
+  if (details.kind === "inquiry_query_reuse" && details.run_ref)
+    return businessKey({
+      run_ref: details.run_ref,
+      metric_codes: [...new Set(details.requested_metric_codes ?? details.source_metric_codes)].sort(),
+    });
+  if (details.kind === "semantic_results" && details.evidence_refs?.length)
+    return businessKey({
+      evidence_refs: [...new Set(details.evidence_refs)].sort(),
+      metric_codes: [...new Set(details.query_progress?.requested_metric_codes)].sort(),
+    });
+  return undefined;
+}
 
 const inputRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
@@ -242,8 +269,8 @@ function collectAttemptBindings(bindings: Map<string, string>, value: unknown) {
 function inquiryStalled(messages: AgentMessage[]): "investigation" | "delivery" | undefined {
   const current = currentTurnMessages(messages);
   const saved = new Map(receipts(messages).map((message) => [message.toolCallId, message]));
-  let previous = "",
-    repeated = 0,
+  const attempts = new Map<string, number>();
+  let repeated = 0,
     delivery = false;
   const bindings = new Map<string, string>();
   for (const message of current) {
@@ -257,14 +284,14 @@ function inquiryStalled(messages: AgentMessage[]): "investigation" | "delivery" 
       const details = receipt?.details as FailedToolDetails | undefined;
       // 自动提供的目录也随失败回执保存；部分引用已纠正时不能丢失这份正式绑定。
       collectAttemptBindings(bindings, details);
-      const topicNoProgress =
-        details?.no_new_evidence === true &&
-        details.topic_execution?.completed === true &&
-        !details.topic_execution.pending_metric_codes?.length;
+      const reuseKey = reusedEvidenceKey(details);
+      if (reuseKey !== undefined) {
+        failures.push(JSON.stringify(["evidence_reuse", reuseKey]));
+        continue;
+      }
       if (
         !receipt?.isError &&
-        !["error", "failed", "ARGUMENT_ERROR"].includes(details?.status ?? "") &&
-        !topicNoProgress
+        !["error", "failed", "ARGUMENT_ERROR"].includes(details?.status ?? "")
       )
         break;
       // 原生参数拒绝、前置条件和正文校验属于不同恢复阶段，不能累计误杀有效修正。
@@ -275,21 +302,19 @@ function inquiryStalled(messages: AgentMessage[]): "investigation" | "delivery" 
           details?.status,
           details?.error_code ?? details?.code,
           details?.validation_stage,
-          // 已完成主题没有新增事实时只比较来源，换指标子集不能冒充有效纠错。
-          topicNoProgress
-            ? details.run_ref
-            : businessKey(failedAttemptInput(call.name, call.arguments, details, bindings)),
+          businessKey(failedAttemptInput(call.name, call.arguments, details, bindings)),
         ]),
       );
     }
     if (failures.length !== calls.length) {
-      previous = "";
+      attempts.clear();
       repeated = 0;
       continue;
     }
     const signature = JSON.stringify([...new Set(failures)].sort());
-    repeated = signature === previous ? repeated + 1 : 1;
-    previous = signature;
+    // 没有成功进展时，交替重放失败与旧结果也不能重新获得相同尝试的机会。
+    repeated = (attempts.get(signature) ?? 0) + 1;
+    attempts.set(signature, repeated);
     delivery = calls.some((call) => ["analysis_answer", CONVERSATION_REPLY].includes(call.name));
   }
   return repeated >= MAX_ANSWER_ATTEMPTS ? (delivery ? "delivery" : "investigation") : undefined;
@@ -559,14 +584,14 @@ export function inquirySystemPrompt(
     : "完成后直接写正常assistant正文，不把全文封装成工具参数。";
   return `你是面向银行业务人员的只读数据分析助手。基于工具验证的数据，给出准确、易懂、可复核的回答。当前日期${date}只是日历日期；数据截至日以实际结果为准。
 先查看可用业务方法。经营评价、差异和原因分析匹配分析方法时，先用business_skill_read读取；可以与首次指标检索同一轮调用。当前上下文已经保留的相同版本不重复读取。方法是分析指导，不提供业务数值或代替正式口径。
-按问题选择最短路径：简单查值直接取所问值；目录或定义问题只读目录；${topicsEnabled ? "综合评价、变化解释与原因线索分析先按主题能力描述选择topic_query，不需要先检索该主题的指标。问题提到指标名称、具体日期或季度不改变其分析性质。只有单纯取值、指标增删、排名或主题不支持的任务才走默认路径；默认路径先查核心事实并根据差异补查。" : "分析问题先查核心事实，根据差异继续调查，"}${answerChannel}不要输出内部规划或自我讨论。
-${topicsEnabled ? "主题选择与执行契约：在现有理解步骤按业务含义选择路径，不额外请求分类模型。收益利润、贷款质量、经营概况、存款结构、费用收入分析若匹配topic_query描述，优先一次执行该主题完整方案；机构和期间仍依据原问题。明确指标查值、增删指标、排名走原metric_search/metric_query；要求使用历史结果且不重查时走analysis_read/analysis_calculate。主题执行完成后直接解释已有事实，正常缺数与未知单位不代表执行失败，不为理想措辞重新调查。默认能力只补主题未覆盖的目标或未完成部分，保留已得结果。相同来源只使用一次，不在主题与默认路径间重跑。宽泛好坏评价须说明采用的维度；相关变化是线索，不能称唯一原因或严格贡献。" : ""}
-本轮linked_catalog已有适用的正式候选时，metric_query直接使用其binding_ref取数；候选缺失或不适用时，再用metric_search获取正式定义和引用。可合并相关检索词和独立指标，避免重复目录和查询。只有当前会话真实run_ref能交给analysis_read，重验权限后用于追问。没有来源不能给业务数值。
+按问题选择最短路径：简单查值直接取所问值；目录或定义问题只读目录；分析问题根据原问题和本轮适用业务知识确定范围，选择足够支撑回答的正式指标。${topicsEnabled ? "完整主题方案与所需范围一致时优先用topic_query一次批量取数，无需先逐项检索；明确限定指标或口径时使用metric_query，不为匹配主题扩大范围。" : ""}${answerChannel}不要输出内部规划或自我讨论。
+${topicsEnabled ? "主题执行契约：机构和期间仍依据原问题。主题完成标记只代表批量取数结束，不证明解释成立；正常缺数与未知单位不代表执行失败，不为理想措辞重新调查。保留已得结果，相同来源只使用一次，不在主题与单项查询之间重跑。宽泛好坏评价须说明采用的维度；相关变化是线索，不能称唯一原因或严格贡献。" : ""}
+使用metric_query时，本轮linked_catalog已有适用的正式候选就直接使用其binding_ref；候选缺失或不适用时再用metric_search。一次检索多个所需指标，每项保留完整主体与口径；同机构、期间和方法的指标合并取数，已有核心结果只补尚缺的必要事实。评价已有结果或要求不重查时，先用analysis_read重验当前会话真实run_ref，依据已有事实回答；必要的同指标计算用analysis_calculate，不自动扩大调查范围。没有来源不能给业务数值。
 已有两条同指标事实需要比较时，用analysis_calculate复用引用计算差额及支持的增幅；历史事实先analysis_read，不为计算重复取数。跨机构对齐日期、跨日期保持机构一致。它只提供算术比较，机构贡献仍需审核后的汇总关系，业务原因须另有依据。
 当前业务资料不足时，可用business_knowledge_search在取数前查相关含义、方法或案例。结合本轮问题和已授权历史明确检索主题，尤其是省略追问；已有适用资料无需重复检索。知识检索返回linked_catalog时，结合本轮问题选择其中适用指标的binding_ref引用直接取数，不强制查询全部关联指标；候选缺失或不适用时继续metric_search。知识辅助选指标和调查方向，正式口径以metric_search或知识检索linked_catalog中的正式目录候选为准，案例不代表当前机构的实际原因。
 指定日期没有数据时，用metric_availability确认相关期间的真实可用日期，避免反复试查或猜日期。清楚说明原统计期无法回答；其他日期只能作为明确标注的参考，不能把月中数说成月末数，也不能用最新值替代历史问题。
 ${targetContextEnabled ? "普通问数参考资料中的current_target是当前业务目标，历史sources只是回答依据。每轮首次metric_query或metric_availability使用target_change：新主题用new并声明topic、机构replace及日期；追问用update与base_ref，只填用户本轮改变的字段；完全沿用用continue。切换对象使用replace，追加比较使用add，只改日期不重填机构；未改字段由宿主继承。同轮后续查询不重复声明目标。明确目标后，scope/org_names/date只选择本次取数的机构子集及期间，省略则继承主目标，不改变会话主目标。主目标之外的参考机构补查使用independent=true。存量会话没有current_target时，根据问题和已授权历史明确声明一次，不能把全部历史来源合并成目标。" : "本轮使用原有查询协议：用scope/org_names/date明确提交机构和期间，不填写target_change。连续追问仅改变用户明确条件；已接纳可信选择使用target_ref，不能覆盖确认条件。"}
-指标选择仍由业务目标和正式定义决定，分析可分批调查不同指标，不把首批指标清单当作整个分析主题。继承最新期间时，跨机构比较须检查实际统计日是否一致，不同日期不能直接作同日比较。历史助手正文不能代替证据；本轮涉及历史数值时先analysis_read，拿到本轮引用再回答。
+指标选择依据用户问题、已确认上下文、适用业务知识和正式定义；检索排名只代表相关性，不是默认口径。候选存在不可互换的统计口径，且现有条件无法区分时，先简短确认；已明确所需口径就查询对应正式指标。分析可分批调查不同指标，不把首批指标清单当作整个分析主题。继承最新期间时，跨机构比较须检查实际统计日是否一致，不同日期不能直接作同日比较。历史助手正文不能代替证据；本轮涉及历史数值时先analysis_read，拿到本轮引用再回答。
 默认上下文只保留最近三轮；较早回指所需条件不在其中时，用session_history_read按页定位并读取本会话旧记录。正文仅帮助找回问题和真实run_ref，旧数值仍须analysis_read重新核验；无需把旧会话全文塞回上下文。
 首次未指定机构时，在目标声明中使用参考资料中的账号机构；各家农商行集合使用all_banks。旧可信点击目标继续使用target_ref，由宿主绑定已确认字段，不使用target_change改写。普通目标内的局部取数、独立补查及旧在途请求均可使用scope/org_names/date明确本次条件；不把账号、历史来源集合或最后一笔查询当作用户目标。
 事实数字、计算结果及已核验判断用{{e1.v1}}引用，引用对应来源中的机构、指标和统计日必须与所述对象一致，不能从别的机构或日期借数字。最终只显示带单位的值。已写明数值在同段附加{{e1.v1|cite}}关联依据；每段只使用本段引用支持的数值。占位符本身就是最终数字和单位，例如“余额为{{e1.v1}}。”，不要再加等值括号、原金额或单位。优先直接使用占位符，已有文字数值才使用cite。不能心算新增数值或自己换算；计算只引用工具实际返回的运算结果；工具未返回的运算不能自行推导，也不能把增幅作为倍数。未知单位、比例编码或缺失值不能当作可用数值。比较沿用各自基期，金额差额与增幅分别表达，不把不同基期的差额大小当作连续趋势；并列变化不是已证明的贡献或根因，单个指标排名不能代表整体经营好坏。

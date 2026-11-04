@@ -168,7 +168,7 @@ def test_analysis_exact_lookup_does_not_call_embedding_service():
     assert result["items"][0]["match_type"] == "exact"
 
 
-def test_analysis_suggestions_remove_topic_duplicates_before_limiting():
+def test_analysis_topic_members_remain_unbound_semantic_suggestions():
     items = [MetricCatalogItem(code="seed", name="检索入口"),
              *[MetricCatalogItem(code=f"group-{i}", name=f"主题成员{i}") for i in range(12)],
              MetricCatalogItem(code="outside", name="独立候选")]
@@ -177,4 +177,8 @@ def test_analysis_suggestions_remove_topic_duplicates_before_limiting():
         "codes": [item.code for item in items[:-1]]}}
     scores = {item.code: 0.9 - i * 0.01 for i, item in enumerate(items[1:])}
     result = semantics.search("检索入口", embedding_scores=scores, page_size=12)
-    assert [item["code"] for item in result["semantic_suggestions"]] == ["outside"]
+    assert [item["code"] for item in result["items"]] == ["seed"]
+    assert [item["code"] for item in result["semantic_suggestions"]] == [
+        f"group-{i}" for i in range(12)
+    ]
+    assert all("binding_ref" not in item for item in result["semantic_suggestions"])

@@ -11,8 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from ask_metric.application.business_overview import bind_metrics
 from ask_metric.application.catalog_search import search_metrics
+from ask_metric.application.metric_relationships import project_topic_relationships
 from ask_metric.core.errors import ApplicationError
-from ask_metric.domain.metric_matching import normalize_semantic_text
 from ask_metric.domain.metric_relationships import MetricRelation
 
 CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
@@ -101,9 +101,12 @@ class MetricSemantics:
         # 复用既有专业增强中的显式编码与数值编码；不按名称或后缀推导未知口径。
         if topics is None:
             topics = load_business_topics()
+        self.topic_relations: list[dict] = []
         if topics:
             for topic_id, topic in topics.items():
-                bound, _ = bind_metrics(topic, list(self.items.values()))
+                bound, gaps = bind_metrics(topic, list(self.items.values()))
+                projected, _ = project_topic_relationships(topic_id, topic, bound, gaps)
+                self.topic_relations.extend(projected)
                 self.topic_groups[topic_id] = {
                     "name": topic["name"],
                     "default_sections": topic["default_sections"],
@@ -149,6 +152,7 @@ class MetricSemantics:
                                         + rule["value_basis"]
                                     )
                                 ):
+                                    self.topic_groups[topic_id]["codes"].append(candidate)
                                     self.topic_attributes.setdefault(
                                         candidate,
                                         {
@@ -165,39 +169,8 @@ class MetricSemantics:
                                             },
                                         },
                                     )
-                # 首屏同时给出总量、同口径比较、一级分类和质量，避免全被相似名称占满。
-                root_id = topic.get("followup_policy", {}).get("root_metric", "total")
-                root = bound.get(root_id)
-                core_comparisons = [
-                    code
-                    for code, attributes in self.topic_attributes.items()
-                    if attributes.get("analysis_hint", {}).get("topic") == topic_id
-                    and attributes["analysis_hint"].get("metric_id") == root_id
-                    and attributes["analysis_hint"].get("comparison_role") == "difference"
-                ]
-                children = [
-                    bound[child].code
-                    for relation in topic["relationships"]
-                    if relation["parent"] == root_id
-                    for child in relation["children"]
-                    if child in bound
-                ]
-                quality = [
-                    bound[definition["id"]].code
-                    for definition in topic["metrics"]
-                    if definition["section"] == "quality" and definition["id"] in bound
-                ]
-                group = self.topic_groups[topic_id]
-                group["codes"] = list(
-                    dict.fromkeys(
-                        [
-                            *([root.code] if root else []),
-                            *core_comparisons,
-                            *children,
-                            *quality,
-                            *group["codes"],
-                        ]
-                    )
+                self.topic_groups[topic_id]["codes"] = list(
+                    dict.fromkeys(self.topic_groups[topic_id]["codes"])
                 )
 
     def descriptor(self, code: str) -> dict:
@@ -290,30 +263,14 @@ class MetricSemantics:
                embedding_scores: dict[str, float] | None = None) -> dict:
         result = search_metrics(keyword, list(self.items.values()),
                                 embedding_scores=embedding_scores, limit=len(self.items))
-        # 单主题和跨主题检索复用同一已绑定目录；词法相似的陌生指标不能遮住领域总量。
+        # 主题只提供分析入口，不覆盖检索相关性或把未命中的主题成员混入分页。
         matched_codes = {hit.code for hit in result.items}
         groups = {
             key: group
             for key, group in self.topic_groups.items()
             if matched_codes.intersection(group["codes"])
         }
-        # 精确身份先于主题推荐；否则完整指标名/编码也会被主题第一页长期遮住。
-        term = normalize_semantic_text(keyword)
-        exact = [
-            hit.code
-            for hit in result.items
-            if term
-            and any(
-                normalize_semantic_text(value) == term
-                for value in (
-                    self.items[hit.code].code,
-                    self.items[hit.code].name,
-                    *self.items[hit.code].aliases,
-                )
-            )
-        ]
-        priority = [code for group in groups.values() for code in group["codes"]]
-        ordered = list(dict.fromkeys([*exact, *priority, *(hit.code for hit in result.items)]))
+        ordered = [hit.code for hit in result.items]
         selected = ordered[(page - 1) * page_size : page * page_size]
         matches = {hit.code: hit.match_type for hit in result.items}
         items = []
@@ -322,7 +279,7 @@ class MetricSemantics:
             items.append(
                 {
                     **descriptor,
-                    "match_type": matches.get(code, "domain_mapping"),
+                    "match_type": matches[code],
                     "binding_ref": self.binding(descriptor, keyword),
                 }
             )
@@ -355,23 +312,53 @@ class MetricSemantics:
             ),
         }
 
+    @staticmethod
+    def _relation_identity(relation: dict) -> tuple[str, str, tuple[str, ...]]:
+        kind = relation.get("kind", "classification")
+        children = relation["children"]
+        # 分类/组成无成员顺序含义；比例依赖必须保留分子、分母顺序。
+        return kind, relation["parent"], tuple(children if kind == "ratio" else sorted(children))
+
+    def _discovery_relations(self) -> list[dict]:
+        managed = self.extensions["relations"]
+        reviewed = {
+            self._relation_identity(relation)
+            for relation in managed
+            if relation["status"] in {"approved", "retired"}
+        }
+        # 已审核或停用的同一定义覆盖预置导航，避免停用后从预置关系重新出现。
+        return [
+            *(relation for relation in managed if relation["status"] == "approved"),
+            *(
+                {
+                    **relation,
+                    "usage": "navigation_only",
+                    "notice": "仅供发现相关正式指标；尚未审核，不授权结构计算或完整增减贡献。",
+                }
+                for relation in self.topic_relations
+                if self._relation_identity(relation) not in reviewed
+            ),
+        ]
+
     def _related_discovery(self, selected: list[str], keyword: str) -> dict:
-        """只展开当前候选的一层已确认关系，不扩散到整张图或猜测比例公式。"""
+        """只展开当前候选的一跳关系；预置映射用于导航，计算仍要求已审核关系。"""
         selected_codes = set(selected)
         related_codes: list[str] = []
         relations: list[dict] = []
         has_more = False
-        for relation in self.extensions["relations"]:
+        seen: set[tuple[str, str, tuple[str, ...]]] = set()
+        for relation in self._discovery_relations():
             members = [relation["parent"], *relation["children"]]
+            identity = self._relation_identity(relation)
             if (
-                relation["status"] != "approved"
+                identity in seen
                 or not selected_codes.intersection(members)
                 or any(code not in self.items for code in members)
             ):
                 continue
+            seen.add(identity)
             added = [
-                code for code in members
-                if code not in selected_codes and code not in related_codes
+                code for code in members if code not in selected_codes and code not in related_codes
             ]
             if (
                 len(relations) >= DISCOVERY_RELATION_LIMIT

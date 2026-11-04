@@ -533,7 +533,9 @@ describe("指标检索的分页边界与候选取数", () => {
 });
 
 describe("同轮完整 observe 来源的指标子集复用", () => {
-  async function queried(options: { latest?: boolean; complete?: boolean; cohort?: boolean } = {}) {
+  async function queried(
+    options: { latest?: boolean; complete?: boolean; cohort?: boolean; unknownEncoding?: boolean } = {},
+  ) {
     const f = fixture();
     const descriptors = [
       descriptor,
@@ -543,6 +545,7 @@ describe("同轮完整 observe 来源的指标子集复用", () => {
         code: "M3",
         name: "测试费用率",
         binding_ref: "signed:M3",
+        unit: options.unknownEncoding ? "%" : "元",
       },
     ];
     f.backend.analysisCatalog.mockResolvedValue({ items: descriptors });
@@ -564,9 +567,9 @@ describe("同轮完整 observe 来源的指标子集复用", () => {
             metric_code: item.code,
             org_code: "3200",
             date: "2026-07-31",
-            unit: "元",
+            unit: item.unit,
             value: "100",
-            display: "100元",
+            display: `100${item.unit}`,
           })),
         }),
       );
@@ -604,13 +607,72 @@ describe("同轮完整 observe 来源的指标子集复用", () => {
       requested_metric_codes: ["M3"],
       source_metric_codes: ["M1", "M2", "M3"],
     });
-    expect(view).toHaveProperty("notice", expect.stringContaining("已有来源"));
-    expect(view).not.toHaveProperty("plan");
-    expect(view).not.toHaveProperty("row_count");
+    expect(view).toHaveProperty("tables.2.metric_code", "M3");
+    expect(view).toHaveProperty("tables.2.rows.0", ["e1.v3", "3200", "100元"]);
+    expect(view).not.toHaveProperty("notice", expect.stringMatching(/profiles|focus/u));
     expect(currentTurnEvidence(f.messages)).toEqual(original);
     const originalView: unknown = JSON.parse(f.first.content[0].text);
     expect(originalView).toHaveProperty("tables.2.metric_code", "M3");
     expect(originalView).toHaveProperty("tables.2.rows.0", ["e1.v3", "3200", "100元"]);
+  });
+
+  it("普通子集复用保留未知比例编码的限制，不把已得数值当作缺数", async () => {
+    const f = await queried({ unknownEncoding: true });
+    const result = await f.call("metric_query", { ...f.input, metric_refs: ["k3"] });
+    const view: unknown = JSON.parse(result.content[0].text);
+    expect(view).toMatchObject({
+      kind: "inquiry_query_reuse",
+      evidence_ref: "e1",
+      run_ref: f.first.details.run_ref,
+      no_new_evidence: true,
+      requested_metric_codes: ["M3"],
+      source_metric_codes: ["M1", "M2", "M3"],
+      unavailable_metrics: [
+        {
+          metric_code: "M3",
+          reason: "unknown_percentage_encoding",
+          data_status: "present",
+          org_codes: ["3200"],
+          date: "2026-07-31",
+        },
+      ],
+    });
+    expect(view).toHaveProperty(
+      "tables",
+      expect.arrayContaining([
+        expect.objectContaining({ metric_code: "M2", rows: [["e1.v2", "3200", "100元"]] }),
+      ]),
+    );
+    expect(view).not.toHaveProperty(
+      "tables",
+      expect.arrayContaining([expect.objectContaining({ metric_code: "M3" })]),
+    );
+    expect(view).not.toHaveProperty("notice", expect.stringMatching(/profiles|focus/u));
+    expect(f.backend.analysisExecute).toHaveBeenCalledOnce();
+    expect(currentTurnEvidence(f.messages)).toHaveLength(1);
+  });
+
+  it("主题来源的子集复用仍使用已有概览及按需读取明细", async () => {
+    const f = await queried();
+    f.first.details.topic_execution = {
+      completed: true,
+      completed_metric_codes: ["M1", "M2", "M3"],
+    };
+    const result = await f.call("metric_query", { ...f.input, metric_refs: ["k3"] });
+    const view: unknown = JSON.parse(result.content[0].text);
+    expect(view).toMatchObject({
+      kind: "inquiry_query_reuse",
+      evidence_ref: "e1",
+      run_ref: f.first.details.run_ref,
+      no_new_evidence: true,
+      requested_metric_codes: ["M3"],
+      source_metric_codes: ["M1", "M2", "M3"],
+      topic_execution: { completed: true },
+    });
+    expect(view).toHaveProperty("notice", expect.stringContaining("focus"));
+    expect(view).not.toHaveProperty("tables");
+    expect(f.backend.analysisExecute).toHaveBeenCalledOnce();
+    expect(currentTurnEvidence(f.messages)).toHaveLength(1);
   });
 
   it.each(["method", "organization", "date", "operation", "actor", "session"])(
@@ -3515,7 +3577,12 @@ describe("inquiry direct query tools", () => {
     await f.call("metric_query", query);
     const result = await f.call("metric_query", { ...query, purpose: "再次确认余额" });
     expect(f.backend.analysisExecute).toHaveBeenCalledTimes(1);
-    expect(result.details).toMatchObject({ reused: true, evidence_ref: "e1" });
+    expect(result.details).toMatchObject({
+      reused: true,
+      evidence_ref: "e1",
+      source_metric_codes: ["M1"],
+      requested_metric_codes: ["M1"],
+    });
     expect(businessEvidences(result.details)).toHaveLength(0);
     expect(await f.request.answerEvidence!()).toHaveLength(1);
   });

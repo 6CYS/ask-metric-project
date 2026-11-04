@@ -73,50 +73,74 @@ def topic_relationships(
     items: list[dict] = []
     issues: list[_RelationshipIssue] = []
     for topic_id, topic in topics.topics.items():
-        bound, gaps = bind_metrics(topic.model_dump(), catalog)
-        definitions = {metric.id: metric for metric in topic.metrics}
-        gaps_by_metric = {gap["metric"]: gap for gap in gaps}
-        for relation in topic.relationships:
-            members = [relation.parent, *relation.children]
-            missing = [member for member in members if member not in bound]
-            message = ""
-            if relation.type not in {"classification", "reconciliation"}:
-                message = "该关系的类型暂不支持展示，请核对预置关系配置。"
-            elif missing:
-                details = []
-                for member in missing:
-                    gap = gaps_by_metric.get(member)
-                    details.append(
-                        f"{gap['label']}（{gap['reason']}）"
-                        if gap else "未定义指标（请核对关系配置）"
-                    )
-                message = "以下指标尚未完成目录关联：" + "；".join(details) + "。"
-            if message:
-                parent = definitions.get(relation.parent)
-                parent_label = parent.label if parent else "未定义指标"
-                metric_codes = []
-                for member in members:
-                    definition = definitions.get(member)
-                    code = bound[member].code if member in bound else (
-                        definition.code if definition else None
-                    )
-                    if code and code not in metric_codes:
-                        metric_codes.append(code)
-                issues.append({
-                    "id": f"topic:{topic_id}:{relation.id}",
-                    "title": f"{topic.name} · {parent_label}的指标关系",
+        definition = topic.model_dump()
+        bound, gaps = bind_metrics(definition, catalog)
+        projected, unavailable = project_topic_relationships(topic_id, definition, bound, gaps)
+        items.extend(projected)
+        issues.extend(unavailable)
+    return items, issues
+
+
+def project_topic_relationships(
+    topic_id: str,
+    topic: dict,
+    bound: dict[str, MetricCatalogItem],
+    gaps: list[dict],
+) -> tuple[list[dict], list[_RelationshipIssue]]:
+    """复用已完成的正式目录绑定，供管理展示和一跳导航使用，不授予计算权限。"""
+    items: list[dict] = []
+    issues: list[_RelationshipIssue] = []
+    definitions = {metric["id"]: metric for metric in topic["metrics"]}
+    gaps_by_metric = {gap["metric"]: gap for gap in gaps}
+    for relation in topic["relationships"]:
+        members = [relation["parent"], *relation["children"]]
+        missing = [member for member in members if member not in bound]
+        message = ""
+        if relation["type"] not in {"classification", "reconciliation"}:
+            message = "该关系的类型暂不支持展示，请核对预置关系配置。"
+        elif missing:
+            details = []
+            for member in missing:
+                gap = gaps_by_metric.get(member)
+                details.append(
+                    f"{gap['label']}（{gap['reason']}）" if gap else "未定义指标（请核对关系配置）"
+                )
+            message = "以下指标尚未完成目录关联：" + "；".join(details) + "。"
+        if message:
+            parent = definitions.get(relation["parent"])
+            parent_label = parent["label"] if parent else "未定义指标"
+            metric_codes = []
+            for member in members:
+                definition = definitions.get(member)
+                code = (
+                    bound[member].code
+                    if member in bound
+                    else (definition.get("code") if definition else None)
+                )
+                if code and code not in metric_codes:
+                    metric_codes.append(code)
+            issues.append(
+                {
+                    "id": f"topic:{topic_id}:{relation['id']}",
+                    "title": f"{topic['name']} · {parent_label}的指标关系",
                     "message": message,
                     "metric_codes": metric_codes,
-                })
-                continue
-            items.append({
-                "id": f"topic:{topic_id}:{relation.id}",
-                "kind": "composition" if relation.type == "reconciliation" else "classification",
-                "status": "draft", "parent": bound[relation.parent].code,
-                "children": [bound[child].code for child in relation.children],
-                "source": relation.note, "origin": "topic", "editable": False,
+                }
+            )
+            continue
+        items.append(
+            {
+                "id": f"topic:{topic_id}:{relation['id']}",
+                "kind": "composition" if relation["type"] == "reconciliation" else "classification",
+                "status": "draft",
+                "parent": bound[relation["parent"]].code,
+                "children": [bound[child].code for child in relation["children"]],
+                "source": relation.get("note", ""),
+                "origin": "topic",
+                "editable": False,
                 "topic": topic_id,
-            })
+            }
+        )
     return items, issues
 
 

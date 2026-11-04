@@ -60,7 +60,9 @@ def comparison_inputs(
         or len({metric["binding_ref"] for metric in metrics}) != 1
     ):
         reject(
-            "两条事实须为相同正式指标及口径；跨指标计算需要另外确认业务关系。",
+            "本工具仅比较同一正式指标及口径的两条事实，不支持跨指标运算。"
+            "只有改为同一指标及口径的引用后才能重试；换另一组不同指标不能解决此问题。"
+            "本次未生成计算结果，不能据此比较增速、计算占比或归因。",
             code="ANALYSIS_CALCULATION_METRIC_MISMATCH",
         )
     metric = metrics[0]

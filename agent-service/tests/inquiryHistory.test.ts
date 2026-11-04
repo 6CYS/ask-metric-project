@@ -3,6 +3,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { BackendApiError, type BackendClient } from "../src/backendClient.js";
 import { prepareInquiryHistory } from "../src/inquiry/history.js";
+import { catalogBindingState, restoreAnalysisDiscovery } from "../src/analysis/bindings.js";
 import { MemoryCommandBridge, testRequestContext } from "../src/tools/testUtils.js";
 
 const user = (content: string): AgentMessage => ({ role: "user", content, timestamp: 0 });
@@ -505,5 +506,260 @@ describe("inquiry 历史问答投影", () => {
         },
       ],
     });
+  });
+});
+
+describe("历史压缩保留已查询指标的一跳关系导航", () => {
+  const relation = {
+    id: "topic:deposit:customers",
+    kind: "classification",
+    status: "draft",
+    parent: "TOTAL",
+    children: ["PERSONAL", "CORP"],
+    source: "客户分类观察，不代表完整组成。",
+    origin: "topic",
+    usage: "navigation_only",
+    notice: "仅用于发现；不授权完整增减贡献。",
+  };
+  const descriptors = [
+    { code: "TOTAL", name: "总存款", unit: "元", binding_ref: "k1" },
+    { code: "PERSONAL", name: "个人存款", unit: "元", binding_ref: "k2" },
+    { code: "CORP", name: "对公存款", unit: "元", binding_ref: "k3" },
+    { code: "OTHER", name: "无关指标", unit: "元", binding_ref: "k4" },
+  ];
+  const binding_map = {
+    "code:TOTAL": "signed-total",
+    k1: "signed-total",
+    "code:PERSONAL": "signed-personal",
+    k2: "signed-personal",
+    "code:CORP": "signed-corp",
+    k3: "signed-corp",
+    "code:OTHER": "signed-other",
+    k4: "signed-other",
+  };
+  function history() {
+    const queried = {
+      ...source,
+      metric_descriptors: [descriptors[0]],
+      evidence_items: [
+        {
+          type: "fact",
+          ref: "raw.total",
+          metric_code: "TOTAL",
+          org_code: source.org_codes[0],
+          date: "2026-08-27",
+          value: "100",
+        },
+      ],
+    };
+    return [
+      user("查询总存款"),
+      assistant([{ type: "toolCall", id: "search", name: "metric_search", arguments: {} }]),
+      tool(
+        "metric_search",
+        {
+          kind: "analysis_catalog",
+          status: "succeeded",
+          candidate_map: descriptors.map((item) => ({
+            ...item,
+            query_recovery: { original_message: "内部恢复字段" },
+          })),
+          binding_map,
+        },
+        JSON.stringify({
+          items: [descriptors[0], descriptors[3]],
+          results: [
+            {
+              matches: [{ binding_ref: "k1" }, { binding_ref: "k4" }],
+              related_metrics: [descriptors[1], descriptors[2]],
+              relations: [
+                relation,
+                {
+                  ...relation,
+                  id: "deeper",
+                  parent: "PERSONAL",
+                  children: ["OTHER"],
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+      assistant([{ type: "toolCall", id: "query", name: "metric_query", arguments: {} }]),
+      tool("metric_query", queried),
+      assistant([{ type: "text", text: "已查总存款" }]),
+      tool("analysis_answer", {
+        kind: "business_report",
+        status: "succeeded",
+        org_codes: source.org_codes,
+        public_answer: "已查总存款",
+        tasks: [],
+      }),
+    ];
+  }
+
+  it("保留完整一跳关系与原引用，丢弃无关候选和二跳，不混入已查询事实", async () => {
+    const messages = [...history(), user("个人和对公分别多少？")];
+    const before = structuredClone(messages);
+    const result = await prepareInquiryHistory(request(), messages);
+
+    expect(result.referenceContext[0]).toMatchObject({
+      sources: [{ metrics: [{ code: "TOTAL" }] }],
+      related_catalog: {
+        items: descriptors.slice(0, 3),
+        results: [{ relations: [relation] }],
+      },
+    });
+    const references = JSON.stringify(result.referenceContext);
+    expect(references).not.toMatch(/OTHER|signed-|deeper|raw.total|query_recovery|内部恢复字段/);
+    expect(JSON.stringify(result.messages)).not.toMatch(/k2|k3|PERSONAL|CORP/);
+    expect(messages).toEqual(before);
+
+    // 执行仍从授权原生回执恢复，投影不重新登记短引用或构造签名。
+    const restored = request();
+    restoreAnalysisDiscovery(
+      restored,
+      result.authorizedMessages.flatMap((message): unknown[] =>
+        message.role === "toolResult" ? [message.details] : [],
+      ),
+    );
+    expect(catalogBindingState(restored)).toMatchObject({
+      k2: "signed-personal",
+      k3: "signed-corp",
+    });
+  });
+
+  it.each(["query_failed", "catalog_failed", "incomplete", "unsigned", "denied"])(
+    "%s 不携带无法完整追溯的历史关系导航",
+    async (failure) => {
+      const messages = history().map((message) => {
+        if (message.role !== "toolResult") return message;
+        if (failure === "query_failed" && message.toolName === "metric_query")
+          return { ...message, isError: true };
+        if (message.toolName !== "metric_search") return message;
+        if (failure === "catalog_failed") return { ...message, isError: true };
+        if (failure === "incomplete")
+          return {
+            ...message,
+            details: {
+              kind: "analysis_catalog",
+              status: "succeeded",
+              binding_map,
+              candidate_map: descriptors.filter((item) => item.code !== "CORP"),
+            },
+          };
+        if (failure === "unsigned")
+          return {
+            ...message,
+            details: {
+              kind: "analysis_catalog",
+              status: "succeeded",
+              candidate_map: descriptors,
+              binding_map: { ...binding_map, k3: "" },
+            },
+          };
+        return message;
+      });
+      const result = await prepareInquiryHistory(request(failure !== "denied"), [
+        ...messages,
+        user("个人和对公分别多少？"),
+      ]);
+
+      expect(result.referenceContext.every((item) => item.related_catalog === undefined)).toBe(
+        true,
+      );
+    },
+  );
+
+  it.each([false, true])("原目录页已截断时保留关系未穷尽标记（重复=%s）", async (duplicate) => {
+    const messages = history().map((message) =>
+      message.role === "toolResult" && message.toolName === "metric_search"
+        ? tool(
+            "metric_search",
+            message.details,
+            JSON.stringify({
+              items: descriptors,
+              results: [
+                ...(duplicate ? [{ relations: [relation] }] : []),
+                { relations: [relation], has_more_relations: true },
+              ],
+            }),
+          )
+        : message,
+    );
+    const result = await prepareInquiryHistory(request(), [...messages, user("分项呢？")]);
+
+    expect(result.referenceContext[0]?.related_catalog).toMatchObject({
+      results: [{ relations: [relation], has_more_relations: true }],
+    });
+  });
+
+  it.each([1, 4])("多页目录关系仍有界并保留完整成员（每组%s项）", async (size) => {
+    const related = Array.from({ length: 30 }, (_, index) => ({
+      ...relation,
+      id: `group-${index}`,
+      children: Array.from({ length: size }, (_, member) => `part-${index}-${member}`),
+    }));
+    const members = [
+      descriptors[0]!,
+      ...related
+        .flatMap((item) => item.children)
+        .map((code, index) => ({
+          code,
+          name: code,
+          unit: "元",
+          binding_ref: `k${index + 2}`,
+        })),
+    ];
+    const bindings = Object.fromEntries(
+      members.flatMap((item) => [
+        [`code:${item.code}`, `signed-${item.code}`],
+        [item.binding_ref, `signed-${item.code}`],
+      ]),
+    );
+    const messages = history().map((message) =>
+      message.role === "toolResult" && message.toolName === "metric_search"
+        ? tool(
+            "metric_search",
+            {
+              kind: "analysis_catalog",
+              status: "succeeded",
+              candidate_map: members,
+              binding_map: bindings,
+            },
+            JSON.stringify({ items: members, relations: related }),
+          )
+        : message,
+    );
+    const result = await prepareInquiryHistory(request(), [...messages, user("分项呢？")]);
+    const catalog = result.referenceContext[0]?.related_catalog as {
+      items: Array<{ code: string }>;
+      results: Array<{
+        relations: Array<{ parent: string; children: string[] }>;
+        has_more_relations: boolean;
+      }>;
+    };
+    expect(catalog.items.length).toBeLessThanOrEqual(24);
+    expect(catalog.results[0]?.relations.length).toBeGreaterThan(0);
+    expect(catalog.results[0]?.relations.length).toBeLessThanOrEqual(8);
+    expect(catalog.results[0]?.has_more_relations).toBe(true);
+    const visible = new Set(catalog.items.map((item) => item.code));
+    for (const item of catalog.results[0]?.relations ?? [])
+      expect([item.parent, ...item.children].every((code) => visible.has(code))).toBe(true);
+  });
+
+  it("不从另一个未查询目标的历史回合借用目录关系", async () => {
+    const discoveryOnly = history().filter(
+      (message) => message.role !== "toolResult" || message.toolName !== "metric_query",
+    );
+    const queryOnly = history().filter(
+      (message) => message.role !== "toolResult" || message.toolName !== "metric_search",
+    );
+    const result = await prepareInquiryHistory(request(), [
+      ...discoveryOnly,
+      ...queryOnly,
+      user("个人和对公分别多少？"),
+    ]);
+    expect(result.referenceContext.every((item) => item.related_catalog === undefined)).toBe(true);
   });
 });

@@ -48,6 +48,8 @@ const searchParameters = Type.Object(
     keywords: Type.Array(Type.String({ minLength: 1, maxLength: 200 }), {
       minItems: 1,
       maxItems: 4,
+      description:
+        "每项独立检索一个完整指标表达，将业务主体与所需口径放在同一项；多项用于不同指标或同一指标的完整替代表达，不是分词后的AND条件。",
     }),
     page: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
     page_size: Type.Optional(Type.Integer({ minimum: 1, maximum: 30 })),
@@ -718,6 +720,9 @@ async function acceptedMetricRefs(
 }
 function reused(source: EvidenceReference, primary = false, requestedMetricCodes?: string[]) {
   const topicCompleted = record(record(source.evidence).topic_execution).completed === true;
+  const sourceMetricCodes = (source.evidence as AnalysisEvidence).metric_descriptors.map(
+    (metric) => metric.code,
+  );
   const reuse = {
     kind: "inquiry_query_reuse",
     status: "succeeded",
@@ -726,21 +731,15 @@ function reused(source: EvidenceReference, primary = false, requestedMetricCodes
     evidence_ref: source.ref,
     run_ref: (source.evidence as AnalysisEvidence).run_ref,
     ...(topicCompleted ? { topic_execution: record(record(source.evidence).topic_execution) } : {}),
-    ...(requestedMetricCodes
-      ? {
-          requested_metric_codes: requestedMetricCodes,
-          source_metric_codes: (source.evidence as AnalysisEvidence).metric_descriptors.map(
-            (metric) => metric.code,
-          ),
-        }
-      : {}),
+    requested_metric_codes: requestedMetricCodes ?? sourceMetricCodes,
+    source_metric_codes: sourceMetricCodes,
   };
   return {
     content: [
       {
         type: "text" as const,
         text: JSON.stringify(
-          requestedMetricCodes || topicCompleted
+          topicCompleted
             ? {
                 ...reuse,
                 notice:
@@ -748,9 +747,7 @@ function reused(source: EvidenceReference, primary = false, requestedMetricCodes
               }
             : {
                 ...inquiryEvidenceView({ ...source.evidence }, source.ref),
-                reused: true,
-                no_new_evidence: true,
-                evidence_ref: source.ref,
+                ...reuse,
               },
         ),
       },
@@ -921,7 +918,7 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
     label: "检索业务指标",
     parameters: searchParameters,
     description:
-      "按业务目标检索正式指标，返回名称、定义、单位、可用方法与k引用。已有符合业务目标与口径的正式候选即可metric_query，无需翻完目录；exact仅表示名称、编码或别名匹配，不代表口径适用。仅候选不足且has_more=true时继续分页，has_more=false时该关键词没有下一页；可以换词检索其他指标。分页未完不能断言不存在。semantic_suggestions只有推荐含义，须再按名称或编码检索取得正式引用。",
+      "按业务目标检索正式指标，返回名称、定义、单位、可用方法与k引用。已有符合业务目标与口径的正式候选即可metric_query，无需翻完目录；exact仅表示名称、编码或别名匹配，不代表口径适用。同一对象存在不同业务口径且用户条件不足以区分时，使用已有候选澄清，不必穷尽目录；重复检索不会补全候选中缺失的定义。仅候选不足且has_more=true时继续分页，has_more=false时该关键词没有下一页；缺少其他目标指标时可另行检索。分页未完不能断言不存在。semantic_suggestions只有推荐含义，须再按名称或编码检索取得正式引用。",
     execute: async (_id, input, _update, request, _invocation, context) => {
       const messages = (await request.turnMessages?.()) ?? [];
       await laneEvidence(request, messages);

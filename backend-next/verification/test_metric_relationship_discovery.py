@@ -18,13 +18,13 @@ from ask_metric.infrastructure.semantic.catalogs import SqlAlchemyMetricCatalogR
 def semantics_factory(tmp_path, monkeypatch):
     monkeypatch.setattr(metric_semantics, "CONFIG_DIR", tmp_path)
 
-    def build(relations, codes=("total", "personal", "company", "share")):
+    def build(relations, codes=("total", "personal", "company", "share"), *, topics=None):
         (tmp_path / "analysis-semantics.json").write_text(
             json.dumps({"relations": relations}), encoding="utf-8",
         )
         return MetricSemantics(
             [MetricCatalogItem(code=code, name=code, unit="元") for code in codes],
-            secret="test-secret", actor_id="test-user", topics={},
+            secret="test-secret", actor_id="test-user", topics=topics or {},
         )
 
     return build
@@ -139,3 +139,221 @@ def test_relation_validation_and_changed_definitions_still_reject_invalid_refere
     changed = semantics_factory([relationship(kind="classification", source="修订分类依据")])
     with pytest.raises(ApplicationError, match="已更新"):
         changed.resolve(reference)
+
+
+@pytest.fixture
+def topic():
+    return {
+        "name": "客户分类",
+        "default_sections": ["scale", "structure"],
+        "metrics": [
+            {
+                "id": code,
+                "code": code,
+                "label": code,
+                "names": [code],
+                "units": ["元"],
+                "value_basis": "当日数",
+                "section": "scale" if code == "total" else "structure",
+            }
+            for code in ("total", "personal", "company", "share")
+        ],
+        "relationships": [
+            {
+                "id": "customers",
+                "type": "classification",
+                "parent": "total",
+                "children": ["personal", "company"],
+                "note": "仅用于客户分类观察；未经完整组成确认不能认定增减贡献。",
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    ("keyword", "expected_codes"),
+    [
+        ("total", ["personal", "company"]),
+        ("personal", ["total", "company"]),
+    ],
+)
+@pytest.mark.parametrize(
+    ("relation_type", "kind"),
+    [
+        ("classification", "classification"),
+        ("reconciliation", "composition"),
+    ],
+)
+def test_bound_topic_is_navigation_without_approving_calculation(
+    semantics_factory,
+    topic,
+    keyword,
+    expected_codes,
+    relation_type,
+    kind,
+):
+    topic["relationships"][0]["type"] = relation_type
+    semantics = semantics_factory([], topics={"customers": topic})
+
+    result = semantics.search(keyword, page_size=1)
+
+    assert [item["code"] for item in result["items"]] == [keyword]
+    assert [item["code"] for item in result["related_metrics"]] == expected_codes
+    (relation,) = result["relations"]
+    assert relation["id"] == "topic:customers:customers"
+    assert (relation["status"], relation["origin"], relation["kind"]) == ("draft", "topic", kind)
+    assert relation["source"] == topic["relationships"][0]["note"]
+    assert relation["usage"] == "navigation_only"
+    assert relation["notice"]
+    for item in result["related_metrics"]:
+        assert semantics.resolve(item["binding_ref"])["code"] == item["code"]
+    assert semantics.relations([semantics.descriptor("total")]) == []
+
+
+@pytest.mark.parametrize("change", ["missing", "disabled", "unit", "unsupported"])
+def test_topic_navigation_does_not_bypass_binding_or_supported_type(
+    semantics_factory,
+    topic,
+    change,
+):
+    if change == "missing":
+        topic["metrics"][2]["code"] = "unavailable"
+    elif change == "disabled":
+        topic["metrics"][2]["disabled_reason"] = "业务口径待核对"
+    elif change == "unit":
+        topic["metrics"][2]["units"] = ["户"]
+    else:
+        topic["relationships"][0]["type"] = "unknown"
+    semantics = semantics_factory([], topics={"customers": topic})
+
+    result = semantics.search("total", page_size=1)
+
+    assert result["relations"] == []
+    assert result["related_metrics"] == []
+
+
+def test_topic_navigation_expands_only_selected_candidates_one_hop(semantics_factory, topic):
+    topic["relationships"].append(
+        {
+            "id": "subgroup",
+            "type": "classification",
+            "parent": "personal",
+            "children": ["share"],
+            "note": "二级分类",
+        }
+    )
+    semantics = semantics_factory([], topics={"customers": topic})
+
+    result = semantics.search("total", page_size=1)
+
+    assert [item["id"] for item in result["relations"]] == ["topic:customers:customers"]
+    assert [item["code"] for item in result["related_metrics"]] == ["personal", "company"]
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_ids"),
+    [
+        ("approved", ["customers"]),
+        ("retired", []),
+        ("draft", ["topic:customers:customers"]),
+    ],
+)
+def test_managed_review_state_controls_equivalent_topic_fallback(
+    semantics_factory,
+    topic,
+    status,
+    expected_ids,
+):
+    managed = relationship(kind="classification", status=status, children=["company", "personal"])
+    semantics = semantics_factory([managed], topics={"customers": topic})
+
+    result = semantics.search("total", page_size=1)
+
+    assert [item["id"] for item in result["relations"]] == expected_ids
+    if status == "approved":
+        assert result["relations"][0]["source"] == "已确认客户分类"
+        assert result["relations"][0]["status"] == "approved"
+    elif status == "retired":
+        assert result["related_metrics"] == []
+    else:
+        assert result["relations"][0]["usage"] == "navigation_only"
+
+
+def test_equivalent_managed_relations_do_not_duplicate_navigation(semantics_factory):
+    semantics = semantics_factory(
+        [
+            relationship(id="first", kind="classification"),
+            relationship(id="second", kind="classification", children=["company", "personal"]),
+        ]
+    )
+
+    result = semantics.search("total", page_size=1)
+
+    assert [item["id"] for item in result["relations"]] == ["first"]
+    assert [item["code"] for item in result["related_metrics"]] == ["personal", "company"]
+
+
+def test_managed_override_does_not_hide_other_topic_groups(semantics_factory, topic):
+    managed = relationship(kind="classification", status="retired", children=["personal"])
+    semantics = semantics_factory([managed], topics={"customers": topic})
+
+    result = semantics.search("total", page_size=1)
+
+    assert [item["id"] for item in result["relations"]] == ["topic:customers:customers"]
+
+
+@pytest.mark.parametrize(
+    "managed",
+    [
+        relationship(),
+        relationship(kind="composition"),
+    ],
+)
+def test_legacy_and_different_relation_kinds_keep_their_semantics(
+    semantics_factory,
+    topic,
+    managed,
+):
+    semantics = semantics_factory([managed], topics={"customers": topic})
+
+    result = semantics.search("total", page_size=1)
+
+    if "kind" not in managed:
+        assert [item["id"] for item in result["relations"]] == ["customers"]
+        assert result["relations"][0]["kind"] == "classification"
+    else:
+        assert [item["kind"] for item in result["relations"]] == ["composition", "classification"]
+
+
+def test_ratio_dependency_order_is_not_deduplicated(semantics_factory):
+    semantics = semantics_factory(
+        [
+            relationship(
+                id="forward", kind="ratio", parent="share", children=["personal", "total"]
+            ),
+            relationship(
+                id="reverse", kind="ratio", parent="share", children=["total", "personal"]
+            ),
+        ]
+    )
+
+    result = semantics.search("share", page_size=1)
+
+    assert [(item["numerator"], item["denominator"]) for item in result["relations"]] == [
+        ("personal", "total"),
+        ("total", "personal"),
+    ]
+
+
+def test_managed_and_topic_navigation_share_existing_limits(semantics_factory, topic):
+    codes = ("total", "personal", "company", "share", *(f"p-{i}" for i in range(8)))
+    relations = [
+        relationship(id=f"r-{i}", kind="classification", children=[f"p-{i}"]) for i in range(8)
+    ]
+    semantics = semantics_factory(relations, codes=codes, topics={"customers": topic})
+
+    result = semantics.search("total", page_size=1)
+
+    assert [item["id"] for item in result["relations"]] == [f"r-{i}" for i in range(8)]
+    assert len(result["related_metrics"]) == 8
+    assert result["has_more_relations"] is True

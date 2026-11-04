@@ -620,6 +620,114 @@ describe("连续无进展的原生工具批次", () => {
     ).toBeUndefined();
   });
 
+  it("普通查询重复复用按实际来源与指标判断，不因换工具或日期写法重新计进展", () => {
+    const details = {
+      kind: "inquiry_query_reuse",
+      status: "succeeded",
+      no_new_evidence: true,
+      run_ref: "query-run-1",
+      requested_metric_codes: ["income", "expense"],
+      source_metric_codes: ["income", "expense"],
+    };
+    const first = batch("first", [{
+      failed: false,
+      args: { date: "latest", metric_refs: ["k1", "k2"] },
+      details,
+    }]);
+    expect(inquiryToolAdmission(first, "metric_query")).toBeUndefined();
+    const read = batch("read", [{
+      name: "analysis_read", failed: false, args: { run_ref: "query-run-1" },
+      details: { ...details, requested_metric_codes: undefined },
+    }]);
+    expect(inquiryToolAdmission([...first, ...read], "metric_query"))
+      .toHaveProperty("block");
+    expect(inquiryToolAdmission([...first, ...batch("unchanged", [{
+      failed: false, args: { date: "2026-07-31", metric_refs: ["k2", "k1"], purpose: "核对" },
+      details: { ...details, requested_metric_codes: ["expense", "income"] },
+    }])], "metric_query")).toHaveProperty("block");
+  });
+
+  it("普通来源切换指标子集或取得新来源后仍允许继续，重复同一子集才收尾", () => {
+    const reuse = (run: string, codes: string[]) => ({
+      failed: false,
+      details: {
+        kind: "inquiry_query_reuse", status: "succeeded", no_new_evidence: true,
+        run_ref: run, requested_metric_codes: codes,
+        source_metric_codes: ["income", "expense"],
+      },
+    });
+    const first = batch("first", [reuse("run-1", ["income"])]);
+    const changed = [...first, ...batch("subset", [reuse("run-1", ["expense"])])];
+    expect(inquiryToolAdmission(changed, "metric_query")).toBeUndefined();
+    expect(inquiryToolAdmission([
+      ...changed, ...batch("unchanged", [reuse("run-1", ["expense"])]),
+    ], "metric_query")).toHaveProperty("block");
+    expect(inquiryToolAdmission([
+      ...first, ...batch("new-source", [reuse("run-2", ["income"])]),
+    ], "metric_query")).toBeUndefined();
+    expect(inquiryToolAdmission([
+      ...first,
+      ...batch("new-evidence", [{ failed: false, details: {
+        kind: "analysis_evidence", status: "succeeded", run_ref: "run-2",
+      } }]),
+      ...batch("reuse-after-progress", [reuse("run-1", ["income"])]),
+    ], "metric_query")).toBeUndefined();
+  });
+
+  it("多来源批量结果全部复用时收敛，实际补回缺少的指标后仍可继续", () => {
+    const details = {
+      kind: "semantic_results", status: "succeeded", no_new_evidence: true,
+      evidence_refs: ["e1", "e2"],
+      query_progress: {
+        requested_metric_codes: ["income", "expense"],
+        completed_metric_codes: ["income", "expense"], pending_metric_codes: [],
+      },
+      results: [],
+    };
+    const first = batch("first", [{ failed: false, details }]);
+    const repeated = batch("repeat", [{
+      failed: false, details: { ...details, evidence_refs: ["e2", "e1"] },
+    }]);
+    expect(inquiryToolAdmission([...first, ...repeated], "metric_query"))
+      .toHaveProperty("block");
+    expect(inquiryToolAdmission([...first, ...batch("new-facts", [{
+      failed: false,
+      details: { ...details, no_new_evidence: false, results: [{
+        kind: "analysis_evidence", status: "succeeded", run_ref: "run-3",
+      }] },
+    }])], "metric_query")).toBeUndefined();
+  });
+
+  it("复用与计算失败交替出现仍识别重复，实际补查成功后重新允许修正", () => {
+    const reused = {
+      failed: false,
+      details: {
+        kind: "inquiry_query_reuse", status: "succeeded", no_new_evidence: true,
+        run_ref: "query-run-1", requested_metric_codes: ["income-growth", "expense-growth"],
+      },
+    };
+    const calculation = {
+      name: "analysis_calculate",
+      args: { current_ref: "e1.v1", base_ref: "e1.v2" },
+      details: { kind: "metric_calculate", status: "error", error_code: "ANALYSIS_CALCULATION_METRIC_MISMATCH" },
+    };
+    const attempted = [...batch("reuse", [reused]), ...batch("calculate", [calculation])];
+    expect(inquiryToolAdmission(attempted, "metric_query")).toBeUndefined();
+    expect(inquiryToolAdmission([...attempted, ...batch("repeat-reuse", [reused])], "metric_query"))
+      .toHaveProperty("block");
+    expect(inquiryToolAdmission([...attempted, ...batch("repeat-calculation", [calculation])], "analysis_calculate"))
+      .toHaveProperty("block");
+    expect(inquiryToolAdmission([
+      ...attempted,
+      ...batch("new-facts", [{ failed: false, details: { kind: "analysis_evidence", status: "succeeded", run_ref: "query-run-2" } }]),
+      ...batch("retry", [reused]),
+    ], "metric_query")).toBeUndefined();
+    expect(inquiryToolAdmission([
+      ...attempted,
+      ...batch("corrected", [{ ...calculation, args: { current_ref: "e2.v1", base_ref: "e2.v2" } }]),
+    ], "analysis_calculate")).toBeUndefined();
+  });
+
   it("主题 focus 真正补出省略事实后重置无进展，重复读取仍会收敛", () => {
     const reused = {
       name: "analysis_read",

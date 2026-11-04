@@ -18,7 +18,7 @@ function evidence(): Record<string, unknown> {
 }
 const view = (value: Record<string, unknown>, ref = "e1") => inquiryEvidenceView(value, ref) as {
   organizations: Record<string, string>; tables: Array<{metric_code: string; date: string; unit: string; columns: string[]; rows: string[][]}>;
-  unavailable_metrics: Array<{metric_code: string; reason: string; row_count: number}>;
+  unavailable_metrics: Array<{metric_code: string; reason: string; row_count: number; data_notice: string}>;
   findings: Array<{ref: string; input_refs: string[]}>; calculations: Array<{ref: string; input_refs: string[]; calculation: unknown}>;
 };
 const tool = (body: unknown, details: unknown, toolName = "resolve_business_turn"): AgentMessage => ({role: "toolResult",
@@ -48,6 +48,46 @@ describe("调查模型紧凑证据视图", () => {
     for (const key of ["source_metric_code", "base_name", "semantic_source", "semantic_status"]) {
       expect(result.tables[0]).not.toHaveProperty(key);
     }
+  });
+  it("百分比编码未知仍明确查询已有数据，不给出可引用的百分比或猜测编码", () => {
+    const source = {...evidence(), row_count: 1, complete: true, gaps: [],
+      org_codes: ["FR001"], org_names: ["江苏江南农村商业银行总行"],
+      metric_descriptors: [{code: "ORG_VRS_DEPT_BAL_CMP_SAMEPRD_INCRRNG", name: "各项存款余额较同期增幅",
+        unit: "%", value_encoding: null}],
+      evidence_items: [{ref: "rate.f1", type: "fact", fact_id: "fact:rate", step_ids: ["s1"],
+        metric_code: "ORG_VRS_DEPT_BAL_CMP_SAMEPRD_INCRRNG", metric_name: "各项存款余额较同期增幅",
+        org_code: "FR001", org_name: "江苏江南农村商业银行总行", date: "2026-08-27", unit: "%",
+        value: "0.0436530066", display: "原始值 0.0436530066（目录单位%，数值编码待确认）"}]};
+    const before = structuredClone(source), result = view(source);
+    expect(result.unavailable_metrics).toMatchObject([{metric_code: "ORG_VRS_DEPT_BAL_CMP_SAMEPRD_INCRRNG",
+      date: "2026-08-27", org_codes: ["FR001"], row_count: 1, reason: "unknown_percentage_encoding",
+      data_status: "present"}]);
+    expect(result.unavailable_metrics[0]?.data_notice).toContain("已取得数值");
+    expect(result).toMatchObject({row_count: 1, gaps: [], query_execution: {complete: true}});
+    expect(result.tables).toEqual([]);
+    expect(JSON.stringify(result)).not.toMatch(/0\.0436530066|4\.37|e1\.v1/);
+    expect(source).toEqual(before);
+  });
+  it("同一指标的已有数值和真正缺值分别标识，零值仍属于已有数据", () => {
+    const source = evidence();
+    source.evidence_items = [{...fact("r.f1", "M2", "A", "编码待确认"), value: "0"},
+      {...fact("r.f2", "M2", "B", "暂无"), value: null}];
+    const result = view(source);
+    expect(result.unavailable_metrics).toMatchObject([
+      {metric_code: "M2", reason: "unknown_percentage_encoding", data_status: "present", row_count: 1, org_codes: ["A"]},
+      {metric_code: "M2", reason: "unknown_percentage_encoding", data_status: "missing", row_count: 1, org_codes: ["B"]},
+    ]);
+    expect(result.unavailable_metrics[1]?.data_notice).toContain("未取得");
+    expect(result.tables).toEqual([]);
+  });
+  it("缺少可用展示格式不等于源值缺失", () => {
+    const source = evidence();
+    source.evidence_items = [{...fact("r.f1", "M1", "A", ""), value: "123"},
+      {...fact("r.f2", "M1", "B", "暂无"), value: null}];
+    expect(view(source).unavailable_metrics).toMatchObject([
+      {reason: "missing_value", data_status: "present", org_codes: ["A"]},
+      {reason: "missing_value", data_status: "missing", org_codes: ["B"]},
+    ]);
   });
   it("完整原子先签发别名再过滤未知比率，不改变后续事实编号或原始回执", () => {
     const source = evidence(), before = structuredClone(source), result = view(source);

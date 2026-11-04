@@ -12,7 +12,7 @@ afterEach(() => {
 })
 
 describe("执行过程展示", () => {
-  it("执行中默认收起，摘要使用真实工具动作", async () => {
+  it("执行中默认展开已结束的步骤，摘要使用真实工具动作", async () => {
     vi.useFakeTimers()
     const html = await renderToString(createSSRApp(diagnostics, {
       question: "查询存款余额", taskIds: [], pending: true,
@@ -21,9 +21,10 @@ describe("执行过程展示", () => {
         { tool: "metric_query", status: "running" },
       ],
     }))
-    expect(html).toContain('aria-label="执行过程" aria-expanded="false"')
+    expect(html).toContain('aria-label="执行过程" aria-expanded="true"')
     expect(html).toContain("正在查询指标数据")
-    expect(html).not.toContain("<ol")
+    expect(html).toContain("<ol")
+    expect(html).toContain("检索指标目录")
   })
 
   it("历史记录默认收起并保留真实步骤数量和耗时", async () => {

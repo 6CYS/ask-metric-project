@@ -23,8 +23,8 @@ const props = defineProps<{
   runTimings?: { auth_ms?: number; total_ms?: number; model_ms?: number[]; tool_ms?: number[];
     first_visible_ms?: number | null; model_first_token_ms?: number[] }
 }>()
-// 默认只显示当前动作，用户展开后即时查看已收到的执行记录。
-const expanded = ref(false)
+// 新一轮默认展开，历史记录默认收起；后续进度和完成状态不覆盖用户的选择。
+const expanded = ref(props.pending)
 // 状态栏复用真实工具状态；没有运行中的工具时显示模型处理阶段。
 const currentStage = computed(() => {
   if (!props.pending) return "执行过程"
@@ -42,9 +42,6 @@ const allSteps = computed(() => [
 ])
 const finishedSteps = computed(() => allSteps.value.filter(call => call.status !== "running"))
 const hasDetails = computed(() => !props.pending || finishedSteps.value.length > 0)
-watch(() => props.pending, () => {
-  expanded.value = false
-})
 const stepsId = useId()
 const statusLabels: Record<string, string> = {
   running: "执行中", done: "已完成", error: "执行失败", interrupted: "已中断", unknown: "未记录执行结果",
@@ -206,9 +203,9 @@ function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? n
             <span v-if="call.elapsedMs !== undefined" class="text-muted-foreground/60 tabular-nums">· {{ call.elapsedMs >= 1000 ? (call.elapsedMs / 1000).toFixed(1) + ' 秒' : call.elapsedMs + ' 毫秒' }}</span>
           </div>
           <ul v-if="call.summary?.conditions?.length" class="mt-1 flex list-none flex-wrap gap-1.5" aria-label="查询条件">
-            <BaseTooltip v-for="condition in call.summary.conditions" :key="condition.label" :content="`${condition.label}：${condition.value}`"><li tabindex="0" class="inline-flex min-w-0 max-w-full gap-1 rounded-md bg-muted/60 px-1.5 py-0.5" :class="condition.wrap ? 'items-start' : 'items-center'">
+            <BaseTooltip v-for="condition in call.summary.conditions" :key="condition.label" :content="`${condition.label}：${condition.value}`"><li tabindex="0" class="inline-flex min-w-0 max-w-full items-start gap-1 rounded-md bg-muted/60 px-1.5 py-0.5">
               <span class="shrink-0 text-muted-foreground/70">{{ condition.label }}</span>
-              <span class="min-w-0 text-foreground/80" :class="condition.wrap ? 'whitespace-pre-line break-words' : 'truncate'">{{ condition.value }}</span>
+              <span class="min-w-0 whitespace-pre-line break-words text-foreground/80">{{ condition.value }}</span>
             </li></BaseTooltip>
           </ul>
         </li>
