@@ -10,7 +10,11 @@ data lake. No runtime SQL joins tables across these two connections.
    `indcr_nm`), joins it in the application with the current metric configuration,
    removes the leading “机构” from the base name, and upserts the final code/name.
 2. The organization job reads the latest organization snapshot. By default it syncs
-   only the 61 legal-entity organizations; it can later sync the complete hierarchy.
+   the configured legal-entity/head-office scope. The expected count (default 61)
+   is advisory: valid records sync while invalid codes are quarantined in the report.
+   Existing entries and aliases are retained, including codes absent from the snapshot.
+   Metrics with missing units or conflicting names are likewise quarantined; an empty
+   valid selection or database/schema failure still fails the synchronization.
 3. Semantic parsing resolves names and aliases against GoldenDB and stores
    `metric_code` and `org_code` in the logical DSL.
 4. The trusted organization permission service restricts `org_code` values before

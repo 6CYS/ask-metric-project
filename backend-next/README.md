@@ -510,20 +510,23 @@ python -m ruff check src scripts
 表名、字段名和配置版本排序复用 `SIT_*`，不得把凭据直接写入命令。
 
 ```bash
-python -m ask_metric sync-metric-catalog --all-snapshots --dry-run
-python -m ask_metric sync-metric-catalog --all-snapshots
+python -m ask_metric sync-metric-catalog --all-snapshots --units /path/to/metric-units.json --dry-run
+python -m ask_metric sync-metric-catalog --all-snapshots --units /path/to/metric-units.json
 ```
 
 第一条只预览，确认汇总后才执行第二条写入应用库；正式 CLI 不带 `--dry-run` 就会写入。
 默认只读最新事实快照；`--all-snapshots` 扫描全部快照中的不同指标定义。
 配置表 `indcr_no` 严格关联事实表 `orig_indcr_no`，配置名称仅去掉开头一次“机构”，
 再直接拼接事实表 `indcr_nm`。最终编码来自事实表 `indcr_no`，不猜测或改写正式口径。
-缺少关联的记录计入跳过数量；同编码不同名称时整批中止，不写入应用库。
+缺少关联、空值/超长编码或名称、同编码不同名称（含最新配置版本歧义）逐编码隔离，
+其余合格记录正常写入，异常记录在 `issues` 中报告；冲突编码不会任选一条写入。
 
 可用 `--units /path/to/metric-units.json` 提供完整名称到原始单位的 JSON 对象；
-`--infer-units` 按已确认规则补充单位，未知单位中止写入，业务数值不参与换算。
-未传单位参数时保留现有单位。不使用 `--full` 做普通增量同步；该参数有额外目录清理语义。
-重复同步按编码更新并启用，保留原有别名及未出现的目录项，不同步指标数值、不修改源库。
+`--infer-units` 显式按既有规则补充单位；未知、非法单位或与既有同编码同名称的单位冲突
+时隔离该编码，业务数值不参与换算。映射缺项可复用同编码同名称的既有单位，新指标必须
+有已确认单位。`--full` 仅兼容旧命令，不删除未返回的目录。
+重复同步按编码更新，保留人工停用状态、原有别名及未出现/异常目录项，
+不同步指标数值、不修改源库。零合格记录及数据库故障明确失败，不视为部署通过。
 同步成功后重启后端刷新目录缓存和向量，初始化完成后再开放问数。
 
 ## 指定机构快照及范围校验
@@ -534,14 +537,19 @@ python -m ask_metric sync-metric-catalog --all-snapshots
 在完成上节环境配置后，先预览再写入：
 
 ```bash
-python -m ask_metric sync-org-catalog --strict-scope --dry-run
-python -m ask_metric sync-org-catalog --strict-scope
+python -m ask_metric sync-org-catalog --dry-run
+python -m ask_metric sync-org-catalog
 ```
 
 `--org-aliases /path/to/org-aliases.json` 接收机构编码到别名数组的映射，只允许本次范围内编码，
-追加并去重，不覆盖原有人工别名。空值、超长编码或名称、同码异名、机构数量不符时中止。
-默认确认范围为 61 家；`--strict-scope` 同时拒绝应用库中已启用的范围外机构。
-遇到编码或范围冲突先核对权限和历史引用，不通过扩大同步范围消除错误。
+追加并去重，不覆盖原有人工别名；非法别名项告警并跳过。空值、超长编码或名称、
+同码异名逐编码隔离。`sit_org_expected_count` 默认 61，只做告警，不限制合格记录写入。
+应用库本次未返回的机构保留并报告；如显式传 `--strict-scope` 则仍拒绝范围外启用机构。
+同步不扩大 SQL 筛选或查询权限；请复核旧目录启用状态与历史引用。
+汇总 `status=PASS` 表示全部合格，`PARTIAL` 表示有合格记录且存在隔离或告警，
+`selected_rows` 为合格编码数；`preserved_existing_codes` 为未更新的既有编码。
+部署报告入口将 PASS/PARTIAL 都返回退出码 0，FAILED 返回非零，详见
+[主数据同步与模型验收](../deploy/package/CATALOG_AND_MODELS.md)。
 这些操作不变更数据库结构，也不修改数据湖；目录变更后重启服务刷新缓存。
 
 ### 一期比较计算限制与相对年份

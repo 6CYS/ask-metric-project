@@ -31,10 +31,28 @@ class SyncSummary:
     disabled: int = 0
     dry_run: bool = False
     selected_codes: set[str] = field(default_factory=set, repr=False)
+    issues: list[dict[str, Any]] = field(default_factory=list)
+    warnings: list[dict[str, Any]] = field(default_factory=list)
+    preserved_existing_codes: list[str] = field(default_factory=list)
+
+    def quarantine(self, code: str, reason: str, *, name: str | None = None) -> None:
+        issue = {"code": code, "reason": reason}
+        if name is not None:
+            issue["name"] = name
+        if issue not in self.issues:
+            self.issues.append(issue)
+        self.errors = len(self.issues)
+
+    @property
+    def status(self) -> str:
+        if not self.selected_rows:
+            return "FAILED"
+        return "PARTIAL" if self.issues or self.warnings else "PASS"
 
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
         result.pop("selected_codes", None)
+        result["status"] = self.status
         return result
 
 
@@ -57,7 +75,13 @@ class CatalogCleanupSummary:
 class OrganizationScopeError(ValueError):
     def __init__(self, codes: list[str]):
         self.codes = codes
-        super().__init__("应用库存在本次61家范围外的启用机构，须先核对编码及引用")
+        super().__init__("应用库存在本次范围外的启用机构，须先核对编码及引用")
+
+
+class CatalogSyncError(ValueError):
+    def __init__(self, summary: SyncSummary):
+        self.summary = summary.to_dict()
+        super().__init__("无合格目录记录；已有数据保留，请查看隔离报告")
 
 
 class SitCatalogSyncService:
@@ -116,6 +140,14 @@ class SitCatalogSyncService:
         configs, skipped = _select_latest(
             config_rows, "indcr_no", columns, effective_field="eff_dt"
         )
+        # 仅当前生效版本存在歧义时隔离，旧版本改名不影响最新版本。
+        latest_names: dict[str, set[str]] = {}
+        for row in config_rows:
+            code = str(row.get("indcr_no") or "").strip()
+            current = configs.get(code)
+            if current is not None and _sort_key(row, columns) == _sort_key(current, columns):
+                latest_names.setdefault(code, set()).add(str(row.get("indcr_nm") or "").strip())
+        conflicting_configs = {code for code, names in latest_names.items() if len(names) > 1}
         # 部署初始化可以读取全部历史编码；既有调用默认仍使用最新快照。
         snapshot_condition = (
             "" if all_snapshots else
@@ -129,42 +161,42 @@ class SitCatalogSyncService:
             f"{fact_value_basis_field} AS indcr_nm "
             f"FROM {fact_table}{snapshot_condition}",
         )
-        selected, catalog_skipped, catalog_errors = _build_metric_catalog(fact_rows, configs)
-        # 单位必须来自已确认映射；校验完整后再打开应用库写入事务。
-        if units_by_name is not None or infer_units:
-            from ask_metric.application.metric_units import MetricUnitError, infer_metric_unit
-
-            units_by_name = {} if units_by_name is None else units_by_name.copy()
-            if not isinstance(units_by_name, dict):
-                raise ValueError("单位映射必须是名称到单位的 JSON 对象")
-            selected_names = {row["metric_name"] for row in selected.values()}
-            if infer_units:
-                for name in selected_names:
-                    if not units_by_name.get(name):
-                        units_by_name[name] = infer_metric_unit(name)
-            missing = {name for name in selected_names if not units_by_name.get(name)}
-            if missing:
-                raise MetricUnitError(sorted(missing))
-            if any(not isinstance(v, str) or not v.strip() or len(v) > 64
-                   for v in (units_by_name[name] for name in selected_names)):
-                raise ValueError("单位必须为 1 至 64 字符的非空文本")
-        if catalog_errors:
-            raise ValueError(
-                f"指标目录存在 {catalog_errors} 条同编码名称冲突，未写入应用库；"
-                "请核对源配置和事实表"
-            )
         summary = SyncSummary(
             source_rows=len(fact_rows),
-            selected_rows=len(selected),
-            skipped=skipped + catalog_skipped,
-            errors=catalog_errors,
+            skipped=skipped,
             dry_run=dry_run,
-            selected_codes=set(selected),
         )
+        selected = _build_metric_catalog(fact_rows, configs, summary, conflicting_configs)
+        if units_by_name is not None and not isinstance(units_by_name, dict):
+            raise ValueError("单位映射必须是名称到单位的 JSON 对象")
+        units = dict(units_by_name or {})
         with self.app_sessions() as session:
             existing = {
                 row.metric_code: row for row in session.execute(select(MetricTerm)).scalars()
             }
+            # 单位逐指标校验；映射缺项时仅复用同编码、同名称的既有单位。
+            # 不把未知单位猜成金额，也不因一个缺失项回滚其他合格记录。
+            for code, row in list(selected.items()):
+                name = row["metric_name"]
+                unit = units.get(name)
+                old = existing.get(code)
+                old_unit = old.unit if old is not None and old.metric_name == name else None
+                if name not in units and old_unit:
+                    unit = old_unit
+                if unit and old_unit and unit != old_unit:
+                    summary.quarantine(code, "conflicting_existing_unit", name=name)
+                    del selected[code]
+                    continue
+                if not unit and infer_units:
+                    from ask_metric.application.metric_units import infer_metric_unit
+
+                    unit = infer_metric_unit(name)
+                if not isinstance(unit, str) or not unit.strip() or len(unit) > 64:
+                    summary.quarantine(code, "missing_or_invalid_unit", name=name)
+                    del selected[code]
+                else:
+                    row["unit"] = unit.strip()
+            _finalize_selection(summary, selected, existing)
             for code, row in selected.items():
                 name = str(row.get("metric_name") or "").strip()
                 if not code or not name:
@@ -180,8 +212,7 @@ class SitCatalogSyncService:
                 before = _metric_state(term)
                 term.metric_name = name
                 term.enabled = True
-                if units_by_name is not None:
-                    term.unit = units_by_name[name]
+                term.unit = row["unit"]
                 after = _metric_state(term)
                 if created:
                     summary.created += 1
@@ -253,44 +284,46 @@ class SitCatalogSyncService:
             },
         )
         selected, skipped = _select_latest(rows, "org_no", ["source_load_date"])
+        summary = SyncSummary(source_rows=len(rows), skipped=skipped, dry_run=dry_run)
         # 同一快照必须能唯一确定名称；不截断超过应用字段长度的源名称。
         seen_names: dict[str, str] = {}
         for row in rows:
             code = str(row.get("org_no") or "").strip()
             name = str(row.get("org_chn_nm") or "").strip()
             if not code or len(code) > 128 or not name or len(name) > 255:
-                raise ValueError("机构编码或名称为空/超长，未写入应用库")
+                summary.quarantine(code, "missing_or_oversized_code_or_name")
             if code in seen_names and seen_names[code] != name:
-                raise ValueError("机构同编码出现不同名称，未写入应用库")
+                summary.quarantine(code, "conflicting_names")
             seen_names[code] = name
+        # 冲突编码的所有候选一起隔离，不依赖数据库返回顺序选择其中一条。
+        for issue in summary.issues:
+            selected.pop(issue["code"], None)
         additions = aliases_by_code if aliases_by_code is not None else {}
-        if not isinstance(additions, dict) or set(additions) - set(selected):
-            raise ValueError("机构别名映射含本次范围以外的编码，未写入应用库")
-        for aliases in additions.values():
-            if not isinstance(aliases, list) or any(
+        if not isinstance(additions, dict):
+            raise ValueError("机构别名映射必须是编码到列表的 JSON 对象")
+        valid_additions: dict[str, list[str]] = {}
+        for code, aliases in additions.items():
+            if code not in selected or not isinstance(aliases, list) or any(
                 not isinstance(alias, str) or not alias.strip() or len(alias) > 255
                 for alias in aliases
             ):
-                raise ValueError("机构别名必须为非空文本列表，每项不超过255字符")
-        if len(selected) != expected_count:
-            raise RuntimeError(
-                "Organization catalog scope returned "
-                f"{len(selected)} rows; expected {expected_count}. "
-                "No application catalog data was written."
-            )
-        summary = SyncSummary(
-            len(rows),
-            len(selected),
-            skipped=skipped,
-            dry_run=dry_run,
-            selected_codes=set(selected),
-        )
+                summary.warnings.append({"code": str(code), "reason": "aliases_not_applied"})
+                continue
+            valid_additions[code] = aliases
         with self.app_sessions() as session:
             existing = {row.org_code: row for row in session.execute(select(OrgTerm)).scalars()}
             outside = sorted(code for code, term in existing.items()
                              if term.enabled and code not in selected)
             if strict_scope and outside:
                 raise OrganizationScopeError(outside)
+            if outside:
+                summary.warnings.append({"reason": "existing_organizations_preserved",
+                                         "codes": outside})
+            _finalize_selection(summary, selected, existing)
+            if summary.selected_rows != expected_count:
+                summary.warnings.append({"reason": "unexpected_organization_count",
+                                         "expected": expected_count,
+                                         "actual": summary.selected_rows})
             for code, row in selected.items():
                 name = str(row.get("org_chn_nm") or "").strip()
                 if not code or not name:
@@ -305,7 +338,8 @@ class SitCatalogSyncService:
                 term.org_name = name
                 # 按机构码追加导出别名，不覆盖目标库已有人工维护的别名。
                 term.aliases = list(dict.fromkeys([
-                    *(term.aliases or []), *(alias.strip() for alias in additions.get(code, [])),
+                    *(term.aliases or []),
+                    *(alias.strip() for alias in valid_additions.get(code, [])),
                 ]))
                 term.enabled = True
                 after = _org_state(term)
@@ -417,24 +451,42 @@ def _validate_field_name(value: str) -> None:
         raise ValueError("Catalog snapshot field must be a SQL identifier")
 
 
+def _finalize_selection(
+    summary: SyncSummary, selected: dict[str, Any], existing: dict[str, Any]
+) -> None:
+    # 人工停用属于运维决策，例行同步不能重新启用。
+    for code in list(selected):
+        if code in existing and not existing[code].enabled:
+            summary.quarantine(code, "existing_record_disabled")
+            del selected[code]
+    summary.selected_rows = len(selected)
+    summary.selected_codes = set(selected)
+    summary.preserved_existing_codes = sorted(set(existing) - set(selected))
+    summary.skipped += len({item["code"] for item in summary.issues})
+    if not selected:
+        raise CatalogSyncError(summary)
+
+
 def _build_metric_catalog(
-    fact_rows: list[dict[str, Any]], configs: dict[str, dict[str, Any]]
-) -> tuple[dict[str, dict[str, Any]], int, int]:
+    fact_rows: list[dict[str, Any]], configs: dict[str, dict[str, Any]],
+    summary: SyncSummary, conflicting_configs: set[str],
+) -> dict[str, dict[str, Any]]:
     selected: dict[str, dict[str, Any]] = {}
-    skipped = 0
-    errors = 0
     for fact in fact_rows:
         metric_code = str(fact.get("indcr_no") or "").strip()
         source_metric_code = str(fact.get("orig_indcr_no") or "").strip()
         value_basis = str(fact.get("indcr_nm") or "").strip()
         config = configs.get(source_metric_code)
-        if not metric_code or not source_metric_code or config is None:
-            skipped += 1
+        if not metric_code or len(metric_code) > 128 or not source_metric_code or config is None:
+            summary.quarantine(metric_code, "missing_or_invalid_code_or_config")
+            continue
+        if source_metric_code in conflicting_configs:
+            summary.quarantine(metric_code, "conflicting_config_names")
             continue
         base_name = _strip_metric_prefix(config.get("indcr_nm"))
         metric_name = _compose_metric_name(base_name, value_basis)
-        if not metric_name:
-            skipped += 1
+        if not base_name or not metric_name or len(metric_name) > 255:
+            summary.quarantine(metric_code, "missing_or_oversized_name")
             continue
         candidate = {
             "metric_name": metric_name,
@@ -444,10 +496,12 @@ def _build_metric_catalog(
         }
         current = selected.get(metric_code)
         if current is not None and current["metric_name"] != metric_name:
-            errors += 1
+            summary.quarantine(metric_code, "conflicting_names")
             continue
         selected[metric_code] = candidate
-    return selected, skipped, errors
+    for issue in summary.issues:
+        selected.pop(issue["code"], None)
+    return selected
 
 
 def _strip_metric_prefix(value: Any) -> str:

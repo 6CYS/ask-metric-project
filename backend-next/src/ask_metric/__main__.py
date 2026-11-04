@@ -25,7 +25,7 @@ def main(argv: list[str] | None = None) -> None:
         command.add_argument(
             "--full",
             action="store_true",
-            help="Disable catalog rows missing from the source snapshot",
+            help="兼容旧命令；仅新增或更新合格记录，保留源端未返回的已有目录",
         )
     subcommands.add_parser("check-data-lake")
     encrypt_config = subcommands.add_parser(

@@ -30,6 +30,7 @@ sit_org_excluded_corporation_code: 086
 sit_org_head_office_corporation_code: '000'
 sit_org_legal_entity_hier_code: '3'
 sit_org_head_office_hier_code: '1'
+# 仅用于数量差异告警；合格记录正常同步，异常隔离，保留既有目录。
 sit_org_expected_count: '61'
 sit_partition_mode: none
 sit_batch_order: etl_date DESC, btch_seq_no DESC
