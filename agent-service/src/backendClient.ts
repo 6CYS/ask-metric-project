@@ -344,6 +344,10 @@ export class BackendClient {
     }, options);
   }
 
+  knowledgeAnalysisPlan(id: string, options?: CallOptions): Promise<unknown> {
+    return this.request(`/api/v1/business-knowledge/${encodeURIComponent(id)}/analysis-plan`, {}, options);
+  }
+
   businessOverview(payload: Record<string, unknown>, key: string, options?: CallOptions): Promise<Record<string, unknown>> {
     return this.request("/api/v1/business-overviews", {method: "POST", body: JSON.stringify(payload)}, {...options, idempotencyKey: key});
   }

@@ -41,11 +41,12 @@ const metric = {
   binding_ref: "signed:ORG_BAD_RT",
 };
 const scopeKnowledge = {
-  id: "quality-scope",
+  id: "loan_quality",
   title: "隔离知识范围",
   text: "本测试的质量观察使用正式不良率。",
   role: "方法参考",
   metric_codes: [metric.code],
+  batch_query_enabled: true,
 };
 const methodKnowledge = {
   id: "ratio-method",
@@ -125,6 +126,8 @@ describe("自动知识在主题查询和追问中的实际交付", () => {
         }),
       );
       const backend = {
+        knowledgeAnalysisPlan: () =>
+          Promise.resolve({ version: "a".repeat(64), entry: { ...scopeKnowledge, enabled: true } }),
         searchBusinessKnowledge: (query: string, terms: string[]) => {
           knowledgeInputs.push({ query, terms });
           const hasMetrics = terms.includes("ORG_BAD_RT 不良贷款比率当日数");

@@ -8,6 +8,7 @@ import type { ResolvedOrganizations } from "../../business-context/types.js";
 import { businessDate } from "../../business-context/resolvers.js";
 import { currentInquiryTarget } from "../target.js";
 import { loadTopicRegistry, type TopicRegistry } from "./registry.js";
+import { knowledgeTopicRegistry, readKnowledgePlan } from "./knowledge.js";
 import { record, records, string, topicEvidenceView } from "./view.js";
 
 function declined(code: string, notice: string, pending: string[] = []): AgentToolResult<unknown> {
@@ -65,11 +66,19 @@ async function latestCommonDate(
 /** 新入口只编排既有受治理查询。原有工具、目标继承和证据存储仍是唯一事实来源。 */
 export function createTopicQueryTool(
   query: AgentHarnessTool<AskMetricRequestContext>,
-  registry: TopicRegistry = loadTopicRegistry(),
+  configuredRegistry?: TopicRegistry,
 ): AgentHarnessTool<AskMetricRequestContext> {
+  const templates = configuredRegistry ?? loadTopicRegistry();
   const parameters = Type.Object(
     {
-      topic_id: Type.Union(registry.topics.map((topic) => Type.Literal(topic.id))),
+      topic_id: configuredRegistry
+        ? Type.Union(configuredRegistry.topics.map((topic) => Type.Literal(topic.id)))
+        : Type.String({
+            minLength: 1,
+            maxLength: 128,
+            description:
+              "本轮业务知识中batch_query_enabled=true的条目ID；按标题和内容判断适用性，不编造ID。",
+          }),
       scope: Type.Union([Type.Literal("named"), Type.Literal("all_banks")]),
       org_names: Type.Array(Type.String({ minLength: 1, maxLength: 200 }), {
         maxItems: 100,
@@ -87,11 +96,13 @@ export function createTopicQueryTool(
   );
   return {
     name: "topic_query",
-    label: "按主题查询并整理事实",
+    label: "按分析方案批量取数",
     parameters,
     description:
       "业务分析主题批量取数，一次执行完整指标方案；方案与所需分析范围一致时优先使用，无需先逐项metric_search。明确限定指标或口径时用metric_query批量查询所需指标，不扩大范围。可用主题：" +
-      registry.topics.map((t) => `${t.id}（${t.name}）：${t.description}`).join("；") +
+      (configuredRegistry
+        ? configuredRegistry.topics.map((t) => `${t.id}（${t.name}）：${t.description}`).join("；")
+        : "以本轮业务知识中batch_query_enabled=true的条目为可执行方案，topic_id填写其id。根据标题、内容及关联指标判断是否适用；资料不足先business_knowledge_search。未开启的知识仅供参考，不能借内置主题绕过管理员开关。") +
       "。主题不替换原问题确定的具体分析范围、机构和期间。输出正式引用、同日排名、完整范围分布、实际日期、缺口及执行完成标记；正常缺数不重试。完成仅表示批量取数结束，不证明解释成立；依据已有事实回答，不因缺少理想指标重新跑整题。",
     execute: async (id, raw, update, request, invocation, context) => {
       const input = raw as {
@@ -100,8 +111,6 @@ export function createTopicQueryTool(
         org_names: string[];
         date: string;
       };
-      const topic = registry.topics.find((item) => item.id === input.topic_id);
-      if (!topic) return declined("TOPIC_NOT_FOUND", "主题不存在，使用默认能力处理该目标。");
       if (request.inquiryAdmission)
         return declined(
           "TOPIC_CONFIRMED_TARGET",
@@ -109,6 +118,45 @@ export function createTopicQueryTool(
         );
       if (input.scope === "named" ? !input.org_names.length : input.org_names.length > 0)
         return declined("TOPIC_SCOPE_REQUIRED", "named须给全部机构；all_banks不混入手写机构列表。");
+      let registry = configuredRegistry;
+      let binding: Record<string, unknown> | undefined;
+      let managedMissing: string[] = [];
+      if (!registry) {
+        try {
+          // 每次执行重验管理员开关，历史候选或旧复用回执不能恢复已停用的方案。
+          const plan = readKnowledgePlan(
+            await request.backend.knowledgeAnalysisPlan(input.topic_id, {
+              signal: context.abortSignal,
+            }),
+            input.topic_id,
+          );
+          binding = await request.backend.analysisBindMetrics(plan.entry.metric_codes, {
+            signal: context.abortSignal,
+          });
+          const compiled = knowledgeTopicRegistry(plan, binding, templates);
+          registry = compiled.registry;
+          managedMissing = compiled.missing;
+          if (!registry)
+            return declined(
+              "TOPIC_BINDING_UNAVAILABLE",
+              "关联指标当前不可查询，请按原目标核对正式目录。",
+              managedMissing,
+            );
+        } catch (cause) {
+          if (
+            !(cause instanceof BackendApiError) ||
+            cause.status !== 404 ||
+            context.abortSignal?.aborted
+          )
+            throw cause;
+          return declined(
+            "TOPIC_NOT_AVAILABLE",
+            "该分析方案不存在、已停用或未开启批量取数，使用自主查询能力。不得改用内置同名方案。",
+          );
+        }
+      }
+      const topic = registry.topics.find((item) => item.id === input.topic_id);
+      if (!topic) return declined("TOPIC_NOT_FOUND", "主题不存在，使用默认能力处理该目标。");
       const key = createHash("sha256")
         .update(
           JSON.stringify({
@@ -150,9 +198,8 @@ export function createTopicQueryTool(
         baseline = current ?? request.inquiryTargetContext?.baseline;
       if (input.date === "inherit" && !baseline)
         return declined("TOPIC_PERIOD_REQUIRED", "没有可继承期间，请按用户问题明确期间。");
-      let binding: Record<string, unknown>;
       try {
-        binding = await request.backend.analysisBindMetrics(
+        binding ??= await request.backend.analysisBindMetrics(
           topic.metric_keys.map((key) => registry.metrics[key]!.code),
           { signal: context.abortSignal },
         );
@@ -169,7 +216,7 @@ export function createTopicQueryTool(
         );
       }
       const items = records(binding.items),
-        missing: string[] = [];
+        missing: string[] = [...managedMissing];
       const matched = topic.metric_keys.flatMap((key) => {
         const metric = registry.metrics[key]!;
         const item = items.find(
@@ -311,6 +358,9 @@ export function createTopicQueryTool(
       const execution = {
         key,
         topic_id: topic.id,
+        topic_name: topic.name,
+        source: configuredRegistry ? "configured_registry" : "business_knowledge",
+        date_policy: topic.date_policy,
         version: registry.version,
         completed: true,
         requested_date: input.date,
