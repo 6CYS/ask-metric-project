@@ -16,11 +16,12 @@ from ask_metric.application.commands import ExecuteQueryCommand, SubmitQuestionC
 from ask_metric.application.data_availability import AvailabilityRequest, execute_availability
 from ask_metric.application.requests import ActorContext, IncomingRequest
 from ask_metric.core.errors import ApplicationError
+from ask_metric.core.runtime_resources import default_business_knowledge_path, runtime_config_dir
 from ask_metric.domain.analysis_methods import AnalysisInquiry
 from ask_metric.domain.basic_query import BasicQuerySpec
 from ask_metric.domain.calculation import CalculationRequest, CalculationScope
 
-CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
+CONFIG_DIR = runtime_config_dir()
 Section = Literal["scale", "growth", "structure", "quality"]
 
 
@@ -78,7 +79,7 @@ def load_topic(topic_id="loan") -> dict:
 
 def read_knowledge(topic_id: str, path: Path | None = None) -> list[dict]:
     # 保留 topic_id 调用兼容；知识统一读取，适用范围由正文说明。
-    return BusinessKnowledgeStore(path or CONFIG_DIR / "business-knowledge.json").read(
+    return BusinessKnowledgeStore(path or default_business_knowledge_path(CONFIG_DIR)).read(
         enabled_only=True,
     )["items"]
 

@@ -19,6 +19,7 @@ FastAPI 后端负责账号与机构权限、指标目录、会话任务、SQL �
 `/api/v1/analysis` 提供正式目录发现、计划校验、运行执行/回查与证据报告。所有数值复用现有
 基础查询、覆盖和计算服务，继续执行现有认证、机构权限与结果复查。无新增数据库迁移或依赖；
 发布需同步 Backend、Agent、业务 Skills、前端及 `config/analysis-semantics.json`。
+离线 wheel 安装时，启动入口须在导入应用前设置 `ASK_METRIC_RUNTIME_CONFIG_DIR`，指向随版本交付的 `backend/runtime/config` 绝对目录；业务主题、分析语义和默认 JSON 配置从此处读取。源码运行未设置时仍使用 `backend-next/config`。`BUSINESS_KNOWLEDGE_PATH` 应显式指向外置持久文件，升级保留现有内容，首次安装才复制模板。后端模型、提示词及语义配置的各自路径变量仍优先；不要以打包机 `.env` 覆盖现场配置。验收应调用实际业务资源加载入口，health/ready 不替代此检查。
 接口与口径维护见 [通用分析底座实施说明](../docs/通用分析底座实施说明.md)。
 
 ### 通用表达式计算

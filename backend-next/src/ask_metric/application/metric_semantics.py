@@ -13,9 +13,10 @@ from ask_metric.application.business_overview import bind_metrics
 from ask_metric.application.catalog_search import search_metrics
 from ask_metric.application.metric_relationships import project_topic_relationships
 from ask_metric.core.errors import ApplicationError
+from ask_metric.core.runtime_resources import runtime_config_dir
 from ask_metric.domain.metric_relationships import MetricRelation
 
-CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
+CONFIG_DIR = runtime_config_dir()
 METHOD_VERSION = "general-analysis-v1"
 DISCOVERY_RELATION_LIMIT = 8
 DISCOVERY_RELATED_METRIC_LIMIT = 24

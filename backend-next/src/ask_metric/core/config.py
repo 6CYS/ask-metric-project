@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
 from ask_metric.core.config_crypto import decrypt_config_value, load_config_sm4_key
+from ask_metric.core.runtime_resources import default_business_knowledge_path, runtime_config_dir
 
 try:  # NoDecode was added after the minimum supported settings release.
     from pydantic_settings import NoDecode
@@ -135,11 +136,11 @@ class Settings(BaseSettings):
     sql_echo: bool = False
     backend_next_allow_schema_changes: bool = False
     backend_next_allow_non_test_database: bool = False
-    model_config_path: Path = PROJECT_DIR / "config" / "model-config.json"
+    model_config_path: Path = runtime_config_dir() / "model-config.json"
     model_secret_env_path: Path = PROJECT_DIR / ".env"
-    prompt_config_path: Path = PROJECT_DIR / "config" / "prompts.json"
-    semantic_config_path: Path = PROJECT_DIR / "config" / "semantic-config.json"
-    business_knowledge_path: Path = PROJECT_DIR / "config" / "business-knowledge.json"
+    prompt_config_path: Path = runtime_config_dir() / "prompts.json"
+    semantic_config_path: Path = runtime_config_dir() / "semantic-config.json"
+    business_knowledge_path: Path = default_business_knowledge_path()
     analysis_semantics_path: Path = PROJECT_DIR / "config" / "analysis-semantics.json"
     config_history_dir: Path = PROJECT_DIR / ".runtime" / "config-history"
     query_result_limit: int = Field(default=1000, gt=0, le=10_000)
