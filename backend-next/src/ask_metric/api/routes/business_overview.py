@@ -95,6 +95,14 @@ def search_knowledge(
     return result
 
 
+@router.get("/business-knowledge/{entry_id}/analysis-plan")
+def read_knowledge_analysis_plan(
+    entry_id: str, request: Request, actor: Annotated[ActorContext, Depends(require_actor)],
+) -> dict:
+    # 普通登录用户只读可执行方案；写入仍由管理员入口及版本控制保护。
+    return knowledge_store(request).analysis_plan(entry_id)
+
+
 @router.post("/business-overviews", dependencies=[Depends(require_query_ready)])
 def execute_overview(
     payload: OverviewRequest,

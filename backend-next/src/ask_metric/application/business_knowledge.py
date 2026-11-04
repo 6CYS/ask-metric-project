@@ -25,6 +25,7 @@ from pydantic import (
     TypeAdapter,
     ValidationError,
     field_validator,
+    model_validator,
 )
 
 from ask_metric.core.errors import ApplicationError
@@ -44,6 +45,7 @@ class KnowledgeFields(BaseModel):
     url: str | None = Field(default=None, max_length=2000)
     date: str | None = None
     enabled: StrictBool = True
+    batch_query_enabled: StrictBool = False
     metric_codes: list[Annotated[str, Field(min_length=1, max_length=150)]] = Field(
         default_factory=list, max_length=100,
     )
@@ -52,6 +54,12 @@ class KnowledgeFields(BaseModel):
     @classmethod
     def distinct_metric_codes(cls, values: list[str]) -> list[str]:
         return list(dict.fromkeys(values))
+
+    @model_validator(mode="after")
+    def batch_query_metrics(self):
+        if self.batch_query_enabled and not 1 <= len(self.metric_codes) <= 24:
+            raise ValueError("支持批量取数时，须关联 1 至 24 个正式指标。")
+        return self
 
     @field_validator("url", "date", mode="before")
     @classmethod
@@ -174,19 +182,40 @@ class BusinessKnowledgeStore:
                         key=lambda item: (has_metric_match(item[0]), score(item[1])),
                         reverse=True)
         entries, remaining = [], 8000
+        batch_selected = False
         for entry, parts in ranked:
             if not has_metric_match(entry) and score(parts) <= 0:
                 break
             # 保留完整正文，不能为节省上下文截掉末尾的适用条件或使用边界。
             if len(entry["text"]) > remaining:
                 continue
+            # 单次先提供最相关的一个取数方案，避免重叠方案挤掉口径与证据边界知识。
+            # 多主题问题仍可按子目标继续检索，不限制默认工具或其他方案的执行。
+            if entry["batch_query_enabled"] and batch_selected:
+                continue
             entries.append({key: entry[key] for key in (
                 "id", "title", "text", "role", "metric_codes",
+                "batch_query_enabled",
             )})
             remaining -= len(entry["text"])
+            batch_selected = batch_selected or entry["batch_query_enabled"]
             if len(entries) == 3:
                 break
         return {"entries": entries, "revision": snapshot["revision"]}
+
+    def analysis_plan(self, entry_id: str) -> dict:
+        snapshot = self.read(enabled_only=True)
+        entry = next((item for item in snapshot["items"] if item["id"] == entry_id
+                      and item["batch_query_enabled"]), None)
+        if entry is None:
+            raise ApplicationError(
+                "BUSINESS_ANALYSIS_PLAN_UNAVAILABLE",
+                "该知识未启用批量取数，请使用自主查询能力。", status_code=404,
+            )
+        # 按条目内容计算版本，其他知识的编辑不使本方案的查询复用失效。
+        serialized = json.dumps(entry, sort_keys=True, ensure_ascii=False).encode()
+        version = hashlib.sha256(serialized).hexdigest()
+        return {"entry": entry, "version": version}
 
     def _persist(self, document: KnowledgeDocument) -> str:
         data = (json.dumps(document.model_dump(mode="json"), ensure_ascii=False, indent=2)
@@ -213,7 +242,9 @@ class BusinessKnowledgeStore:
                     temporary.unlink(missing_ok=True)
         return hashlib.sha256(data).hexdigest()
 
-    def _change(self, revision: str, change: Callable[[list[KnowledgeEntry]], KnowledgeEntry]):
+    def _change(
+        self, revision: str, change: Callable[[list[KnowledgeEntry]], KnowledgeEntry],
+    ) -> dict:
         with _LOCK:
             document, current_revision = self._load()
             if revision != current_revision:
@@ -237,10 +268,17 @@ class BusinessKnowledgeStore:
         def replace(entries):
             index = self._index(entries, entry_id)
             # 精简表单不发送旧资料字段，省略值不能覆盖已保存的元数据。
-            item = KnowledgeEntry.model_validate({
-                **entries[index].model_dump(), **fields.model_dump(exclude_unset=True),
-                "updated_at": datetime.now(UTC),
-            })
+            try:
+                item = KnowledgeEntry.model_validate({
+                    **entries[index].model_dump(), **fields.model_dump(exclude_unset=True),
+                    "updated_at": datetime.now(UTC),
+                })
+            except ValidationError as error:
+                raise ApplicationError(
+                    "BUSINESS_KNOWLEDGE_PLAN_INVALID",
+                    "支持批量取数时，须关联 1 至 24 个正式指标；清空前请先关闭该选项。",
+                    status_code=422,
+                ) from error
             entries[index] = item
             return item
         return self._change(revision, replace)
