@@ -4,12 +4,12 @@ import { Activity, Bug, Clock3, FileClock, RefreshCw, RotateCcw } from "@lucide/
 
 import AppShell from "@/components/AppShell.vue"
 import BackendNextDebugPanel from "@/components/chat/BackendNextDebugPanel.vue"
-import LogTextPreview from "@/components/LogTextPreview.vue"
 import ListPagination from "@/components/ListPagination.vue"
 import PageHeader from "@/components/PageHeader.vue"
 import BaseAlert from "@/components/ui/BaseAlert.vue"
 import BaseBadge from "@/components/ui/BaseBadge.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
+import BaseTextPreview from "@/components/ui/BaseTextPreview.vue"
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton.vue"
 import { getQueryRunDetail, getQueryRunOrganizations, listQueryRuns } from "@/lib/api"
 import type { QueryRunItem } from "@/types/api"
@@ -180,8 +180,8 @@ onMounted(() => loadRuns())
                   <tr v-for="run in items" :key="run.id" class="border-b last:border-0 hover:bg-muted/35">
                     <td class="max-w-[28rem] p-3 whitespace-normal">
                       <div class="min-w-52 max-w-[28rem] space-y-1 whitespace-pre-wrap [overflow-wrap:anywhere]">
-                        <LogTextPreview label="问题" :text="run.resolved_question || run.user_message" class="font-medium" />
-                        <LogTextPreview v-if="run.resolved_question && run.resolved_question !== run.user_message" label="原始问题" :text="run.user_message" class="text-xs text-muted-foreground" />
+                        <BaseTextPreview label="问题" :text="run.resolved_question || run.user_message" class="font-medium" />
+                        <BaseTextPreview v-if="run.resolved_question && run.resolved_question !== run.user_message" label="原始问题" :text="run.user_message" class="text-xs text-muted-foreground" />
                         <BaseBadge v-if="run.clarification_answers?.length" variant="outline">澄清 {{ run.clarification_answers.length }} 次</BaseBadge>
                       </div>
                     </td>
@@ -190,8 +190,11 @@ onMounted(() => loadRuns())
                     <td class="p-3">
                       <span v-if="!(run.raw_org_text || run.matched_text || run.matched_org_name)" class="text-muted-foreground">-</span>
                       <div v-else class="flex w-64 flex-col gap-1.5 whitespace-pre-wrap [overflow-wrap:anywhere]">
-                        <LogTextPreview label="机构匹配信息" :text="organizationText(run)" :load-text="() => loadOrganizationText(run)" />
-                        <BaseBadge v-if="run.org_match_type" variant="outline" class="w-fit">{{ formatOrgMatchType(run.org_match_type) }}</BaseBadge>
+                        <BaseTextPreview label="机构匹配信息" :text="organizationText(run)" :load-text="() => loadOrganizationText(run)" action-label="详情" action-placement="footer">
+                          <template v-if="run.org_match_type" #footer>
+                            <BaseBadge variant="outline" class="w-fit">{{ formatOrgMatchType(run.org_match_type) }}</BaseBadge>
+                          </template>
+                        </BaseTextPreview>
                       </div>
                     </td>
                     <td class="p-3"><BaseBadge :variant="run.status === 'success' ? 'default' : 'outline'">{{ run.status }}</BaseBadge></td>
@@ -200,7 +203,7 @@ onMounted(() => loadRuns())
                       <span v-if="!run.error_message" class="text-muted-foreground">-</span>
                       <div v-else class="flex w-64 flex-col gap-1 whitespace-pre-wrap [overflow-wrap:anywhere]">
                         <span class="font-medium">{{ formatFailedNode(run.failed_node) }}</span>
-                        <LogTextPreview label="错误详情" :text="[run.error_code, run.error_type, run.error_message].filter(Boolean).join('\n')" class="text-xs leading-5 text-destructive" />
+                        <BaseTextPreview label="错误详情" :text="[run.error_code, run.error_type, run.error_message].filter(Boolean).join('\n')" class="text-xs leading-5 text-destructive" />
                       </div>
                     </td>
                     <td class="p-3"><BaseButton variant="ghost" size="sm" :disabled="loadingDebugTaskId === run.task_id" @click="openRunDebug(run)"><Bug :class="['size-3.5', loadingDebugTaskId === run.task_id && 'animate-spin']" />查看</BaseButton></td>
