@@ -450,7 +450,9 @@ class GeneralAnalysisService:
         facts = [fact for fact in query.facts if fact.get("value") is not None] if valid else []
         result = {
             "facts": facts,
-            "tasks": [{"task_id": query.task_id, "status": query.status}],
+            "tasks": [{"task_id": query.task_id, "status": query.status,
+                       "request": spec.model_dump(mode="json"),
+                       "truncated": query.truncated, "error_code": query.error_code}],
             "gaps": []
             if valid
             else [f"查询未取得完整可核验结果：{query.error_code or query.status}"],
@@ -989,6 +991,13 @@ class GeneralAnalysisService:
         for index, notice in enumerate(scope_notices, 1):
             # 范围家数来自服务端目录及授权解析，进入证据而非仅留在提示文案中。
             atoms.append({"ref": f"{prefix}.scope{index}", "type": "scope", "display": notice})
+        # 保留覆盖检查的原始集合与分页边界；日期并集不能变成逐机构完整取数证明。
+        coverage_checks = [
+            {key: item[key] for key in (
+                "request", "scope", "date_count", "earliest", "latest", "dates", "has_more", "gaps",
+            ) if key in item}
+            for item in state.get("coverage", {}).values() if item.get("request")
+        ]
         return {
             "kind": "analysis_evidence",
             "status": "succeeded",
@@ -1040,6 +1049,7 @@ class GeneralAnalysisService:
             "row_count": len(rows),
             "columns": ["metric_name", "org_name", "stat_date", "metric_value", "value_role"],
             "tasks": list({item["task_id"]: item for item in tasks}.values()),
+            **({"coverage_checks": coverage_checks} if coverage_checks else {}),
             # 日期覆盖已执行但无可查日期时没有数值任务，保留这份空结果的真实范围。
             "empty_coverages": [item for item in state.get("coverage", {}).values()
                                 if item.get("request") and item.get("date_count") == 0

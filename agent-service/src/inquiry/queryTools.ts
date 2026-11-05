@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Type, type Static } from "@earendil-works/pi-ai";
+import { Check } from "typebox/value";
 import type {
   AgentHarnessTool,
   AgentMessage,
@@ -7,7 +8,7 @@ import type {
 } from "@earendil-works/pi-agent-core";
 import type { AskMetricRequestContext } from "../requestContext.js";
 import { BackendApiError } from "../backendClient.js";
-import { businessEvidences, type EvidenceReference } from "../answerEvidence.js";
+import { businessEvidences, currentTurnEvidence, type EvidenceReference } from "../answerEvidence.js";
 import {
   analysisCandidates,
   catalogBindingState,
@@ -18,17 +19,20 @@ import type { AnalysisEvidence } from "../analysis/tools.js";
 import type { AnalysisPlan } from "../analysis/contracts.js";
 import type {
   FieldResolution,
+  DateModelValue,
   ResolvedOrganizations,
   TimeAlternative,
 } from "../business-context/types.js";
 import { businessDate } from "../business-context/resolvers.js";
-import { inquiryCatalogView, inquiryEvidenceView } from "./view.js";
+import { inquiryCatalogView, inquiryEvidenceView, inquiryMetadataBlockers, type InquiryMetadataBlocker } from "./view.js";
 import { MAX_QUERY_METRICS, PLAN_METRIC_LIMIT } from "./limits.js";
 import { isCalendarDate } from "../tools/shared.js";
 import { currentTurnMessages } from "../tools/turnContract.js";
 import type { InquiryAcceptedTarget } from "./admission.js";
+import { availabilityScopeKey, reusableAvailability } from "./availabilityReuse.js";
 import {
   inquiryTargetChangeSchema,
+  inquiryDateCalendarSchema,
   currentInquiryTarget,
   inquiryTargetCoverage,
   resolveInquiryTarget,
@@ -104,6 +108,7 @@ const queryParameters = Type.Object(
           "本次取数的统计期或latest；普通查询省略时继承主目标期间，填写时仅改变本次取数，不改变会话主目标。已接纳target_ref及页面选定期间仍由宿主绑定。旧无目标协议省略时沿用所选机构和指标已确认期间。",
       }),
     ),
+    date_calendar: Type.Optional(inquiryDateCalendarSchema),
     method: Type.Union(
       [
         Type.Literal("observe"),
@@ -222,6 +227,19 @@ function error(
     },
   };
 }
+
+function dateResolutionMessage(resolution: FieldResolution): string {
+  switch (resolution.metadata?.reason) {
+    case "unsupported_expression":
+      return "日期表达暂不支持直接解析。保留期间原表达，按业务日期提供对应日历换算后重试；含义不明确时只澄清该期间，不能改查latest。";
+    case "invalid_calendar":
+      return "日期的日历值不合法，请核对并修正原日期；日期换算不能替代非法日历，不能改查latest。";
+    case "incomplete_range":
+      return "日期区间缺少边界，请从已有上下文补齐原期间，仍不明确时澄清缺失边界；不能用单个日期或latest代替原区间。";
+    default:
+      return "取数日期未确定，请按返回原因修正期间原表达或日历换算，不能改成默认最新。";
+  }
+}
 function successful(value: unknown): value is InquiryEvidence {
   return (
     !!value &&
@@ -313,6 +331,46 @@ function catalogSearchPages(messages: AgentMessage[]): CatalogSearchPage[] {
     });
   });
 }
+
+function toolView(message: AgentMessage): Record<string, unknown> | undefined {
+  if (message.role !== "toolResult" || message.content.length !== 1 || message.content[0]?.type !== "text") return;
+  try {
+    return record(JSON.parse(message.content[0].text));
+  } catch {
+    return;
+  }
+}
+
+/** 复用已完成的原页，不用累计候选冒充该页，也不重新注册已签发的短引用。 */
+function reusableCatalogPage(
+  request: AskMetricRequestContext, messages: AgentMessage[], keyword: string, page: number, pageSize: number,
+): Record<string, unknown> | undefined {
+  const bindings = catalogBindingState(request);
+  for (const message of currentTurnMessages(messages).reverse()) {
+    if (message.role !== "toolResult" || message.toolName !== "metric_search" || message.isError) continue;
+    const details = record(message.details);
+    if (details.kind !== "analysis_catalog" || details.status !== "succeeded" ||
+      details.execution_turn_id !== request.operationId) continue;
+    const view = toolView(message);
+    const original = records(view?.results).find(result => result.keyword === keyword &&
+      result.page === page && result.page_size === pageSize && catalogSearchPage(result));
+    if (!original || original.pagination_status === "exhausted") continue;
+    const descriptors = records(view?.items);
+    const items = Array.isArray(original.items) ? records(original.items) : records(original.matches).map(match => {
+      const descriptor = descriptors.find(item => item.binding_ref === match.binding_ref);
+      return descriptor ? { ...descriptor, ...match } : undefined;
+    });
+    if (items.some(item => !item)) return;
+    const savedBindings = record(details.binding_map);
+    if ([...items, ...records(original.related_metrics)].some(item => item && typeof item.binding_ref === "string" &&
+      (savedBindings[item.binding_ref] !== savedBindings[`code:${String(item.code)}`] ||
+        savedBindings[item.binding_ref] !== bindings[item.binding_ref] ||
+        savedBindings[`code:${String(item.code)}`] !== bindings[`code:${String(item.code)}`]))) return;
+    return { ...original, items, reused: true, no_new_evidence: true,
+      reuse_notice: "该目录页已在本轮完整返回，本次复用原候选和分页信息，没有新增检索结果。已有适用候选可直接取数；缺失定义不会通过重读同页补齐。" };
+  }
+  return;
+}
 async function conversationId(request: AskMetricRequestContext, signal?: AbortSignal) {
   let conversation = await request.commands.getConversationId();
   if (!conversation) {
@@ -358,6 +416,40 @@ function queryIdentity(
       }),
     )
     .digest("hex");
+}
+
+function reusableMetadataBlockers(
+  sources: EvidenceReference[], request: AskMetricRequestContext, refs: string[],
+  orgs: ResolvedOrganizations, date: QueryDate, input: QueryInput,
+): {sources: EvidenceReference[]; refs: string[]; blockers: Map<string, InquiryMetadataBlocker[]>} {
+  const reusedSources: EvidenceReference[] = [], reusedRefs = new Set<string>();
+  const blockers = new Map<string, InquiryMetadataBlocker[]>();
+  for (const source of sources) {
+    const evidence = source.evidence as InquiryEvidence, steps = evidence.plan?.steps;
+    const first = steps?.[0];
+    if (evidence.execution_turn_id !== request.operationId || !first) continue;
+    // 只放宽方法身份；用户、轮次、目标、正式绑定版本及授权后机构期间仍须与原请求一致。
+    const originalInput: QueryInput = {purpose: input.purpose, metric_refs: input.metric_refs, method: first.method,
+      ...(input.target_ref ? {target_ref: input.target_ref} : {}),
+      ...(first.comparisons ? {comparisons: first.comparisons} : {}),
+      ...(first.position ? {position: first.position} : {}),
+      ...(first.top_n !== undefined ? {top_n: first.top_n} : {}),
+      ...(first.relation_id ? {relation_id: first.relation_id} : {})};
+    if (steps.some(step => step.method !== first.method || JSON.stringify(step.comparisons) !== JSON.stringify(first.comparisons)
+      || step.position !== first.position || step.top_n !== first.top_n || step.relation_id !== first.relation_id)) continue;
+    const sourceRefs = [...new Set(steps.flatMap(step => step.metric_refs))];
+    const key = queryIdentity(request, sourceRefs, orgs, date, originalInput);
+    if (key !== evidence.query_key && key !== evidence.resolved_query_key) continue;
+    const unavailable = inquiryMetadataBlockers({...evidence});
+    const covered = refs.filter(ref => !reusedRefs.has(ref) && sourceRefs.includes(ref)
+      && evidence.metric_descriptors.some(metric => metric.binding_ref === ref && unavailable.some(item => item.metric_code === metric.code)));
+    if (!covered.length) continue;
+    const codes = new Set(evidence.metric_descriptors.filter(metric => covered.includes(metric.binding_ref)).map(metric => metric.code));
+    reusedSources.push(source);
+    covered.forEach(ref => reusedRefs.add(ref));
+    blockers.set(source.ref, unavailable.filter(item => codes.has(item.metric_code)));
+  }
+  return {sources: reusedSources, refs: [...reusedRefs], blockers};
 }
 
 function reusableObserveSubset(
@@ -718,7 +810,7 @@ async function acceptedMetricRefs(
     (code) => analysisCandidates(request).find((item) => item.code === code)!.binding_ref,
   );
 }
-function reused(source: EvidenceReference, primary = false, requestedMetricCodes?: string[]) {
+function reused(source: EvidenceReference, primary = false, requestedMetricCodes?: string[], metadataBlockers?: InquiryMetadataBlocker[]) {
   const topicCompleted = record(record(source.evidence).topic_execution).completed === true;
   const sourceMetricCodes = (source.evidence as AnalysisEvidence).metric_descriptors.map(
     (metric) => metric.code,
@@ -733,6 +825,7 @@ function reused(source: EvidenceReference, primary = false, requestedMetricCodes
     ...(topicCompleted ? { topic_execution: record(record(source.evidence).topic_execution) } : {}),
     requested_metric_codes: requestedMetricCodes ?? sourceMetricCodes,
     source_metric_codes: sourceMetricCodes,
+    ...(metadataBlockers?.length ? {metadata_blockers: metadataBlockers} : {}),
   };
   return {
     content: [
@@ -763,7 +856,10 @@ function reused(source: EvidenceReference, primary = false, requestedMetricCodes
 
 /** 声明与结果同回执提交；失败和缺数不撤回用户本轮已经改变的查询条件。 */
 async function executeWithInquiryTarget(
-  input: Pick<QueryInput, "target_change" | "independent" | "date" | "scope" | "org_names">,
+  input: Pick<
+    QueryInput,
+    "target_change" | "independent" | "date" | "date_calendar" | "scope" | "org_names"
+  >,
   request: AskMetricRequestContext,
   signal: AbortSignal | undefined,
   execute: (
@@ -771,6 +867,14 @@ async function executeWithInquiryTarget(
     timeAlternative?: TimeAlternative,
   ) => Promise<AgentToolResult<unknown>>,
 ): Promise<AgentToolResult<unknown>> {
+  if (input.date_calendar && !input.date && !request.timeOverride && !request.inquiryAdmission)
+    return error(
+      "ANALYSIS_DATE_UNRESOLVED",
+      "日期换算须附带date原表达，不能独立改变取数期间。",
+      undefined,
+      ["date", "date_calendar"],
+      { validation_stage: "query_date" },
+    );
   if (!request.inquiryTargetContext || request.inquiryAdmission) return execute();
   const messages = (await request.turnMessages?.()) ?? [];
   const current = currentInquiryTarget(messages, request.operationId);
@@ -788,7 +892,11 @@ async function executeWithInquiryTarget(
   }
   let target: InquiryTargetSnapshot;
   let timeAlternative: TimeAlternative | undefined;
-  const resolveTime = async (value: string): Promise<QueryDate> => {
+  const resolveTime = async (
+    value: string,
+    calendar?: DateModelValue,
+    sourceQuestion = value,
+  ): Promise<QueryDate> => {
     const resolution = await request.backend.resolveBusinessField(
       "date",
       [value],
@@ -796,14 +904,17 @@ async function executeWithInquiryTarget(
       undefined,
       {
         business_date: businessDate(),
-        source_question: value,
+        source_question: sourceQuestion,
       },
+      ...(calendar ? [calendar] : []),
     );
     const date = resolution.status === "resolved" ? dateValue(resolution.value) : undefined;
     if (!date)
       throw new InquiryTargetError(
         "ANALYSIS_DATE_UNRESOLVED",
-        "取数日期未确定，请核对请求期间，不能改成默认最新。",
+        dateResolutionMessage(resolution),
+        undefined,
+        { ...resolution, expression: value },
       );
     timeAlternative = resolvedTimeAlternative(resolution, date);
     return date;
@@ -819,7 +930,8 @@ async function executeWithInquiryTarget(
     target = await resolveInquiryTarget(change, {
       ...(base ? { baseline: base } : {}),
       operationId: request.operationId,
-      sourceQuestion: request.originalMessage,
+      sourceQuestion: request.originalMessage || current?.sourceQuestion || "",
+      ...(request.inquiryTargetContext.time_contract ? { timeContract: request.inquiryTargetContext.time_contract } : {}),
       resolveOrganizations: async (scope, names) => {
         const resolved = await queryOrganizations(
           { scope, ...(names ? { org_names: names } : {}) },
@@ -833,7 +945,7 @@ async function executeWithInquiryTarget(
           );
         return resolved;
       },
-      resolveTime,
+      resolveTime: (value, calendar) => resolveTime(value, calendar, request.originalMessage || value),
     });
     if (request.timeOverride)
       target.time = dateValue({
@@ -863,9 +975,13 @@ async function executeWithInquiryTarget(
       return error(
         cause.code,
         cause.message,
-        undefined,
-        cause.validationStage ? [] : undefined,
-        cause.validationStage ? { validation_stage: cause.validationStage } : undefined,
+        cause.resolution,
+        cause.code === "ANALYSIS_DATE_UNRESOLVED"
+          ? ["target_change"]
+          : cause.validationStage ? [] : undefined,
+        cause.code === "ANALYSIS_DATE_UNRESOLVED"
+          ? { validation_stage: "target_date" }
+          : cause.validationStage ? { validation_stage: cause.validationStage } : undefined,
       );
     throw cause;
   }
@@ -886,7 +1002,7 @@ async function executeWithInquiryTarget(
         );
       const time =
         input.date !== undefined && !request.timeOverride
-          ? await resolveTime(input.date)
+          ? await resolveTime(input.date, input.date_calendar)
           : target.time;
       result = await execute(
         { organizations, time },
@@ -895,7 +1011,13 @@ async function executeWithInquiryTarget(
     }
   } catch (cause) {
     if (cause instanceof InquiryTargetError) {
-      result = error(cause.code, cause.message);
+      result = error(
+        cause.code,
+        cause.message,
+        cause.resolution,
+        cause.code === "ANALYSIS_DATE_UNRESOLVED" ? ["date", "date_calendar"] : undefined,
+        cause.code === "ANALYSIS_DATE_UNRESOLVED" ? { validation_stage: "query_date" } : undefined,
+      );
     } else {
       if (
         !(cause instanceof BackendApiError) ||
@@ -912,6 +1034,91 @@ async function executeWithInquiryTarget(
   return { ...result, details: { ...record(result.details), inquiry_target_snapshot: target } };
 }
 
+/** 只预览已有证据能证明的重复调查；未知条件继续交给正式工具解析和校验。 */
+export function inquiryRepeatedInvestigation(
+  tool: string,
+  args: unknown,
+  request: AskMetricRequestContext,
+  messages: AgentMessage[],
+): boolean {
+  if (!request.inquiryTargetContext || request.inquiryAdmission || request.timeOverride) return false;
+  const input = tool === "metric_query" && Check(queryParameters, args)
+    ? args : tool === "metric_availability" && Check(availabilityParameters, args) ? args : undefined;
+  if (!input || input.target_ref) return false;
+  const current = currentTurnMessages(messages);
+  const target = currentInquiryTarget(current, request.operationId);
+  if (!target) return false;
+  const change = input.target_change;
+  if (change && (change.mode !== "continue" || change.base_ref !== target.ref || input.independent ||
+    Object.keys(change).some(key => key !== "mode" && key !== "base_ref"))) return false;
+  if (input.independent && !inquiryTargetCoverage(current, target).complete) return false;
+
+  const orgs = target.organizations;
+  if (input.scope !== undefined || input.org_names !== undefined) {
+    // 精确目录名与编码可对应已有目标；未知别名、子集和集合范围仍须重新解析。
+    if (input.scope !== "named" || !input.org_names || orgs.scope) return false;
+    const selected = input.org_names.map(name => orgs.codes.find((code, index) => name === code || name === orgs.names[index]));
+    if (selected.some(code => !code) || new Set(selected).size !== orgs.codes.length || selected.length !== orgs.codes.length) return false;
+  } else if (input.independent) return false;
+
+  const bindings = catalogBindingState(request), candidates = analysisCandidates(request);
+  const selected = input.metric_refs.map(ref => {
+    const binding = bindings[ref] ?? bindings[`code:${ref}`];
+    const metric = candidates.find(candidate => bindings[candidate.binding_ref] === binding);
+    return binding && metric ? {binding, code: metric.code} : undefined;
+  });
+  if (selected.some(item => !item) || new Set(selected.map(item => item?.binding)).size !== selected.length) return false;
+  const refs = selected.map(item => item!.binding);
+  const metricCodes = selected.map(item => item!.code);
+  const receipts = current.filter(message => message.role === "toolResult").filter(message => !message.isError);
+
+  if (tool === "metric_availability") {
+    const availability = input as Static<typeof availabilityParameters>;
+    const {start, end} = availability;
+    if ((start !== undefined || end !== undefined) &&
+      (!start || !end || !isCalendarDate(start) || !isCalendarDate(end) || start > end)) return false;
+    const spec = {dimension: "dates" as const, org_codes: [...orgs.codes].sort(), metric_codes: metricCodes.sort(),
+      ...(start && end ? {start, end} : {}), match: "any" as const, page: availability.page ?? 1, page_size: availability.page_size ?? 12};
+    const scopeKey = availabilityScopeKey(request, refs, orgs);
+    const previous = reusableAvailability(current, scopeKey, spec);
+    if (!previous) return false;
+    return receipts.some(message => {
+      const details = record(message.details);
+      return message.toolName === "metric_availability" && details.kind === "data_availability" &&
+        details.status === "succeeded" && details.no_new_evidence === true &&
+        details.availability_scope_key === scopeKey && details.availability_source_key === previous.sourceKey;
+    });
+  }
+
+  const query = input as QueryInput;
+  // 日期换算和方法前置条件的纠正不属于旧证据已覆盖的输入。
+  if (query.date_calendar || query.method === "compare" && !query.comparisons?.length ||
+    query.method === "structure" && (!query.relation_id || refs.length > STEP_METRIC_LIMIT)) return false;
+  let date: QueryDate;
+  if (!query.date) {
+    if (input.independent) return false;
+    date = target.time;
+  } else if (isCalendarDate(query.date)) {
+    date = {date_selection: "exact", start: query.date, end: query.date};
+  } else return false;
+  const sources = currentTurnEvidence(current.filter(message => message.role !== "toolResult" || !message.isError))
+    .filter(source => successful(source.evidence));
+  const reusable = reusableMetadataBlockers(sources, request, refs, orgs, date, query);
+  if (reusable.refs.length !== refs.length) return false;
+  return reusable.sources.every(source => {
+    const blockers = reusable.blockers.get(source.ref) ?? [];
+    return blockers.length > 0 && receipts.some(message => {
+      if (message.toolName !== "metric_query") return false;
+      const details = record(message.details);
+      const results = details.kind === "semantic_results" ? records(details.results) : [details];
+      return results.some(result => result.kind === "inquiry_query_reuse" && result.status === "succeeded" &&
+        result.no_new_evidence === true && result.run_ref === record(source.evidence).run_ref &&
+        blockers.every(blocker => strings(result.requested_metric_codes).includes(blocker.metric_code) &&
+          records(result.metadata_blockers).some(previous => previous.metric_code === blocker.metric_code && previous.reason === blocker.reason)));
+    });
+  });
+}
+
 export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestContext>[] {
   const search: AgentHarnessTool<AskMetricRequestContext, typeof searchParameters> = {
     name: "metric_search",
@@ -920,20 +1127,31 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
     description:
       "按业务目标检索正式指标，返回名称、定义、单位、可用方法与k引用。已有符合业务目标与口径的正式候选即可metric_query，无需翻完目录；exact仅表示名称、编码或别名匹配，不代表口径适用。同一对象存在不同业务口径且用户条件不足以区分时，使用已有候选澄清，不必穷尽目录；重复检索不会补全候选中缺失的定义。仅候选不足且has_more=true时继续分页，has_more=false时该关键词没有下一页；缺少其他目标指标时可另行检索。分页未完不能断言不存在。semantic_suggestions只有推荐含义，须再按名称或编码检索取得正式引用。",
     execute: async (_id, input, _update, request, _invocation, context) => {
+      context.abortSignal?.throwIfAborted();
       const messages = (await request.turnMessages?.()) ?? [];
       await laneEvidence(request, messages);
       const previousPages = catalogSearchPages(messages);
       const page = input.page ?? 1,
         pageSize = input.page_size ?? 12;
       const existingRefs = new Set<string>();
+      const fetchPage = async (keyword: string) => {
+        const result = {
+          keyword,
+          ...(await request.backend.analysisCatalog(keyword, page, pageSize, { signal: context.abortSignal })),
+        };
+        const returned = catalogSearchPage(result);
+        return { ...result, ...(returned ? { next_page: returned.has_more ? returned.page + 1 : null } : {}) };
+      };
       const results = await Promise.all(
         [...new Set(input.keywords.map((value) => value.trim()))].map(async (keyword) => {
           const previous = previousPages.filter((item) => item.keyword === keyword);
           const latest = previous.at(-1);
           previous.forEach((item) => item.exact_refs.forEach((ref) => existingRefs.add(ref)));
+          const reused = reusableCatalogPage(request, messages, keyword, page, pageSize);
+          if (reused) return reused;
           const endKnown =
             latest && previous.some((item) => !item.has_more && item.total === latest.total);
-          // 总量与请求偏移量比较，允许换页大小后仍有数据的页；第一页可显式重新检索。
+          // 总量与请求偏移量比较，允许换页大小后仍有数据的页；新回合重新检索。
           if (page > 1 && latest && endKnown && (page - 1) * pageSize >= latest.total) {
             return {
               keyword,
@@ -948,20 +1166,23 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
                 "该关键词已无后续页，本次未重复访问目录。请核对已有候选的定义、单位和方法后取数；不适用时换关键词，不再增加该关键词页码。",
             };
           }
-          const result = {
-            keyword,
-            ...(await request.backend.analysisCatalog(keyword, page, pageSize, {
-              signal: context.abortSignal,
-            })),
-          };
-          const returned = catalogSearchPage(result);
-          return {
-            ...result,
-            ...(returned ? { next_page: returned.has_more ? returned.page + 1 : null } : {}),
-          };
+          return fetchPage(keyword);
         }),
       );
-      const view = record(catalogBindingView(request, { results }));
+      context.abortSignal?.throwIfAborted();
+      const boundResults = results.map(result => record(result).reused === true ? record(result) : record(catalogBindingView(request, result)));
+      // 同批新关键词可能带来新版口径；登记完新结果后再核对复用页，避免并存新旧引用。
+      for (const [index, result] of boundResults.entries()) {
+        if (result.reused === true && typeof result.keyword === "string" &&
+          !reusableCatalogPage(request, messages, result.keyword, page, pageSize))
+          boundResults[index] = record(catalogBindingView(request, await fetchPage(result.keyword)));
+      }
+      context.abortSignal?.throwIfAborted();
+      const reused = boundResults.every(result => result.reused === true);
+      const view: Record<string, unknown> = {
+        results: boundResults,
+        ...(reused ? { reused: true, no_new_evidence: true } : {}),
+      };
       const searchPages = (Array.isArray(view.results) ? view.results : []).flatMap(
         (value: unknown) => {
           const result = record(value),
@@ -1000,6 +1221,8 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
         details: {
           kind: "analysis_catalog",
           status: "succeeded",
+          execution_turn_id: request.operationId,
+          ...(reused ? { reused: true, no_new_evidence: true } : {}),
           search_pages: searchPages,
           ...bindingSnapshot(request),
         },
@@ -1177,6 +1400,7 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
               { signal: context.abortSignal },
               undefined,
               { business_date: businessDate(), source_question: request.originalMessage },
+              ...(input.date_calendar ? [input.date_calendar] : []),
             );
             const calendar = record(resolved.metadata?.source_calendar);
             const ranges = Array.isArray(calendar.ranges)
@@ -1203,8 +1427,10 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
             if (!date && (input.date || (useOriginalPeriod && ranges.length)))
               return error(
                 "ANALYSIS_DATE_UNRESOLVED",
-                "日期尚未确定，请按返回结果修正或确认日期。",
-                resolved,
+                dateResolutionMessage(resolved),
+                { ...resolved, expression: input.date },
+                ["date", "date_calendar"],
+                { validation_stage: "query_date" },
               );
             timeAlternative = resolvedTimeAlternative(resolved, date);
           }
@@ -1239,17 +1465,25 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
           if (!date)
             return error("ANALYSIS_DATE_AMBIGUOUS", "当前统计期间未确定，不能改为默认最新日期。");
           const topicReuse = reusableTopicObservations(current, request, refs, orgs, date, input);
-          const batches = chunks(refs.filter(ref => !topicReuse?.refs.includes(ref)), PLAN_METRIC_LIMIT);
-          if (!batches.length && topicReuse?.sources.length === 1) return reused(topicReuse.sources[0]!, !input.independent, [...metricCodes]);
-          const received: EvidenceReference[] = topicReuse ? [...topicReuse.sources] : [];
+          const metadataReuse = reusableMetadataBlockers(current, request, refs.filter(ref => !topicReuse?.refs.includes(ref)), orgs, date, input);
+          const initialSources = [...new Set([...(topicReuse?.sources ?? []), ...metadataReuse.sources])];
+          const batches = chunks(refs.filter(ref => !topicReuse?.refs.includes(ref) && !metadataReuse.refs.includes(ref)), PLAN_METRIC_LIMIT);
+          if (!batches.length && initialSources.length === 1)
+            return reused(initialSources[0]!, !input.independent, [...metricCodes], metadataReuse.blockers.get(initialSources[0]!.ref));
+          const received: EvidenceReference[] = [...initialSources];
           const results: InquiryEvidence[] = [];
           let reusedSubset = false;
           let failure: Record<string, unknown> | undefined;
           const evidenceOffset = ((await request.answerEvidence?.()) ?? []).length;
-          const purpose = target
-            ? (target.sourceQuestion || "查询已确认指标").slice(0, 500)
-            : input.purpose;
-          const question = request.originalMessage || target?.sourceQuestion || input.purpose;
+          const ordinaryQuestion = target
+            ? undefined
+            : request.originalMessage || currentInquiryTarget(messages, request.operationId)?.sourceQuestion;
+          const question = request.originalMessage || target?.sourceQuestion || ordinaryQuestion || input.purpose;
+          // 同轮各批次回应同一个问题；局部取数目的只解释步骤，不重建业务要求。
+          const requirementQuestion = target
+            ? target.sourceQuestion || "查询已确认指标"
+            : ordinaryQuestion || input.purpose;
+          const purpose = requirementQuestion.slice(0, 500);
           for (const batch of batches) {
             const batchCodes = new Set(
               selectedMetrics
@@ -1277,13 +1511,13 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
             const plan: AnalysisPlan = {
               objective: purpose,
               scope_notice: "本次解析的机构和期间，实际覆盖见取数回执。",
-              requirements: [{ id: "q1", question: purpose }],
+              requirements: [{ id: "q1", question: requirementQuestion.slice(0, 8000) }],
               steps: chunks(batch, STEP_METRIC_LIMIT).map((step, index) => ({
                 id: `s${index + 1}`,
                 method: input.method,
                 metric_refs: [...step].sort(),
                 answers: ["q1"],
-                rationale: purpose,
+                rationale: input.purpose,
                 ...(input.comparisons ? { comparisons: [...input.comparisons].sort() } : {}),
                 ...(input.method === "ranking"
                   ? { position: input.position ?? "top", top_n: rankingLimit(input, orgs) }
@@ -1363,7 +1597,7 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
               results.push(details);
             } catch (cause) {
               if (
-                batches.length === 1 && !topicReuse ||
+                batches.length === 1 && !initialSources.length ||
                 context.abortSignal?.aborted ||
                 (cause instanceof BackendApiError && [401, 403].includes(cause.status))
               )
@@ -1400,7 +1634,7 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
               break;
             }
           }
-          if (batches.length === 1 && !topicReuse) {
+          if (batches.length === 1 && !initialSources.length) {
             if (!results.length)
               return reused(
                 received[0]!,
@@ -1449,7 +1683,10 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
                   ...reuse,
                   query_progress: progress,
                   results: [
-                    ...received.map((item) => topicReuse?.sources.includes(item)
+                    ...received.map((item) => metadataReuse.blockers.has(item.ref)
+                      ? {...inquiryEvidenceView({...item.evidence}, item.ref), kind: "inquiry_query_reuse", status: "succeeded",
+                          no_new_evidence: true, metadata_blockers: metadataReuse.blockers.get(item.ref)}
+                      : topicReuse?.sources.includes(item)
                       ? { kind: "inquiry_query_reuse", status: "succeeded", no_new_evidence: true, evidence_ref: item.ref,
                           run_ref: (item.evidence as AnalysisEvidence).run_ref, notice: "已完成部分沿用原引用，本次只查询剩余指标。" }
                       : inquiryEvidenceView({ ...item.evidence }, item.ref)),
@@ -1485,6 +1722,7 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
     description:
       "指定日期没有数据或需要确认哪天有记录时，用正式k引用查看日期覆盖。target_change、target_ref与independent边界同metric_query：已接纳目标的指标与机构由宿主绑定，覆盖查询本身不算目标已完成取数。默认不填start/end，返回所选指标与授权机构的全部已有日期范围、最早/最新日期及分页。仅查特定区间时成对填写start/end，局部区间为空不能推断整体没有数据。覆盖查询不改变原问数日期，发现其他日期不能静默替换用户条件。有记录不等于数值有效或连续覆盖。",
     execute: async (_id, input, _update, request, _invocation, context) => {
+      context.abortSignal?.throwIfAborted();
       const result = await executeWithInquiryTarget(
         input,
         request,
@@ -1555,7 +1793,33 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
             page: input.page ?? 1,
             page_size: input.page_size ?? 12,
           };
-          const result = await request.backend.dataAvailability(spec, {
+          const availabilityKey = createHash("sha256").update(JSON.stringify({
+            actor: request.actor.id, session: request.sessionId, operation: request.operationId,
+            target: input.target_ref ?? null, spec,
+            bindings: selected.map(item => item.signature).sort(),
+            scope: orgs.scope ?? null, fingerprint: orgs.scope_fingerprint ?? null,
+          })).digest("hex");
+          const scopeKey = availabilityScopeKey(request, selected.map(item => item.signature!), orgs, input.target_ref);
+          const messages = (await request.turnMessages?.()) ?? [];
+          // 机构与正式指标仍先核验；旧回执只走精确条件复用，完整新回执才可推导子区间。
+          const previous = currentTurnMessages(messages).reverse().find(message =>
+            message.role === "toolResult" && message.toolName === "metric_availability" && !message.isError &&
+            record(message.details).kind === "data_availability" && record(message.details).status === "succeeded" &&
+            record(message.details).availability_key === availabilityKey);
+          const previousView = previous && toolView(previous);
+          context.abortSignal?.throwIfAborted();
+          if (previous?.role === "toolResult" && previousView) {
+            const reuse = { reused: true, no_new_evidence: true };
+            return {
+              content: [{ type: "text", text: JSON.stringify({ ...previousView, ...reuse,
+                reuse_notice: "该机构、指标、日期范围和页码已在本轮查询，本次复用原日期证据，没有新增记录；有日期记录仍不代表指标数值有效。" }) }],
+              details: { ...record(previous.details), ...reuse, availability_scope_key: scopeKey,
+                availability_source_key: record(previous.details).availability_source_key ?? availabilityKey,
+                execution_turn_id: request.operationId, request: spec },
+            };
+          }
+          const reused = reusableAvailability(messages, scopeKey, spec);
+          const result = reused?.result ?? await request.backend.dataAvailability(spec, {
             signal: context.abortSignal,
           });
           if (result.status !== "succeeded")
@@ -1580,12 +1844,18 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
             page: result.page,
             page_size: result.page_size,
             notice: result.notice,
+            ...(reused ? {reused: true, no_new_evidence: true,
+              reuse_notice: "本次日期范围已包含在本轮完整覆盖证据中，按本次范围和页码筛选已有日期，没有新增记录；有日期记录仍不代表指标数值有效。"} : {}),
           };
           return {
             content: [{ type: "text", text: JSON.stringify(view) }],
             details: {
               kind: "data_availability",
               ...result,
+              availability_key: availabilityKey,
+              availability_scope_key: scopeKey,
+              ...(reused ? {reused: true, no_new_evidence: true, availability_source_key: reused.sourceKey} : {}),
+              execution_turn_id: request.operationId,
               request: spec,
               ...(target
                 ? {

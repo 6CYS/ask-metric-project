@@ -14,12 +14,13 @@ export function knowledgePayload(
     if ([...trimmed].length > max) throw new Error(`${label}不能超过 ${max} 字。`)
     return trimmed
   }
-  const title = text(form.title, "标题", 200)
-  const content = text(form.text, "知识内容", 8000)
-  if (!revision) throw new Error("请先重新读取业务知识，再保存。")
+  const isPlan = form.batch_query_enabled === true
+  const title = text(form.title, isPlan ? "方案名称" : "标题", 200)
+  const content = text(form.text, isPlan ? "适用场景与查询说明" : "知识内容", 8000)
+  if (!revision) throw new Error(isPlan ? "请先重新读取查询方案，再保存。" : "请先重新读取业务知识，再保存。")
   const codes = [...new Set((form.metric_codes ?? []).map((code) => code.trim()).filter(Boolean))]
-  if (form.batch_query_enabled && (codes.length < 1 || codes.length > 24))
-    throw new Error("支持批量取数时，请关联 1 至 24 个指标。")
+  if (isPlan && (codes.length < 1 || codes.length > 24))
+    throw new Error("查询方案须关联 1 至 24 个指标。")
   return {
     title,
     text: content,

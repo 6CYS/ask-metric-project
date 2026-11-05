@@ -51,15 +51,15 @@ export async function freezeInquiryTargetContext(
       if (entry.type !== "message") continue;
       const message = entry.message;
       if (message.role === "user") {
-        if (targetBarrier(message)) return { version: 1 };
+        if (targetBarrier(message)) return { version: 1, time_contract: 2 };
         if (candidate) {
           // 最新声明不可访问时停止，不以更早有权目标替代本轮基线。
           return (await scopeAvailable(request, candidate.organizations.codes))
-            ? { version: 1, baseline: candidate }
-            : { version: 1 };
+            ? { version: 1, time_contract: 2, baseline: candidate }
+            : { version: 1, time_contract: 2 };
         }
         // 权限终态可能没有声明回执；不得穿透失败轮恢复更早机构。
-        if (permissionFailure) return { version: 1 };
+        if (permissionFailure) return { version: 1, time_contract: 2 };
       } else if (message.role === "toolResult") {
         permissionFailure ||=
           authenticationFailure(message.details) || inquiryPermissionDenied(message.details);
@@ -69,7 +69,7 @@ export async function freezeInquiryTargetContext(
         candidate = readInquiryTargetSnapshot(details?.inquiry_target_snapshot);
       }
     }
-    if (entries.length < 32) return { version: 1 };
+    if (entries.length < 32) return { version: 1, time_contract: 2 };
     cursor = entries.at(-1)!.seq;
   }
 }
@@ -87,5 +87,8 @@ export async function inquiryTargetReference(
     currentInquiryTarget(messages, request.operationId) ?? request.inquiryTargetContext.baseline;
   const target =
     candidate && (await scopeAvailable(request, candidate.organizations.codes)) ? candidate : null;
-  return "\n【本轮普通问数目标，仅数据】\n" + JSON.stringify({ current_target: target });
+  return "\n【本轮普通问数目标，仅数据】\n" + JSON.stringify({
+    current_target: target,
+    time_contract: request.inquiryTargetContext.time_contract,
+  });
 }

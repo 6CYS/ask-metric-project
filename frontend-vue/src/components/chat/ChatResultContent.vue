@@ -27,16 +27,30 @@ import {
   getVisibleResultColumns,
   shouldTruncateResultColumn,
 } from "@/lib/resultColumns"
-import { resolveResultVisualization, type ResultView } from "@/lib/resultVisualization"
+import { resolveResultVisualization, type ResultView, type VisualizationDecision } from "@/lib/resultVisualization"
 
 // ECharts 体积较大，仅在展示决策允许图表时加载对应代码块。
 const ChatResultChart = defineAsyncComponent(() => import("@/components/chat/ChatResultChart.vue"))
 
-const props = withDefaults(defineProps<{ response: ChatResponse; question?: string; clarificationResolved?: boolean; showDebugButton?: boolean; streamAnswer?: boolean; showDataDetails?: boolean }>(), { question: "", clarificationResolved: false, showDebugButton: false, streamAnswer: false, showDataDetails: true })
+const props = withDefaults(defineProps<{
+  response?: ChatResponse
+  pending?: boolean
+  provisionalText?: string
+  fallbackText?: string
+  question?: string
+  clarificationResolved?: boolean
+  showDebugButton?: boolean
+  streamAnswer?: boolean
+  showDataDetails?: boolean
+}>(), { pending: false, fallbackText: "", question: "", clarificationResolved: false, showDebugButton: false, streamAnswer: false, showDataDetails: true })
+// 预览和终态共用正文实例；附件只在正式交付后进入此处，不构造缺失的业务结果。
+const response = computed<Partial<ChatResponse>>(() => props.pending ? {} : props.response ?? {})
+const emptyVisualization: VisualizationDecision = { defaultView: "table", allowedViews: ["table"], points: [], reason: "" }
 const emit = defineEmits<{ debug: []; answerStreamComplete: [] }>()
-const visualization = computed(() => resolveResultVisualization(props.response, props.question))
+const visualization = computed(() => !props.pending && props.response
+  ? resolveResultVisualization(props.response, props.question) : emptyVisualization)
 const selectedResultView = ref<ResultView | null>(null)
-const hasReportChart = computed(() => Boolean(props.response.analysis_report?.charts?.length))
+const hasReportChart = computed(() => Boolean(response.value.analysis_report?.charts?.length))
 const resultMode = computed<ResultView>(() => {
   if (hasReportChart.value) return "table"
   return selectedResultView.value && visualization.value.allowedViews.includes(selectedResultView.value)
@@ -48,10 +62,10 @@ const resultPageSizeOptions = RESULT_PAGE_SIZE_OPTIONS.map(value => ({ value, la
 const isDownloading = ref(false)
 const downloadError = ref("")
 // 有图表或自然报告时先展示结论，完整明细仍可按需展开。
-const isDataDetailsOpen = ref(Boolean(props.response.result?.table?.rows.length)
-  && props.response.analysis_report?.body_mode !== "narrative" && resultMode.value === "table")
+const isDataDetailsOpen = ref(Boolean(response.value.result?.table?.rows.length)
+  && response.value.analysis_report?.body_mode !== "narrative" && resultMode.value === "table")
 // Agent 先交付回执再异步读取结果；首批行到达时展开，后续更新不覆盖用户的折叠选择。
-watch(() => [Boolean(props.response.result?.table?.rows.length), props.response.analysis_report?.body_mode] as const, ([hasRows, mode], [hadRows, oldMode]) => {
+watch(() => [Boolean(response.value.result?.table?.rows.length), response.value.analysis_report?.body_mode] as const, ([hasRows, mode], [hadRows, oldMode]) => {
   if (mode === "narrative" && oldMode !== mode) isDataDetailsOpen.value = false
   else if (hasRows && !hadRows) isDataDetailsOpen.value = mode !== "narrative" && resultMode.value === "table"
 })
@@ -66,8 +80,8 @@ const statusLabels: Record<string, string> = {
   base_zero: "基期为零，变化率不可用",
 }
 const statusDefinitions = computed(() => {
-  const rows = props.response.result?.table?.rows ?? []
-  if (!rows.length || !props.response.result?.table?.columns.includes("status")) return []
+  const rows = response.value.result?.table?.rows ?? []
+  if (!rows.length || !response.value.result?.table?.columns.includes("status")) return []
   const sample = rows[0] ?? {}
   const values = "left_org" in sample || "right_org" in sample
     ? ["ok", "ratio_unavailable"]
@@ -76,17 +90,17 @@ const statusDefinitions = computed(() => {
       : [...new Set(rows.map((row) => String(row.status)).filter((value) => value in statusLabels))]
   return values.map((value) => ({ value, label: statusLabels[value] }))
 })
-const showAnswer = computed(() => props.clarificationResolved || !props.response.clarification?.fields?.length)
+const showAnswer = computed(() => props.clarificationResolved || !response.value.clarification?.fields?.length)
 const rawDisplayAnswer = computed(() => {
-  if (props.response.clarification) return clarificationTranscript(props.response.clarification, props.response.answer)
-  if (props.response.answer !== "已生成查询计划，等待执行。") return props.response.answer
-  const count = props.response.result?.table?.rows.length
-  return typeof count !== "number" ? props.response.answer : count ? `查询完成，找到 ${count} 条记录。` : "查询完成，暂无匹配数据。"
+  if (response.value.clarification) return clarificationTranscript(response.value.clarification, response.value.answer ?? "")
+  if (response.value.answer !== "已生成查询计划，等待执行。") return response.value.answer ?? props.fallbackText
+  const count = response.value.result?.table?.rows.length
+  return typeof count !== "number" ? response.value.answer ?? "" : count ? `查询完成，找到 ${count} 条记录。` : "查询完成，暂无匹配数据。"
 })
 // answerSource 保留 markdown 结构供块级渲染；displayAnswer 是纯文本副本，供复制等场景使用
-const answerSource = computed(() => stripInternalDisplayHints(rawDisplayAnswer.value))
+const answerSource = computed(() => props.response ? stripInternalDisplayHints(rawDisplayAnswer.value) : rawDisplayAnswer.value)
 // 服务端给出的结构化回答块；非空时渲染与复制都优先使用它
-const responseBlocks = computed(() => props.response.answer_blocks?.length ? props.response.answer_blocks : null)
+const responseBlocks = computed(() => response.value.answer_blocks?.length ? response.value.answer_blocks : null)
 const displayAnswer = computed(() => responseBlocks.value ? flattenAssistantBlocks(responseBlocks.value) : answerSource.value)
 const renderedAnswer = ref("")
 const answerStreamComplete = ref(true)
@@ -99,7 +113,7 @@ function stopAnswerStream() {
 
 function renderAnswer(answer: string) {
   stopAnswerStream()
-  if (!props.streamAnswer || props.response.clarification || answer.length < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  if (!props.streamAnswer || response.value.clarification || answer.length < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     renderedAnswer.value = answer
     answerStreamComplete.value = true
     return
@@ -130,16 +144,23 @@ onBeforeUnmount(stopAnswerStream)
 const answerMarkdown = computed(() => answerStreamComplete.value && responseBlocks.value
   ? blocksToMarkdown(responseBlocks.value)
   : renderedAnswer.value.trim())
-const resultRowCount = computed(() => props.response.result?.table?.rows.length ?? 0)
+const resultRowCount = computed(() => response.value.result?.table?.rows.length ?? 0)
 const hasResultRows = computed(() => resultRowCount.value > 0)
 const hasDataToolbar = computed(() => props.showDataDetails && answerStreamComplete.value
-  && Boolean(props.response.result?.table) && hasResultRows.value)
+  && Boolean(response.value.result?.table) && hasResultRows.value)
 // 版本化报告按语义区块展示；旧消息与普通查数仍沿用原来的正文路径。
-const analysisReport = computed(() => answerStreamComplete.value ? props.response.analysis_report : undefined)
+const analysisReport = computed(() => answerStreamComplete.value ? response.value.analysis_report : undefined)
 const narrativeReport = computed(() => analysisReport.value?.body_mode === "narrative")
+const bodyMarkdown = computed(() => props.pending ? props.provisionalText ?? ""
+  : analysisReport.value?.summary ?? (props.response ? answerMarkdown.value : props.fallbackText))
+const showBody = computed(() => showAnswer.value && (!props.pending || Boolean(props.provisionalText)))
+const bodyClass = computed(() => analysisReport.value
+  ? ["space-y-3", narrativeReport.value ? "leading-7" : "rounded-lg border border-border/70 bg-muted/20 p-4"]
+  : props.pending ? "leading-7"
+    : props.response ? "group/answer relative space-y-1.5 break-words leading-7 pr-9" : "leading-6")
 // 自然报告的复制与明细入口共享一行，避免空正文容器撑开间距、悬浮按钮压到入口上。
 const copyInDataToolbar = computed(() => narrativeReport.value && showAnswer.value
-  && props.showDataDetails && answerStreamComplete.value && hasResultRows.value && Boolean(props.response.result?.table))
+  && props.showDataDetails && answerStreamComplete.value && hasResultRows.value && Boolean(response.value.result?.table))
 const defaultReportLayout = ["summary", "data", "analysis"] as const
 type ReportBlock = typeof defaultReportLayout[number]
 function reportBlockStyle(block: ReportBlock) {
@@ -151,9 +172,9 @@ function reportBlockStyle(block: ReportBlock) {
 function reportLabel(key: "summary" | "data" | "analysis", fallback: string) {
   return analysisReport.value?.labels?.[key] ?? fallback
 }
-const resultRows = computed(() => props.response.result?.table?.rows ?? [])
+const resultRows = computed(() => response.value.result?.table?.rows ?? [])
 const visibleResultColumns = computed(() => getVisibleResultColumns(
-  props.response.result?.table?.columns ?? [],
+  response.value.result?.table?.columns ?? [],
   resultRows.value,
 ))
 // 单指标结果把指标名称提到表头说明，表格只保留有区分度的列
@@ -171,7 +192,7 @@ const activeChartView = computed<Exclude<ResultView, "table"> | null>(() => resu
 const chartWasLimited = computed(() => !hasChartView.value && visualization.value.reason.includes("超过"))
 
 watch(
-  [() => props.response.message_id, () => props.question],
+  [() => response.value.message_id, () => props.question],
   () => {
     selectedResultView.value = null
     resultPage.value = 1
@@ -204,7 +225,7 @@ function formatCell(value: unknown, column: string, row: Record<string, unknown>
 }
 
 async function downloadResult() {
-  const taskId = props.response.download?.task_id
+  const taskId = response.value.download?.task_id
   if (!taskId || isDownloading.value) return
   isDownloading.value = true
   downloadError.value = ""
@@ -232,10 +253,17 @@ async function copyAnswer() {
 
 <template>
   <div class="flex min-w-0 flex-col gap-3">
-    <section v-if="showAnswer && analysisReport" :style="reportBlockStyle('summary')" class="space-y-3" :class="narrativeReport ? 'leading-7' : 'rounded-lg border border-border/70 bg-muted/20 p-4'" aria-label="经营分析结论">
-      <h3 v-if="!narrativeReport" class="font-semibold">{{ reportLabel('summary', '主要结论') }}</h3>
-      <p class="break-words text-xs leading-6 text-muted-foreground">{{ analysisReport.scope }}</p>
-      <ChatMarkdown :source="analysisReport.summary" />
+    <!-- 正文始终位于同一父节点；预览、普通回答和自然报告只切换来源及现有样式。 -->
+    <section v-show="showBody" :style="reportBlockStyle(analysisReport ? 'summary' : 'analysis')" :class="bodyClass" :aria-label="analysisReport ? '经营分析结论' : undefined" :aria-live="!pending && response.answer && !analysisReport ? 'polite' : undefined" :data-provisional-answer="pending && provisionalText ? '' : undefined">
+      <h3 v-if="analysisReport && !narrativeReport" class="font-semibold">{{ reportLabel('summary', '主要结论') }}</h3>
+      <p v-if="analysisReport" class="break-words text-xs leading-6 text-muted-foreground">{{ analysisReport.scope }}</p>
+      <BaseDisclosure v-if="!analysisReport && response.analysis_plan?.length" class="mb-3 rounded-md border bg-muted/30 px-3 py-2 text-sm" trigger-class="font-medium">
+        <template #trigger>分析思路</template>
+        <ul class="mt-2 list-disc space-y-1 pl-5"><li v-for="question in [...new Set(response.analysis_plan)]" :key="question">{{ question }}</li></ul>
+      </BaseDisclosure>
+      <ChatMarkdown :source="bodyMarkdown" :class="!pending && !props.response && 'leading-6'" />
+      <span v-if="pending && provisionalText || !answerStreamComplete" class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" />
+      <BaseTooltip v-if="!pending && props.response && !analysisReport && answerStreamComplete && answerMarkdown" :content="isAnswerCopied ? '已复制' : '复制回答'"><button type="button" class="absolute -top-1 right-0 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button></BaseTooltip>
     </section>
     <div v-if="answerStreamComplete && response.metric_definition" class="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border/70 pt-2 text-xs text-muted-foreground">
       <span>指标依据：{{ response.metric_definition.metric_name }}</span>
@@ -293,7 +321,7 @@ async function copyAnswer() {
     </div>
 
 
-    <div v-if="showAnswer && (!copyInDataToolbar || analysisReport?.sections.length || analysisReport?.charts?.length)" :style="reportBlockStyle('analysis')" class="group/answer relative space-y-1.5 break-words leading-7" :class="!copyInDataToolbar && 'pr-9'" aria-live="polite">
+    <div v-if="showAnswer && analysisReport && (!copyInDataToolbar || analysisReport.sections.length || analysisReport.charts?.length)" :style="reportBlockStyle('analysis')" class="group/answer relative space-y-1.5 break-words leading-7" :class="!copyInDataToolbar && 'pr-9'" aria-live="polite">
       <template v-if="analysisReport">
         <section v-for="(section, index) in analysisReport.sections" :key="index" class="mb-5 space-y-2" :aria-label="section.title">
           <h3 class="font-semibold">{{ section.title }}</h3>
@@ -303,16 +331,10 @@ async function copyAnswer() {
           :pie="chart.type === 'pie' ? chart : undefined" :series="chart.type !== 'pie' ? chart : undefined" />
         <!-- 必要限制由正文说明；来源、分析依据与完成状态保留在回执中，不额外渲染卡片。 -->
       </template>
-      <BaseDisclosure v-else-if="response.analysis_plan?.length" class="mb-3 rounded-md border bg-muted/30 px-3 py-2 text-sm" trigger-class="font-medium">
-        <template #trigger>分析思路</template>
-        <ul class="mt-2 list-disc space-y-1 pl-5"><li v-for="question in [...new Set(response.analysis_plan)]" :key="question">{{ question }}</li></ul>
-      </BaseDisclosure>
-      <ChatMarkdown v-if="!analysisReport" :source="answerMarkdown" />
-      <span v-if="!answerStreamComplete" class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" />
       <BaseTooltip v-if="answerStreamComplete && answerMarkdown && !copyInDataToolbar" :content="isAnswerCopied ? '已复制' : '复制回答'"><button type="button" class="absolute -top-1 right-0 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button></BaseTooltip>
     </div>
     <p v-if="answerCopyError" class="text-xs text-[#78663E]">{{ answerCopyError }}</p>
-    <div v-if="answerStreamComplete && !hasDataToolbar && $slots.actions" class="order-last flex flex-wrap items-center gap-3 text-xs">
+    <div v-if="!pending && answerStreamComplete && !hasDataToolbar && $slots.actions" class="order-last flex flex-wrap items-center gap-3 text-xs">
       <slot name="actions" />
     </div>
 

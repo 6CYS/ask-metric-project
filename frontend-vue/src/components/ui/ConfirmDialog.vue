@@ -10,12 +10,14 @@ const props = withDefaults(
     title: string
     busy?: boolean
     confirmLabel?: string
+    cancelLabel?: string
     busyLabel?: string
     variant?: "default" | "destructive"
   }>(),
   {
     busy: false,
     confirmLabel: "确认删除",
+    cancelLabel: "取消",
     busyLabel: "删除中...",
     variant: "destructive",
   },
@@ -33,7 +35,9 @@ function confirm() {
   <BaseModal :open="open" :title="title" :busy="busy" size="sm" @update:open="updateOpen">
     <div class="text-sm leading-6 text-muted-foreground"><slot /></div>
     <template #footer>
-      <BaseButton variant="outline" :disabled="busy" @click="updateOpen(false)">取消</BaseButton>
+      <BaseButton variant="outline" :disabled="busy" @click="updateOpen(false)">{{
+        cancelLabel
+      }}</BaseButton>
       <BaseButton :variant="variant" :disabled="busy" @click="confirm"
         ><LoaderCircle v-if="busy" class="animate-spin" /><Trash2
           v-else-if="confirmLabel === '确认删除'"

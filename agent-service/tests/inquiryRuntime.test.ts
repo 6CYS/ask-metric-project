@@ -9,6 +9,7 @@ import {
   inquiryBudgetExhausted,
   inquiryPayload,
   inquiryRecoveryAvailable,
+  inquiryResponse,
   inquirySystemPrompt,
   inquiryToolAdmission,
 } from "../src/inquiry/runtime.js";
@@ -70,6 +71,106 @@ describe("流式正文的模型输出协议", () => {
       tools: [],
       tool_choice: "auto",
     });
+  });
+});
+
+describe("计算工具按已有事实提供", () => {
+  const tools = ["metric_query", "analysis_read", "analysis_calculate", "analysis_answer"].map(name => ({name}));
+  const fact = (ref: string, overrides: Record<string, unknown> = {}) => ({
+    ref, type: "fact", fact_id: `fact:${ref}`, metric_code: "M1", org_code: "A",
+    date: "2026-07-31", value: "100", unit: "元", ...overrides,
+  });
+  const source = (facts: unknown[], overrides: Record<string, unknown> = {}) => ({
+    kind: "analysis_evidence", status: "succeeded", run_ref: "run-1", execution_turn_id: "op-1",
+    metric_descriptors: [{code: "M1", binding_ref: "signed:M1:v1", unit: "元"}],
+    evidence_items: facts, ...overrides,
+  });
+  const receipt = (details: unknown, toolName = "metric_query"): AgentMessage => ({
+    role: "toolResult", toolCallId: `${toolName}-result`, toolName, content: [],
+    details, isError: false, timestamp: 0,
+  });
+  const visible = (messages: AgentMessage[]) => inquiryPayload({tools}, messages).tools;
+
+  it("没有事实或只有不同正式指标的单点时隐藏计算，查询与读取仍开放", () => {
+    expect(visible([])).toEqual(tools.slice(0, 2));
+    const one = source([fact("a")]);
+    const other = source([fact("b", {metric_code: "M2"})], {
+      run_ref: "run-2", metric_descriptors: [{code: "M2", binding_ref: "signed:M2:v1", unit: "元"}],
+    });
+    expect(visible([receipt(one), receipt(other)])).toEqual([tools[0], tools[1], tools[3]]);
+    expect(visible([receipt(source([], {row_count: 0}))])).toEqual([tools[0], tools[1], tools[3]]);
+  });
+
+  it.each([
+    {label: "同机构两期", change: {date: "2026-06-30"}},
+    {label: "同日跨机构", change: {org_code: "B"}},
+    {label: "同机构同日两条事实", change: {}},
+  ])("$label仍提供计算，不扩大后端前置条件", ({change}) => {
+    expect(visible([receipt(source([fact("a"), fact("b", change)]))])).toEqual(tools);
+  });
+
+  it("机构日期同时变化没有可比对，后续成功取数补齐后恢复", () => {
+    const messages = [receipt(source([fact("a"), fact("b", {org_code: "B", date: "2026-06-30"})]))];
+    expect(visible(messages)).toEqual([tools[0], tools[1], tools[3]]);
+    messages.push(receipt(source([fact("c", {date: "2026-06-30"})], {run_ref: "run-2"})));
+    expect(visible(messages)).toEqual(tools);
+  });
+
+  it("本轮鉴权读取的旧事实可以计算，新用户回合不会自动继承", () => {
+    const old = receipt(source([fact("a"), fact("b", {date: "2026-06-30"})], {
+      execution_turn_id: "old-op", result_reused: true,
+    }), "analysis_read");
+    expect(visible([old])).toEqual(tools);
+    expect(visible([old, {role: "user", content: "下一问", timestamp: 1}])).toEqual(tools.slice(0, 2));
+  });
+
+  it("混合批次按各来源完整事实判断，不因失败分项或不适用指标关闭合法计算", () => {
+    const details = {kind: "semantic_results", status: "partial", results: [
+      {kind: "inquiry_query_error", status: "error"},
+      source([fact("a"), fact("b", {date: "2026-06-30"})]),
+      source([fact("ratio", {metric_code: "M2", unit: "%"})], {
+        run_ref: "run-2", metric_descriptors: [{code: "M2", binding_ref: "signed:M2:v1", unit: "%", value_encoding: null}],
+      }),
+    ]};
+    expect(visible([receipt(details)])).toEqual(tools);
+  });
+
+  it("口径版本不同的同代码事实不能组成一对，匹配版本补齐后恢复", () => {
+    const messages = [receipt(source([fact("a")])), receipt(source([fact("b", {date: "2026-06-30"})], {
+      run_ref: "run-2", metric_descriptors: [{code: "M1", binding_ref: "signed:M1:v2", unit: "元"}],
+    }))];
+    expect(visible(messages)).toEqual([tools[0], tools[1], tools[3]]);
+    messages.push(receipt(source([fact("c", {org_code: "B"})], {run_ref: "run-3"})));
+    expect(visible(messages)).toEqual(tools);
+  });
+
+  it("明确未确认百分比编码不能提供计算，已确认编码的事实仍可计算", () => {
+    const ratioFacts = [fact("a", {unit: "%"}), fact("b", {unit: "%", date: "2026-06-30"})];
+    const descriptors = [{code: "M1", binding_ref: "signed:M1:v1", unit: "%", value_encoding: null}];
+    expect(visible([receipt(source(ratioFacts, {metric_descriptors: descriptors}))])).toEqual([tools[0], tools[1], tools[3]]);
+    expect(visible([receipt(source(ratioFacts, {metric_descriptors: [{...descriptors[0], value_encoding: "ratio"}]}))])).toEqual(tools);
+  });
+
+  it("重复回执和派生计算不能增加原始事实数量", () => {
+    const one = source([fact("a"), fact("calc", {type: "calculation"})]);
+    expect(visible([receipt(one), receipt(one, "analysis_read")])).toEqual([tools[0], tools[1], tools[3]]);
+  });
+
+  it.each([
+    {kind: "analysis_evidence", status: "succeeded"},
+    source([{ref: "old.fact", type: "fact"}], {metric_descriptors: []}),
+  ])("旧回执缺少事实身份时保守保留计算，后端仍最终校验", details => {
+    expect(visible([receipt(details, "analysis_read")])).toEqual(tools);
+  });
+
+  it("未来查询未回执时不猜测已有事实，完成后自然恢复", () => {
+    const pending: AgentMessage = {
+      role: "assistant", content: [{type: "toolCall", id: "pending", name: "metric_query", arguments: {}}],
+      api: "openai-completions", provider: "test", model: "test", stopReason: "toolUse", timestamp: 0,
+      usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0}},
+    };
+    expect(visible([pending])).toEqual(tools.slice(0, 2));
+    expect(visible([pending, receipt(source([fact("a"), fact("b", {date: "2026-06-30"})]))])).toEqual(tools);
   });
 });
 
@@ -543,7 +644,12 @@ describe("调查交付边界", () => {
 describe("连续无进展的原生工具批次", () => {
   function batch(
     id: string,
-    results: Array<{ name?: string; failed?: boolean; details?: unknown; args?: Record<string, unknown> }>,
+    results: Array<{
+      name?: string;
+      failed?: boolean;
+      details?: unknown;
+      args?: Record<string, unknown>;
+    }>,
     pending = 0,
   ): AgentMessage[] {
     const calls = results.map((result, index) => ({
@@ -582,577 +688,463 @@ describe("连续无进展的原生工具批次", () => {
     ];
   }
 
-  it("相同失败连续两个完成批次后收敛，新的用户回合重新计算", () => {
-    const messages = [...batch("first", [{}]), ...batch("second", [{}, {}])];
-    expect(inquiryToolAdmission(messages, "metric_query")).toMatchObject({
+  it("局部重复计算只拒绝原输入，正常取数及修正引用仍进入工具执行", () => {
+    const args = { current_ref: "e1.v1", base_ref: "e1.v2" };
+    const failure = {
+      name: "analysis_calculate",
+      args,
+      details: {
+        kind: "metric_calculate",
+        status: "error",
+        calculation_key: "old-key",
+        error_code: "ANALYSIS_CALCULATION_METRIC_MISMATCH",
+      },
+    };
+    const messages = [...batch("first", [failure]), ...batch("second", [failure])];
+    expect(inquiryBudgetExhausted(messages)).toBe(false);
+    expect(inquiryToolAdmission(messages, "analysis_calculate", args)).toMatchObject({
+      block: { terminate: false },
+    });
+    expect(inquiryToolAdmission(messages, "metric_query", { metric_refs: ["k2"] })).toBeUndefined();
+    expect(
+      inquiryToolAdmission(messages, "analysis_calculate", { ...args, base_ref: "e2.v1" }),
+    ).toBeUndefined();
+    const tools = [{ name: "metric_query" }, { name: "analysis_calculate" }];
+    expect(inquiryPayload({ tools }, messages).tools).toEqual([tools[0]]);
+    const next = batch("next", [{ args: { metric_refs: ["k2"] } }])[0];
+    if (next?.role !== "assistant") throw new Error("缺少下一次调用");
+    expect(
+      inquiryResponse(
+        { ...next, stopReason: "toolUse" },
+        testRequestContext({} as BackendClient, new MemoryCommandBridge()),
+        messages,
+      ),
+    ).toEqual(next);
+  });
+
+  it.each([
+    { name: "metric_search", args: { keywords: ["理财"], page: 1 }, kind: "analysis_catalog" },
+    {
+      name: "metric_availability",
+      args: { metric_refs: ["k1"], start: "2026-01-01", end: "2026-06-30" },
+      kind: "data_availability",
+    },
+  ])("局部重复成功回执只限制原请求：$name", ({ name, args, kind }) => {
+    const result = {
+      name,
+      args,
+      failed: false,
+      details: { kind, status: "succeeded", no_new_evidence: true },
+    };
+    const messages = [...batch("first", [result]), ...batch("second", [result])];
+    expect(inquiryToolAdmission(messages, name, args)).toMatchObject({
+      block: { terminate: false },
+    });
+    expect(inquiryToolAdmission(messages, "metric_query", { metric_refs: ["k1"] })).toBeUndefined();
+    expect(inquiryToolAdmission(messages, name, { ...args, page: 2 })).toBeUndefined();
+  });
+
+  it("局部重复不能用旧校验阶段遮住新日期换算和目标修正", () => {
+    const args = { target_change: { mode: "new", topic: "理财", date: "这半年" } };
+    const details = {
+      kind: "inquiry_query_error",
+      status: "error",
+      code: "ANALYSIS_DATE_UNRESOLVED",
+      correction_fields: [],
+      validation_stage: "target_new:date,organizations",
+      target_ref: "old",
+    };
+    const messages = [
+      ...batch("first", [{ args, details }]),
+      ...batch("second", [{ args, details }]),
+    ];
+    expect(inquiryToolAdmission(messages, "metric_query", args)).toHaveProperty("block");
+    expect(
+      inquiryToolAdmission(messages, "metric_query", {
+        ...args,
+        date_calendar: { start: "2026-05-01", end: "2026-10-31" },
+      }),
+    ).toBeUndefined();
+    expect(
+      inquiryToolAdmission(messages, "metric_query", {
+        target_change: {
+          ...args.target_change,
+          organizations: { mode: "replace", scope: "named", names: ["紫金"] },
+        },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("同一输入在两个完成批次失败后局部拒绝，新的用户回合重新计算", () => {
+    const args = { metric_refs: ["k1"], date: "2026-08-27" };
+    const result = { args };
+    const messages = [...batch("first", [result]), ...batch("second", [result, result])];
+    expect(inquiryToolAdmission(messages, "metric_query", args)).toMatchObject({
       block: { terminate: false },
     });
     expect(
       inquiryToolAdmission(
         [...messages, { role: "user", content: "新问题", timestamp: 1 }],
         "metric_query",
+        args,
       ),
     ).toBeUndefined();
+    expect(inquiryToolAdmission(messages, "metric_query")).toBeUndefined();
   });
 
-  it("已完成主题的同一来源换指标子集仍无进展，其他来源不混算", () => {
-    const details = {
-      kind: "inquiry_query_reuse",
-      status: "succeeded",
-      no_new_evidence: true,
-      run_ref: "topic-run-1",
-      topic_execution: { completed: true, pending_metric_codes: [] },
-    };
-    const first = batch("first", [
-      { failed: false, args: { metric_refs: ["k1"] }, details },
-    ]);
-    const changed = { failed: false, args: { metric_refs: ["k2"] }, details };
+  it("同批重复与尚未完成的批次不算两次尝试", () => {
+    const args = { metric_refs: ["k1"] },
+      result = { args };
     expect(
-      inquiryToolAdmission([...first, ...batch("subset", [changed])], "metric_query"),
-    ).toHaveProperty("block");
+      inquiryToolAdmission(batch("parallel", [result, result, result]), "metric_query", args),
+    ).toBeUndefined();
     expect(
       inquiryToolAdmission(
-        [...first, ...batch("other-source", [{
-          ...changed, details: { ...details, run_ref: "topic-run-2" },
-        }])],
+        [...batch("first", [result]), ...batch("pending", [result, result], 1)],
         "metric_query",
+        args,
       ),
     ).toBeUndefined();
+    const orphaned = batch("orphaned", [result, result]).slice(1);
+    expect(inquiryToolAdmission(orphaned, "metric_query", args)).toBeUndefined();
   });
 
-  it("普通查询重复复用按实际来源与指标判断，不因换工具或日期写法重新计进展", () => {
+  it("来源复用不跨工具或不同实际查询合并为整题停滞", () => {
     const details = {
       kind: "inquiry_query_reuse",
       status: "succeeded",
       no_new_evidence: true,
-      run_ref: "query-run-1",
-      requested_metric_codes: ["income", "expense"],
-      source_metric_codes: ["income", "expense"],
+      run_ref: "run-1",
     };
-    const first = batch("first", [{
-      failed: false,
-      args: { date: "latest", metric_refs: ["k1", "k2"] },
-      details,
-    }]);
-    expect(inquiryToolAdmission(first, "metric_query")).toBeUndefined();
-    const read = batch("read", [{
-      name: "analysis_read", failed: false, args: { run_ref: "query-run-1" },
-      details: { ...details, requested_metric_codes: undefined },
-    }]);
-    expect(inquiryToolAdmission([...first, ...read], "metric_query"))
-      .toHaveProperty("block");
-    expect(inquiryToolAdmission([...first, ...batch("unchanged", [{
-      failed: false, args: { date: "2026-07-31", metric_refs: ["k2", "k1"], purpose: "核对" },
-      details: { ...details, requested_metric_codes: ["expense", "income"] },
-    }])], "metric_query")).toHaveProperty("block");
+    const args = { metric_refs: ["k1"], date: "latest" };
+    const query = { args, failed: false, details };
+    const read = { name: "analysis_read", args: { run_ref: "run-1" }, failed: false, details };
+    const messages = [...batch("query", [query]), ...batch("read", [read])];
+    expect(inquiryToolAdmission(messages, "metric_query", args)).toBeUndefined();
+    const repeated = [...messages, ...batch("query-again", [query])];
+    expect(inquiryToolAdmission(repeated, "metric_query", args)).toHaveProperty("block");
+    expect(inquiryToolAdmission(repeated, "analysis_read", read.args)).toBeUndefined();
+    expect(
+      inquiryToolAdmission(repeated, "metric_query", { ...args, date: "2026-07-31" }),
+    ).toBeUndefined();
   });
 
-  it("普通来源切换指标子集或取得新来源后仍允许继续，重复同一子集才收尾", () => {
-    const reuse = (run: string, codes: string[]) => ({
+  it("多来源全部复用只限制原调用，缺少指标补回后解除旧计数", () => {
+    const args = { metric_refs: ["k1", "k2"] };
+    const result = {
+      args,
       failed: false,
       details: {
-        kind: "inquiry_query_reuse", status: "succeeded", no_new_evidence: true,
-        run_ref: run, requested_metric_codes: codes,
-        source_metric_codes: ["income", "expense"],
-      },
-    });
-    const first = batch("first", [reuse("run-1", ["income"])]);
-    const changed = [...first, ...batch("subset", [reuse("run-1", ["expense"])])];
-    expect(inquiryToolAdmission(changed, "metric_query")).toBeUndefined();
-    expect(inquiryToolAdmission([
-      ...changed, ...batch("unchanged", [reuse("run-1", ["expense"])]),
-    ], "metric_query")).toHaveProperty("block");
-    expect(inquiryToolAdmission([
-      ...first, ...batch("new-source", [reuse("run-2", ["income"])]),
-    ], "metric_query")).toBeUndefined();
-    expect(inquiryToolAdmission([
-      ...first,
-      ...batch("new-evidence", [{ failed: false, details: {
-        kind: "analysis_evidence", status: "succeeded", run_ref: "run-2",
-      } }]),
-      ...batch("reuse-after-progress", [reuse("run-1", ["income"])]),
-    ], "metric_query")).toBeUndefined();
-  });
-
-  it("多来源批量结果全部复用时收敛，实际补回缺少的指标后仍可继续", () => {
-    const details = {
-      kind: "semantic_results", status: "succeeded", no_new_evidence: true,
-      evidence_refs: ["e1", "e2"],
-      query_progress: {
-        requested_metric_codes: ["income", "expense"],
-        completed_metric_codes: ["income", "expense"], pending_metric_codes: [],
-      },
-      results: [],
-    };
-    const first = batch("first", [{ failed: false, details }]);
-    const repeated = batch("repeat", [{
-      failed: false, details: { ...details, evidence_refs: ["e2", "e1"] },
-    }]);
-    expect(inquiryToolAdmission([...first, ...repeated], "metric_query"))
-      .toHaveProperty("block");
-    expect(inquiryToolAdmission([...first, ...batch("new-facts", [{
-      failed: false,
-      details: { ...details, no_new_evidence: false, results: [{
-        kind: "analysis_evidence", status: "succeeded", run_ref: "run-3",
-      }] },
-    }])], "metric_query")).toBeUndefined();
-  });
-
-  it("复用与计算失败交替出现仍识别重复，实际补查成功后重新允许修正", () => {
-    const reused = {
-      failed: false,
-      details: {
-        kind: "inquiry_query_reuse", status: "succeeded", no_new_evidence: true,
-        run_ref: "query-run-1", requested_metric_codes: ["income-growth", "expense-growth"],
+        kind: "semantic_results",
+        status: "succeeded",
+        no_new_evidence: true,
+        evidence_refs: ["e1", "e2"],
+        query_progress: { requested_metric_codes: ["M1", "M2"] },
       },
     };
-    const calculation = {
-      name: "analysis_calculate",
-      args: { current_ref: "e1.v1", base_ref: "e1.v2" },
-      details: { kind: "metric_calculate", status: "error", error_code: "ANALYSIS_CALCULATION_METRIC_MISMATCH" },
-    };
-    const attempted = [...batch("reuse", [reused]), ...batch("calculate", [calculation])];
-    expect(inquiryToolAdmission(attempted, "metric_query")).toBeUndefined();
-    expect(inquiryToolAdmission([...attempted, ...batch("repeat-reuse", [reused])], "metric_query"))
-      .toHaveProperty("block");
-    expect(inquiryToolAdmission([...attempted, ...batch("repeat-calculation", [calculation])], "analysis_calculate"))
-      .toHaveProperty("block");
-    expect(inquiryToolAdmission([
-      ...attempted,
-      ...batch("new-facts", [{ failed: false, details: { kind: "analysis_evidence", status: "succeeded", run_ref: "query-run-2" } }]),
-      ...batch("retry", [reused]),
-    ], "metric_query")).toBeUndefined();
-    expect(inquiryToolAdmission([
-      ...attempted,
-      ...batch("corrected", [{ ...calculation, args: { current_ref: "e2.v1", base_ref: "e2.v2" } }]),
-    ], "analysis_calculate")).toBeUndefined();
+    const messages = [...batch("first", [result]), ...batch("repeat", [result])];
+    expect(inquiryToolAdmission(messages, "metric_query", args)).toHaveProperty("block");
+    expect(inquiryToolAdmission(messages, "metric_query", { metric_refs: ["k3"] })).toBeUndefined();
+    const progress = batch("new-facts", [
+      {
+        failed: false,
+        details: {
+          kind: "semantic_results",
+          status: "partial",
+          results: [{ kind: "analysis_evidence", status: "succeeded", run_ref: "new" }],
+        },
+      },
+    ]);
+    expect(
+      inquiryToolAdmission(
+        [...messages, ...progress, ...batch("retry", [result])],
+        "metric_query",
+        args,
+      ),
+    ).toBeUndefined();
   });
 
-  it("主题 focus 真正补出省略事实后重置无进展，重复读取仍会收敛", () => {
+  it.each(["analysis_catalog", "data_availability"])(
+    "重复%s回执不重置失败计数，新查询成功才解除",
+    (kind) => {
+      const args = { current_ref: "e1.v1", base_ref: "e1.v2" };
+      const failed = { name: "analysis_calculate", args };
+      const reused = {
+        name: kind === "analysis_catalog" ? "metric_search" : "metric_availability",
+        args: {},
+        failed: false,
+        details: { kind, status: "succeeded", no_new_evidence: true },
+      };
+      const messages = [
+        ...batch("first", [failed]),
+        ...batch("reused", [reused]),
+        ...batch("second", [failed]),
+      ];
+      expect(inquiryToolAdmission(messages, "analysis_calculate", args)).toHaveProperty("block");
+      const progress = batch("progress", [
+        { failed: false, details: { kind: "analysis_evidence", status: "succeeded" } },
+      ]);
+      expect(
+        inquiryToolAdmission(
+          [...messages, ...progress, ...batch("retry", [failed])],
+          "analysis_calculate",
+          args,
+        ),
+      ).toBeUndefined();
+    },
+  );
+
+  it.each([
+    { focus: { org_code: "A", metric_codes: ["M2"] } },
+    { focus: { org_code: "B", metric_codes: ["M1"] } },
+    { focus: { org_code: "A", metric_codes: ["M1"], offset: 50 } },
+  ])("analysis_read保留focus实际变化，不用旧来源键遮住新页：%j", (changed) => {
+    const args = { run_ref: "run-1", focus: { org_code: "A", metric_codes: ["M1"] } };
     const reused = {
       name: "analysis_read",
+      args,
       failed: false,
-      args: { run_ref: "topic-run-1" },
       details: {
         kind: "inquiry_query_reuse",
         status: "succeeded",
         no_new_evidence: true,
-        run_ref: "topic-run-1",
-        topic_execution: { completed: true, pending_metric_codes: [] },
+        run_ref: "run-1",
       },
     };
-    const messages = [
-      ...batch("reused", [reused]),
-      ...batch("new-facts", [{
-        name: "analysis_read",
-        failed: false,
-        args: { run_ref: "topic-run-1", focus: { org_code: "org-1", metric_codes: ["m1"] } },
-        details: {
-          kind: "inquiry_query_reuse",
-          status: "succeeded",
-          no_new_evidence: true,
-          run_ref: "topic-run-1",
-          topic_slice_key: '["topic-run-1","org-1",["m1"],0]',
-        },
-      }]),
-      ...batch("after-progress", [reused]),
-    ];
-    expect(inquiryToolAdmission(messages, "analysis_read")).toBeUndefined();
+    const messages = [...batch("first", [reused]), ...batch("second", [reused])];
+    expect(inquiryToolAdmission(messages, "analysis_read", args)).toHaveProperty("block");
     expect(
-      inquiryToolAdmission([...messages, ...batch("unchanged", [reused])], "analysis_read"),
-    ).toHaveProperty("block");
+      inquiryToolAdmission(messages, "analysis_read", { ...args, ...changed }),
+    ).toBeUndefined();
+  });
+
+  it("首次focus回读的新增可见事实解除旧计数", () => {
+    const args = { run_ref: "run-1" };
+    const reuse = {
+      name: "analysis_read",
+      args,
+      failed: false,
+      details: { kind: "inquiry_query_reuse", status: "succeeded", no_new_evidence: true },
+    };
+    const messages = [
+      ...batch("first", [reuse]),
+      ...batch("second", [reuse]),
+      ...batch("focus", [
+        {
+          ...reuse,
+          args: { ...args, focus: { org_code: "A", metric_codes: ["M1"] } },
+          details: { ...reuse.details, topic_slice_key: "new-slice" },
+        },
+      ]),
+      ...batch("retry", [reuse]),
+    ];
+    expect(inquiryToolAdmission(messages, "analysis_read", args)).toBeUndefined();
   });
 
   it.each([
-    { topic_id: "deposit_structure" },
-    { org_names: ["org-3"] },
+    { org_names: ["江南"] },
     { date: "2026-07-31" },
-  ])("主题实际执行条件修正保留补查，重复相同失败仍收敛：%j", (changed) => {
+    { metric_refs: ["k2"] },
+    { method: "compare", comparisons: ["yoy"] },
+    { target_ref: "target-new" },
+    { date_calendar: { start: "2026-01-01", end: "2026-06-30", dates: ["2026-06-30"] } },
+  ])("查询实际条件改变先重新校验，不沿用旧错误阶段：%j", (changed) => {
     const args = {
-      topic_id: "profit",
+      metric_refs: ["k1"],
       scope: "named",
-      org_names: ["org-1", "org-2"],
-      date: "2026-08-27",
+      org_names: ["紫金"],
+      date: "这半年",
+      method: "observe",
     };
-    const details = { kind: "inquiry_query_error", status: "error", code: "INQUIRY_QUERY_FAILED" };
-    const first = batch("first", [{ name: "topic_query", args, details }]);
-    const corrected = { name: "topic_query", args: { ...args, ...changed }, details };
-    const messages = [...first, ...batch("corrected", [corrected])];
-    expect(inquiryToolAdmission(messages, "topic_query")).toBeUndefined();
-    expect(
-      inquiryToolAdmission([...messages, ...batch("unchanged", [corrected])], "topic_query"),
-    ).toHaveProperty("block");
-    expect(
-      inquiryToolAdmission([...first, ...batch("reordered", [{
-        name: "topic_query", args: { ...args, org_names: ["org-2", "org-1"], title: "重试" }, details,
-      }])], "topic_query"),
-    ).toHaveProperty("block");
-  });
-
-  it("主题前置错误沿用校验阶段边界，改无关参数不能冒充纠错", () => {
-    const args = { topic_id: "profit", scope: "named", org_names: ["org-1"], date: "inherit" };
     const details = {
-      kind: "inquiry_query_error", status: "error", code: "INQUIRY_TARGET_INVALID",
-      correction_fields: [], validation_stage: "target_new:date,organizations",
+      kind: "inquiry_query_error",
+      status: "error",
+      code: "ANALYSIS_BINDING_INVALID",
+      correction_fields: ["metric_refs"],
+      target_ref: "old-target",
+      validation_stage: "binding_resolution",
     };
-    const first = batch("first", [{ name: "topic_query", args, details }]);
-    const changed = { name: "topic_query", args: { ...args, topic_id: "deposit_structure" }, details };
-    expect(inquiryToolAdmission([...first, ...batch("unrelated", [changed])], "topic_query"))
-      .toHaveProperty("block");
-    expect(inquiryToolAdmission([...first, ...batch("corrected", [{
-      ...changed, details: { ...details, validation_stage: "target_new:date" },
-    }])], "topic_query")).toBeUndefined();
+    const messages = [
+      ...batch("first", [{ args, details }]),
+      ...batch("second", [{ args, details }]),
+    ];
+    expect(inquiryToolAdmission(messages, "metric_query", { ...args, ...changed })).toBeUndefined();
+    expect(inquiryToolAdmission(messages, "metric_query", args)).toHaveProperty("block");
   });
 
-  it("主题透传指标绑定失败时，更换主题指标集可纠错但改日期不能", async () => {
-    const registry = loadTopicRegistry();
-    const [firstTopic, secondTopic] = registry.topics;
+  it.each([
+    { topic: "贷款" },
+    { mode: "update", base_ref: "other-target" },
+    { date: "上个月" },
+    { date_calendar: { start: "2026-05-01", end: "2026-10-31" } },
+    { organizations: { mode: "add", scope: "named", names: ["江南"] } },
+  ])("target_change完整参数变化仍可校验：%j", (changed) => {
+    const target = {
+      mode: "new",
+      topic: "存款",
+      date: "这半年",
+      organizations: { mode: "replace", scope: "named", names: ["紫金"] },
+    };
+    const args = { target_change: target },
+      details = {
+        kind: "inquiry_query_error",
+        status: "error",
+        code: "INQUIRY_TARGET_INVALID",
+        correction_fields: [],
+        validation_stage: "target_new:date",
+      };
+    const messages = [
+      ...batch("first", [{ args, details }]),
+      ...batch("second", [{ args, details }]),
+    ];
+    expect(
+      inquiryToolAdmission(messages, "metric_query", { target_change: { ...target, ...changed } }),
+    ).toBeUndefined();
+  });
+
+  it("正式指标别名可归一，未知引用和重复次数不被错误折叠", () => {
+    const details = {
+      kind: "inquiry_query_error",
+      status: "error",
+      code: "ANALYSIS_BINDING_INVALID",
+      binding_map: { k1: "binding-1", "code:M1": "binding-1", k2: "binding-2" },
+    };
+    const messages = [
+      ...batch("first", [{ args: { metric_refs: ["k1", "k2"] }, details }]),
+      ...batch("second", [{ args: { metric_refs: ["k2", "M1"] }, details }]),
+    ];
+    expect(
+      inquiryToolAdmission(messages, "metric_query", { metric_refs: ["M1", "k2"] }),
+    ).toHaveProperty("block");
+    expect(
+      inquiryToolAdmission(messages, "metric_query", { metric_refs: ["k1", "k1", "k2"] }),
+    ).toBeUndefined();
+    expect(
+      inquiryToolAdmission(messages, "metric_query", { metric_refs: ["binding-1", "k2"] }),
+    ).toBeUndefined();
+    expect(
+      inquiryToolAdmission(messages, "metric_query", { metric_refs: ["unknown", "k2"] }),
+    ).toBeUndefined();
+  });
+
+  it("正式绑定版本变化后，旧失败不能拒绝新版本输入", () => {
+    const args = { metric_refs: ["k1"] };
+    const details = {
+      kind: "inquiry_query_error",
+      status: "error",
+      binding_map: { k1: "version-1", "code:M1": "version-1" },
+    };
+    const messages = [
+      ...batch("first", [{ args, details }]),
+      ...batch("second", [{ args, details }]),
+    ];
+    expect(inquiryToolAdmission(messages, "metric_query", args)).toHaveProperty("block");
+    const changed = { ...details, binding_map: { k1: "version-2", "code:M1": "version-2" } };
+    expect(
+      inquiryToolAdmission(
+        [...messages, ...batch("new-version", [{ args, details: changed }])],
+        "metric_query",
+        args,
+      ),
+    ).toBeUndefined();
+    const catalog = batch("catalog", [
+      {
+        name: "metric_search",
+        failed: false,
+        details: { ...changed, kind: "analysis_catalog", status: "succeeded" },
+      },
+    ]);
+    expect(inquiryToolAdmission([...messages, ...catalog], "metric_query", args)).toBeUndefined();
+  });
+
+  it("未知参数变化先交执行器校验，参数键顺序不产生新请求", () => {
+    const args = { current_ref: "e1.v1", base_ref: "e1.v2" };
+    const result = { name: "analysis_calculate", args };
+    const messages = [
+      ...batch("first", [result]),
+      ...batch("second", [{ ...result, args: { base_ref: "e1.v2", current_ref: "e1.v1" } }]),
+    ];
+    expect(inquiryToolAdmission(messages, "analysis_calculate", args)).toHaveProperty("block");
+    expect(
+      inquiryToolAdmission(messages, "analysis_calculate", { ...args, extra: true }),
+    ).toBeUndefined();
+    expect(inquiryToolAdmission(messages, "analysis_calculate", null)).toBeUndefined();
+  });
+
+  it("原生null参数失败不能阻断修正输入", () => {
+    const messages = batch("invalid", [{ name: "analysis_calculate" }]);
+    const assistant = messages[0];
+    if (assistant?.role !== "assistant") throw new Error("缺少调用");
+    const call = assistant.content.find((block) => block.type === "toolCall");
+    if (!call) throw new Error("缺少调用");
+    Object.assign(call, { arguments: null });
+    expect(
+      inquiryToolAdmission(messages, "analysis_calculate", {
+        current_ref: "e1.v1",
+        base_ref: "e1.v2",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("同批有成功补查时解除旧失败，下一次失败仍可修正", () => {
+    const args = { metric_refs: ["k1"] },
+      failed = { args };
+    const messages = [
+      ...batch("first", [failed]),
+      ...batch("progress", [
+        failed,
+        { failed: false, details: { kind: "analysis_evidence", status: "succeeded" } },
+        failed,
+      ]),
+      ...batch("retry", [failed]),
+    ];
+    expect(inquiryToolAdmission(messages, "metric_query", args)).toBeUndefined();
+  });
+
+  it("主题真实绑定失败只限制已重复的实际请求，允许日期换算和其他主题重验", async () => {
+    const registry = loadTopicRegistry(),
+      [firstTopic, secondTopic] = registry.topics;
     const query = createInquiryQueryTools().find((tool) => tool.name === "metric_query");
-    if (!firstTopic || !secondTopic || !query) throw new Error("缺少主题或查询工具");
+    if (!firstTopic || !secondTopic || !query) throw new Error("缺少主题或工具");
     const backend = new BackendClient("https://backend.test.invalid", "test-token", 100);
     const network = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("禁止实际网络访问"));
-    // 隔离目录异常触发真实查询校验；不伪造工具的失败回执。
-    vi.spyOn(backend, "analysisBindMetrics").mockImplementation((codes) => Promise.resolve({
-      items: Object.values(registry.metrics)
-        .filter((metric) => codes.includes(metric.code))
-        .map((metric) => ({ ...metric, binding_ref: "duplicate-binding" })),
-      missing_codes: [],
-    }));
+    const binding = vi.spyOn(backend, "analysisBindMetrics").mockImplementation((codes) =>
+      Promise.resolve({
+        items: Object.values(registry.metrics)
+          .filter((metric) => codes.includes(metric.code))
+          .map((metric) => ({ ...metric, binding_ref: "duplicate-binding" })),
+        missing_codes: [],
+      }),
+    );
     const messages: AgentMessage[] = [];
     const request = testRequestContext(backend, new MemoryCommandBridge(), {
       turnMessages: () => Promise.resolve(messages),
     });
     const topic = createTopicQueryTool(query, registry);
-    const attempt = async (id: string, topicId: string, date = "2026-08-27") => {
-      const args = { topic_id: topicId, scope: "named", org_names: ["org-1"], date };
-      const result = (await runTool(topic, args, request)) as AgentToolResult<unknown>;
-      expect(result).toMatchObject({
-        isError: true,
-        details: {
-          code: "ANALYSIS_BINDING_INVALID",
-          correction_fields: ["metric_refs"],
-          validation_stage: "binding_duplicates",
-        },
-      });
-      messages.push(...batch(id, [{ name: "topic_query", args, details: result.details }]));
-    };
+    const args = { topic_id: firstTopic.id, scope: "named", org_names: ["org-1"], date: "这半年" };
     try {
-      await attempt("first", firstTopic.id);
-      await attempt("unrelated-date", firstTopic.id, "2026-07-31");
-      expect(inquiryToolAdmission(messages, "topic_query")).toHaveProperty("block");
-      messages.splice(2);
-      await attempt("different-metrics", secondTopic.id);
-      expect(inquiryToolAdmission(messages, "topic_query")).toBeUndefined();
-      await attempt("unchanged-metrics", secondTopic.id);
-      expect(inquiryToolAdmission(messages, "topic_query")).toHaveProperty("block");
+      for (const id of ["first", "second"]) {
+        const result = (await runTool(topic, args, request)) as AgentToolResult<unknown>;
+        expect(result).toMatchObject({
+          isError: true,
+          details: { code: "ANALYSIS_BINDING_INVALID" },
+        });
+        messages.push(...batch(id, [{ name: "topic_query", args, details: result.details }]));
+      }
+      expect(inquiryToolAdmission(messages, "topic_query", args)).toHaveProperty("block");
+      expect(
+        inquiryToolAdmission(messages, "topic_query", { ...args, topic_id: secondTopic.id }),
+      ).toBeUndefined();
+      expect(
+        inquiryToolAdmission(messages, "topic_query", {
+          ...args,
+          date_calendar: { start: "2026-05-01", end: "2026-10-31" },
+        }),
+      ).toBeUndefined();
     } finally {
+      binding.mockRestore();
       network.mockRestore();
     }
-  });
-
-  it("调查停滞只保留正文工具，可靠事实尚未耗尽交付预算", () => {
-    const failed = {
-      name: "analysis_calculate",
-      details: {
-        kind: "metric_calculate",
-        status: "error",
-        error_code: "ANALYSIS_CALCULATION_SOURCE",
-      },
-    };
-    const messages = [
-      ...batch("query", [
-        { failed: false, details: { kind: "analysis_evidence", status: "succeeded" } },
-      ]),
-      ...batch("first", [failed]),
-      ...batch("second", [failed]),
-    ];
-    expect(inquiryBudgetExhausted(messages)).toBe(false);
-    expect(
-      inquiryPayload(
-        {
-          tools: [
-            { name: "metric_query" },
-            { name: "analysis_calculate" },
-            { name: "analysis_answer" },
-            { name: CONVERSATION_REPLY },
-          ],
-        },
-        messages,
-      ).tools,
-    ).toEqual([{ name: "analysis_answer" }]);
-    expect(inquiryToolAdmission(messages, "analysis_answer")).toBeUndefined();
-    expect(inquiryToolAdmission(messages, "metric_query")).toHaveProperty("block");
-    expect(inquiryToolAdmission(messages, "analysis_calculate")).toHaveProperty("block");
-  });
-
-  it("同批多个参数失败或仍待返回的调用不能耗尽多轮修正机会", () => {
-    expect(inquiryToolAdmission(batch("parallel", [{}, {}, {}]), "metric_query")).toBeUndefined();
-    expect(
-      inquiryToolAdmission(
-        [...batch("first", [{}]), ...batch("pending", [{}, {}, {}], 1)],
-        "metric_query",
-      ),
-    ).toBeUndefined();
-  });
-
-  it("同类计算错误但输入已经修正时，仍允许补查及后续计算", () => {
-    const details = {kind: "metric_calculate", status: "error", error_code: "ANALYSIS_CALCULATION_METRIC_MISMATCH", retryable: false};
-    const messages = [...batch("first", [{name: "analysis_calculate", args: {current_ref: "e1.v2", base_ref: "e1.v1"}, details}]),
-      ...batch("second", [{name: "analysis_calculate", args: {current_ref: "e1.v5", base_ref: "e1.v4"}, details}])];
-    expect(inquiryToolAdmission(messages, "metric_query")).toBeUndefined();
-    expect(inquiryToolAdmission(messages, "analysis_calculate", {current_ref: "e2.v1", base_ref: "e2.v2"})).toBeUndefined();
-    expect(inquiryPayload({tools: [{name: "metric_query"}, {name: "analysis_calculate"}]}, messages).tools)
-      .toEqual([{name: "metric_query"}, {name: "analysis_calculate"}]);
-  });
-
-  it.each([
-    { org_names: ["江南农商行"] },
-    { date: "2026-07-31" },
-    { metric_refs: ["k2"] },
-    { method: "compare", comparisons: ["yoy"] },
-  ])("查询条件已调整、错误码相同时保留补查：%j", (changed) => {
-    const args = {
-      purpose: "核对利润",
-      metric_refs: ["k1"],
-      scope: "named",
-      org_names: ["紫金农商行"],
-      date: "2026-08-27",
-      method: "observe",
-    };
-    const details = { kind: "inquiry_query_error", status: "error", code: "INQUIRY_QUERY_FAILED" };
-    const messages = [
-      ...batch("first", [{ args, details }]),
-      ...batch("corrected", [{ args: { ...args, ...changed }, details }]),
-    ];
-    expect(inquiryToolAdmission(messages, "metric_query")).toBeUndefined();
-    expect(
-      inquiryPayload({ tools: [{ name: "metric_query" }, { name: CONVERSATION_REPLY }] }, messages)
-        .tools,
-    ).toContainEqual({ name: "metric_query" });
-    expect(
-      inquiryToolAdmission(
-        [...messages, ...batch("unchanged", [{ args: { ...args, ...changed }, details }])],
-        "metric_query",
-      ),
-    ).toHaveProperty("block");
-  });
-
-  it("改写目的、无关字段或条件集合顺序不产生查询进展", () => {
-    const args = {
-      purpose: "核对利润",
-      metric_refs: ["k1", "k2"],
-      scope: "named",
-      org_names: ["紫金农商行", "江南农商行"],
-      date: "2026-08-27",
-      method: "observe",
-    };
-    const details = { kind: "inquiry_query_error", status: "error", code: "INQUIRY_QUERY_FAILED" };
-    const messages = [
-      ...batch("first", [{ args, details }]),
-      ...batch("reworded", [
-        {
-          args: {
-            ...args,
-            purpose: "再确认经营情况",
-            title: "新标题",
-            metric_refs: ["k2", "k1"],
-            org_names: ["江南农商行", "紫金农商行"],
-          },
-          details,
-        },
-      ]),
-    ];
-    expect(inquiryToolAdmission(messages, "metric_query")).toHaveProperty("block");
-  });
-
-  it("空参数只增加目的或未知字段仍停止，不扩大执行预算", () => {
-    const messages = [
-      ...batch("empty", [{}]),
-      ...batch("unrelated", [
-        {
-          args: { purpose: "再试一次", title: "改写标题", extra: "new" },
-        },
-      ]),
-    ];
-    expect(inquiryToolAdmission(messages, "metric_query")).toHaveProperty("block");
-    const changing = Array.from({ length: 16 }, (_, index) =>
-      batch(`query-${index}`, [
-        {
-          args: { metric_refs: ["k1"], date: `2026-08-${String(index + 1).padStart(2, "0")}` },
-        },
-      ]),
-    ).flat();
-    expect(inquiryToolAdmission(changing, "metric_query")).toHaveProperty("block");
-  });
-
-  it("目录引用按正式绑定比较，别名写法和编造引用不构成进展", () => {
-    const catalog = batch("catalog", [
-      {
-        name: "metric_search",
-        failed: false,
-        details: {
-          kind: "analysis_catalog",
-          status: "succeeded",
-          binding_map: { k1: "binding-1", "code:METRIC_A": "binding-1", k2: "binding-2" },
-        },
-      },
-    ]);
-    const details = {
-      kind: "inquiry_query_error",
-      status: "error",
-      code: "ANALYSIS_BINDING_INVALID", correction_fields: ["metric_refs"],
-    };
-    const failed = (id: string, refs: string[]) =>
-      batch(id, [{ args: { metric_refs: refs }, details }]);
-    expect(
-      inquiryToolAdmission(
-        [
-          ...catalog,
-          ...failed("first", ["k1", "unknown-1"]),
-          ...failed("second", ["METRIC_A", "k1", "unknown-2"]),
-        ],
-        "metric_query",
-      ),
-    ).toHaveProperty("block");
-    expect(
-      inquiryToolAdmission(
-        [
-          ...catalog,
-          ...failed("first", ["k1", "unknown-1"]),
-          ...failed("second", ["k1", "k2", "unknown-2"]),
-        ],
-        "metric_query",
-      ),
-    ).toBeUndefined();
-  });
-
-  it.each([
-    {name: "metric_query", code: "ANALYSIS_METHOD_INVALID", fields: ["method", "comparisons"],
-      first: {method: "compare", date: "2026-08-27"}, unrelated: {date: "2026-07-31", org_names: ["江南"], relation_id: "unrelated"}, corrected: {method: "structure"}},
-    {name: "metric_availability", code: "AVAILABILITY_DATE_REQUIRED", fields: ["start", "end"],
-      first: {metric_refs: ["k1"], start: "2026-08-01"}, unrelated: {metric_refs: ["k2"]}, corrected: {start: "2026-07-01"}},
-  ])("前置失败仅比较校验方声明的纠错字段：$code", ({name, code, fields, first, unrelated, corrected}) => {
-    const details = {kind: "inquiry_query_error", status: "error", code, correction_fields: fields};
-    const failed = batch("first", [{name, args: first, details}]);
-    expect(inquiryToolAdmission([...failed, ...batch("unrelated", [{name,
-      args: {...first, ...unrelated}, details}])], "metric_query")).toHaveProperty("block");
-    expect(inquiryToolAdmission([...failed, ...batch("corrected", [{name,
-      args: {...first, ...corrected}, details}])], "metric_query")).toBeUndefined();
-  });
-
-  it("自动知识的正式绑定随失败回执保留，部分引用纠正仍可继续", () => {
-    const details = {kind: "inquiry_query_error", status: "error", code: "ANALYSIS_BINDING_INVALID", correction_fields: ["metric_refs"],
-      binding_map: {"code:METRIC_A": "binding-1", "code:METRIC_B": "binding-2"}};
-    const first = batch("first", [{args: {metric_refs: ["unknown-1", "unknown-2"]}, details}]);
-    const corrected = batch("corrected", [{args: {metric_refs: ["METRIC_A", "unknown-2"]}, details}]);
-    expect(inquiryToolAdmission([...first, ...corrected], "metric_query")).toBeUndefined();
-    expect(inquiryToolAdmission([...first, ...corrected, ...batch("unchanged", [{
-      args: {metric_refs: ["METRIC_A", "unknown-3"]}, details}])], "metric_query")).toHaveProperty("block");
-  });
-
-  it("引用错误未修复时，改日期、机构或增加未知引用不能延长补查", () => {
-    const details = {kind: "inquiry_query_error", status: "error", code: "ANALYSIS_BINDING_INVALID", correction_fields: ["metric_refs"]};
-    const messages = [...batch("first", [{args: {metric_refs: ["unknown-1"], date: "2026-08-27"}, details}]),
-      ...batch("unrelated", [{args: {metric_refs: ["unknown-2", "unknown-3"], date: "2026-07-31",
-        scope: "named", org_names: ["江南"], method: "observe"}, details}])];
-    expect(inquiryToolAdmission(messages, "metric_query")).toHaveProperty("block");
-  });
-
-  it("主目标机构及期间调整保留纠错，主题改写不提供新机会", () => {
-    const target = {
-      mode: "update",
-      base_ref: "current",
-      organizations: { mode: "add", scope: "named", names: ["江南"] },
-    };
-    const details = { kind: "inquiry_query_error", status: "error", code: "INQUIRY_QUERY_FAILED" };
-    const first = batch("first", [{ args: { target_change: target }, details }]);
-    expect(
-      inquiryToolAdmission(
-        [
-          ...first,
-          ...batch("corrected", [
-            {
-              args: {
-                target_change: { ...target, date: "2026-08-27" },
-              },
-              details,
-            },
-          ]),
-        ],
-        "metric_query",
-      ),
-    ).toBeUndefined();
-    expect(
-      inquiryToolAdmission(
-        [
-          ...first,
-          ...batch("reworded", [
-            {
-              args: {
-                target_change: { ...target, topic: "新的标题" },
-              },
-              details,
-            },
-          ]),
-        ],
-        "metric_query",
-      ),
-    ).toHaveProperty("block");
-  });
-
-  it.each([
-    {
-      name: "metric_availability",
-      first: { metric_refs: ["k1"], start: "2026-07-01", end: "2026-07-31" },
-      changed: { start: "2026-08-01", end: "2026-08-31" },
-    },
-    { name: "analysis_read", first: { run_ref: "run-1" }, changed: { run_ref: "run-2" } },
-    {
-      name: "analysis_chart",
-      first: { type: "bar", evidence_refs: ["e1.v1", "e1.v2"] },
-      changed: { evidence_refs: ["e2.v1", "e2.v2"] },
-    },
-  ])("其他调查工具按实际输入保留修正机会：$name", ({ name, first, changed }) => {
-    const details = { status: "error", error_code: "INVALID_INPUT" };
-    const messages = [
-      ...batch("first", [{ name, args: first, details }]),
-      ...batch("corrected", [{ name, args: { ...first, ...changed }, details }]),
-    ];
-    expect(inquiryToolAdmission(messages, name)).toBeUndefined();
-  });
-
-  it("原生参数校验拒绝 null 后仍允许补查和修正计算输入", () => {
-    const messages = batch("invalid-null", [{name: "analysis_calculate"}]);
-    const assistant = messages[0];
-    if (assistant?.role !== "assistant") throw new Error("缺少原始工具调用");
-    const call = assistant.content.find(block => block.type === "toolCall");
-    if (!call) throw new Error("缺少计算调用");
-    // Pi 会保留模型提交的原始 null 参数及对应的校验失败回执。
-    Object.assign(call, {arguments: null});
-    expect(inquiryToolAdmission(messages, "metric_query")).toBeUndefined();
-    expect(inquiryToolAdmission(messages, "analysis_calculate", {current_ref: "e1.v1", base_ref: "e1.v2"})).toBeUndefined();
-    expect(inquiryPayload({tools: [{name: "metric_query"}, {name: "analysis_calculate"}]}, messages).tools)
-      .toEqual([{name: "metric_query"}, {name: "analysis_calculate"}]);
-  });
-
-  it("只是调换参数字段顺序的重复失败仍然收敛", () => {
-    const details = {kind: "metric_calculate", status: "error", error_code: "ANALYSIS_CALCULATION_METRIC_MISMATCH", retryable: false};
-    const messages = [...batch("first", [{name: "analysis_calculate", args: {current_ref: "e1.v2", base_ref: "e1.v1"}, details}]),
-      ...batch("second", [{name: "analysis_calculate", args: {base_ref: "e1.v1", current_ref: "e1.v2"}, details}])];
-    expect(inquiryToolAdmission(messages, "analysis_calculate")).toHaveProperty("block");
-  });
-
-  it("同批有成功补证据时解除连续失败，下一次错误仍允许修正", () => {
-    const messages = [
-      ...batch("first", [{}]),
-      ...batch("progress", [
-        {},
-        { failed: false, details: { kind: "analysis_evidence", status: "succeeded" } },
-        {},
-      ]),
-      ...batch("retry", [{}]),
-    ];
-    expect(inquiryToolAdmission(messages, "metric_query")).toBeUndefined();
   });
 
   it("参数通过后转入正文校验属于有效修正，仍保留下一次正文机会", () => {
@@ -1184,6 +1176,30 @@ describe("连续无进展的原生工具批次", () => {
       },
     };
     const messages = [...batch("first", [result]), ...batch("second", [result])];
+    expect(inquiryAnswerAttempts(messages)).toBe(0);
+    expect(inquiryToolAdmission(messages, "analysis_answer")).toMatchObject({
+      block: { terminate: true },
+    });
+  });
+
+  it("交付失败批次调换顺序或增加同类调用不重置原有收敛保护", () => {
+    const first = {
+      name: "analysis_answer",
+      details: {
+        kind: "analysis_answer",
+        status: "ARGUMENT_ERROR",
+        validation_stage: "prerequisite",
+        error_code: "INQUIRY_TARGET_INCOMPLETE",
+      },
+    };
+    const second = {
+      ...first,
+      details: { ...first.details, error_code: "ANALYSIS_REPORT_EVIDENCE" },
+    };
+    const messages = [
+      ...batch("first", [first, second]),
+      ...batch("second", [second, first, first]),
+    ];
     expect(inquiryAnswerAttempts(messages)).toBe(0);
     expect(inquiryToolAdmission(messages, "analysis_answer")).toMatchObject({
       block: { terminate: true },

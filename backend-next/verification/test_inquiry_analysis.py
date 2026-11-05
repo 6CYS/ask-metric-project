@@ -107,7 +107,7 @@ def test_empty_exact_query_formats_actual_date_objects_and_reuses_result(days, e
     service, semantics, actor = setup_service()
     service.tasks.submit_question = Mock(return_value=SimpleNamespace(task_id="task-1", version=1))
     service.execution.execute = Mock(return_value=SimpleNamespace(
-        status="succeeded", truncated=False, facts=[], task_id="task-1"))
+        status="succeeded", truncated=False, error_code=None, facts=[], task_id="task-1"))
     service._save = Mock()
     context = {"org_codes": ["A"], "state": {"query_results": {}, "query_count": 0},
                "run_id": "run-1", "lease": "lease-1", "deadline": float("inf"),
@@ -116,7 +116,10 @@ def test_empty_exact_query_formats_actual_date_objects_and_reuses_result(days, e
 
     result = service._query(context, metric, days)
 
-    assert result == {"facts": [], "tasks": [{"task_id": "task-1", "status": "succeeded"}],
-                      "gaps": [f"测试余额在{expected_period}没有可用数据。"]}
+    assert result["facts"] == []
+    assert result["gaps"] == [f"测试余额在{expected_period}没有可用数据。"]
+    assert len(result["tasks"]) == 1
+    assert result["tasks"][0]["task_id"] == "task-1"
+    assert result["tasks"][0]["status"] == "succeeded"
     assert service._query(context, metric, days) == result
     service.execution.execute.assert_called_once()

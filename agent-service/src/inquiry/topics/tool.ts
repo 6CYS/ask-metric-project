@@ -4,9 +4,9 @@ import type { AgentHarnessTool, AgentToolResult } from "@earendil-works/pi-agent
 import type { AskMetricRequestContext } from "../../requestContext.js";
 import { analysisCandidates, catalogBindingView } from "../../analysis/bindings.js";
 import { BackendApiError } from "../../backendClient.js";
-import type { ResolvedOrganizations } from "../../business-context/types.js";
+import type { DateModelValue, ResolvedOrganizations } from "../../business-context/types.js";
 import { businessDate } from "../../business-context/resolvers.js";
-import { currentInquiryTarget } from "../target.js";
+import { currentInquiryTarget, inquiryDateCalendarSchema } from "../target.js";
 import { loadTopicRegistry, type TopicRegistry } from "./registry.js";
 import { knowledgeTopicRegistry, readKnowledgePlan } from "./knowledge.js";
 import { record, records, string, topicEvidenceView } from "./view.js";
@@ -91,6 +91,7 @@ export function createTopicQueryTool(
         description:
           "近期=latest；明确年月日、月份或季度原样填写时间短语（如‘今年三季度’），由服务端解析，不把季度改成季末某一天；追问未改期间=inherit。不得将明确日期替换为latest。",
       }),
+      date_calendar: Type.Optional(inquiryDateCalendarSchema),
     },
     { additionalProperties: false },
   );
@@ -110,6 +111,7 @@ export function createTopicQueryTool(
         scope: "named" | "all_banks";
         org_names: string[];
         date: string;
+        date_calendar?: DateModelValue;
       };
       if (request.inquiryAdmission)
         return declined(
@@ -300,12 +302,26 @@ export function createTopicQueryTool(
         .filter((item) => selected.has(item.code))
         .map((item) => item.binding_ref);
       const date = selectedDate ?? (input.date === "inherit" ? undefined : input.date);
+      const dateInput = date
+        ? {
+            date,
+            ...(input.date_calendar && !selectedDate ? { date_calendar: input.date_calendar } : {}),
+          }
+        : {};
+      const targetTime = request.inquiryTargetContext?.time_contract === 2
+        ? date
+          ? { time: {
+              expression: date,
+              ...(input.date_calendar && !selectedDate ? { calendar: input.date_calendar } : {}),
+            } }
+          : {}
+        : dateInput;
       const queryInput = {
         purpose: topic.name,
         metric_refs: metricRefs,
         scope: input.scope,
         ...(input.scope === "named" ? { org_names: input.org_names } : {}),
-        ...(date ? { date } : {}),
+        ...dateInput,
         method: input.scope === "all_banks" ? "ranking" : "observe",
         ...(input.scope === "all_banks" ? { position: "bottom", top_n: 100 } : {}),
         ...(request.inquiryTargetContext && !current
@@ -320,7 +336,7 @@ export function createTopicQueryTool(
                       scope: input.scope,
                       ...(input.scope === "named" ? { names: input.org_names } : {}),
                     },
-                    ...(date ? { date } : {}),
+                    ...targetTime,
                   }
                 : {
                     mode: "new",
@@ -330,7 +346,7 @@ export function createTopicQueryTool(
                       scope: input.scope,
                       ...(input.scope === "named" ? { names: input.org_names } : {}),
                     },
-                    date,
+                    ...targetTime,
                   },
             }
           : {}),

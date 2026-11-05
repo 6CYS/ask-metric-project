@@ -12,6 +12,7 @@ export function applyProvisionalAnswer<T extends {status?: string}>(message: T &
     || event.call_seq < (message.provisionalCallSeq ?? 0)) return message
   if (event.type === "answer_delta") {
     if (typeof event.text !== "string") return message
+    if (message.provisionalCallSeq === event.call_seq && message.provisionalContent === event.text) return message
     return {...message, provisionalContent: event.text, provisionalCallSeq: event.call_seq}
   }
   return {...message, provisionalContent: "", provisionalCallSeq: event.call_seq}

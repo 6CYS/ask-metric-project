@@ -15,6 +15,8 @@ import { loadTurnBusinessKnowledge } from "../src/businessKnowledgeContext.js";
 import { createInquiryKnowledgeTool } from "../src/inquiry/knowledgeTool.js";
 import type { FieldResolution } from "../src/business-context/types.js";
 import { createInquiryQueryTools } from "../src/inquiry/queryTools.js";
+import { createTopicQueryTool } from "../src/inquiry/topics/tool.js";
+import { loadTopicRegistry } from "../src/inquiry/topics/registry.js";
 import { inquiryPayload, inquiryToolAdmission } from "../src/inquiry/runtime.js";
 import { projectInquiryMessages } from "../src/inquiry/view.js";
 import type { InquiryAcceptedTarget } from "../src/inquiry/admission.js";
@@ -122,7 +124,7 @@ function fixture(initial: AgentMessage[] = []) {
       }),
     ),
     createAgentQueryContext: vi.fn(() => Promise.resolve({ conversation_id: "conv-1" })),
-    resolveBusinessField: vi.fn((entity: string, values: string[]): Promise<FieldResolution> =>
+    resolveBusinessField: vi.fn<BackendClient["resolveBusinessField"]>((entity, values): Promise<FieldResolution> =>
       entity === "organization" ? resolveOrganizations(values) : resolveDate(),
     ),
     resolveOrganizationScope: vi.fn(() =>
@@ -190,10 +192,11 @@ describe("失败回执按实际纠正条件保留调查", () => {
     await f.call("metric_search", {keywords: ["余额"]});
     await attempt(f, {...query, metric_refs: ["k1", "M1", "k2", "M2"]}, name);
     await attempt(f, {...query, metric_refs: ["k1", "k2", "M2"]}, name);
-    expect(inquiryToolAdmission(f.messages, name)).toBeUndefined();
+    expect(inquiryToolAdmission(f.messages, name, {...query, metric_refs: ["k1", "k2"]})).toBeUndefined();
     const corrected = [...f.messages];
     await attempt(f, {...query, metric_refs: ["M1", "M2", "k2"]}, name);
-    expect(inquiryToolAdmission(f.messages, name)).toHaveProperty("block");
+    expect(inquiryToolAdmission(f.messages, name, {...query, metric_refs: ["k1", "k2", "M2"]})).toHaveProperty("block");
+    expect(inquiryToolAdmission(f.messages, name, {...query, metric_refs: ["k1", "k2"]})).toBeUndefined();
     f.messages.splice(0, f.messages.length, ...corrected);
     const result = await attempt(f, {...query, metric_refs: ["k1", "k2"]}, name);
     expect(result.isError).not.toBe(true);
@@ -203,19 +206,24 @@ describe("失败回执按实际纠正条件保留调查", () => {
     else expect(f.backend.dataAvailability.mock.calls[0]?.[0]).toMatchObject({metric_codes: ["M1", "M2"]});
   });
 
-  it("补齐新目标必填条件后继续，改写已有主题不能掩盖剩余目标格式错误", async () => {
+  it("新目标参数变更仍重新校验，相同错误请求重复后只阻止该请求", async () => {
     const f = fixture();
     f.request.inquiryTargetContext = {version: 1};
     await f.call("metric_search", {keywords: ["余额"]});
     const organizations = {mode: "replace", scope: "all_banks", names: ["3200"]};
     await attempt(f, {...query, target_change: {mode: "new", organizations}});
     await attempt(f, {...query, target_change: {mode: "new", organizations, topic: "存款"}});
-    expect(inquiryToolAdmission(f.messages, "metric_query")).toBeUndefined();
+    expect(inquiryToolAdmission(f.messages, "metric_query", {...query,
+      target_change: {mode: "new", organizations, topic: "存款", date: "2026-08-27"}})).toBeUndefined();
     await attempt(f, {...query, target_change: {mode: "new", organizations, topic: "存款", date: "2026-08-27"}});
-    expect(inquiryToolAdmission(f.messages, "metric_query")).toBeUndefined();
+    expect(inquiryToolAdmission(f.messages, "metric_query", {...query, target_change: {mode: "new", topic: "存款", date: "2026-08-27",
+      organizations: {mode: "replace", scope: "all_banks"}}})).toBeUndefined();
     const corrected = [...f.messages];
-    await attempt(f, {...query, target_change: {mode: "new", organizations, topic: "存款分析", date: "2026-07-31"}});
-    expect(inquiryToolAdmission(f.messages, "metric_query")).toHaveProperty("block");
+    const unchanged = {...query, target_change: {mode: "new", organizations, topic: "存款分析", date: "2026-07-31"}};
+    await attempt(f, unchanged);
+    expect(inquiryToolAdmission(f.messages, "metric_query", unchanged)).toBeUndefined();
+    await attempt(f, unchanged);
+    expect(inquiryToolAdmission(f.messages, "metric_query", unchanged)).toHaveProperty("block");
     f.messages.splice(0, f.messages.length, ...corrected);
     const result = await attempt(f, {...query, target_change: {mode: "new", topic: "存款", date: "2026-08-27",
       organizations: {mode: "replace", scope: "all_banks"}}});
@@ -224,30 +232,36 @@ describe("失败回执按实际纠正条件保留调查", () => {
       organizations: {codes: ["3200", "3201"]}}});
   });
 
-  it.each(["metric_query", "metric_availability"])("接纳目标重绑定失败只按实际目标比较，忽略被覆盖参数并允许切换目标：%s", async name => {
+  it.each(["metric_query", "metric_availability"])("接纳目标重绑定失败不阻断新参数和目标，相同请求重复后局部停止：%s", async name => {
     const f = fixture();
     f.request.inquiryAdmission = {targets: [acceptedTarget(), acceptedTarget({targetRef: "target-two",
       metrics: {codes: ["M1"], names: ["测试余额"]}})], answerReceipts: []};
     f.backend.analysisCatalog.mockResolvedValue({items: [], total: 0});
     await attempt(f, {...query, target_ref: "target-one", date: "2026-08-27"}, name);
     const first = [...f.messages];
-    await attempt(f, {...query, target_ref: "target-one", metric_refs: ["made-up"], org_names: ["其他机构"], date: "2026-07-31"}, name);
+    const unchanged = {...query, target_ref: "target-one", metric_refs: ["made-up"], org_names: ["其他机构"], date: "2026-07-31"};
+    await attempt(f, unchanged, name);
     expect(f.backend.analysisCatalog.mock.calls.map(call => call.slice(0, 3)))
       .toEqual([["M2", 1, 30], ["M2", 1, 30]]);
-    expect(inquiryToolAdmission(f.messages, name)).toHaveProperty("block");
+    expect(inquiryToolAdmission(f.messages, name, unchanged)).toBeUndefined();
+    await attempt(f, unchanged, name);
+    expect(inquiryToolAdmission(f.messages, name, unchanged)).toHaveProperty("block");
+    expect(inquiryToolAdmission(f.messages, name, {...query, target_ref: "target-two"})).toBeUndefined();
     f.messages.splice(0, f.messages.length, ...first);
     await attempt(f, {...query, target_ref: "target-two"}, name);
     expect(f.backend.analysisCatalog.mock.calls.at(-1)?.[0]).toBe("M1");
-    expect(inquiryToolAdmission(f.messages, name)).toBeUndefined();
+    expect(inquiryToolAdmission(f.messages, name, {...query, target_ref: "target-two"})).toBeUndefined();
   });
 
-  it("单个接纳目标的省略引用和显式引用是同一失败", async () => {
+  it("单个接纳目标显式补齐后重新校验，仅重复显式请求才局部停止", async () => {
     const f = fixture();
     f.request.inquiryAdmission = {targets: [acceptedTarget()], answerReceipts: []};
     f.backend.analysisCatalog.mockResolvedValue({items: [], total: 0});
     await attempt(f, query);
     await attempt(f, {...query, target_ref: "target-one"});
-    expect(inquiryToolAdmission(f.messages, "metric_query")).toHaveProperty("block");
+    expect(inquiryToolAdmission(f.messages, "metric_query", {...query, target_ref: "target-one"})).toBeUndefined();
+    await attempt(f, {...query, target_ref: "target-one"});
+    expect(inquiryToolAdmission(f.messages, "metric_query", {...query, target_ref: "target-one"})).toHaveProperty("block");
   });
 });
 
@@ -303,6 +317,119 @@ describe("关联知识在取数前提供正式候选", () => {
 });
 
 describe("指标检索的分页边界与候选取数", () => {
+  it("同轮重复目录页复用原候选、关系和分页，仍允许直接取数", async () => {
+    const f = fixture();
+    f.backend.analysisCatalog.mockResolvedValue({
+      items: [{ ...descriptor, match_type: "exact", description: "期末余额" }],
+      total: 13, page: 1, page_size: 12, has_more: true,
+      semantic_suggestions: [{ code: "S1", name: "相关建议", match_type: "semantic" }],
+      relations: [{ id: "relation-1", parent: "M1", children: ["M2"], usage: "navigation_only" }],
+      related_metrics: [secondDescriptor],
+    });
+    const first = await f.call("metric_search", { keywords: ["余额"] });
+    const repeated = await f.call("metric_search", { keywords: [" 余额 "], page: 1, page_size: 12 });
+    const firstView = JSON.parse(first.content[0].text) as { results: Record<string, unknown>[] };
+    const repeatedView = JSON.parse(repeated.content[0].text) as { results: Record<string, unknown>[] };
+    expect(repeatedView).toMatchObject({
+      reused: true, no_new_evidence: true,
+      items: [{ code: "M1", binding_ref: "k1", description: "期末余额" }],
+      results: [{ keyword: "余额", page: 1, has_more: true, next_page: 2,
+        matches: [{ binding_ref: "k1", match_type: "exact" }] }],
+    });
+    expect(repeatedView.results[0]?.relations).toEqual(firstView.results[0]?.relations);
+    expect(repeatedView.results[0]?.related_metrics).toEqual(firstView.results[0]?.related_metrics);
+    expect(repeatedView.results[0]?.semantic_suggestions).toEqual(firstView.results[0]?.semantic_suggestions);
+    const again = await f.call("metric_search", { keywords: ["余额"] });
+    expect(JSON.parse(again.content[0].text)).toMatchObject({
+      reused: true, items: [{ code: "M1", binding_ref: "k1", description: "期末余额" }],
+      results: [{ matches: [{ binding_ref: "k1" }] }],
+    });
+    expect(f.backend.analysisCatalog).toHaveBeenCalledTimes(1);
+    expect(repeated.isError).not.toBe(true);
+    expect(inquiryToolAdmission(f.messages, "metric_query", query)).toBeUndefined();
+    await f.call("metric_query", query);
+    expect(f.backend.analysisExecute.mock.calls[0]![0]).toMatchObject({
+      plan: { steps: [{ metric_refs: ["signed:M1"] }] },
+    });
+  });
+
+  it("混合检索只访问尚未读取的词或页面，恢复回合仍保留原短引用", async () => {
+    const f = fixture();
+    f.backend.analysisCatalog.mockImplementation((keyword, page, pageSize) => Promise.resolve({
+      items: [keyword === "余额" ? descriptor : secondDescriptor],
+      total: 30, page, page_size: pageSize, has_more: true,
+    }));
+    await f.call("metric_search", { keywords: ["余额"] });
+    await f.call("metric_search", { keywords: ["余额", "收入"] });
+    await f.call("metric_search", { keywords: ["余额"], page: 2 });
+    await f.call("metric_search", { keywords: ["余额"], page_size: 6 });
+    expect(f.backend.analysisCatalog.mock.calls.map(([word, page, size]) => [word, page, size])).toEqual([
+      ["余额", 1, 12], ["收入", 1, 12], ["余额", 2, 12], ["余额", 1, 6],
+    ]);
+    const restored = fixture(f.messages);
+    const repeated = await restored.call("metric_search", { keywords: ["余额"], page: 2 });
+    expect(JSON.parse(repeated.content[0].text)).toMatchObject({
+      reused: true, items: [{ code: "M1", binding_ref: "k1" }], results: [{ page: 2 }],
+    });
+    expect(restored.backend.analysisCatalog).not.toHaveBeenCalled();
+    await restored.call("metric_query", query);
+    expect(restored.backend.analysisExecute.mock.calls[0]![0]).toMatchObject({
+      plan: { steps: [{ metric_refs: ["signed:M1"] }] },
+    });
+  });
+
+  it("新发现的正式定义版本变化时不复用旧目录页", async () => {
+    const f = fixture();
+    f.backend.analysisCatalog.mockResolvedValueOnce({
+      items: [descriptor], total: 1, page: 1, page_size: 12, has_more: false,
+    });
+    await f.call("metric_search", { keywords: ["余额"] });
+    f.backend.analysisCatalog.mockResolvedValue({
+      items: [{ ...descriptor, binding_ref: "signed:M1-new", description: "已修正口径" }],
+      total: 1, page: 1, page_size: 12, has_more: false,
+    });
+    await f.call("metric_search", { keywords: ["存款余额"] });
+    const refreshed = await f.call("metric_search", { keywords: ["余额"] });
+    expect(JSON.parse(refreshed.content[0].text)).toMatchObject({
+      items: [{ binding_ref: "k2", description: "已修正口径" }],
+    });
+    expect(f.backend.analysisCatalog).toHaveBeenCalledTimes(3);
+  });
+
+  it("失败的目录请求允许原条件重试，不作为成功页面复用", async () => {
+    const f = fixture();
+    f.backend.analysisCatalog.mockRejectedValueOnce(new BackendApiError(503, "暂不可用", "UNAVAILABLE"));
+    await expect(f.call("metric_search", { keywords: ["余额"] })).rejects.toMatchObject({ status: 503 });
+    const retried = await f.call("metric_search", { keywords: ["余额"] });
+    expect(JSON.parse(retried.content[0].text)).toMatchObject({ items: [{ code: "M1", binding_ref: "k1" }] });
+    expect(f.backend.analysisCatalog).toHaveBeenCalledTimes(2);
+  });
+
+  it("同批新关键词发现口径更新后，旧关键词页重新检索并统一正式引用", async () => {
+    const f = fixture();
+    f.backend.analysisCatalog.mockResolvedValueOnce({
+      items: [descriptor], total: 1, page: 1, page_size: 12, has_more: false,
+    });
+    await f.call("metric_search", { keywords: ["余额"] });
+    f.backend.analysisCatalog.mockResolvedValue({
+      items: [{ ...descriptor, binding_ref: "signed:M1-new", description: "新版口径" }],
+      total: 1, page: 1, page_size: 12, has_more: false,
+    });
+    const refreshed = await f.call("metric_search", { keywords: ["余额", "存款余额"] });
+    expect(JSON.parse(refreshed.content[0].text)).toMatchObject({
+      items: [{ code: "M1", binding_ref: "k2", description: "新版口径" }],
+      results: [
+        { keyword: "余额", matches: [{ binding_ref: "k2" }] },
+        { keyword: "存款余额", matches: [{ binding_ref: "k2" }] },
+      ],
+    });
+    const repeated = await f.call("metric_search", { keywords: ["余额"] });
+    expect(JSON.parse(repeated.content[0].text)).toMatchObject({
+      reused: true, items: [{ code: "M1", binding_ref: "k2", description: "新版口径" }],
+    });
+    expect(f.backend.analysisCatalog).toHaveBeenCalledTimes(3);
+  });
+
   it("已到末页不再访问空页，保留已有候选和取数能力", async () => {
     const f = fixture();
     f.backend.analysisCatalog.mockResolvedValue({
@@ -509,7 +636,7 @@ describe("指标检索的分页边界与候选取数", () => {
     });
   });
 
-  it("重新检索第一页后使用新的总量，不沿用旧末页拦截", async () => {
+  it("新一轮重新检索第一页后使用新的总量，不沿用旧末页拦截", async () => {
     const f = fixture();
     f.backend.analysisCatalog.mockResolvedValueOnce({
       items: [descriptor],
@@ -519,6 +646,7 @@ describe("指标检索的分页边界与候选取数", () => {
       has_more: false,
     });
     await f.call("metric_search", { keywords: ["余额"] });
+    f.messages.push({ role: "user", content: "重新查余额", timestamp: 1 });
     f.backend.analysisCatalog.mockResolvedValue({
       items: [descriptor],
       total: 25,
@@ -723,6 +851,123 @@ describe("同轮完整 observe 来源的指标子集复用", () => {
   });
 });
 
+describe("同轮已知元数据阻塞跨方法复用", () => {
+  async function blocked(unit = "%", value: unknown = "0.125") {
+    const f = fixture();
+    const metrics = [{...descriptor, unit}, secondDescriptor];
+    f.backend.analysisCatalog.mockResolvedValue({items: metrics});
+    f.backend.analysisExecute.mockImplementation((payload, key) => {
+      const plan = payload.plan as {steps: Array<{metric_refs: string[]}>};
+      const selected = metrics.filter(metric => plan.steps.some(step => step.metric_refs.includes(metric.binding_ref)));
+      return Promise.resolve(evidence({plan, run_ref: `analysis:${key}`, complete: true,
+        metric_descriptors: selected,
+        evidence_items: selected.map(metric => ({ref: `fact:${metric.code}`, type: "fact", metric_code: metric.code,
+          org_code: "3200", date: "2026-07-31", unit: metric.unit, value, display: "口径待确认"}))}));
+    });
+    await f.call("metric_search", {keywords: ["余额"]});
+    const input = {...query, date: "2026-07-31"};
+    const first = await f.call("metric_query", input);
+    return {...f, input, first};
+  }
+
+  it.each(["trend", "ranking", "compare"])("%s 不能修复已确认缺失的百分比编码，沿用原来源和原因", async method => {
+    const f = await blocked();
+    const original = structuredClone(currentTurnEvidence(f.messages));
+    const result = await f.call("metric_query", {...f.input, method, ...(method === "compare" ? {comparisons: ["mom"]} : {})});
+    expect(f.backend.analysisExecute).toHaveBeenCalledOnce();
+    expect(result.details).toMatchObject({kind: "inquiry_query_reuse", evidence_ref: "e1", no_new_evidence: true,
+      metadata_blockers: [{metric_code: "M1", reason: "unknown_percentage_encoding"}]});
+    expect(JSON.parse(result.content[0].text)).toMatchObject({unavailable_metrics: [{data_status: "present"}],
+      metadata_blockers: [{metric_code: "M1", reason: "unknown_percentage_encoding"}]});
+    expect(result.content[0].text).not.toContain("0.125");
+    expect(currentTurnEvidence(f.messages)).toEqual(original);
+    expect(f.resolveOrganizations).toHaveBeenCalledTimes(2);
+    expect(f.resolveDate).toHaveBeenCalledTimes(2);
+  });
+
+  it("缺少单位的零值也沿用 typed 原因", async () => {
+    const f = await blocked("", "0");
+    const result = await f.call("metric_query", {...f.input, method: "ranking"});
+    expect(result.details).toHaveProperty("metadata_blockers", [{metric_code: "M1", reason: "unknown_unit"}]);
+    expect(f.backend.analysisExecute).toHaveBeenCalledOnce();
+  });
+
+  it("混合批只跳过已知受阻指标，新的指标仍真实执行", async () => {
+    const f = await blocked();
+    const result = await f.call("metric_query", {...f.input, metric_refs: ["k1", "k2"], method: "ranking"});
+    expect(f.backend.analysisExecute).toHaveBeenCalledTimes(2);
+    expect(f.backend.analysisExecute.mock.calls[1]?.[0]).toMatchObject({plan: {steps: [{metric_refs: ["signed:M2"]}]}});
+    expect(result.details).toMatchObject({kind: "semantic_results", query_progress: {completed_metric_codes: ["M1", "M2"]}});
+    expect(JSON.parse(result.content[0].text)).toMatchObject({results: [{kind: "inquiry_query_reuse", evidence_ref: "e1",
+      metadata_blockers: [{metric_code: "M1", reason: "unknown_percentage_encoding"}]}, {evidence_ref: "e2"}]});
+    expect(currentTurnEvidence(f.messages)).toHaveLength(2);
+  });
+
+  it.each([null, "", "not-a-number"])("原始值 %s 不构成元数据阻塞证据", async value => {
+    const f = await blocked("%", value);
+    const result = await f.call("metric_query", {...f.input, method: "trend"});
+    expect(result.details.kind).toBe("analysis_evidence");
+    expect(f.backend.analysisExecute).toHaveBeenCalledTimes(2);
+  });
+
+  it("同一指标有可用事实时不能把整个指标跳过", async () => {
+    const f = await blocked();
+    const atoms = f.first.details.evidence_items as Array<Record<string, unknown>>;
+    atoms.push({...atoms[0], ref: "fact:valid", value_encoding: "ratio"});
+    await f.call("metric_query", {...f.input, method: "trend"});
+    expect(f.backend.analysisExecute).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["organization", "date", "operation", "actor", "session", "binding"])("%s 改变后不沿用旧阻塞", async change => {
+    const f = await blocked();
+    const input = {...f.input, method: "trend"};
+    if (change === "organization") input.org_names = ["3201"];
+    if (change === "date") {
+      input.date = "2026-06-30";
+      f.resolveDate.mockResolvedValue({status: "resolved", value: {start: "2026-06-30", end: "2026-06-30"}});
+    }
+    if (change === "operation") f.request.operationId = "op-2";
+    if (change === "actor") f.request.actor = {...f.request.actor, id: "user-2"};
+    if (change === "session") f.request.sessionId = "session-2";
+    if (change === "binding") {
+      f.backend.analysisCatalog.mockResolvedValue({items: [{...descriptor, binding_ref: "signed:M1-new"}]});
+      await f.call("metric_search", {keywords: ["新版余额"]});
+      input.metric_refs = ["k3"];
+    }
+    const result = await f.call("metric_query", input);
+    expect(result.isError, JSON.stringify(result.details)).not.toBe(true);
+    expect(result.details).not.toHaveProperty("metadata_blockers");
+    expect(f.backend.analysisExecute).toHaveBeenCalledTimes(2);
+  });
+
+  it("本次授权解析失败仍停止访问，不能用旧阻塞绕过", async () => {
+    const f = await blocked();
+    f.resolveOrganizations.mockRejectedValue(new BackendApiError(403, "无权访问", "FORBIDDEN"));
+    await expect(f.call("metric_query", {...f.input, method: "trend"})).rejects.toMatchObject({status: 403});
+    expect(f.backend.analysisExecute).toHaveBeenCalledOnce();
+  });
+
+  it("混合批新指标失败时保留原阻塞证据和未完成指标", async () => {
+    const f = await blocked();
+    f.backend.analysisExecute.mockRejectedValue(new BackendApiError(503, "服务异常", "UNAVAILABLE"));
+    const result = await f.call("metric_query", {...f.input, metric_refs: ["k1", "k2"], method: "trend"});
+    expect(result.details).toMatchObject({status: "partial", query_progress: {completed_metric_codes: ["M1"], pending_metric_codes: ["M2"]}});
+    expect(JSON.parse(result.content[0].text)).toMatchObject({results: [{evidence_ref: "e1",
+      metadata_blockers: [{metric_code: "M1", reason: "unknown_percentage_encoding"}]}, {status: "failed", error_code: "UNAVAILABLE"}]});
+    expect(f.backend.analysisExecute).toHaveBeenCalledTimes(2);
+  });
+
+  it("集合范围指纹改变后同机构编码也不能沿用旧阻塞", async () => {
+    const f = await blocked();
+    const cohort = {...f.input, scope: "all_banks", org_names: undefined};
+    await f.call("metric_query", cohort);
+    f.backend.resolveOrganizationScope.mockResolvedValue({status: "resolved", value: {codes: ["3200", "3201"],
+      names: ["测试机构", "测试分行"], scope: {kind: "authorized_cohort", cohort: "rural_commercial_banks"}, scope_fingerprint: "changed-token"}});
+    await f.call("metric_query", {...cohort, method: "trend"});
+    expect(f.backend.analysisExecute).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe("查询结果中的正式后续指标", () => {
   it.each(["metric_query", "analysis_read"])(
     "%s 保留后续入口，下一次取数直接复用绑定",
@@ -788,6 +1033,236 @@ describe("普通追问的执行目标绑定", () => {
     const baseline = readInquiryTargetSnapshot(result.details.inquiry_target_snapshot)!;
     return { ...f, baseline };
   }
+  it("新期间契约执行原范围，局部比较期不改主目标", async () => {
+    const f = fixture();
+    f.request.inquiryTargetContext = { version: 1, time_contract: 2 };
+    await f.call("metric_search", { keywords: ["余额"] });
+    const calendar = { start: "2026-01-01", end: "2026-06-30" };
+    f.backend.resolveBusinessField.mockImplementation((entity, values, _options, _year, _source, modelValue) =>
+      Promise.resolve(entity === "organization"
+        ? { status: "resolved", value: { codes: values, names: values } }
+        : { status: "resolved", value: modelValue ?? { start: values[0], end: values[0] } }));
+    const result = await f.call("metric_query", {
+      ...goalQuery,
+      target_change: { mode: "new", topic: "存款余额", time: { expression: "上半年", calendar },
+        selection: "latest_in_range", organizations: { mode: "replace", scope: "named", names: ["3200"] } },
+    });
+    expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
+    expect(f.backend.analysisExecute.mock.calls[0]?.[0]).toMatchObject({ ...calendar, date_selection: "latest_in_range" });
+    expect(readInquiryTargetSnapshot(result.details.inquiry_target_snapshot)?.time_request)
+      .toEqual({ expression: "上半年", calendar });
+    const compared = await f.call("metric_query", { ...goalQuery, date: "2025-12-31" });
+    expect(compared.isError, JSON.stringify(compared.content)).not.toBe(true);
+    expect(f.backend.analysisExecute.mock.calls.at(-1)?.[0]).toMatchObject({ start: "2025-12-31", end: "2025-12-31" });
+    expect(readInquiryTargetSnapshot(compared.details.inquiry_target_snapshot)?.time).toMatchObject(calendar);
+  });
+  it("新运行不能通过旧date入口跳过原期间声明", async () => {
+    const f = fixture();
+    f.request.inquiryTargetContext = { version: 1, time_contract: 2 };
+    await f.call("metric_search", { keywords: ["余额"] });
+    const result = await f.call("metric_query", { ...goalQuery, target_change: {
+      mode: "new", topic: "存款余额", date: "latest",
+      organizations: { mode: "replace", scope: "named", names: ["3200"] },
+    } });
+    expect(result.details).toMatchObject({ code: "INQUIRY_TARGET_INVALID", validation_stage: "target_time_contract" });
+    expect(f.backend.analysisExecute).not.toHaveBeenCalled();
+  });
+  it.each(["target", "local", "legacy"])(
+    "日期换算通过服务端解析后执行原期间，不回退最新：%s",
+    async (mode) => {
+      const f = mode === "local" ? await declared() : fixture();
+      if (mode === "target") f.request.inquiryTargetContext = { version: 1 };
+      if (mode !== "local") await f.call("metric_search", { keywords: ["余额"] });
+      const calendar = { start: "2026-01-01", end: "2026-10-31" };
+      f.backend.resolveBusinessField.mockImplementation(
+        (entity, values, _options, _year, _source, modelValue) => {
+          if (entity === "organization")
+            return Promise.resolve({ status: "resolved", value: { codes: values, names: values } });
+          return Promise.resolve(
+            modelValue
+              ? { status: "resolved", value: modelValue, metadata: { resolution_source: "model" } }
+              : { status: "invalid", metadata: { reason: "unsupported_expression" } },
+          );
+        },
+      );
+      const dateInput = { date: "今年以来", date_calendar: calendar };
+      const result = await f.call("metric_query", {
+        ...query,
+        ...(mode === "target"
+          ? {
+              target_change: {
+                mode: "new",
+                topic: "存款余额",
+                organizations: { mode: "replace", scope: "named", names: ["3200"] },
+                ...dateInput,
+              },
+            }
+          : dateInput),
+      });
+      expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
+      expect(f.backend.analysisExecute.mock.calls.at(-1)?.[0]).toMatchObject({
+        ...calendar,
+        org_codes: ["3200"],
+      });
+      expect(result.details.inquiry_date).toMatchObject(calendar);
+      if (mode === "target")
+        expect(readInquiryTargetSnapshot(result.details.inquiry_target_snapshot)?.time).toMatchObject(
+          calendar,
+        );
+      if (mode === "local")
+        expect(readInquiryTargetSnapshot(result.details.inquiry_target_snapshot)?.time).toMatchObject(
+          { start: "2026-07-31", end: "2026-07-31" },
+        );
+    },
+  );
+  it.each(["unsupported_expression", "invalid_calendar", "incomplete_range"])(
+    "主目标日期失败保留原因和修正字段，不执行或锁定错误目标：%s",
+    async (reason) => {
+      const f = fixture();
+      f.request.inquiryTargetContext = { version: 1 };
+      await f.call("metric_search", { keywords: ["余额"] });
+      f.resolveDate.mockResolvedValue({ status: "invalid", metadata: { reason } });
+      const result = await f.call("metric_query", {
+        ...query,
+        target_change: {
+          mode: "new",
+          topic: "存款余额",
+          date: "原期间",
+          date_calendar: { start: "2026-01-01", end: "2026-10-31" },
+          organizations: { mode: "replace", scope: "named", names: ["3200"] },
+        },
+      });
+      expect(result).toMatchObject({
+        isError: true,
+        details: {
+          code: "ANALYSIS_DATE_UNRESOLVED",
+          validation_stage: "target_date",
+          correction_fields: ["target_change"],
+        },
+      });
+      expect(JSON.parse(result.content[0].text)).toMatchObject({
+        resolution: { expression: "原期间", metadata: { reason } },
+      });
+      expect(result.details.inquiry_target_snapshot).toBeUndefined();
+      expect(f.backend.analysisExecute).not.toHaveBeenCalled();
+    },
+  );
+  it("局部日期失败保留原目标并明确只修正本次日期", async () => {
+    const f = await declared();
+    f.resolveDate.mockResolvedValue({
+      status: "invalid",
+      metadata: { reason: "unsupported_expression" },
+    });
+    const result = await f.call("metric_query", { ...goalQuery, date: "原期间" });
+    expect(result.details).toMatchObject({
+      code: "ANALYSIS_DATE_UNRESOLVED",
+      correction_fields: ["date", "date_calendar"],
+      validation_stage: "query_date",
+    });
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      resolution: { expression: "原期间", metadata: { reason: "unsupported_expression" } },
+    });
+    expect(readInquiryTargetSnapshot(result.details.inquiry_target_snapshot)?.time).toEqual(
+      f.baseline.time,
+    );
+    expect(f.backend.analysisExecute).toHaveBeenCalledTimes(1);
+  });
+  it.each(["local", "legacy"])("日期换算不能脱离原表达独立改变取数：%s", async (mode) => {
+    const f = mode === "local" ? await declared() : fixture();
+    if (mode === "legacy") await f.call("metric_search", { keywords: ["余额"] });
+    const before = f.backend.analysisExecute.mock.calls.length;
+    const result = await f.call("metric_query", {
+      ...query,
+      date_calendar: { start: "2026-01-01", end: "2026-10-31" },
+    });
+    expect(result).toMatchObject({
+      isError: true,
+      details: { code: "ANALYSIS_DATE_UNRESOLVED", correction_fields: ["date", "date_calendar"] },
+    });
+    expect(f.backend.analysisExecute).toHaveBeenCalledTimes(before);
+  });
+  it("显式日期的确定性解析结果优先于模型换算", async () => {
+    const f = fixture();
+    f.request.inquiryTargetContext = { version: 1 };
+    await f.call("metric_search", { keywords: ["余额"] });
+    const args = {
+      ...query,
+      target_change: {
+        mode: "new",
+        topic: "余额",
+        date: "2026-07-31",
+        date_calendar: { start: "2026-01-01", end: "2026-10-31" },
+        organizations: { mode: "replace", scope: "named", names: ["3200"] },
+      },
+    };
+    const tool = createInquiryQueryTools().find((item) => item.name === "metric_query")!;
+    expect(() => {
+      validateToolArguments(tool, { type: "toolCall", id: "date", name: tool.name, arguments: args });
+    }).not.toThrow();
+    const result = await f.call("metric_query", args);
+    expect(result.isError).not.toBe(true);
+    expect(f.backend.analysisExecute.mock.calls[0]?.[0]).toMatchObject({
+      start: "2026-07-31",
+      end: "2026-07-31",
+    });
+    expect(readInquiryTargetSnapshot(result.details.inquiry_target_snapshot)?.time).toMatchObject({
+      start: "2026-07-31",
+      end: "2026-07-31",
+    });
+  });
+  it.each([undefined, 2] as const)("主题批量查询转发同一日期换算并按规范期间执行：%s", async (timeContract) => {
+    const f = fixture();
+    f.request.inquiryTargetContext = { version: 1 };
+    if (timeContract) f.request.inquiryTargetContext.time_contract = timeContract;
+    const registry = loadTopicRegistry();
+    const definition = registry.topics[0]!;
+    const items = Object.values(registry.metrics).map((metric) => ({
+      ...metric,
+      binding_ref: `signed:${metric.code}`,
+    }));
+    Object.assign(f.backend, {
+      analysisBindMetrics: vi
+        .fn<BackendClient["analysisBindMetrics"]>()
+        .mockResolvedValue({ items, missing_codes: [] }),
+    });
+    f.backend.analysisExecute.mockResolvedValue(
+      evidence({ metric_descriptors: items, evidence_items: [] }),
+    );
+    f.backend.resolveBusinessField.mockImplementation(
+      (entity, values, _options, _year, _source, calendar) =>
+        Promise.resolve(
+          entity === "organization"
+            ? { status: "resolved", value: { codes: values, names: values } }
+            : calendar
+              ? { status: "resolved", value: calendar, metadata: { resolution_source: "model" } }
+              : { status: "invalid", metadata: { reason: "unsupported_expression" } },
+        ),
+    );
+    const queryTool = createInquiryQueryTools().find((tool) => tool.name === "metric_query")!;
+    const topic = createTopicQueryTool(queryTool, registry);
+    const calendar = { start: "2026-01-01", end: "2026-10-31" };
+    const args = {
+      topic_id: definition.id,
+      scope: "named",
+      org_names: ["3200"],
+      date: "今年以来",
+      date_calendar: calendar,
+    };
+    const result = (await runTool(topic, args, f.request)) as InquiryToolTestResult;
+    expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
+    expect(f.backend.analysisExecute.mock.calls[0]?.[0]).toMatchObject(calendar);
+    expect(
+      readInquiryTargetSnapshot(result.details.inquiry_target_snapshot)?.time,
+    ).toMatchObject(calendar);
+    expect(() => {
+      validateToolArguments(topic, {
+        type: "toolCall",
+        id: "date",
+        name: topic.name,
+        arguments: args,
+      });
+    }).not.toThrow();
+  });
   it("新协议不能直接执行未声明的自由机构参数", async () => {
     const f = fixture();
     f.request.inquiryTargetContext = { version: 1 };
@@ -3176,6 +3651,53 @@ describe("inquiry direct query tools", () => {
     expect(f.backend.analysisExecute).not.toHaveBeenCalled();
   });
 
+  it("同轮相同覆盖条件复用日期证据，机构别名仍先解析", async () => {
+    const f = fixture();
+    await discoverBoth(f);
+    const input = { metric_refs: ["k1"], scope: "named", org_names: ["测试分行"] };
+    const first = await f.call("metric_availability", input);
+    const repeated = await f.call("metric_availability", { ...input, org_names: ["3201"] });
+    expect(JSON.parse(repeated.content[0].text)).toMatchObject({
+      reused: true, no_new_evidence: true, groups: [{ dates: ["2026-04-29"], has_more: true }],
+    });
+    expect(repeated.details.groups).toEqual(first.details.groups);
+    expect(repeated.isError).not.toBe(true);
+    expect(f.backend.dataAvailability).toHaveBeenCalledTimes(1);
+    expect(f.resolveOrganizations).toHaveBeenCalledTimes(2);
+    expect(inquiryToolAdmission(f.messages, "metric_query", query)).toBeUndefined();
+  });
+
+  it("覆盖条件改变或进入新回合继续查询，不推导子区间和单指标是否有数", async () => {
+    const f = fixture();
+    await discoverBoth(f);
+    const input = { metric_refs: ["k1", "k2"], scope: "named", org_names: ["3200"] };
+    await f.call("metric_availability", input);
+    for (const change of [
+      { metric_refs: ["k1"] }, { org_names: ["3201"] }, { page: 2 }, { page_size: 6 },
+      { start: "2026-04-29", end: "2026-04-29" },
+    ]) await f.call("metric_availability", { ...input, ...change });
+    f.messages.push({ role: "user", content: "再查一次", timestamp: 1 });
+    await f.call("metric_availability", input);
+    expect(f.backend.dataAvailability).toHaveBeenCalledTimes(7);
+    expect(f.backend.dataAvailability.mock.calls.map(([spec]) => spec.match)).toEqual(Array(7).fill("any"));
+  });
+
+  it("覆盖复用仍执行机构核验，失败和取消不回放旧结果", async () => {
+    const f = fixture();
+    await discoverBoth(f);
+    const input = { metric_refs: ["k1"], scope: "named", org_names: ["3200"] };
+    f.backend.dataAvailability.mockRejectedValueOnce(new BackendApiError(503, "暂不可用", "UNAVAILABLE"));
+    await expect(f.call("metric_availability", input)).rejects.toMatchObject({ status: 503 });
+    await f.call("metric_availability", input);
+    expect(f.backend.dataAvailability).toHaveBeenCalledTimes(2);
+    f.resolveOrganizations.mockRejectedValueOnce(new BackendApiError(403, "无权", "FORBIDDEN"));
+    await expect(f.call("metric_availability", input)).rejects.toMatchObject({ status: 403 });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(runTool(createInquiryQueryTools().find(tool => tool.name === "metric_availability")!,
+      input, f.request, withAbortSignal(controller.signal, BACKGROUND_CONTEXT))).rejects.toThrow();
+  });
+
   it("日期覆盖省略范围时发现全部实际日期，但不改变后续问数的原统计日", async () => {
     const prior = priorBatch("M1", "2026-08-31");
     if (prior.role === "toolResult")
@@ -3459,7 +3981,7 @@ describe("inquiry direct query tools", () => {
     }
   });
   it.each(["普通目标", "旧协议", "已接纳目标"])(
-    "%s单次取数只声明局部任务，计算上下文仍保留完整用户问题",
+    "%s计划保持原问题，局部目的只说明本次步骤",
     async (protocol) => {
       const f = fixture();
       f.request.originalMessage = "各家农商行近期哪个机构的收益不好？为什么？";
@@ -3490,11 +4012,14 @@ describe("inquiry direct query tools", () => {
             }
           : {}),
       });
-      const expectedPurpose = protocol === "已接纳目标" ? "读取已确认机构的净利润" : purpose;
+      const expectedQuestion = protocol === "已接纳目标"
+        ? "读取已确认机构的净利润"
+        : "各家农商行近期哪个机构的收益不好？为什么？";
       expect(f.backend.analysisExecute.mock.calls[0]?.[0]).toMatchObject({
         plan: {
-          objective: expectedPurpose,
-          requirements: [{ id: "q1", question: expectedPurpose }],
+          objective: expectedQuestion,
+          requirements: [{ id: "q1", question: expectedQuestion }],
+          steps: [{ rationale: purpose }],
         },
         calculation_context: {
           scope_id: f.request.operationId,
@@ -3503,6 +4028,148 @@ describe("inquiry direct query tools", () => {
       });
     },
   );
+
+  it("同一普通原问的不同指标和方法共用要求，不被后续purpose缩小", async () => {
+    const f = fixture();
+    f.request.originalMessage = "查看测试余额和测试收入的半年变化";
+    f.request.inquiryTargetContext = { version: 1 };
+    await discoverBoth(f);
+    await f.call("metric_query", {
+      ...query,
+      purpose: "先读取余额",
+      target_change: {
+        mode: "new", topic: "余额和收入变化", date: "2026-07-31",
+        organizations: { mode: "replace", scope: "named", names: ["3200"] },
+      },
+    });
+    await f.call("metric_query", {
+      ...query, purpose: "补查收入同比", metric_refs: ["k2"],
+      method: "compare", comparisons: ["yoy"],
+    });
+    expect(f.backend.analysisExecute.mock.calls.map(([payload]) => payload.plan)).toEqual([
+      expect.objectContaining({
+        objective: "查看测试余额和测试收入的半年变化",
+        requirements: [{ id: "q1", question: "查看测试余额和测试收入的半年变化" }],
+        steps: [expect.objectContaining({
+          method: "observe", metric_refs: ["signed:M1"], rationale: "先读取余额",
+        })],
+      }),
+      expect.objectContaining({
+        objective: "查看测试余额和测试收入的半年变化",
+        requirements: [{ id: "q1", question: "查看测试余额和测试收入的半年变化" }],
+        steps: [expect.objectContaining({
+          method: "compare", metric_refs: ["signed:M2"], comparisons: ["yoy"], rationale: "补查收入同比",
+        })],
+      }),
+    ]);
+  });
+
+  it("新回合沿用目标条件时，要求使用新原问而不是旧目标问题", async () => {
+    const first = fixture();
+    first.request.originalMessage = "查看测试余额";
+    first.request.inquiryTargetContext = { version: 1 };
+    await first.call("metric_search", { keywords: ["余额"] });
+    const result = await first.call("metric_query", {
+      ...query,
+      target_change: {
+        mode: "new", topic: "余额", date: "2026-07-31",
+        organizations: { mode: "replace", scope: "named", names: ["3200"] },
+      },
+    });
+    const baseline = readInquiryTargetSnapshot(result.details.inquiry_target_snapshot)!;
+    const next = fixture([...first.messages, { role: "user", content: "再看看同比变化", timestamp: 1 }]);
+    next.request.originalMessage = "再看看同比变化";
+    next.request.operationId = "op-2";
+    next.request.inquiryTargetContext = { version: 1, baseline };
+    await next.call("metric_query", {
+      ...query, purpose: "读取上年同期", method: "compare", comparisons: ["yoy"],
+      target_change: { mode: "continue", base_ref: baseline.ref },
+    });
+    expect(next.backend.analysisExecute.mock.calls[0]?.[0]).toMatchObject({
+      plan: {
+        objective: "再看看同比变化",
+        requirements: [{ id: "q1", question: "再看看同比变化" }],
+        steps: [{ rationale: "读取上年同期", method: "compare" }],
+      },
+      calculation_context: { scope_id: "op-2", user_question: "再看看同比变化" },
+    });
+  });
+
+  it("恢复同轮时原问为空则连续沿用当前目标问题", async () => {
+    const f = fixture();
+    f.request.originalMessage = "查看测试余额的变化";
+    f.request.inquiryTargetContext = { version: 1 };
+    await f.call("metric_search", { keywords: ["余额"] });
+    await f.call("metric_query", {
+      ...query,
+      target_change: {
+        mode: "new", topic: "余额变化", date: "2026-07-31",
+        organizations: { mode: "replace", scope: "named", names: ["3200"] },
+      },
+    });
+    f.request.originalMessage = "";
+    await f.call("metric_query", { ...query, purpose: "读取变化明细", method: "trend" });
+    await f.call("metric_query", {
+      ...query, purpose: "读取比较依据", method: "compare", comparisons: ["yoy"],
+    });
+    expect(f.backend.analysisExecute.mock.calls.at(-1)?.[0]).toMatchObject({
+      plan: {
+        objective: "查看测试余额的变化",
+        requirements: [{ id: "q1", question: "查看测试余额的变化" }],
+        steps: [{ rationale: "读取比较依据" }],
+      },
+      calculation_context: { user_question: "查看测试余额的变化" },
+    });
+  });
+
+  it("新独立问题缺少原文时不沿用上一轮目标问题", async () => {
+    const f = fixture();
+    f.request.originalMessage = "";
+    f.request.operationId = "op-new";
+    f.request.inquiryTargetContext = { version: 1, time_contract: 2, baseline: {
+      version: 1, ref: "target:prior", operationId: "op-prior", sourceQuestion: "上一轮贷款质量问题",
+      topic: "贷款质量", organizations: { codes: ["3200"], names: ["测试机构"] },
+      time: { date_selection: "exact", start: "2026-07-31", end: "2026-07-31" },
+    } };
+    await f.call("metric_search", { keywords: ["余额"] });
+    const result = await f.call("metric_query", { ...query, target_change: {
+      mode: "new", topic: "余额", time: { expression: "2026-07-31" },
+      organizations: { mode: "replace", scope: "named", names: ["3200"] },
+    } });
+    expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
+    expect(readInquiryTargetSnapshot(result.details.inquiry_target_snapshot)?.sourceQuestion).toBe("");
+    expect(f.backend.analysisExecute.mock.calls[0]?.[0]).toMatchObject({ plan: {
+      objective: "读取余额", requirements: [{ id: "q1", question: "读取余额" }],
+    } });
+  });
+
+  it("旧协议没有原问或目标来源时仍用局部目的", async () => {
+    const legacy = fixture();
+    legacy.request.originalMessage = "";
+    await legacy.call("metric_search", { keywords: ["余额"] });
+    await legacy.call("metric_query", query);
+    expect(legacy.backend.analysisExecute.mock.calls[0]?.[0]).toMatchObject({
+      plan: {
+        objective: "读取余额",
+        requirements: [{ id: "q1", question: "读取余额" }],
+      },
+    });
+  });
+
+  it("长原问保留完整要求，只有计划标题按后端上限缩短", async () => {
+    const f = fixture();
+    const original = `${"查看测试余额和测试收入的变化及其对应期间。".repeat(30)}最后比较两项变化。`;
+    f.request.originalMessage = original;
+    await f.call("metric_search", { keywords: ["余额"] });
+    await f.call("metric_query", query);
+    expect(f.backend.analysisExecute.mock.calls[0]?.[0]).toMatchObject({
+      plan: {
+        objective: original.slice(0, 500),
+        requirements: [{ id: "q1", question: original }],
+        steps: [{ rationale: "读取余额" }],
+      },
+    });
+  });
 
   it("uses catalog signatures and governed execution without frame or semantic plan services", async () => {
     const f = fixture();
@@ -3519,7 +4186,7 @@ describe("inquiry direct query tools", () => {
     expect(payload.plan.steps).toEqual([
       expect.objectContaining({ method: "observe", metric_refs: ["signed:M1"] }),
     ]);
-    expect(payload.plan.requirements).toEqual([{ id: "q1", question: query.purpose }]);
+    expect(payload.plan.requirements).toEqual([{ id: "q1", question: "查询测试余额和测试利润" }]);
     expect(payload.org_codes).toEqual(["3200"]);
     expect(payload.date_selection).toBe("latest_snapshot");
     expect(payload.calculation_context).toEqual({

@@ -82,11 +82,10 @@ describe("回答完整片段", () => {
   });
 
   it.each([
-    "**余额{{e1.v1}}。**后续说明",
     "余额`{{e1.v1}}。`后续说明",
     "[余额。](https://example.invalid)后续说明",
     "余额（{{e1.v1}}。后续说明",
-    "“余额{{e1.v1}}。”后续说明",
+    "“余额{{e1.v1}}。后续说明",
     "# 余额{{e1.v1}}。后续说明",
     "余额说明。\n===",
     "余额说明。\n---",
@@ -98,6 +97,83 @@ describe("回答完整片段", () => {
   ])("复杂 Markdown 继续等待原有完整块边界：%s", (body) => {
     expect(completeAnswerPrefix(body, false)).toBe("");
     expect(completeAnswerPrefix(body + "\n\n", false)).toBe(body);
+  });
+
+  it.each([
+    ["**结论：** 余额{{e1.v1}}。后续说明", "**结论：** 余额{{e1.v1}}。"],
+    ["**余额{{e1.v1}}。** 后续说明", "**余额{{e1.v1}}。**"],
+    ["余额（已确认{{e1.v1}}）。后续说明", "余额（已确认{{e1.v1}}）。"],
+    ["“余额{{e1.v1}}。”后续说明", "“余额{{e1.v1}}。”"],
+    ["**结论：‘余额（{{e1.v1}}）。’** 后续说明", "**结论：‘余额（{{e1.v1}}）。’**"],
+    ["***余额{{e1.v1}}。*** 后续说明", "***余额{{e1.v1}}。***"],
+    ["**余额*已确认*{{e1.v1}}。** 后续说明", "**余额*已确认*{{e1.v1}}。**"],
+    ["__余额{{e1.v1}}。__ 后续说明", "__余额{{e1.v1}}。__"],
+    ["~~旧口径~~已调整。后续说明", "~~旧口径~~已调整。"],
+    [String.raw`\*余额{{e1.v1}}。后续说明`, String.raw`\*余额{{e1.v1}}。`],
+    ["metric_code已确认。后续说明", "metric_code已确认。"],
+    ["余额 * 已确认。后续说明", "余额 * 已确认。"],
+    [
+      "[口径](https://example.invalid/a_(b))已确认。后续说明",
+      "[口径](https://example.invalid/a_(b))已确认。",
+    ],
+    [
+      '[口径](https://example.invalid "标题含)符号")已确认。后续说明',
+      '[口径](https://example.invalid "标题含)符号")已确认。',
+    ],
+    ["💡_结论。_ 后续说明", "💡_结论。_"],
+    ["`口径。`已确认。后续说明", "`口径。`已确认。"],
+  ])("已闭合格式后的完整句子可交付：%s", (source, expected) => {
+    expect(completeAnswerPrefix(source, false)).toBe(expected);
+  });
+
+  it.each([
+    "**余额{{e1.v1}}。",
+    "**余额{{e1.v1}}。*",
+    "余额（已确认。",
+    "“余额（已确认）。",
+    "**结论：‘余额已确认。’",
+    "~~旧口径。",
+    "[口径。](https://example.invalid",
+    "[口径。]",
+    "``口径`已确认。",
+    "**余额{{e1.v1}}。后文尚未结束**",
+    "**余额{{e1.v1|date=2026。",
+    String.raw`**余额{{e1.v1}}。\**`,
+    "**余额 *仍未闭合。**",
+    "💡_结论。",
+    "**余额。**后续句子。",
+    '[口径](https://example.invalid "标题)后文。',
+    "[口径 `](https://example.invalid)已确认。",
+    "[口径](<https://example.invalid/)后文。",
+  ])("格式未闭合或句号后还有未完文字时保留待定尾部：%s", (tail) => {
+    expect(completeAnswerPrefix(tail, false)).toBe("");
+    expect(completeAnswerPrefix("前句已确认。" + tail, false)).toBe("前句已确认。");
+  });
+
+  it("逐字符分片只释放格式闭合的句子，不因末尾未闭合引用撤回前句", () => {
+    const first = "**结论：** 余额（{{e1.v1}}）。";
+    const second = "“口径已确认。”";
+    const source = first + second + "明细{{e2.v1";
+    const candidates = new Set<string>();
+    for (let end = 1; end <= source.length; end += 1) {
+      const prefix = completeAnswerPrefix(source.slice(0, end), false);
+      if (prefix) candidates.add(prefix);
+    }
+    expect([...candidates]).toEqual([first, first + second]);
+  });
+
+  it.each(["~~~", "~~~~"])("多波浪线 %s 保留块边界，分片和最终交付不丢文字", (marker) => {
+    const first = "前句已确认。";
+    const tail = `结果${marker}旧口径。后文${marker}。`;
+    for (let end = 1; end <= tail.length; end += 1) {
+      expect(completeAnswerPrefix(first + tail.slice(0, end), false)).toBe(first);
+    }
+    expect(completeAnswerPrefix(first + tail + "\n\n", false)).toBe(first + tail);
+    expect(completeAnswerPrefix(first + tail, true)).toBe(first + tail);
+  });
+
+  it("单个波浪线不阻塞普通句子", () => {
+    expect(completeAnswerPrefix("结果~口径已确认。后续说明", false)).toBe("结果~口径已确认。");
   });
 
   it("等待整个表格和代码围栏，代码内空行不能当段落结束", () => {

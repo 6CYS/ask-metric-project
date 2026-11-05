@@ -17,14 +17,78 @@ function evidence(): Record<string, unknown> {
     rows: [{private_internal: true}], binding_map: {k1: "huge-binding"}, candidate_map: [{internal: true}]};
 }
 const view = (value: Record<string, unknown>, ref = "e1") => inquiryEvidenceView(value, ref) as {
+  recovery?: string[];
+  query_execution: {coverage_checks?: ExecutionProjection; tasks?: ExecutionProjection};
   organizations: Record<string, string>; tables: Array<{metric_code: string; date: string; unit: string; columns: string[]; rows: string[][]}>;
   unavailable_metrics: Array<{metric_code: string; reason: string; row_count: number; data_notice: string}>;
   findings: Array<{ref: string; input_refs: string[]}>; calculations: Array<{ref: string; input_refs: string[]; calculation: unknown}>;
 };
+interface ExecutionTable {columns: string[]; rows: unknown[][]}
+type ExecutionProjection = Array<ExecutionTable | Record<string, unknown>>;
+function executionRows(tables: ExecutionProjection | undefined): Record<string, unknown>[] {
+  return (tables ?? []).flatMap(entry => {
+    const table = entry as ExecutionTable;
+    if (!Array.isArray(table.columns) || !Array.isArray(table.rows)) return [{...entry}];
+    return table.rows.map(row => {
+      const result: Record<string, unknown> = {}, request: Record<string, unknown> = {};
+      table.columns.forEach((column, index) => {
+        if (column.startsWith("request.")) request[column.slice("request.".length)] = row[index];
+        else result[column] = row[index];
+      });
+      if (Object.keys(request).length) result.request = request;
+      return result;
+    });
+  });
+}
 const tool = (body: unknown, details: unknown, toolName = "resolve_business_turn"): AgentMessage => ({role: "toolResult",
   toolName, toolCallId: "call-1", timestamp: 0, isError: false, content: [{type: "text", text: JSON.stringify(body)}], details});
 
 describe("调查模型紧凑证据视图", () => {
+  it("执行事实保留原请求集合、分页和失败，不由日期并集推断逐机构完整", () => {
+    const source = evidence();
+    const request = {dimension: "dates", metric_codes: ["M1"], org_codes: ["A", "B"], match: "any",
+      start: "2026-01-01", end: "2026-11-04", page: 1, page_size: 1};
+    const checks = [{request, scope: "any", date_count: 1, dates: ["2026-07-31"], has_more: false},
+      {...request, request, date_count: 2, dates: ["2026-07-31"], has_more: true, gaps: ["扫描预算已用尽"]}];
+    source.coverage_checks = checks;
+    source.tasks = [{task_id: "t1", status: "failed", request: {metric_codes: ["M1"], org_codes: ["A", "B"],
+      time: {start: "2026-07-31", end: "2026-07-31"}, selection: "exact", conversation_id: "private-session",
+      calculation_context: {scope_id: "private-scope", user_question: "private-question"}}, truncated: true, error_code: "FAILED"}];
+    const result = view(source);
+    expect(executionRows(result.query_execution.coverage_checks)).toEqual(checks.map(check => ({request: check.request,
+      ...(check.scope ? {scope: check.scope} : {}), date_count: check.date_count, dates: check.dates,
+      has_more: check.has_more, ...("gaps" in check ? {gaps: check.gaps} : {})})));
+    expect(executionRows(result.query_execution.tasks)[0]).toEqual({task_id: "t1", status: "failed", request: {
+      metric_codes: ["M1"], org_codes: ["A", "B"], time: {start: "2026-07-31", end: "2026-07-31"}, selection: "exact"},
+      truncated: true, error_code: "FAILED"});
+    expect(JSON.stringify(result)).not.toMatch(/private-session|private-scope|private-question|scan_complete/);
+    expect(view(evidence())).not.toHaveProperty("query_execution.coverage_checks");
+  });
+
+  it("覆盖检查共享表头，缺字段、null、空请求与未执行状态不互相替代", () => {
+    const checks = [...Array.from({length: 20}, (_, index) => ({request: {metric_codes: [`M${index}`], org_codes: ["A"],
+      start: "2026-01-01", end: "2026-01-31"}, date_count: 0, earliest: null, latest: null, dates: [], has_more: false})),
+      {request: {}, dates: []}, {request: null, has_more: null}, {}];
+    const tasks = [{task_id: "t1", status: "succeeded"},
+      {task_id: "t2", status: "failed", request: null, truncated: null, error_code: "TIMEOUT"}];
+    const source = {...evidence(), coverage_checks: checks, tasks};
+    const original = structuredClone(source), result = view(source);
+    expect(result.query_execution.coverage_checks?.[0]).toHaveProperty("columns", expect.arrayContaining(["request.metric_codes"]));
+    expect(result.query_execution.coverage_checks?.[0]?.rows).toHaveLength(20);
+    expect(executionRows(result.query_execution.coverage_checks)).toEqual(checks);
+    expect(executionRows(result.query_execution.tasks)).toEqual(tasks);
+    expect(source).toEqual(original);
+    expect(view({...evidence(), coverage_checks: [], tasks: []}).query_execution).toMatchObject({coverage_checks: [], tasks: []});
+    expect(JSON.stringify(result.query_execution)).not.toContain("scan_complete");
+  });
+
+  it("单行执行事实无需重复表头时保留原对象，紧凑投影不扩大正文", () => {
+    const checks = [{request: {metric_codes: ["M1"], org_codes: ["A"]}, dates: [], has_more: false}];
+    const tasks = [{task_id: "t1", status: "succeeded", truncated: false, error_code: null}];
+    const result = view({...evidence(), coverage_checks: checks, tasks});
+    expect(result.query_execution).toMatchObject({coverage_checks: checks, tasks});
+  });
+
   it("取数视图保留源指标、基础名称和审核依据，未知比率仍不可引用", () => {
     const source = evidence();
     source.metric_descriptors = [
@@ -88,6 +152,42 @@ describe("调查模型紧凑证据视图", () => {
       {reason: "missing_value", data_status: "present", org_codes: ["A"]},
       {reason: "missing_value", data_status: "missing", org_codes: ["B"]},
     ]);
+  });
+  it("口径待确认、真正缺值及展示失败分别给出恢复方向，保留可用事实", () => {
+    const source = evidence();
+    source.evidence_items = [fact("r.f1", "M1", "A", "1亿元"),
+      {...fact("r.f2", "M2", "A", "编码待确认"), value: "0.02"},
+      {...fact("r.f3", "M1", "B", "暂无"), value: null},
+      {...fact("r.f4", "M1", "A", ""), value: "123"}];
+    const before = structuredClone(source), result = view(source);
+    expect(result.tables.flatMap(table => table.rows)).toEqual([["e1.v1", "A", "1亿元"]]);
+    const [definition, missing, display] = result.recovery ?? [];
+    expect(definition).toContain("正式指标的百分比编码");
+    expect(definition).toContain("重复查询同一数值");
+    expect(missing).toContain("本次机构、指标和期间");
+    expect(display).toContain("格式或展示");
+    expect(display).not.toBe(missing);
+    expect(source).toEqual(before);
+  });
+  it("空查询说明已查范围的缺口，不能当成服务失败或自动更换期间", () => {
+    const result = view({...evidence(), row_count: 0, evidence_items: [],
+      requested_start: "2026-01-01", requested_end: "2026-11-04", date_selection: "range"});
+    expect(result).toMatchObject({status: "succeeded", row_count: 0,
+      requested_start: "2026-01-01", requested_end: "2026-11-04", tables: []});
+    expect(result.recovery?.[0]).toContain("本次已查范围");
+    expect(result.recovery?.[0]).toContain("更换用户指定的期间");
+    expect(inquiryEvidenceView({...evidence(), status: "failed", row_count: 0}, "e1"))
+      .not.toHaveProperty("recovery");
+  });
+  it("相同不可用原因跨日期只给一次恢复指引，不随表体重复膨胀", () => {
+    const source = evidence();
+    source.evidence_items = Array.from({length: 20}, (_, index) => ({
+      ...fact(`r.f${index}`, "M2", "A", "编码未确认"), date: `2026-07-${String(index + 1).padStart(2, "0")}`,
+    }));
+    const result = view(source);
+    expect(result.unavailable_metrics).toHaveLength(20);
+    expect(result.recovery).toHaveLength(1);
+    expect(result.recovery?.[0]).toContain("正式指标的百分比编码");
   });
   it("完整原子先签发别名再过滤未知比率，不改变后续事实编号或原始回执", () => {
     const source = evidence(), before = structuredClone(source), result = view(source);

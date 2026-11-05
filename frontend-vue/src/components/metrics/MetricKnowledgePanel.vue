@@ -2,6 +2,7 @@
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from "vue"
 import { BookOpenText, Link, LoaderCircle, Plus, RefreshCw } from "@lucide/vue"
 
+import BusinessKnowledgeDetails from "@/components/knowledge/BusinessKnowledgeDetails.vue"
 import BusinessKnowledgeEditor from "@/components/knowledge/BusinessKnowledgeEditor.vue"
 import ListPagination from "@/components/ListPagination.vue"
 import BaseAlert from "@/components/ui/BaseAlert.vue"
@@ -27,6 +28,7 @@ const {
   hasConflict,
   editorOpen,
   editingId,
+  editorVersion,
   load,
   save,
   reloadEditor,
@@ -41,6 +43,7 @@ const search = ref("")
 const linkingOpen = ref(false)
 const linkingId = ref("")
 const notice = ref("")
+const detailsItem = ref<BusinessKnowledgeItem | null>(null)
 const editingMetric = ref<MetricItem | null>(null)
 const linkingMetric = ref<MetricItem | null>(null)
 let needsRefresh = false
@@ -64,7 +67,9 @@ const candidateItems = computed(() =>
 )
 const metricByCode = computed(() => new Map(props.metrics.map((item) => [item.metric_code, item])))
 const editorBusy = computed(() => isMutating.value || isRefreshing.value)
-const workspaceBusy = computed(() => linkingOpen.value || editorOpen.value || isMutating.value)
+const workspaceBusy = computed(
+  () => linkingOpen.value || editorOpen.value || detailsItem.value !== null || isMutating.value,
+)
 
 watch(workspaceBusy, (value) => emit("busy", value), { immediate: true })
 watch(search, () => {
@@ -100,6 +105,7 @@ function create() {
 }
 
 function edit(item: BusinessKnowledgeItem) {
+  detailsItem.value = null
   editingMetric.value = props.metric
   openEdit(item)
 }
@@ -125,7 +131,8 @@ async function link(id: string) {
 }
 
 async function saveKnowledge() {
-  if (await save()) notice.value = "知识已保存。"
+  const label = form.value.batch_query_enabled === true ? "方案" : "知识"
+  if (await save()) notice.value = `${label}已保存。`
 }
 
 async function refresh() {
@@ -195,8 +202,17 @@ onBeforeUnmount(() => emit("busy", false))
     >
       <div class="min-w-0">
         <p class="break-words text-sm font-medium">
-          {{ item.title
-          }}<BaseBadge v-if="!item.enabled" variant="secondary" class="ml-2">已停用</BaseBadge>
+          <button
+            type="button"
+            class="text-left hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+            :disabled="editorBusy || linkingOpen"
+            @click="detailsItem = item"
+          >
+            {{ item.title }}</button
+          ><BaseBadge v-if="item.batch_query_enabled" variant="secondary" class="ml-2"
+            >查询方案</BaseBadge
+          >
+          <BaseBadge v-if="!item.enabled" variant="secondary" class="ml-2">已停用</BaseBadge>
         </p>
         <p class="mt-1 line-clamp-2 break-words text-sm leading-6 text-muted-foreground">
           {{ item.text }}
@@ -207,8 +223,8 @@ onBeforeUnmount(() => emit("busy", false))
         variant="ghost"
         class="shrink-0"
         :disabled="editorBusy || linkingOpen"
-        @click="edit(item)"
-        ><BookOpenText />查看与编辑</BaseButton
+        @click="detailsItem = item"
+        ><BookOpenText />查看详情</BaseButton
       >
     </div>
     <ListPagination
@@ -224,8 +240,8 @@ onBeforeUnmount(() => emit("busy", false))
       v-model:open="linkingOpen"
       :busy="isMutating"
       size="lg"
-      title="关联已有知识"
-      description="选择一条知识即可关联，已有内容和其他指标的关联保持不变。"
+      title="关联已有知识或查询方案"
+      description="选择内容进行关联，已有内容和其他指标的关联保持不变；查询方案最多包含 24 个指标。"
     >
       <div class="space-y-4">
         <div class="rounded-md bg-muted/40 px-3 py-2 text-sm">
@@ -263,7 +279,10 @@ onBeforeUnmount(() => emit("busy", false))
           <div class="min-w-0 flex-1">
             <p class="break-words text-sm font-medium">
               {{ item.title
-              }}<BaseBadge v-if="!item.enabled" variant="secondary" class="ml-2">已停用</BaseBadge>
+              }}<BaseBadge v-if="item.batch_query_enabled" variant="secondary" class="ml-2"
+                >查询方案</BaseBadge
+              >
+              <BaseBadge v-if="!item.enabled" variant="secondary" class="ml-2">已停用</BaseBadge>
             </p>
             <p class="mt-1 line-clamp-2 break-words text-sm leading-6 text-muted-foreground">
               {{ item.text }}
@@ -281,7 +300,7 @@ onBeforeUnmount(() => emit("busy", false))
             variant="outline"
             class="shrink-0"
             :disabled="editorBusy || actionConflict"
-            :aria-label="`关联知识：${item.title}`"
+            :aria-label="`关联${item.batch_query_enabled ? '方案' : '知识'}：${item.title}`"
             @click="link(item.id)"
             ><LoaderCircle v-if="linkingId === item.id" class="animate-spin" />关联</BaseButton
           >
@@ -301,7 +320,15 @@ onBeforeUnmount(() => emit("busy", false))
         ></template
       >
     </BaseModal>
+    <BusinessKnowledgeDetails
+      :item="detailsItem"
+      :metrics="metrics"
+      :busy="editorBusy"
+      @close="detailsItem = null"
+      @edit="edit"
+    />
     <BusinessKnowledgeEditor
+      :reset-key="editorVersion"
       v-model:open="editorOpen"
       v-model="form"
       :metrics="metrics"

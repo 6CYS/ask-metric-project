@@ -2,6 +2,7 @@ import type { HarnessEvent, LaneWatchEvent } from "@earendil-works/pi-agent-core
 import { BackendApiError } from "./backendClient.js";
 import type { AskMetricRequestContext } from "./requestContext.js";
 import { normalizeReportParagraphs } from "./analysis/narrative.js";
+import { completeSentenceBoundary } from "./answerSentenceBoundary.js";
 
 export type AnswerStreamMode = NonNullable<AskMetricRequestContext["answerStream"]>;
 export type AnswerResetReason = "tool_call" | "retry" | "error" | "superseded";
@@ -46,16 +47,11 @@ export function completeAnswerPrefix(source: string, ended: boolean): string {
   }
   if (!ended && !fence && listIndent === undefined) {
     const start = boundary;
-    // 只屏蔽完整引用并保留位置，不让引用内容里的标点成为正文边界。
-    const tail = text.slice(start).replace(/\{\{[^{}]+\}\}/gu, (ref) => "x".repeat(ref.length));
-    const structure = tail.replace(/\{\{[^{}]*$/u, "");
+    const tail = text.slice(start);
+    // 块类型检测忽略引用内的协议分隔符；句界扫描仍读取原文中的完整引用。
+    const structure = tail.replace(/\{\{[^{}]+\}\}/gu, "").replace(/\{\{[^{}]*$/u, "");
     if (!/^(?: {4}|\t| {0,3}(?:#{1,6}(?:[ \t]|$)|>|(?:=+|-+)[ \t]*$))|\|/mu.test(structure)) {
-      // 复杂内联格式沿用块边界；只定位一次，不逐句重扫累计正文。
-      const inlineBoundary = tail.search(/[\\`*_~[\]{}()（）“”‘’"<>|]/u);
-      for (const match of tail.matchAll(/[。！？]/gu)) {
-        if (inlineBoundary >= 0 && match.index >= inlineBoundary) break;
-        boundary = start + match.index + 1;
-      }
+      boundary = start + completeSentenceBoundary(tail);
     }
   }
   const prefix = text.slice(0, ended && !fence ? text.length : boundary).trimEnd();

@@ -158,9 +158,8 @@ function seriesChart(values: Point[], selection?: ReportChartSelection): Busines
   const line = sameMetric && sameOrg && dates.length === values.length;
   const orgComparison = sameMetric && dates.length === 1 && unique(values, "org").size === values.length;
   if (!selection && !orgComparison && values.length < 3) return;
-  // 多指标比较必须显式选点，并来自同一个已知主题；不因单位相同混画存量、变动和比率。
-  const metricComparison = !!selection && sameOrg && dates.length === 1 && unique(values, "metric").size === values.length
-    && !!first.group && unique(values, "group").size === 1;
+  // 多指标柱图显式选点，并按机构、日期、单位与基期保持可比。
+  const metricComparison = !!selection && sameOrg && dates.length === 1 && unique(values, "metric").size === values.length;
   const type = selection?.type ?? (line ? "line" : "bar");
   if (type === "line" ? !line : !(orgComparison || metricComparison)) return;
   const ordered = type === "line" ? [...values].sort((left, right) => left.date.localeCompare(right.date)) : values;

@@ -6,6 +6,37 @@ import type { QueryDate } from "./sourceConditions.js";
 import { isCalendarDate } from "../tools/shared.js";
 import { businessEvidences } from "../answerEvidence.js";
 import type { AnalysisEvidence } from "../analysis/tools.js";
+import type { DateModelValue } from "../business-context/types.js";
+
+export const inquiryDateCalendarSchema = Type.Object(
+  {
+    start: Type.String({ minLength: 1, maxLength: 64 }),
+    end: Type.String({ minLength: 1, maxLength: 64 }),
+    dates: Type.Optional(
+      Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { maxItems: 100 }),
+    ),
+  },
+  {
+    additionalProperties: false,
+    description:
+      "随期间原表达提交的日历换算，使用YYYY-MM-DD；服务端确定性解析优先，仅不支持的表达采用经校验的换算。保留原期间，不因解析失败改成latest；不明确的边界须澄清。",
+  },
+);
+
+const timeRequestSchema = Type.Union([
+  Type.Object(
+    {
+      expression: Type.String({
+        minLength: 1,
+        maxLength: 200,
+        description: "用户或已确认上下文中的期间原表达；保留完整期间，不换成数据可得日期。",
+      }),
+      calendar: Type.Optional(inquiryDateCalendarSchema),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Null(),
+]);
 
 const names = Type.Array(Type.String({ minLength: 1, maxLength: 200 }), {
   minItems: 1,
@@ -27,12 +58,35 @@ export const inquiryTargetChangeSchema = Type.Object(
         { additionalProperties: false },
       ),
     ),
-    date: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+    time: Type.Optional(timeRequestSchema),
+    selection: Type.Optional(
+      Type.Union(
+        [
+          Type.Literal("exact"),
+          Type.Literal("latest"),
+          Type.Literal("latest_in_range"),
+          Type.Literal("all_in_range"),
+          Type.Literal("available_in_range"),
+        ],
+        {
+          description:
+            "取数策略，不改变time的原期间；latest仅用于无指定期间或原文最新，限定期间内取最新使用latest_in_range。未填时采用期间解析结果。",
+        },
+      ),
+    ),
+    date: Type.Optional(
+      Type.String({
+        minLength: 1,
+        maxLength: 200,
+        description: "仅兼容旧在途请求；新运行使用time.expression及time.calendar，不能与time混填。",
+      }),
+    ),
+    date_calendar: Type.Optional(inquiryDateCalendarSchema),
   },
   {
     additionalProperties: false,
     description:
-      "本轮首次取数明确声明业务目标：new新主题须给topic、organizations(replace)、date；update带base_ref，只填本轮改变的字段，机构替换用replace、追加对比用add；continue带base_ref沿用全部条件。未改变的字段由宿主继承，不重填历史机构。后续同目标取数省略此项；独立补查不得填写。",
+      "本轮首次取数明确声明业务目标：new新主题须给topic、organizations(replace)、time；先保留用户期间原表达与可选calendar，未指定期间才time:null并selection:latest；update带base_ref，只填本轮改变的字段，机构替换用replace、追加对比用add；continue带base_ref沿用全部条件。未改变的字段由宿主继承，不重填历史机构。后续同目标取数省略此项；独立补查不得填写。",
   },
 );
 export type InquiryTargetChange = Static<typeof inquiryTargetChangeSchema>;
@@ -46,17 +100,20 @@ export interface InquiryTargetSnapshot {
   topic: string;
   organizations: ResolvedOrganizations;
   time: QueryDate;
+  time_request?: Static<typeof timeRequestSchema>;
   parentRef?: string;
 }
 export interface InquiryTargetContext {
   version: 1;
   baseline?: InquiryTargetSnapshot;
+  time_contract?: 2;
 }
 export class InquiryTargetError extends Error {
   constructor(
     readonly code: string,
     message: string,
     readonly validationStage?: string,
+    readonly resolution?: unknown,
   ) {
     super(message);
     this.name = "InquiryTargetError";
@@ -87,6 +144,7 @@ const snapshotSchema = Type.Object(
       ),
       scope_fingerprint: Type.Optional(Type.String()),
     }),
+    time_request: Type.Optional(timeRequestSchema),
     time: Type.Object({
       date_selection: Type.String({ minLength: 1 }),
       start: Type.Optional(Type.String()),
@@ -154,7 +212,11 @@ export function inquiryTargetCoverage(
       : undefined;
   const coveredDates = new Map<string, Set<string>>();
   for (const message of messages) {
-    if (message.role !== "toolResult" || !["metric_query", "topic_query"].includes(message.toolName)) continue;
+    if (
+      message.role !== "toolResult" ||
+      !["metric_query", "topic_query"].includes(message.toolName)
+    )
+      continue;
     const details = message.details as { inquiry_target_snapshot?: unknown } | undefined;
     if (readInquiryTargetSnapshot(details?.inquiry_target_snapshot)?.ref !== target.ref) continue;
     for (const evidence of businessEvidences(message.details)) {
@@ -233,11 +295,12 @@ interface TargetResolution {
   baseline?: InquiryTargetSnapshot | undefined;
   operationId: string;
   sourceQuestion: string;
+  timeContract?: 2;
   resolveOrganizations(
     scope: "named" | "all_banks",
     names?: string[],
   ): Promise<ResolvedOrganizations>;
-  resolveTime(value: string): Promise<QueryDate>;
+  resolveTime(value: string, calendar?: DateModelValue): Promise<QueryDate>;
 }
 export async function resolveInquiryTarget(
   change: InquiryTargetChange,
@@ -248,6 +311,25 @@ export async function resolveInquiryTarget(
   };
   if (!Check(inquiryTargetChangeSchema, change))
     return invalid("目标变更格式不完整。", "target_schema");
+  const hasTime = change.time !== undefined;
+  const hasLegacyTime = change.date !== undefined || change.date_calendar !== undefined;
+  if (hasLegacyTime && (hasTime || change.selection !== undefined))
+    return invalid(
+      "time/selection与旧date/date_calendar不能混填，请保留一个期间声明。",
+      "target_time_contract",
+    );
+  if (context.timeContract === 2 && hasLegacyTime)
+    return invalid(
+      "本轮期间须用time保留原表达及calendar换算；selection单独选择数据，不能以date跳过期间声明。",
+      "target_time_contract",
+    );
+  if (change.time === null && change.selection !== "latest")
+    return invalid(
+      "仅用户未指定期间时声明time:null，并明确selection:latest。",
+      "target_time_selection",
+    );
+  if (change.date_calendar && !change.date)
+    return invalid("日期换算须附带date原表达，不能独立改变目标期间。", "target_date_expression");
   const base = change.mode === "new" ? undefined : context.baseline;
   if (change.mode !== "new" && (!base || change.base_ref !== base.ref))
     throw new InquiryTargetError(
@@ -258,7 +340,7 @@ export async function resolveInquiryTarget(
   const invalidNewFields = [
     ...(change.base_ref ? ["base_ref"] : []),
     ...(!change.topic ? ["topic"] : []),
-    ...(!change.date ? ["date"] : []),
+    ...(!hasTime && !change.date ? [context.timeContract === 2 ? "time" : "date"] : []),
     ...(change.organizations?.mode !== "replace" ? ["organizations"] : []),
   ];
   if (change.mode === "new" && invalidNewFields.length)
@@ -266,18 +348,30 @@ export async function resolveInquiryTarget(
       "新目标须明确主题、机构和期间；存量会话没有目标时依据用户问题声明，不能自动把来源升级为目标。",
       `target_new:${invalidNewFields.join(",")}`,
     );
-  if (change.mode === "continue" && (change.topic || change.date || change.organizations))
+  if (
+    change.mode === "continue" &&
+    (change.topic || change.date || hasTime || change.selection || change.organizations)
+  )
     return invalid(
       "沿用目标不包含字段修改；有明确变化请使用update。",
       `target_continue:${[
         change.topic && "topic",
         change.date && "date",
+        hasTime && "time",
+        change.selection && "selection",
         change.organizations && "organizations",
       ]
         .filter(Boolean)
         .join(",")}`,
     );
-  if (change.mode === "update" && !change.topic && !change.date && !change.organizations)
+  if (
+    change.mode === "update" &&
+    !change.topic &&
+    !change.date &&
+    !hasTime &&
+    !change.selection &&
+    !change.organizations
+  )
     return invalid("update须说明改变的字段；全部沿用时使用continue。", "target_update");
   const selection = change.organizations;
   if (
@@ -328,6 +422,40 @@ export async function resolveInquiryTarget(
     selected.codes.forEach((code, index) => members.set(code, selected.names[index]!));
     organizations = { codes: [...members.keys()], names: [...members.values()] };
   }
+  let time = hasTime
+    ? await context.resolveTime(change.time?.expression ?? "latest", change.time?.calendar)
+    : change.date
+      ? await context.resolveTime(change.date, change.date_calendar)
+      : structuredClone(base!.time);
+  const strategy = change.selection;
+  if (strategy) {
+    if (
+      strategy === "latest"
+        ? time.date_selection !== "latest_snapshot"
+        : time.date_selection === "latest_snapshot"
+    )
+      return invalid(
+        "取数策略与原期间冲突：限定期间不能改用全局latest，期间内取最新用latest_in_range。",
+        "target_time_selection",
+      );
+    if (
+      (strategy === "exact" && time.start !== time.end && !time.dates?.length) ||
+      (time.dates?.length && strategy !== "exact")
+    )
+      return invalid(
+        "取数策略不能缩小连续期间为单日，也不能将明确离散日期扩张成区间。",
+        "target_time_selection",
+      );
+    if (strategy !== "latest") time = { ...time, date_selection: strategy };
+  }
+  const timeRequest = hasTime
+    ? change.time
+    : change.date
+      ? {
+          expression: change.date,
+          ...(change.date_calendar ? { calendar: change.date_calendar } : {}),
+        }
+      : base?.time_request;
   return {
     version: 1,
     ref: `target:${context.operationId}`,
@@ -335,7 +463,8 @@ export async function resolveInquiryTarget(
     sourceQuestion: context.sourceQuestion,
     topic: change.topic ?? base!.topic,
     organizations,
-    time: change.date ? await context.resolveTime(change.date) : structuredClone(base!.time),
+    time,
+    ...(timeRequest !== undefined ? { time_request: structuredClone(timeRequest) } : {}),
     ...(base ? { parentRef: base.ref } : {}),
   };
 }

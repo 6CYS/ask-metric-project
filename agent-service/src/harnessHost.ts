@@ -10,6 +10,7 @@ import {
   AgentHarness,
   BACKGROUND_CONTEXT,
   LaneBusy,
+  operationMeta,
   value,
   setValue,
   type AgentHarnessTool,
@@ -31,6 +32,7 @@ import {
   type RetryPolicy,
 } from "@earendil-works/pi-ai";
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { businessEvidences, currentTurnEvidence } from "./answerEvidence.js";
 import type { BackendClient, BackendUser } from "./backendClient.js";
 import { orgCatalog } from "./business-context/orgCatalog.js";
@@ -490,7 +492,7 @@ export class HarnessHost {
           sessionTools.map((tool) => tool.name),
           BACKGROUND_CONTEXT,
         );
-      this.registerHooks(harness, lane, sessionTools, skills);
+      this.registerHooks(harness, lane, session, sessionTools, skills);
       return {
         businessProtocol,
         sessionId,
@@ -512,6 +514,7 @@ export class HarnessHost {
   private registerHooks(
     harness: AgentHarness<AskMetricRequestContext>,
     lane: AgentLane,
+    session: Session,
     sessionTools: AgentHarnessTool<AskMetricRequestContext>[],
     skills: Skill[],
   ): void {
@@ -740,7 +743,32 @@ export class HarnessHost {
         day: "2-digit",
       }).format(new Date());
       try {
-        const history = await prepareInquiryHistory(request, event.messages);
+        let contextMessages = event.messages;
+        if (contextMessages.some((message) => message.role === "compactionSummary")) {
+          const operation = (await session.getValue(operationMeta(event.runId), context))?.value;
+          if (
+            event.runId !== request.operationId ||
+            operation?.lane !== lane.name ||
+            operation.intent.kind !== "run"
+          )
+            throw new Error("INQUIRY_PROMPT_UNAVAILABLE");
+          const entries = await session.getEntries(operation.intent.promptEntryIds, context);
+          const prompt = operation.intent.promptEntryIds.flatMap((id) => {
+            const entry = entries.get(id);
+            if (entry?.type !== "message") throw new Error("INQUIRY_PROMPT_UNAVAILABLE");
+            return entry.message.role === "user" ? [entry.message] : [];
+          });
+          const missing = prompt.filter(
+            (user) => !contextMessages.some((message) => isDeepStrictEqual(message, user)),
+          );
+          // 原生压缩允许截断本轮；只补回该操作的真实输入，裁掉的目录仍留在原生历史。
+          if (missing.length)
+            contextMessages = [
+              ...missing,
+              ...contextMessages.filter((message) => message.role !== "compactionSummary"),
+            ];
+        }
+        const history = await prepareInquiryHistory(request, contextMessages);
         const [knowledge, organizations] = await Promise.all([
           loadTurnBusinessKnowledge(
             request,
@@ -801,10 +829,15 @@ export class HarnessHost {
         if (user?.role === "user" && (reference || suffix))
           injected[index] = {
             ...user,
+            // 长目录仅作背景，明确标出原问，避免将附加资料当成本轮查询任务。
             content:
               typeof user.content === "string"
-                ? user.content + reference + suffix
-                : [...user.content, { type: "text", text: reference + suffix }],
+                ? reference + "\n【本轮用户输入】\n" + user.content + suffix
+                : [
+                    { type: "text", text: reference + "\n【本轮用户输入】\n" },
+                    ...user.content,
+                    ...(suffix ? [{ type: "text" as const, text: suffix }] : []),
+                  ],
           };
         const methods = skills
           .filter((skill) => skill.name === "inquiry-analysis")

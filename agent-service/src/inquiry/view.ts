@@ -18,6 +18,54 @@ interface UnavailableMetric extends Row {
   data_status: "present" | "missing"; data_notice: string;
 }
 
+export interface InquiryMetadataBlocker {
+  metric_code: string;
+  reason: "unknown_unit" | "unknown_percentage_encoding";
+}
+
+function metadataReason(atom: Row, metric: Row): InquiryMetadataBlocker["reason"] | undefined {
+  const unit = text(atom.unit) || text(metric.unit), encoding = atom.value_encoding ?? metric.value_encoding;
+  return !unit ? "unknown_unit" : unit === "%" && !["ratio", "percent"].includes(text(encoding))
+    ? "unknown_percentage_encoding" : undefined;
+}
+
+/** 只有已取得的事实全部被元数据阻塞才可复用；缺数、格式错误和派生结果都不证明此事。 */
+export function inquiryMetadataBlockers(evidence: Row): InquiryMetadataBlocker[] {
+  return rows(evidence.metric_descriptors).flatMap(metric => {
+    const code = text(metric.code), facts = rows(evidence.evidence_items).filter(atom => atom.type === "fact" && atom.metric_code === code);
+    if (!facts.length || facts.some(atom => !decimal.test(text(atom.value)) || !metadataReason(atom, metric))) return [];
+    return [...new Set(facts.map(atom => metadataReason(atom, metric)))].flatMap(reason => reason ? [{metric_code: code, reason}] : []);
+  });
+}
+
+/** 覆盖与任务仅共享模型视图表头；字段集合变化时另起表，保留缺失、null和原行序。 */
+function executionTables(items: Row[]): Row[] {
+  const tables: Array<{columns: string[]; rows: unknown[][]}> = [];
+  for (const item of items) {
+    const fields: Array<[string, unknown]> = Object.entries(item).flatMap(([key, value]) =>
+      key === "request" && record(value) && Object.keys(value).length
+        ? Object.entries(value).map(([field, cell]): [string, unknown] => [`request.${field}`, cell])
+        : [[key, value]]);
+    const columns = fields.map(([key]) => key), values = fields.map(([, value]) => value);
+    const previous = tables[tables.length - 1];
+    if (previous && isDeepStrictEqual(previous.columns, columns)) previous.rows.push(values);
+    else tables.push({columns, rows: [values]});
+  }
+  return JSON.stringify(tables).length < JSON.stringify(items).length ? tables : items;
+}
+
+function unavailableRecovery(reason: string, dataStatus: "present" | "missing"): string {
+  if (reason === "unknown_percentage_encoding")
+    return "需确认正式指标的百分比编码，不能猜测是否乘以100；重复查询同一数值或扩大日期范围不能补齐编码。先交付其他可用事实，并说明该项口径待确认。";
+  if (reason === "unknown_unit")
+    return "需确认正式指标的单位，不能从数值大小推断；重复查询同一数值不能补齐单位。先交付其他可用事实，并说明该项口径待确认。";
+  if (reason === "unavailable_calculation_input")
+    return "先核对所依赖输入的不可用原因；输入未修正时不重复计算，也不引用派生结果，保留其他可用事实。";
+  return dataStatus === "missing"
+    ? "说明本次机构、指标和期间未取得该项数值，保留其他可用事实；已有明确缺口不重复查同一条件，也不擅自改成其他期间。"
+    : "已有源值，但格式或展示不可用，不能表述为没有数据；说明该限制并保留其他可用事实，不重复查询相同条件。";
+}
+
 /** 只改变模型读取形式；原子身份、权限、原始精度及审计记录仍由原回执维护。 */
 export function inquiryEvidenceView(evidence: Row, evidenceRef: string): object {
   const scope = pick(evidence, ["kind", "status", "run_ref", "scope_id", "frame_id", "execution_turn_id", "actual_dates", "analysis_date",
@@ -38,9 +86,9 @@ export function inquiryEvidenceView(evidence: Row, evidenceRef: string): object 
   };
   const numericAtoms = atoms.filter(atom => ["fact", "calculation"].includes(text(atom.type)));
   for (const atom of numericAtoms) {
-    const {unit, encoding} = metadata(atom);
-    const reason = !unit ? "unknown_unit" : unit === "%" && !["ratio", "percent"].includes(text(encoding)) ? "unknown_percentage_encoding"
-      : !decimal.test(text(atom.value)) || !text(atom.display) ? "missing_value" : undefined;
+    const {metric} = metadata(atom);
+    const reason = metadataReason(atom, metric)
+      ?? (!decimal.test(text(atom.value)) || !text(atom.display) ? "missing_value" : undefined);
     if (reason) unavailable.set(text(atom.ref), reason);
   }
   // 已知不可用输入不能通过派生计算重新变成可引用数值。
@@ -106,11 +154,23 @@ export function inquiryEvidenceView(evidence: Row, evidenceRef: string): object 
     (rankingOrder.get(left[0] ?? "") ?? Number.MAX_SAFE_INTEGER) - (rankingOrder.get(right[0] ?? "") ?? Number.MAX_SAFE_INTEGER));
   // 执行完成只属于这次查询，不能将局部取数成功表述为整道业务问题已得到证明。
   const queryExecution = pick(evidence, ["complete", "requirement_dispositions"]);
+  if (Array.isArray(evidence.coverage_checks)) queryExecution.coverage_checks = executionTables(rows(evidence.coverage_checks).map(check => ({
+    ...pick(check, ["scope", "date_count", "earliest", "latest", "dates", "has_more", "gaps", "request"]),
+    ...(record(check.request) ? {request: pick(check.request, ["dimension", "metric_codes", "org_codes", "start", "end", "match", "page", "page_size"])} : {}),
+  })));
+  if (Array.isArray(evidence.tasks)) queryExecution.tasks = executionTables(rows(evidence.tasks).map(task => ({
+    ...pick(task, ["task_id", "status", "truncated", "error_code", "request"]),
+    ...(record(task.request) ? {request: pick(task.request, ["metric_codes", "org_codes", "time", "selection", "operation"])} : {}),
+  })));
   const boundary = record(evidence.verified_findings) ? text(evidence.verified_findings.boundary) : "";
   const followupCodes = new Set(rows(evidence.followup_metrics).map(metric => text(metric.code)));
   // 后续指标是目录入口而非已查询数值；仅发送本回执注册过的短引用描述。
   const followupMetrics = rows(evidence.candidate_map).filter(metric => followupCodes.has(text(metric.code)));
+  const recovery = [...new Set([...missing.values()].map(metric => unavailableRecovery(metric.reason, metric.data_status)))];
+  if (evidence.row_count === 0 && numericAtoms.length === 0)
+    recovery.push("查询已执行，本次已查范围没有数值；据实说明机构、指标和期间的缺口，不把缺数当服务失败重试，不更换用户指定的期间。其他尚未查询的必要部分仍可继续取数。");
   return {...scope, query_execution: queryExecution, ...(boundary ? {finding_boundary: boundary} : {}),
+    ...(recovery.length ? {recovery} : {}),
     ...(followupMetrics.length ? {followup_metrics: followupMetrics} : {}),
     evidence_ref: evidenceRef, organizations, tables: [...tables.values()], unavailable_metrics: [...missing.values()],
     findings, calculations};

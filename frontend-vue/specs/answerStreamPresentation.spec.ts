@@ -65,6 +65,16 @@ function answerHarness() {
 }
 
 describe("累计正文按浏览器帧展示", () => {
+  it("同次调用的重复正文保留消息身份，新调用与撤回后的正文仍可更新", () => {
+    const message = { status: "pending", provisionalContent: "已收到正文", provisionalCallSeq: 1 }
+    expect(applyProvisionalAnswer(message, delta("已收到正文"))).toBe(message)
+    const nextCall = applyProvisionalAnswer(message, delta("已收到正文", 2))
+    expect(nextCall).not.toBe(message)
+    expect(nextCall.provisionalCallSeq).toBe(2)
+    const reset = applyProvisionalAnswer(nextCall, { type: "answer_reset", call_seq: 2, reason: "retry" })
+    expect(applyProvisionalAnswer(reset, delta("已收到正文", 2)).provisionalContent).toBe("已收到正文")
+  })
+
   it("同帧累计正文只展示最新全文，不拼接重复内容", () => {
     const { scheduler, displayed, message } = answerHarness()
     scheduler.enqueue("conversation", "answer", delta("第一"))

@@ -2,7 +2,6 @@
 import BaseTooltip from "@/components/ui/BaseTooltip.vue"
 import {applyProvisionalAnswer, clearProvisionalAnswer} from "@/lib/provisionalAnswer"
 import { createChatScrollFollow, createProvisionalAnswerScheduler, reconcileAnswerSnapshot } from "@/lib/answerStreamPresentation"
-import ChatProvisionalAnswer from "./ChatProvisionalAnswer.vue"
 import { availabilityReply, type AvailabilityDetails } from "@/lib/dataAvailability"
 import { governedReply, catalogOverviewReply, type CatalogOverviewDetails } from "@/lib/replyPresentation"
 import { businessReportPresentation } from "@/lib/businessReportPresentation"
@@ -13,7 +12,6 @@ import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from "reka
 
 import CatalogQuestionComposer from "@/components/chat/CatalogQuestionComposer.vue"
 import AgentMessageDiagnostics from "@/components/chat/AgentMessageDiagnostics.vue"
-import ChatMarkdown from "@/components/chat/ChatMarkdown.vue"
 import ChatResultContent from "@/components/chat/ChatResultContent.vue"
 import QuerySqlButton from "@/components/chat/QuerySqlButton.vue"
 import type { QuerySqlReference } from "@/types/querySql"
@@ -211,8 +209,9 @@ const historyError = ref("")
 const messagesScroll = ref<HTMLElement | null>(null)
 const scrollFollow = createChatScrollFollow(() => messagesScroll.value)
 const answerFrames = createProvisionalAnswerScheduler((conversationId, assistantId, event) => {
-  updateAssistantMessage(conversationId, assistantId, item => applyProvisionalAnswer(item, event))
-  scrollToBottom(false, conversationId)
+  if (updateAssistantMessage(conversationId, assistantId, item => applyProvisionalAnswer(item, event))) {
+    scrollToBottom(false, conversationId)
+  }
 })
 let presentationDisposed = false
 const copiedMessageId = ref("")
@@ -844,7 +843,13 @@ async function copyUserQuestion(chatMessage: DisplayMessage) {
 }
 
 function updateConversation(conversationId: string, updater: (conversation: DisplayConversation) => DisplayConversation) {
-  conversations.value = conversations.value.map((conversation) => conversation.id === conversationId ? updater(conversation) : conversation)
+  const index = conversations.value.findIndex(conversation => conversation.id === conversationId)
+  const previous = conversations.value[index]
+  if (!previous) return false
+  const updated = updater(previous)
+  if (updated === previous) return false
+  conversations.value = conversations.value.map((conversation, itemIndex) => itemIndex === index ? updated : conversation)
+  return true
 }
 
 function questionForMessage(chatMessage: DisplayMessage) {
@@ -854,10 +859,16 @@ function questionForMessage(chatMessage: DisplayMessage) {
 }
 
 function updateAssistantMessage(conversationId: string, messageId: string, updater: (message: DisplayMessage) => DisplayMessage) {
-  updateConversation(conversationId, (conversation) => ({
-    ...conversation,
-    messages: conversation.messages.map((item) => item.id === messageId ? updater(item) : item),
-  }))
+  return updateConversation(conversationId, (conversation) => {
+    const index = conversation.messages.findIndex(item => item.id === messageId)
+    const previous = conversation.messages[index]
+    if (!previous) return conversation
+    const updated = updater(previous)
+    if (updated === previous) return conversation
+    const messages = conversation.messages.slice()
+    messages[index] = updated
+    return { ...conversation, messages }
+  })
 }
 
 function markConversationSending(conversationId: string, sending: boolean) {
@@ -1419,18 +1430,11 @@ function pendingAnswer(chatMessage: DisplayMessage): string | undefined {
                   <ChatResultContent :response="{ ...chatMessage.response, answer: '', answer_blocks: undefined }" :question="questionForMessage(chatMessage)" />
                 </div>
                 <CalculationResult v-for="(calculation, index) in chatMessage.calculations" :key="calculation.calculation_id ?? index" :calculation="calculation" />
-                <ChatProvisionalAnswer v-if="chatMessage.status === 'pending'" :text="pendingAnswer(chatMessage)" />
-                <ChatResultContent v-else-if="chatMessage.response" :response="chatMessage.response" :show-data-details="!(chatMessage.queryResults && chatMessage.queryResults.length > 1) && !chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)">
-                  <template v-if="chatMessage.querySqlReferences?.length" #actions>
+                <ChatResultContent :response="chatMessage.response" :pending="chatMessage.status === 'pending'" :provisional-text="pendingAnswer(chatMessage)" :fallback-text="chatMessage.content" :show-data-details="!(chatMessage.queryResults && chatMessage.queryResults.length > 1) && !chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)">
+                  <template v-if="chatMessage.status !== 'pending' && chatMessage.querySqlReferences?.length" #actions>
                     <QuerySqlButton :references="chatMessage.querySqlReferences" />
                   </template>
                 </ChatResultContent>
-                <template v-else>
-                  <ChatMarkdown class="leading-6" :source="chatMessage.content" />
-                  <div v-if="chatMessage.querySqlReferences?.length" class="mt-3">
-                    <QuerySqlButton :references="chatMessage.querySqlReferences" />
-                  </div>
-                </template>
                 <template v-if="chatMessage.status !== 'pending' && chatMessage.queryResults && chatMessage.queryResults.length > 1">
                   <ChatResultContent v-for="result in chatMessage.queryResults" :key="result.task_id" :response="{ ...responseFromMetricAsk(result, ''), answer: '', answer_blocks: undefined }" :question="questionForMessage(chatMessage)" />
                 </template>

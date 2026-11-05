@@ -25,7 +25,40 @@ function mixedSource() {
   return input;
 }
 
+function metricComparisonSource(valueBasis = "当日数") {
+  const input = source();
+  input.evidence.metric_descriptors = ["M1", "M2"].map(code => ({
+    code, name: `测试${code}`, unit: "元", value_basis: valueBasis,
+  }));
+  input.evidence.evidence_items = input.evidence.evidence_items.slice(0, 2).map((atom, index) => ({...atom,
+    metric_code: `M${index + 1}`, metric_name: `测试M${index + 1}`, org_code: "O0", org_name: "甲行",
+  }));
+  return input;
+}
+
 describe("报告图表从已核验原子取数", () => {
+  it.each(["当日数", "较年初"])("同机构同日同单位的多指标%s柱图不依赖主题配置", valueBasis => {
+    const result = buildReportChart([metricComparisonSource(valueBasis)], {type: "bar", evidence_refs: ["e1.v1", "e1.v2"]});
+    expect(result.charts).toEqual([{type: "bar", title: "指标比较", unit: "元", dates: ["2026-08-27"],
+      source_refs: ["r.f1", "r.f2"], points: [
+        {name: "测试M1", value: "-5", display: "-5元"},
+        {name: "测试M2", value: "5", display: "5元"},
+      ]}]);
+  });
+
+  it.each(["period", "unit", "org", "date"])("无主题的多指标柱图仍拒绝%s不一致", field => {
+    const input = metricComparisonSource();
+    if (field === "period") input.evidence.metric_descriptors[1]!.value_basis = "较年初";
+    if (field === "unit") input.evidence.evidence_items[1]!.unit = "万元";
+    if (field === "org") input.evidence.evidence_items[1]!.org_code = "O1";
+    if (field === "date") input.evidence.evidence_items[1]!.date = "2026-07-31";
+    expect(buildReportChart([input], {type: "bar", evidence_refs: ["e1.v1", "e1.v2"]}).charts).toEqual([]);
+  });
+
+  it("同机构同日的不同指标不能串为趋势折线", () => {
+    expect(buildReportChart([metricComparisonSource()], {type: "line", evidence_refs: ["e1.v1", "e1.v2"]}).charts).toEqual([]);
+  });
+
   it("多指标图的每个指标都须有正文依据，而非匹配其中一个就通过", () => {
     const original = source();
     const input = {...original, evidence: {...original.evidence,

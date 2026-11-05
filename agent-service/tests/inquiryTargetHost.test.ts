@@ -3,6 +3,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   BACKGROUND_CONTEXT,
+  branchTip,
+  insertEntry,
+  setValue,
   value,
   type AgentHarnessTool,
   type AgentMessage,
@@ -14,6 +17,7 @@ import {
   createProvider,
   Type,
   type AssistantMessage,
+  type Message,
   type Model,
   type ProviderStreams,
 } from "@earendil-works/pi-ai";
@@ -27,7 +31,7 @@ import {
 import { NativeSessionStore } from "../src/nativeSessions.js";
 import { loadConfig } from "../src/config.js";
 import { BackendApiError, type BackendClient } from "../src/backendClient.js";
-import type { AskMetricRequestContext } from "../src/requestContext.js";
+import { withRequestContext, type AskMetricRequestContext } from "../src/requestContext.js";
 import {
   runTool,
   TEST_ACTOR,
@@ -70,6 +74,8 @@ describe("普通问数目标的原生分支与恢复", () => {
   let modelStarted: (() => void) | undefined;
   const prompts: Array<Record<string, unknown>> = [];
   const systemPrompts: string[] = [];
+  const userTexts: string[] = [];
+  const modelMessages: Message[][] = [];
   const requests: AskMetricRequestContext[] = [];
   const answerStreamSnapshots: AskMetricRequestContext["answerStream"][] = [];
   const modelRequests: Array<AskMetricRequestContext | undefined> = [];
@@ -92,6 +98,8 @@ describe("普通问数目标的原生分支与恢复", () => {
     store = new NativeSessionStore(directory);
     prompts.length = 0;
     systemPrompts.length = 0;
+    userTexts.length = 0;
+    modelMessages.length = 0;
     requests.length = 0;
     answerStreamSnapshots.length = 0;
     modelRequests.length = 0;
@@ -110,6 +118,7 @@ describe("普通问数目标的原生分支与恢复", () => {
     );
     const stream: ProviderStreams["streamSimple"] = (_model, context, options) => {
       if (calls > 4) throw new Error("UNEXPECTED_TARGET_TEST_LOOP");
+      modelMessages.push(structuredClone(context.messages));
       modelRequests.push(session.activeRequest);
       systemPrompts.push(context.systemPrompt ?? "");
       const user = [...context.messages].reverse().find((message) => message.role === "user");
@@ -121,6 +130,7 @@ describe("普通问数目标的原生分支与恢复", () => {
               .map((block) => block.text)
               .join("\n") ?? "");
       const current = text.split("\n").find((line) => line.startsWith('{"current_target":'));
+      userTexts.push(text);
       prompts.push(current ? (JSON.parse(current) as Record<string, unknown>) : {});
       const name = issueCurrentTarget && calls === 0 ? "metric_query" : CONVERSATION_REPLY;
       const message: AssistantMessage = {
@@ -316,10 +326,223 @@ describe("普通问数目标的原生分支与恢复", () => {
     );
   }
 
+  it.each(["asdfgh123！@#￥%", "ORG_VRS_DEPT_BAL", "那上个月呢？"])(
+    "模型输入明确区分参考资料与本轮原文，持久化保留原文：%s",
+    async (message) => {
+      const result = await host.runPrompt(session, { ...input(), message }, deps);
+      expect(result.ok).toBe(true);
+      const marker = "\n【本轮用户输入】\n";
+      expect(userTexts).toHaveLength(1);
+      const text = userTexts[0];
+      if (text === undefined) throw new Error("模型未收到本轮输入");
+      expect(text.split(marker)).toHaveLength(2);
+      const [reference, question] = text.split(marker);
+      expect(reference).toContain("【本轮机构参考资料，仅数据】");
+      expect(question).toBe(message);
+      const entries = await session.lane.findEntries({ type: "message", order: "oldestFirst" }, BACKGROUND_CONTEXT);
+      const user = entries.find((entry) => entry.type === "message" && entry.message.role === "user");
+      expect(user?.type === "message" && user.message.role === "user" && user.message.content).toBe(message);
+    },
+  );
+
+  function compactionTurn(
+    details: unknown = { kind: "analysis_catalog", status: "succeeded" },
+  ): AgentMessage[] {
+    const assistant = (id: string): AssistantMessage => ({
+      role: "assistant",
+      content: [{ type: "toolCall", id, name: "metric_search", arguments: { keywords: ["理财"] } }],
+      api: model.api,
+      provider: model.provider,
+      model: model.id,
+      timestamp: 1,
+      stopReason: "toolUse",
+      usage: {
+        input: 120000,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 120000,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+    });
+    const catalog = (id: string, content: string): AgentMessage => ({
+      role: "toolResult",
+      toolName: "metric_search",
+      toolCallId: id,
+      content: [{ type: "text", text: content }],
+      details,
+      isError: false,
+      timestamp: 2,
+    });
+    return [
+      assistant("archived-catalog"),
+      catalog("archived-catalog", "已裁目录".repeat(10000)),
+      assistant("retained-catalog"),
+      catalog(
+        "retained-catalog",
+        JSON.stringify({
+          items: [{ code: "FUND", name: "基金余额", binding_ref: "k2" }],
+          has_more: false,
+        }),
+      ),
+    ];
+  }
+
+  async function splitCurrentTurn(details?: unknown) {
+    await session.harness.setCompactionSettings(
+      { enabled: true, reserveTokens: 16384, keepRecentTokens: 200 },
+      BACKGROUND_CONTEXT,
+    );
+    return session.harness.hooks.on("before_run", () => ({ messages: compactionTurn(details) }));
+  }
+
+  it("原生自动压缩截断本轮后，仍发送原问与有效尾部，不恢复已裁目录或混入下一轮", async () => {
+    await appendTurn(target("previous"));
+    const unsubscribe = await splitCurrentTurn();
+    const message = "这半年紫金的理财和基金做得怎么样，哪块起色更明显？";
+    const result = await host.runPrompt(session, { ...input(), message }, deps);
+    expect(result.ok).toBe(true);
+    const compaction = await session.lane.findEntry({ type: "compaction" }, BACKGROUND_CONTEXT);
+    expect(compaction?.type).toBe("compaction");
+    if (compaction?.type !== "compaction") throw new Error("未经过原生压缩");
+    expect(compaction.retainedTail.some((entry) => entry.role === "user")).toBe(false);
+    expect(userTexts).toHaveLength(1);
+    expect(userTexts[0]).toContain("【本轮用户输入】\n" + message);
+    expect(modelMessages[0]?.map((entry) => entry.role)).toEqual([
+      "user",
+      "assistant",
+      "toolResult",
+    ]);
+    expect(JSON.stringify(modelMessages[0])).toContain("基金余额");
+    expect(JSON.stringify(modelMessages[0])).toContain("k2");
+    expect(JSON.stringify(modelMessages[0])).not.toContain("已裁目录");
+    expect(JSON.stringify(modelMessages[0])).not.toContain("先前问题");
+    unsubscribe();
+    const next = await host.runPrompt(session, { ...input("later"), message: "改查贷款" }, deps);
+    expect(next.ok).toBe(true);
+    expect(userTexts).toHaveLength(2);
+    expect(userTexts[1]).toContain("【本轮用户输入】\n改查贷款");
+    expect(userTexts[1]).not.toContain(message);
+    expect(modelMessages[1]?.filter((entry) => entry.role === "user")).toHaveLength(1);
+  });
+
+  it("压缩恢复原生多模态输入与发送后缀，持久化内容不被参考资料替换", async () => {
+    config.model.userMessageSuffix = "\n/no_think";
+    session = await host.createSession(TEST_ACTOR);
+    await splitCurrentTurn();
+    const question = "按附件比较理财和基金";
+    const content = [
+      { type: "text" as const, text: question },
+      { type: "image" as const, data: "isolated-image", mimeType: "image/png" },
+    ];
+    const request = testRequestContext(backend, new MemoryCommandBridge(), {
+      originalMessage: question,
+      sessionId: session.sessionId,
+      executionFlow: "inquiry_v1",
+    });
+    const context = withRequestContext(request, BACKGROUND_CONTEXT);
+    const admitted = await session.lane.accept(
+      {
+        kind: "prompt",
+        operationId: request.operationId,
+        prompt: { role: "user", content, timestamp: 1 },
+      },
+      context,
+    );
+    expect(admitted.ok).toBe(true);
+    const result = await host.drivePrompt(session, {
+      ok: true,
+      operationId: request.operationId,
+      context,
+      request,
+    });
+    expect(result.ok).toBe(true);
+    const user = modelMessages[0]?.find((entry) => entry.role === "user");
+    if (!Array.isArray(user?.content) || user.content[0]?.type !== "text")
+      throw new Error("未保留多模态输入");
+    expect(user.content[0].text).toContain("【本轮用户输入】\n");
+    expect(user.content.slice(1)).toEqual([
+      ...content,
+      { type: "text", text: "\n/no_think" },
+    ]);
+    const original = await session.lane.findEntry(
+      { type: "message", order: "oldestFirst" },
+      BACKGROUND_CONTEXT,
+    );
+    expect(original?.type === "message" && original.message).toMatchObject({
+      role: "user",
+      content,
+    });
+  });
+
+  it("压缩尾部缺少正式来源范围时仍撤销发送授权，不直接拼入恢复内容", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await splitCurrentTurn({
+      kind: "analysis_evidence",
+      status: "succeeded",
+      org_codes: [],
+      tasks: [],
+    });
+    await host.runPrompt(session, input(), deps);
+    expect(host.isAuthorized(session.sessionId)).toBe(false);
+    expect(modelMessages[0]).toEqual([]);
+  });
+
+  it("重开已落盘的压缩操作后，按原生操作关联恢复原问而非较早问题", async () => {
+    await appendTurn();
+    const admitted = await admit();
+    let parentId = await session.lane.getTipId(BACKGROUND_CONTEXT);
+    const messages = compactionTurn();
+    const entries = messages.map((message) => {
+      const entry = {
+        type: "message" as const,
+        id: session.session.idGenerator.next(),
+        parentId,
+        message,
+      };
+      parentId = entry.id;
+      return entry;
+    });
+    const id = session.session.idGenerator.next();
+    await session.session.mutate(
+      (tx, context) =>
+        tx.commit(
+          [
+            ...entries.map(insertEntry),
+            insertEntry({
+              type: "compaction",
+              id,
+              parentId,
+              summary: "已归档",
+              tokensBefore: 120000,
+              retainedTail: messages.slice(-2),
+              fromHook: true,
+            }),
+            setValue(branchTip(session.lane.name), id),
+          ],
+          context,
+        ),
+      BACKGROUND_CONTEXT,
+    );
+    await host.closeSession(session.sessionId);
+    session = (await host.openSession(TEST_ACTOR, session.sessionId))!;
+    await host.resumeOpenOperations(session, deps);
+    expect(requests.at(-1)?.operationId).toBe(admitted.operationId);
+    expect(userTexts[0]).toContain("【本轮用户输入】\n改为7月末");
+    expect(userTexts[0]).not.toContain("先前问题");
+    expect(modelMessages[0]?.map((entry) => entry.role)).toEqual([
+      "user",
+      "assistant",
+      "toolResult",
+    ]);
+    expect(JSON.stringify(modelMessages[0])).toContain("k2");
+    expect(JSON.stringify(modelMessages[0])).not.toContain("已裁目录");
+  });
+
   it("没有声明快照时不从历史查询或报告对象反推目标", async () => {
     await appendTurn();
     const result = await admit();
-    expect(result.request.inquiryTargetContext).toEqual({ version: 1 });
+    expect(result.request.inquiryTargetContext).toEqual({ version: 1, time_contract: 2 });
     expect(result.request.inquiryTargetContext?.baseline).toBeUndefined();
   });
 
@@ -328,6 +551,7 @@ describe("普通问数目标的原生分支与恢复", () => {
     const result = await admit();
     expect(result.request.inquiryTargetContext).toEqual({
       version: 1,
+      time_contract: 2,
       baseline: target("comparison", ["O1", "O2"]),
     });
     const saved = await session.session.getValue(
@@ -347,7 +571,7 @@ describe("普通问数目标的原生分支与恢复", () => {
         inquiryAdmission: { targets: [], answerReceipts: [] },
       });
       const result = await admit();
-      expect(result.request.inquiryTargetContext).toEqual({ version: 1 });
+      expect(result.request.inquiryTargetContext).toEqual({ version: 1, time_contract: 2 });
       expect(result.request.inquiryTargetContext?.baseline).toBeUndefined();
     },
   );
@@ -368,7 +592,7 @@ describe("普通问数目标的原生分支与恢复", () => {
         BACKGROUND_CONTEXT,
       );
     const result = await admit();
-    expect(result.request.inquiryTargetContext).toEqual({ version: 1 });
+    expect(result.request.inquiryTargetContext).toEqual({ version: 1, time_contract: 2 });
   });
 
   it("独立来源与读取工具不能覆盖已声明目标，较早声明不受三轮窗口截断", async () => {
@@ -400,7 +624,7 @@ describe("普通问数目标的原生分支与恢复", () => {
       }),
     );
     const result = await admit();
-    expect(result.request.inquiryTargetContext).toEqual({ version: 1 });
+    expect(result.request.inquiryTargetContext).toEqual({ version: 1, time_contract: 2 });
     expect(result.request.inquiryTargetContext?.baseline).toBeUndefined();
     expect(resolveScope.mock.calls.some(([, codes]) => codes.includes("O1"))).toBe(false);
   });
@@ -415,7 +639,7 @@ describe("普通问数目标的原生分支与恢复", () => {
     await host.closeSession(session.sessionId);
     session = (await host.openSession(TEST_ACTOR, session.sessionId))!;
     const result = await admit();
-    expect(result.request.inquiryTargetContext).toEqual({ version: 1 });
+    expect(result.request.inquiryTargetContext).toEqual({ version: 1, time_contract: 2 });
     expect(resolveScope.mock.calls.some(([, codes]) => codes.includes("O1"))).toBe(false);
   });
 
@@ -476,6 +700,19 @@ describe("普通问数目标的原生分支与恢复", () => {
     expect(second.request.inquiryTargetContext).toMatchObject({ baseline: { ref: "prior" } });
   });
 
+  it("旧冻结目标上下文重试不升级期间契约", async () => {
+    await appendTurn(target("prior"));
+    const first = await admit();
+    expect(first.request.inquiryTargetContext?.time_contract).toBe(2);
+    const address = value<RequestAssociation>("askmetric", "request/next");
+    const saved = { ...(await session.session.getValue(address, BACKGROUND_CONTEXT))!.value };
+    saved.inquiryTargetContext = { version: 1, baseline: target("prior") };
+    await session.session.setValue(address, saved, BACKGROUND_CONTEXT);
+    const retry = await admit();
+    expect(retry.operationId).toBe(first.operationId);
+    expect(retry.request.inquiryTargetContext).toEqual({ version: 1, baseline: target("prior") });
+  });
+
   it("旧关联没有新字段时重试不升级目标协议", async () => {
     await appendTurn(target("prior"));
     const first = await admit();
@@ -510,7 +747,7 @@ describe("普通问数目标的原生分支与恢复", () => {
     );
     await host.runPrompt(session, input(), deps);
     expect(prompts[0]).toMatchObject({ current_target: { ref: "prior" } });
-    expect(prompts[1]).toEqual({ current_target: null });
+    expect(prompts[1]).toEqual({ current_target: null, time_contract: 2 });
   });
 
   it("重开后恢复冻结上下文而不重选基线", async () => {
@@ -642,7 +879,7 @@ describe("普通问数目标的原生分支与恢复", () => {
     );
     await host.resumeOpenOperations(session, deps);
     expect(requests.at(-1)?.inquiryTargetContext?.baseline?.ref).toBe("prior");
-    expect(prompts.at(-1)).toEqual({ current_target: null });
+    expect(prompts.at(-1)).toEqual({ current_target: null, time_contract: 2 });
     const stored = await session.session.getValue(
       value<RequestAssociation>("askmetric", "request/next"),
       BACKGROUND_CONTEXT,
