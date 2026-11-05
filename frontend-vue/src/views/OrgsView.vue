@@ -22,6 +22,7 @@ import BaseBadge from "@/components/ui/BaseBadge.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import BaseModal from "@/components/ui/BaseModal.vue"
 import BaseSelect from "@/components/ui/BaseSelect.vue"
+import BaseTextPreview from "@/components/ui/BaseTextPreview.vue"
 import BaseTooltip from "@/components/ui/BaseTooltip.vue"
 import ConfirmDialog from "@/components/ui/ConfirmDialog.vue"
 import { useManagementResource } from "@/composables/useManagementResource"
@@ -395,11 +396,10 @@ onMounted(() => resource.load())
                   </BaseTooltip>
                 </td>
                 <td class="table-cell">
-                  <BaseTooltip :content="row.org.aliases.join('、')">
-                    <span class="line-clamp-2" tabindex="0">{{
-                      row.org.aliases.join("、") || "-"
-                    }}</span>
-                  </BaseTooltip>
+                  <BaseTextPreview
+                    :label="`${row.org.org_name}的别名`"
+                    :text="row.org.aliases.join('、') || '-'"
+                  />
                 </td>
                 <td class="table-cell">
                   <BaseBadge :variant="row.org.enabled ? 'default' : 'secondary'"

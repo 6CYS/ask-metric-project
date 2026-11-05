@@ -25,6 +25,7 @@ import BaseAlert from "@/components/ui/BaseAlert.vue"
 import BaseBadge from "@/components/ui/BaseBadge.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import BaseModal from "@/components/ui/BaseModal.vue"
+import BaseTextPreview from "@/components/ui/BaseTextPreview.vue"
 import { useKnowledgeManagement } from "@/composables/useKnowledgeManagement"
 import { listMetrics } from "@/lib/api"
 import type { BusinessKnowledgeItem, MetricItem } from "@/types/api"
@@ -415,7 +416,10 @@ onDeactivated(() => {
                       >
                     </td>
                     <td class="table-cell">
-                      <span class="line-clamp-2 break-words">{{ item.text }}</span>
+                      <BaseTextPreview
+                        :label="isPlanTab ? '适用场景与查询说明' : '知识内容'"
+                        :text="item.text"
+                      />
                     </td>
                     <td class="table-cell">
                       <div v-if="item.metric_codes?.length" class="space-y-1">
