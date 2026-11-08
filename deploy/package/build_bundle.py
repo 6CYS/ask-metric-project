@@ -377,6 +377,7 @@ def _copy_operations(target: Path, *, payload_only: bool = False) -> None:
         shutil.copy2(PACKAGE_DIR / "intranet_deploy.py", target / "intranet_deploy.py")
         shutil.copy2(PACKAGE_DIR / "constraints.txt", target / "constraints.txt")
         shutil.copy2(PACKAGE_DIR / "site_upgrade.py", target / "site_upgrade.py")
+        _copy_catalog_operations(target)
         return
     _copy_tree(runtime, target)
     for script in target.glob("*.sh"):
@@ -385,6 +386,12 @@ def _copy_operations(target: Path, *, payload_only: bool = False) -> None:
     shutil.copy2(PACKAGE_DIR / "constraints.txt", target / "constraints.txt")
     shutil.copy2(PACKAGE_DIR / "site_upgrade.py", target / "site_upgrade.py")
     shutil.copy2(PACKAGE_DIR / "uat_deploy.py", target / "uat_deploy.py")
+    _copy_catalog_operations(target)
+
+
+def _copy_catalog_operations(target: Path) -> None:
+    for name in ("sync_catalog_data.py", "sync_organizations.py", "sync_metric_codes.py"):
+        shutil.copy2(PACKAGE_DIR / name, target / name)
 
 
 def build_bundle(args: argparse.Namespace) -> Path:

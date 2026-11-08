@@ -334,6 +334,8 @@ def _run_catalog_sync(
 
 
 def sync_catalogs(args: argparse.Namespace) -> None:
+    # 与独立同步入口保持一致：只有显式 --apply 才允许写入目录。
+    args.dry_run = not args.apply or args.dry_run
     config_file = args.config.resolve()
     _load_runtime_environment(config_file)
 
@@ -375,7 +377,7 @@ def sync_catalogs(args: argparse.Namespace) -> None:
                 settings=settings,
                 service=service,
                 metric_engine=get_metric_catalog_engine(),
-                org_engine=get_org_catalog_engine(),
+                org_engine=None,
                 catalog="metrics",
                 dry_run=args.dry_run,
                 full=args.full,
@@ -389,7 +391,7 @@ def sync_catalogs(args: argparse.Namespace) -> None:
             _, org_summary = _run_catalog_sync(
                 settings=settings,
                 service=service,
-                metric_engine=get_metric_catalog_engine(),
+                metric_engine=None,
                 org_engine=get_org_catalog_engine(),
                 catalog="organizations",
                 dry_run=args.dry_run,
@@ -511,6 +513,7 @@ def parse_args() -> argparse.Namespace:
         "--catalog", choices=("metrics", "organizations", "all"), default="all"
     )
     sync_parser.add_argument("--dry-run", action="store_true")
+    sync_parser.add_argument("--apply", action="store_true", help="显式写入；默认仅预览")
     sync_parser.add_argument("--full", action="store_true")
     sync_parser.set_defaults(handler=sync_catalogs)
 
@@ -531,7 +534,20 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    args.handler(args)
+    if args.command != "sync-catalogs":
+        args.handler(args)
+        return
+    try:
+        args.handler(args)
+    except Exception as exc:
+        # 同步入口对配置、连接和写入失败统一返回非零；不打印可能含凭据的异常文本。
+        summary = getattr(exc, "summary", None)
+        result = summary.to_dict() if summary is not None else {
+            "status": "FAILED", "error_type": type(exc).__name__,
+            "message": "目录同步未完成，请核对配置、源表和应用库；现有服务不受影响。",
+        }
+        print(json.dumps(result, ensure_ascii=False, default=str))
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

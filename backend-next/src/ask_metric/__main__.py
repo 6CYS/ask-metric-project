@@ -7,27 +7,28 @@ from datetime import date
 from pathlib import Path
 
 
-def main(argv: list[str] | None = None) -> None:
+def _main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m ask_metric")
     subcommands = parser.add_subparsers(dest="command", required=True)
     for name in ("sync-metric-catalog", "sync-org-catalog"):
         command = subcommands.add_parser(name)
         command.add_argument("--dry-run", action="store_true")
+        command.add_argument("--apply", action="store_true", help="显式写入；默认仅预览")
         if name == "sync-org-catalog":
             command.add_argument("--snapshot-date", type=date.fromisoformat)
             command.add_argument("--org-aliases", type=Path)
             command.add_argument("--strict-scope", action="store_true")
             command.add_argument("--confirm-org-additions", action="store_true",
-                                 help="接受机构目录新增编码；未提供时发现新增编码拒绝写入")
+                                 help="旧参数兼容；新增编码统一由 --apply 确认")
         if name == "sync-metric-catalog":
-            command.add_argument("--units", type=Path, help="已确认的完整指标名称—单位 JSON")
+            command.add_argument("--units", type=Path, help="旧参数兼容，不再读取或更新单位")
             command.add_argument("--infer-units", action="store_true")
             command.add_argument("--all-snapshots", action="store_true",
                                  help="Read distinct metric definitions across all fact snapshots")
         command.add_argument(
             "--full",
             action="store_true",
-            help="Disable catalog rows missing from the source snapshot",
+            help="旧参数兼容；本次同步不会删除或停用源端缺项",
         )
     subcommands.add_parser("check-data-lake")
     encrypt_config = subcommands.add_parser(
@@ -67,12 +68,11 @@ def main(argv: list[str] | None = None) -> None:
             source_engine=get_metric_catalog_engine(),
             config_table=settings.sit_metric_config_table,
             fact_table=settings.sit_fact_table,
-            dry_run=args.dry_run,
+            dry_run=not args.apply or args.dry_run,
             full=args.full,
             all_snapshots=args.all_snapshots,
-            units_by_name=(json.loads(args.units.read_text(encoding="utf-8"))
-                           if args.units else None),
-            infer_units=args.infer_units,
+            units_by_name=None,
+            infer_units=False,
             active_order=settings.sit_metric_active_order,
             fact_snapshot_field=settings.sit_metric_fact_snapshot_field,
             fact_metric_code_field=settings.sit_fact_metric_code_field,
@@ -88,7 +88,7 @@ def main(argv: list[str] | None = None) -> None:
         result = service.sync_organizations(
             source_engine=get_org_catalog_engine(),
             source_table=settings.sit_org_table,
-            dry_run=args.dry_run,
+            dry_run=not args.apply or args.dry_run,
             full=args.full,
             snapshot_field=settings.sit_org_snapshot_field,
             org_code_field=settings.sit_org_code_field,
@@ -107,12 +107,31 @@ def main(argv: list[str] | None = None) -> None:
             snapshot_date=args.snapshot_date,
             strict_scope=args.strict_scope,
             confirm_org_additions=args.confirm_org_additions,
-            aliases_by_code=(json.loads(args.org_aliases.read_text(encoding="utf-8"))
-                             if args.org_aliases else None),
+            aliases_by_code=None,
         ).to_dict()
     else:
         result = verify_data_lake_readonly(get_query_engine())
     print(json.dumps(result, ensure_ascii=False, default=str))
+
+
+def main(argv: list[str] | None = None) -> None:
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from ask_metric.application.catalog_sync import CatalogSyncError
+    from ask_metric.core.errors import ApplicationError
+    from ask_metric.infrastructure.config_center.nacos import ConfigCenterError
+
+    try:
+        _main(argv)
+    except CatalogSyncError as exc:
+        print(json.dumps(exc.summary.to_dict(), ensure_ascii=False))
+        raise SystemExit(1) from None
+    except (SQLAlchemyError, ApplicationError, ConfigCenterError, ValueError, OSError) as exc:
+        # 连接/物理列/事务错误不能冒充零行成功，也不输出带凭据的连接文本。
+        print(json.dumps({"status": "FAILED", "error_type": type(exc).__name__,
+                          "message": "同步未完成，事务已回滚；请核对数据源与应用库结构。"},
+                         ensure_ascii=False))
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

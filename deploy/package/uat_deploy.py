@@ -259,13 +259,16 @@ def publish():
     print("后端已按与启动相同入口完成 Nacos 配置校验。")
 
 
-def database(generate_sql=False):
+def database(generate_sql=False, *, query_diagnostic=False):
     from ask_metric.infrastructure.db.session import get_app_engine, get_query_engine
     from sqlalchemy import inspect, text
 
     load_backend()
     app = get_app_engine()
-    for label, engine in [("APP", app), ("QUERY", get_query_engine())]:
+    engines = [("APP", app)]
+    if query_diagnostic:
+        engines.append(("QUERY", get_query_engine()))
+    for label, engine in engines:
         with engine.connect() as conn:
             assert conn.execute(text("SELECT 1")).scalar() == 1
         print(f"{label}: SELECT 1 OK")
@@ -416,6 +419,7 @@ def main():
     parser.add_argument("--backend-ip", default="77.16.60.204")
     parser.add_argument("--agent-base-url")
     parser.add_argument("--context-window", type=int, default=128000)
+    parser.add_argument("--apply", action="store_true", help="sync 命令显式写入；默认预览")
     args = parser.parse_args()
     if args.command == "prepare":
         prepare(args)
@@ -433,7 +437,7 @@ def main():
         database()
         for command in ["sync-metric-catalog", "sync-org-catalog"]:
             subprocess.run(
-                [sys.executable, "-m", "ask_metric", command],
+                [sys.executable, "-m", "ask_metric", command, *(["--apply"] if args.apply else [])],
                 env=environment(),
                 check=True,
             )

@@ -7,9 +7,9 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from sqlalchemy import Engine, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from ask_metric.application.org_aliases import derive_org_aliases
 from ask_metric.domain.organization_scope import (
     OrganizationHierarchyNode,
     OrganizationHierarchySnapshot,
@@ -36,10 +36,27 @@ class SyncSummary:
     disabled: int = 0
     dry_run: bool = False
     selected_codes: set[str] = field(default_factory=set, repr=False)
+    issues: list[dict[str, str]] = field(default_factory=list)
+    preserved_existing_codes: list[str] = field(default_factory=list)
+
+    @property
+    def bad_codes(self) -> set[str]:
+        return {issue["code"] for issue in self.issues}
+
+    @property
+    def status(self) -> str:
+        return "FAILED" if not self.selected_rows else "PARTIAL" if self.issues else "PASS"
+
+    def quarantine(self, code: str, reason: str) -> None:
+        issue = {"code": code, "reason": reason}
+        if issue not in self.issues:
+            self.issues.append(issue)
+        self.errors = len(self.bad_codes)
 
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
         result.pop("selected_codes", None)
+        result["status"] = self.status
         return result
 
 
@@ -62,7 +79,13 @@ class CatalogCleanupSummary:
 class OrganizationScopeError(ValueError):
     def __init__(self, codes: list[str]):
         self.codes = codes
-        super().__init__("应用库存在本次61家范围外的启用机构，须先核对编码及引用")
+        super().__init__("机构来源范围不一致")
+
+
+class CatalogSyncError(ValueError):
+    def __init__(self, message: str, summary: SyncSummary):
+        self.summary = summary
+        super().__init__(message)
 
 
 class SitCatalogSyncService:
@@ -134,73 +157,35 @@ class SitCatalogSyncService:
             f"{fact_value_basis_field} AS indcr_nm "
             f"FROM {fact_table}{snapshot_condition}",
         )
-        selected, catalog_skipped, catalog_errors = _build_metric_catalog(fact_rows, configs)
-        # 单位必须来自已确认映射；校验完整后再打开应用库写入事务。
-        if units_by_name is not None or infer_units:
-            from ask_metric.application.metric_units import MetricUnitError, infer_metric_unit
-
-            units_by_name = {} if units_by_name is None else units_by_name.copy()
-            if not isinstance(units_by_name, dict):
-                raise ValueError("单位映射必须是名称到单位的 JSON 对象")
-            selected_names = {row["metric_name"] for row in selected.values()}
-            if infer_units:
-                for name in selected_names:
-                    if not units_by_name.get(name):
-                        units_by_name[name] = infer_metric_unit(name)
-            missing = {name for name in selected_names if not units_by_name.get(name)}
-            if missing:
-                raise MetricUnitError(sorted(missing))
-            if any(not isinstance(v, str) or not v.strip() or len(v) > 64
-                   for v in (units_by_name[name] for name in selected_names)):
-                raise ValueError("单位必须为 1 至 64 字符的非空文本")
-        if catalog_errors:
-            raise ValueError(
-                f"指标目录存在 {catalog_errors} 条同编码名称冲突，未写入应用库；"
-                "请核对源配置和事实表"
-            )
-        summary = SyncSummary(
-            source_rows=len(fact_rows),
-            selected_rows=len(selected),
-            skipped=skipped + catalog_skipped,
-            errors=catalog_errors,
-            dry_run=dry_run,
-            selected_codes=set(selected),
+        summary = SyncSummary(source_rows=len(fact_rows), skipped=skipped, dry_run=dry_run)
+        # 相同生效版本冲突不能任选第一行；只隔离依赖该来源编码的正式指标。
+        conflicts = _latest_conflicts(config_rows, "indcr_no", columns, ("indcr_nm",))
+        selected, catalog_skipped, _ = _build_metric_catalog(
+            fact_rows, {code: row for code, row in configs.items() if code not in conflicts},
+            summary=summary,
         )
+        summary.skipped += catalog_skipped
         with self.app_sessions() as session:
             existing = {
                 row.metric_code: row for row in session.execute(select(MetricTerm)).scalars()
             }
+            selected = _eligible_selection(selected, existing, summary)
             for code, row in selected.items():
-                name = str(row.get("metric_name") or "").strip()
-                if not code or not name:
-                    summary.skipped += 1
-                    continue
                 term = existing.get(code)
                 created = term is None
-                if created:
+                if term is None:
                     term = MetricTerm(
-                        metric_code=code, metric_name=name, description="", metric_explanation=""
+                        metric_code=code, metric_name=row["metric_name"], description="",
+                        metric_explanation="", unit=None, enabled=True,
                     )
                     session.add(term)
                 before = _metric_state(term)
-                term.metric_name = name
-                # 源字段给出了正式基础指标与取值口径；保留原值供问句省略项核验。
+                term.metric_name = row["metric_name"]
                 term.source_metric_code = row["source_metric_code"]
                 term.base_name = row["base_name"]
                 term.value_basis = row["value_basis"]
-                term.enabled = True
-                if units_by_name is not None:
-                    term.unit = units_by_name[name]
-                after = _metric_state(term)
-                if created:
-                    summary.created += 1
-                elif before != after:
-                    summary.updated += 1
-                else:
-                    summary.unchanged += 1
-            # Without adding source-marker columns to the existing application
-            # schema, a recurring sync cannot safely distinguish lake rows from
-            # manually maintained rows.  It is intentionally upsert-only.
+                # 已有单位、启停、别名、解释和关系不属于源端主数据更新。
+                _count_change(summary, created, before != _metric_state(term))
             if dry_run:
                 session.rollback()
             else:
@@ -224,7 +209,7 @@ class SitCatalogSyncService:
         head_office_corporation_code: str,
         legal_entity_hier_code: str,
         head_office_hier_code: str,
-        expected_count: int,
+        expected_count: int = 0,
         snapshot_date: date | None = None,
         aliases_by_code: dict[str, list[str]] | None = None,
         strict_scope: bool = False,
@@ -233,6 +218,9 @@ class SitCatalogSyncService:
         branch_hier_code: str = "2",
         parent_field: str = "",
     ) -> SyncSummary:
+        if not all((corporation_code_max, excluded_corporation_code,
+                    head_office_corporation_code, legal_entity_hier_code, head_office_hier_code)):
+            raise ValueError("机构正式来源范围和层级参数必须明确配置；未执行同步")
         _validate_table_name(source_table)
         _validate_field_name(snapshot_field)
         for source_field in (
@@ -282,130 +270,48 @@ class SitCatalogSyncService:
                 "branch_hier_code": branch_hier_code,
             },
         )
+        summary = SyncSummary(source_rows=len(rows), dry_run=dry_run)
         selected, skipped = _select_latest(rows, "org_no", ["source_load_date"])
-        # 同一快照必须能唯一确定名称；不截断超过应用字段长度的源名称。
-        seen_names: dict[str, str] = {}
-        seen_hierarchy: dict[str, tuple[str, str]] = {}
+        summary.skipped = skipped
+        conflicts = _latest_conflicts(
+            rows, "org_no", ["source_load_date"], ("org_chn_nm", "org_hier_code", "parent_org_no"),
+        )
         for row in rows:
-            code = str(row.get("org_no") or "").strip()
-            name = str(row.get("org_chn_nm") or "").strip()
+            code = _source_text(row.get("org_no"))
+            name = _source_text(row.get("org_chn_nm"))
+            level = _source_text(row.get("org_hier_code"))
+            parent = _source_text(row.get("parent_org_no"))
             if not code or len(code) > 128 or not name or len(name) > 255:
-                raise ValueError("机构编码或名称为空/超长，未写入应用库")
-            if code in seen_names and seen_names[code] != name:
-                raise ValueError("机构同编码出现不同名称，未写入应用库")
-            seen_names[code] = name
-            level = str(row.get("org_hier_code") or "").strip()
-            parent = str(row.get("parent_org_no") or "").strip()
-            hierarchy_key = (level, parent)
-            if code in seen_hierarchy and seen_hierarchy[code] != hierarchy_key:
-                raise ValueError("机构同编码出现冲突层级，未写入应用库")
-            if len(parent) > 128 or len(level) > 8:
-                raise ValueError("机构层级字段超长，未写入应用库")
-            seen_hierarchy[code] = hierarchy_key
-        roots = [
-            code for code, row in selected.items()
-            if str(row.get("org_hier_code") or "").strip() == head_office_hier_code
-        ]
-        if len(roots) != 1:
-            raise ValueError("机构目录必须包含唯一正式省级根机构，未写入应用库")
-        root_code = roots[0]
-        hierarchy_nodes = []
-        for code, row in selected.items():
-            level = str(row.get("org_hier_code") or "").strip()
-            # 未纳入支行时，源查询仅选正式省级/法人级；唯一省级根是其治理上级。
-            # 此关系来自正式层级字段，不根据机构名称或编码形状猜测。
-            parent = (
-                str(row.get("parent_org_no") or "").strip() or None
-                if include_branch_level else None if code == root_code else root_code
-            )
-            hierarchy_nodes.append(OrganizationHierarchyNode(
-                code=code, name=str(row.get("org_chn_nm") or "").strip(),
-                parent_code=parent, hierarchy_level=level,
-            ))
-        snapshot = OrganizationHierarchySnapshot(
-            nodes=tuple(hierarchy_nodes), root_level=head_office_hier_code,
-            cohort_level=legal_entity_hier_code,
-        )
-        # 整批先验证再打开写事务；dry-run 执行同样校验，不发布半同步层级。
-        snapshot.validated_root()
-        hierarchy_by_code = {node.code: node for node in snapshot.nodes}
-        additions = aliases_by_code if aliases_by_code is not None else {}
-        if not isinstance(additions, dict) or set(additions) - set(selected):
-            raise ValueError("机构别名映射含本次范围以外的编码，未写入应用库")
-        for aliases in additions.values():
-            if not isinstance(aliases, list) or any(
-                not isinstance(alias, str) or not alias.strip() or len(alias) > 255
-                for alias in aliases
-            ):
-                raise ValueError("机构别名必须为非空文本列表，每项不超过255字符")
-        # 数量闸门只防“少”：少于现行范围（expected_count）一律拒绝；
-        # “多”与编码集合差异在写入前对照应用库现有目录单独把关。
-        if len(selected) < expected_count:
-            scope_note = " (branch level included)" if include_branch_level else ""
-            raise RuntimeError(
-                "Organization catalog scope returned "
-                f"{len(selected)} rows; expected at least {expected_count}"
-                f"{scope_note}. No application catalog data was written."
-            )
-        summary = SyncSummary(
-            len(rows),
-            len(selected),
-            skipped=skipped,
-            dry_run=dry_run,
-            selected_codes=set(selected),
-        )
+                summary.quarantine(code, "机构编码或名称为空/超长")
+            elif code in conflicts:
+                summary.quarantine(code, "同一快照的名称或层级冲突")
+            elif not level or len(level) > 8 or len(parent) > 128:
+                summary.quarantine(code, "机构层级字段为空/超长")
+        selected = {code: row for code, row in selected.items() if code not in summary.bad_codes}
         with self.app_sessions() as session:
             existing = {row.org_code: row for row in session.execute(select(OrgTerm)).scalars()}
-            outside = sorted(code for code, term in existing.items()
-                             if term.enabled and code not in selected)
-            if strict_scope and outside:
-                raise OrganizationScopeError(outside)
-            if outside:
-                # 丢失任一已启用编码一律拒绝：可能是源范围配置错误或机构撤并未处理。
-                raise RuntimeError(
-                    "Organization catalog would drop enabled codes "
-                    f"{outside}. No application catalog data was written."
-                )
-            additions_codes = sorted(code for code in selected if code not in existing)
-            if additions_codes and not confirm_org_additions and not dry_run:
-                # 新增编码可能来自新设机构，也可能是编码口径变化；须显式确认才写入。
-                # dry-run 不写入，允许预览新增以便核对后再带确认执行。
-                raise RuntimeError(
-                    "Organization catalog introduces new codes "
-                    f"{additions_codes}; rerun with --confirm-org-additions to accept them. "
-                    "No application catalog data was written."
-                )
+            selected = _eligible_selection(selected, existing, summary)
+            hierarchy = _safe_hierarchy(
+                selected, existing, summary, head_office_hier_code,
+                legal_entity_hier_code, include_branch_level,
+            )
+            selected = {code: row for code, row in selected.items() if code in hierarchy}
+            _finalize_selection(selected, existing, summary)
             for code, row in selected.items():
-                name = str(row.get("org_chn_nm") or "").strip()
-                if not code or not name:
-                    summary.skipped += 1
-                    continue
                 term = existing.get(code)
                 created = term is None
-                if created:
-                    term = OrgTerm(org_code=code, org_name=name, aliases=[])
+                if term is None:
+                    term = OrgTerm(
+                        org_code=code, org_name=row["org_chn_nm"], aliases=[], enabled=True,
+                    )
                     session.add(term)
                 before = _org_state(term)
-                term.org_name = name
-                # 按机构码追加导出别名，不覆盖目标库已有人工维护的别名；
-                # 派生别名排在最后，人工别名（库中已有与本次导出）优先保留。
-                term.aliases = list(dict.fromkeys([
-                    *(term.aliases or []), *(alias.strip() for alias in additions.get(code, [])),
-                    *derive_org_aliases(name),
-                ]))
-                term.enabled = True
-                node = hierarchy_by_code[code]
+                term.org_name = str(row["org_chn_nm"]).strip()
+                # 别名属于独立维护能力；主数据同步不推导或覆盖它。
+                node = hierarchy[code]
                 term.parent_org_code = node.parent_code
                 term.hierarchy_level = node.hierarchy_level
-                after = _org_state(term)
-                if created:
-                    summary.created += 1
-                elif before != after:
-                    summary.updated += 1
-                else:
-                    summary.unchanged += 1
-            # See metric sync: recurring synchronization is intentionally
-            # upsert-only when no schema extension is used.
+                _count_change(summary, created, before != _org_state(term))
             if dry_run:
                 session.rollback()
             else:
@@ -491,9 +397,16 @@ def verify_data_lake_readonly(engine: Engine) -> dict[str, Any]:
 def _read_rows(
     engine: Engine, sql: str, parameters: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
-    return InceptorDataSourceAdapter(engine).execute_readonly(
-        sql=sql, parameters=parameters or {}
-    ).rows
+    try:
+        return InceptorDataSourceAdapter(engine).execute_readonly(
+            sql=sql, parameters=parameters or {}
+        ).rows
+    except RuntimeError as exc:
+        if not isinstance(exc.__cause__, SQLAlchemyError):
+            raise
+        summary = SyncSummary()
+        summary.quarantine("", "源表读取失败；请核对连接、授权、物理表及必需列")
+        raise CatalogSyncError("源表读取失败，未执行目录写入", summary) from exc
 
 
 def _validate_table_name(value: str) -> None:
@@ -507,43 +420,150 @@ def _validate_field_name(value: str) -> None:
 
 
 def _build_metric_catalog(
-    fact_rows: list[dict[str, Any]], configs: dict[str, dict[str, Any]]
+    fact_rows: list[dict[str, Any]], configs: dict[str, dict[str, Any]],
+    *, summary: SyncSummary | None = None,
 ) -> tuple[dict[str, dict[str, Any]], int, int]:
+    report = summary if summary is not None else SyncSummary()
     selected: dict[str, dict[str, Any]] = {}
-    skipped = 0
-    errors = 0
     for fact in fact_rows:
-        metric_code = str(fact.get("indcr_no") or "").strip()
-        source_metric_code = str(fact.get("orig_indcr_no") or "").strip()
-        value_basis = str(fact.get("indcr_nm") or "").strip()
-        config = configs.get(source_metric_code)
-        if not metric_code or not source_metric_code or config is None:
-            skipped += 1
+        code = _source_text(fact.get("indcr_no"))
+        source = _source_text(fact.get("orig_indcr_no"))
+        basis = _source_text(fact.get("indcr_nm"))
+        config = configs.get(source)
+        base = _strip_metric_prefix(config.get("indcr_nm")) if config else ""
+        name = _compose_metric_name(base, basis)
+        if (not code or len(code) > 128 or not source or len(source) > 128
+                or not base or len(base) > 255 or not basis or len(basis) > 255
+                or not name or len(name) > 255):
+            report.quarantine(code, "正式编码、来源编码、基础名称或取值口径缺失/冲突/超长")
             continue
-        base_name = _strip_metric_prefix(config.get("indcr_nm"))
-        metric_name = _compose_metric_name(base_name, value_basis)
-        if not metric_name:
-            skipped += 1
-            continue
-        candidate = {
-            "metric_name": metric_name,
-            "source_metric_code": source_metric_code,
-            "base_name": base_name,
-            "value_basis": value_basis,
-            "config": config,
-        }
-        current = selected.get(metric_code)
-        if current is not None and any(current[key] != candidate[key] for key in (
-            "metric_name", "source_metric_code", "base_name", "value_basis"
-        )):
-            errors += 1
-            continue
-        selected[metric_code] = candidate
-    return selected, skipped, errors
+        candidate = dict(metric_name=name, source_metric_code=source,
+                         base_name=base, value_basis=basis, config=config)
+        current = selected.get(code)
+        if current is not None and current != candidate:
+            report.quarantine(code, "同一正式指标编码存在多个名称、来源或口径")
+        selected[code] = candidate
+    return ({code: row for code, row in selected.items() if code not in report.bad_codes},
+            0, report.errors)
+
+
+def _latest_conflicts(
+    rows: list[dict[str, Any]], key: str, order: list[str], fields: tuple[str, ...],
+) -> set[str]:
+    latest, _ = _select_latest(rows, key, order,
+                              effective_field="eff_dt" if "eff_dt" in order else None)
+    conflicts = set()
+    for row in rows:
+        code = _source_text(row.get(key))
+        current = latest.get(code)
+        if current is not None and _sort_key(row, order) == _sort_key(current, order):
+            if any(_source_text(row.get(name)) != _source_text(current.get(name))
+                   for name in fields):
+                conflicts.add(code)
+    return conflicts
+
+
+def _count_change(summary: SyncSummary, created: bool, changed: bool) -> None:
+    if created:
+        summary.created += 1
+    elif changed:
+        summary.updated += 1
+    else:
+        summary.unchanged += 1
+
+
+def _eligible_selection(selected: dict, existing: dict, summary: SyncSummary) -> dict:
+    eligible = {}
+    for code, row in selected.items():
+        if code in existing and not existing[code].enabled:
+            summary.quarantine(code, "保留人工停用状态，本次不更新")
+        else:
+            eligible[code] = row
+    _finalize_selection(eligible, existing, summary)
+    return eligible
+
+
+def _finalize_selection(selected: dict, existing: dict, summary: SyncSummary) -> None:
+    summary.selected_codes = set(selected)
+    summary.selected_rows = len(selected)
+    summary.preserved_existing_codes = sorted(set(existing) - set(selected))
+    if not selected:
+        raise CatalogSyncError("没有可安全同步的合格记录；应用目录保持原样", summary)
+
+
+def _safe_hierarchy(
+    selected: dict, existing: dict, summary: SyncSummary,
+    root_level: str, cohort_level: str, include_branch: bool,
+) -> dict[str, OrganizationHierarchyNode]:
+    # 优先使用应用库可信根；来源未返回的旧节点仍参与最终权限结构校验。
+    retained = {
+        code: OrganizationHierarchyNode(code, term.org_name, term.parent_org_code,
+                                        term.hierarchy_level)
+        for code, term in existing.items() if term.enabled
+    }
+    roots = [node.code for node in retained.values()
+             if not node.parent_code and node.hierarchy_level == root_level]
+    source_roots = [code for code, row in selected.items()
+                    if _source_text(row.get("org_hier_code")) == root_level]
+    candidates = roots or source_roots
+    if len(candidates) != 1:
+        for code in selected:
+            summary.quarantine(code, "无法确定唯一可信省级根")
+        _finalize_selection({}, existing, summary)
+    root = candidates[0]
+    updates = {}
+    for code, row in selected.items():
+        level = _source_text(row.get("org_hier_code"))
+        parent = ((_source_text(row.get("parent_org_no")) or None) if include_branch
+                  else None if level == root_level else root)
+        updates[code] = OrganizationHierarchyNode(
+            code, str(row["org_chn_nm"]).strip(), parent, level,
+        )
+    # 移除坏更新并恢复该编码旧节点，再迭代验证依赖子树，直到有效目录稳定。
+    while True:
+        effective = retained | updates
+        bad = set()
+        for code, node in effective.items():
+            if code == root:
+                invalid = bool(node.parent_code) or node.hierarchy_level != root_level
+            else:
+                invalid = (not node.hierarchy_level or node.hierarchy_level == root_level
+                           or node.parent_code not in effective
+                           or ((node.parent_code == root)
+                               != (node.hierarchy_level == cohort_level)))
+            seen = set()
+            cursor = code
+            while not invalid and cursor != root:
+                if cursor in seen or cursor not in effective:
+                    invalid = True
+                    break
+                seen.add(cursor)
+                cursor = effective[cursor].parent_code or ""
+            if invalid:
+                bad.add(code)
+        rejected = bad & updates.keys()
+        if not rejected:
+            if bad:
+                for code in selected:
+                    summary.quarantine(code, "保留节点的既有层级无效，需要先修正目录")
+                _finalize_selection({}, existing, summary)
+            break
+        for code in rejected:
+            summary.quarantine(code, "父机构缺失、环路或层级/根冲突；保留旧节点")
+            updates.pop(code)
+    OrganizationHierarchySnapshot(
+        tuple((retained | updates).values()), root_level, cohort_level,
+    ).validated_root()
+    return updates
+
+
+def _source_text(value: Any) -> str:
+    # 空值与数值零不同；文本编码原样保留前导零，不猜测补齐。
+    return "" if value is None else str(value).strip()
 
 
 def _strip_metric_prefix(value: Any) -> str:
-    return re.sub(r"^机构", "", str(value or "").strip(), count=1).strip()
+    return re.sub(r"^机构", "", _source_text(value), count=1).strip()
 
 
 def _compose_metric_name(base_name: str, value_basis: str) -> str:
@@ -569,7 +589,7 @@ def _select_latest(
             if effective_date is not None and effective_date > date.today():
                 skipped += 1
                 continue
-        code = str(row.get(key) or "").strip()
+        code = _source_text(row.get(key))
         if not code:
             skipped += 1
             continue
