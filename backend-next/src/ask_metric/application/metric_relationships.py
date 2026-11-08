@@ -205,14 +205,16 @@ class MetricRelationshipStore:
                 "METRIC_RELATION_METRIC_NOT_FOUND", "请选择正式目录中已启用的指标。",
                 status_code=422,
             )
-        if candidate.kind == "composition":
+        raw_members = all(metrics[code].value_policy == "source_raw_v1" for code in members)
+        # 管理员填写来源并审核的正式关系可声明同量纲；不从空单位推导关系。
+        if candidate.kind == "composition" and not raw_members:
             units = {metrics[code].unit for code in members}
             if len(units) != 1 or None in units or "" in units:
                 raise ApplicationError(
                     "METRIC_RELATION_UNIT_MISMATCH", "组成关系的总量与分项须使用相同且明确的单位。",
                     status_code=422,
                 )
-        if candidate.kind == "ratio":
+        if candidate.kind == "ratio" and not raw_members:
             numerator, denominator = (metrics[code] for code in candidate.children)
             if (metrics[candidate.parent].unit != "%" or not numerator.unit
                     or numerator.unit != denominator.unit):

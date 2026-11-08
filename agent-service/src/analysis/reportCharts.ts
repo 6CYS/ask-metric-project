@@ -28,7 +28,7 @@ type Source = {ref: string; evidence: object};
 type Row = Record<string, unknown>;
 type Point = {ref: string; name: string; metric: string; org: string; orgName: string; date: string;
   unit: string; value: string; display: string; period: string; group: string;
-  metricId: string; valueBasis: string; currentFact: boolean};
+  metricId: string; valueBasis: string; currentFact: boolean; raw: boolean};
 const record = (value: unknown): Row => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Row : {};
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(record) : [];
 const text = (value: unknown) => typeof value === "string" ? value : "";
@@ -73,11 +73,12 @@ function point(source: Row, atom: Row): Point | undefined {
     atom.comparison_role ?? hint.comparison_role ?? atom.name ?? "value",
   ]);
   const value = unit === "%" ? percentage(raw, atom.value_encoding ?? descriptor.value_encoding) : raw;
-  if (!ref || !metric || !name || !org || !orgName || !datePattern.test(date) || !unit || !display
+  const rawValue = atom.value_policy === "source_raw_v1" || descriptor.value_policy === "source_raw_v1";
+  if (!ref || !metric || !name || !org || !orgName || !datePattern.test(date) || (!unit && !rawValue) || !display
     || !value || value.length > 220 || !numeric.test(value) || !Number.isFinite(Number(value))) return undefined;
   return {ref, name, metric, org, orgName, date, unit, value, display, period,
     group: overview ? text(source.topic) : text(hint.topic), metricId: text(hint.metric_id),
-    valueBasis: text(descriptor.value_basis),
+    valueBasis: text(descriptor.value_basis), raw: rawValue,
     currentFact: atom.type === "fact" && !hint.comparison && !atom.comparison};
 }
 
@@ -154,6 +155,7 @@ function seriesChart(values: Point[], selection?: ReportChartSelection): Busines
     || unique(values, "unit").size !== 1 || unique(values, "period").size !== 1) return;
   const first = values[0]!;
   const sameMetric = unique(values, "metric").size === 1, sameOrg = unique(values, "org").size === 1;
+  if (values.some(item => item.raw) && (!sameMetric || values.some(item => !item.raw))) return;
   const dates = [...unique(values, "date")].sort();
   const line = sameMetric && sameOrg && dates.length === values.length;
   const orgComparison = sameMetric && dates.length === 1 && unique(values, "org").size === values.length;
@@ -204,7 +206,9 @@ function compositionChart(values: Point[], topic?: Row): {charts: BusinessPieCha
       value: item.value, display: item.display}] : []);
     return buildCompositionPieChart({title: `${text(definitions.find(item => item.id === relation.parent)?.label) || total.name}结构`,
       date: first.date, unit: first.unit, total: {ref: total.ref, value: total.value}, parts,
-      tolerance: text(relation.pie_tolerance) || "0", toleranceUnit: text(relation.pie_tolerance_unit) || first.unit});
+      sourceRaw: ordered.every(item => item?.raw),
+      tolerance: first.raw ? "0" : text(relation.pie_tolerance) || "0",
+      toleranceUnit: first.raw ? "" : text(relation.pie_tolerance_unit) || first.unit});
   }
   return unavailable;
 }

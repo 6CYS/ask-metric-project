@@ -13,7 +13,7 @@ def _rounded_display(value: Decimal) -> str:
     return format(rounded, "f")
 
 
-def money_reply_fields(value: Decimal, unit: str) -> dict[str, str]:
+def money_reply_fields(value: Decimal, unit: str | None) -> dict[str, str]:
     """按金额量级选择可读单位，未知单位不推测；原始值仍保留在查询证据中。"""
     if unit not in MONEY_UNIT_SCALES or not value.is_finite():
         return {}
@@ -29,6 +29,8 @@ def money_reply_fields(value: Decimal, unit: str) -> dict[str, str]:
 
 
 def display_number(value: str, metric: dict, *, difference: bool = False) -> str:
+    if metric.get("value_policy") == "source_raw_v1":
+        return f"{value}（原始值，单位未提供）"
     amount = Decimal(value)
     unit = metric.get("unit") or "（单位未提供）"
     money = money_reply_fields(amount, unit)

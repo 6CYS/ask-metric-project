@@ -175,7 +175,7 @@ def validated_report_atoms(sources: list[dict]) -> dict[str, dict]:
             ref = metric["binding_ref"]
             metric_identity = tuple(metric.get(key) for key in (
                 "code", "name", "unit", "value_basis", "quantity_kind", "metadata_version",
-                "analysis_hint",
+                "analysis_hint", "value_policy",
             ))
             if ref in catalog and catalog[ref] != metric_identity:
                 reject()
@@ -211,7 +211,8 @@ def validated_report_atoms(sources: list[dict]) -> dict[str, dict]:
                     or atom.get("org_name") != organizations[atom["org_code"]]
                     or not isinstance(atom.get("display"), str)
                     or any(atom.get(key) is not None and metric.get(key) is not None
-                           and atom[key] != metric[key] for key in ("unit", "metadata_version"))):
+                           and atom[key] != metric[key]
+                           for key in ("unit", "metadata_version", "value_policy"))):
                 reject()
             try:
                 date.fromisoformat(atom["date"])
@@ -448,13 +449,14 @@ def fact_narrative(
 
 def report_rows(sources: list[dict]) -> list[dict]:
     """表格保留原展示文本，图表另取同一事实的原始值和单位，不解析带单位文案。"""
-    values: dict[tuple, set[tuple[str, str]]] = {}
+    values: dict[tuple, set[tuple[str, str | None, str | None, str | None]]] = {}
     for source in sources:
         for atom in source["evidence_items"]:
             # 百分比原值还依赖 ratio/percent 编码；缺少编码时不向图表猜测换算。
-            if atom.get("type") != "fact" or atom.get("unit") not in {
+            if atom.get("type") != "fact" or (atom.get("value_policy") != "source_raw_v1"
+                and atom.get("unit") not in {
                 "元", "万元", "亿元", "户", "个", "家", "笔",
-            }:
+            }):
                 continue
             value = str(atom.get("value", ""))
             try:
@@ -464,7 +466,9 @@ def report_rows(sources: list[dict]) -> list[dict]:
                 continue
             value_key = (atom.get("metric_name"), atom.get("org_name"),
                    atom.get("date"), atom.get("display"))
-            values.setdefault(value_key, set()).add((value, atom["unit"]))
+            values.setdefault(value_key, set()).add((
+                value, atom.get("unit"), atom.get("value_policy"), atom.get("metric_code"),
+            ))
     rows = {}
     for source in sources:
         for row in source["rows"]:
@@ -474,7 +478,10 @@ def report_rows(sources: list[dict]) -> list[dict]:
             }
             candidates = values.get((*row_key, row["metric_value"]), set())
             if len(candidates) == 1:
-                result["raw_value"], result["unit"] = next(iter(candidates))
+                raw_value, unit, policy, code = next(iter(candidates))
+                result.update(raw_value=raw_value, unit=unit)
+                if policy == "source_raw_v1":
+                    result.update(value_policy=policy, metric_code=code)
             rows[(*row_key, row["value_role"])] = result
     return list(rows.values())
 

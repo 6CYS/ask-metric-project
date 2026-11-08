@@ -262,6 +262,7 @@ class MetricCatalogItem(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     description: str = ""
     unit: str | None = None
+    value_policy: Literal["catalog_units_v1", "source_raw_v1"] = "catalog_units_v1"
     explanation: str = ""
 
 

@@ -95,7 +95,12 @@ class Quantity:
         return Quantity(decimal_value(value), units)
 
 
-def quantity(value: str | int | Decimal, unit: str) -> Quantity:
+def quantity(
+    value: str | int | Decimal, unit: str | None, *, raw_identity: str | None = None,
+) -> Quantity:
+    if raw_identity:
+        # 未知单位不是无量纲；只有同一正式指标/口径的原值可相减、聚合或相除。
+        return Quantity(decimal_value(value), ((f"@raw:{raw_identity}", 1),))
     if not unit:
         raise CalculationError("指标缺少正式单位，不能猜测计算口径。")
     # 百分数按比率进入计算，返回时按指定展示格式恢复百分数。
@@ -196,6 +201,9 @@ def evaluate_expression(spec: CalculationExpression, bindings: dict[str, Quantit
             if not isinstance(result, Quantity):
                 raise CalculationError("表达式必须产生单个数值。")
             raw = decimal_value(result.value)
+            raw_units = [name for name, _ in result.units if name.startswith("@raw:")]
+            if raw_units and (len(result.units) != 1 or result.units[0][1] != 1):
+                raise CalculationError("未知单位不能跨指标运算或生成复合量纲，请先确认正式关系。")
             if spec.display == "percent" and result.units:
                 raise CalculationError("只有无量纲比值才能展示为百分比。")
             display_value = raw * 100 if spec.display == "percent" else raw
@@ -205,7 +213,7 @@ def evaluate_expression(spec: CalculationExpression, bindings: dict[str, Quantit
             unit = (
                 "%"
                 if spec.display == "percent"
-                else "·".join(
+                else "" if raw_units else "·".join(
                     unit if power == 1 else f"{unit}^{power}" for unit, power in result.units
                 )
             )
@@ -216,6 +224,7 @@ def evaluate_expression(spec: CalculationExpression, bindings: dict[str, Quantit
                 "value": str(raw),
                 "display_value": format(rounded, "f"),
                 "unit": unit,
+                "value_policy": "source_raw_v1" if raw_units else "derived_v1",
                 "display": spec.display,
                 "decimal_places": spec.decimal_places,
                 "variables": sorted(used),

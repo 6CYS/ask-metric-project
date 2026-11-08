@@ -119,7 +119,8 @@ class MetricSemantics:
                     item = self.items.get(code)
                     if (
                         item
-                        and item.unit in definition.get("units", [])
+                        and (item.value_policy == "source_raw_v1"
+                             or item.unit in definition.get("units", []))
                         and not definition.get("disabled_reason")
                     ):
                         self.topic_attributes[code] = {
@@ -144,7 +145,9 @@ class MetricSemantics:
                                 comparison = self.items.get(candidate)
                                 if (
                                     comparison
-                                    and comparison.unit == ("%" if role == "rate" else item.unit)
+                                    and (comparison.value_policy == "source_raw_v1"
+                                         or comparison.unit
+                                         == ("%" if role == "rate" else item.unit))
                                     and (
                                         comparison.value_basis == rule["value_basis"]
                                         or not comparison.value_basis
@@ -179,10 +182,14 @@ class MetricSemantics:
         extension = self.extensions.get("metrics", {}).get(code, {})
         approved = extension if extension.get("status") == "approved" else {}
         attributes = self.topic_attributes.get(code, {})
-        encoding = approved.get("value_encoding") or attributes.get("value_encoding")
+        encoding = (None if item.value_policy == "source_raw_v1" else
+                    approved.get("value_encoding") or attributes.get("value_encoding"))
         value = {
             **item.model_dump(),
             "value_encoding": encoding,
+            "source_value_encoding": (
+                approved.get("value_encoding") or attributes.get("value_encoding")
+            ),
             "frequency": approved.get("frequency"),
             "quantity_kind": approved.get("quantity_kind"),
             "business_direction": approved.get("business_direction"),

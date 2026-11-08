@@ -187,6 +187,10 @@ export function topicEvidenceView(
   ) => {
     const a = registry.metrics[leftKey]!,
       b = registry.metrics[rightKey]!;
+    // 空单位不证明跨指标可比；同指标跨机构比较仍保留。
+    if (leftKey !== rightKey && (!projectedTables.some(table => table.metric_code === a.code
+      && table.date === date && string(table.unit)) || !projectedTables.some(table => table.metric_code === b.code
+      && table.date === date && string(table.unit)))) return;
     const order = compareDecimal(values.get(left[0]!)!, values.get(right[0]!)!);
     const relation = order < 0 ? "小于" : order > 0 ? "大于" : "等于";
     const absolute =

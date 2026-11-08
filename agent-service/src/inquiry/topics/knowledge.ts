@@ -40,7 +40,6 @@ export function knowledgeTopicRegistry(
     if (
       !item ||
       !string(item.name).trim() ||
-      !string(item.unit).trim() ||
       !string(item.binding_ref).trim()
     ) {
       missing.push(code);
@@ -53,7 +52,7 @@ export function knowledgeTopicRegistry(
       code,
       name: string(item.name),
       unit: string(item.unit),
-      change: preset && preset.unit === item.unit ? preset.change : "value",
+      change: preset && (item.value_policy === "source_raw_v1" || preset.unit === item.unit) ? preset.change : "value",
     };
   }
   const keys = Object.keys(metrics);
@@ -66,6 +65,7 @@ export function knowledgeTopicRegistry(
     ([left, right]) =>
       metrics[left] &&
       metrics[right] &&
+      !!metrics[left].unit &&
       metrics[left].unit === metrics[right].unit &&
       metrics[left].change === metrics[right].change,
   );

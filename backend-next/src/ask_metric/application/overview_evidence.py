@@ -11,6 +11,8 @@ def display_value(
     encoding: str | None = None,
     money_unit: str | None = None,
 ) -> str:
+    if item.get("value_policy") == "source_raw_v1":
+        return f"{item['value']}（原始值，单位未提供）"
     value = item.get("reply_value", item.get("display_value", item.get("value")))
     unit = item.get("reply_unit", item.get("unit", ""))
     with localcontext() as context:
@@ -54,6 +56,7 @@ def overview_evidence(result: dict, topic: dict) -> dict:
                 ),
                 "value": item["value"],
                 "unit": item.get("unit", ""),
+                "value_policy": item.get("value_policy"),
                 "fact_id": item.get("fact_id"),
                 "date": item.get("date", day),
                 "value_encoding": encoding,

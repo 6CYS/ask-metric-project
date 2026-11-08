@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Collection
 from threading import Lock
-from typing import Protocol
+from typing import Protocol, TypedDict
 
 from sqlalchemy import func, inspect, or_, select
 from sqlalchemy.orm import Session, undefer_group
@@ -16,6 +16,12 @@ from ask_metric.infrastructure.db.models import (
     MetricTerm,
     OrgTerm,
 )
+
+
+class _MetricSourceFields(TypedDict):
+    source_metric_code: str | None
+    base_name: str | None
+    value_basis: str | None
 
 
 class MetricCatalogRepository(Protocol):
@@ -64,7 +70,7 @@ class SqlAlchemyMetricCatalogRepository:
         ).one())
 
     @staticmethod
-    def _source_fields(term: MetricTerm, available: bool) -> dict[str, str | None]:
+    def _source_fields(term: MetricTerm, available: bool) -> _MetricSourceFields:
         if not available:
             return {"source_metric_code": None, "base_name": None, "value_basis": None}
         return {"source_metric_code": term.source_metric_code,
@@ -75,7 +81,8 @@ class SqlAlchemyMetricCatalogRepository:
         query = select(MetricTerm).where(MetricTerm.enabled.is_(False))
         if source_available:
             query = query.options(undefer_group("metric_source"))
-        return [MetricCatalogItem(code=term.metric_code, name=term.metric_name, unit=term.unit,
+        return [MetricCatalogItem(code=term.metric_code, name=term.metric_name, unit=None,
+                                  value_policy="source_raw_v1",
                                   **self._source_fields(term, source_available))
                 for term in self.session.execute(query).scalars()]
 
@@ -155,7 +162,8 @@ class SqlAlchemyMetricCatalogRepository:
                 value_basis=term.get("value_basis"),
                 aliases=aliases[term["metric_code"]],
                 description=term["description"],
-                unit=term["unit"],
+                unit=None,
+                value_policy="source_raw_v1",
                 explanation=term["metric_explanation"],
             )
             for term in terms

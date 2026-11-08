@@ -225,7 +225,7 @@ export function createTopicQueryTool(
           (item) =>
             item.code === metric.code &&
             item.name === metric.name &&
-            item.unit === metric.unit &&
+            (item.value_policy === "source_raw_v1" || item.unit === metric.unit) &&
             typeof item.binding_ref === "string" &&
             item.binding_ref,
         );

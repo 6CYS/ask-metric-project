@@ -69,7 +69,7 @@ def comparison_inputs(
     current_semantics = semantics if semantics is not None else service.semantics(actor)
     current_semantics.resolve(metric["binding_ref"])
     if (
-        not metric.get("unit")
+        not metric.get("unit") and metric.get("value_policy") != "source_raw_v1"
         or current.get("unit") != metric["unit"]
         or base.get("unit") != metric["unit"]
         or metric["unit"] == "%"
@@ -118,6 +118,7 @@ def comparison_atoms(result, metric, current, base):
                 "value": value,
                 "display": display,
                 "unit": metric["unit"] if difference else item["unit"],
+                "value_policy": metric.get("value_policy") if difference else "derived_v1",
                 "value_encoding": metric.get("value_encoding") if difference else "ratio",
                 "metric_code": metric["code"],
                 "metric_name": metric["name"],

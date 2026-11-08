@@ -34,7 +34,7 @@ def build_calculation_facts(task_id: str, rows: list[dict], catalog: dict) -> li
         codes_by_name.setdefault(organization["name"], set()).add(organization["code"])
     for index, row in enumerate(rows):
         metric = metrics.get(row.get("metric_code"))
-        if not metric or not metric.get("unit"):
+        if not metric:
             continue
         org_code = row.get("org_code")
         if not org_code:
@@ -58,8 +58,11 @@ def build_calculation_facts(task_id: str, rows: list[dict], catalog: dict) -> li
                     "task_id": task_id,
                     "field": field,
                     "value": str(value),
-                    "unit": metric["unit"],
-                    **money_reply_fields(value, metric["unit"]),
+                    "unit": metric.get("unit"),
+                    "value_policy": metric.get("value_policy", "catalog_units_v1"),
+                    "value_basis": metric.get("value_basis"),
+                    "source_metric_code": metric.get("source_metric_code"),
+                    **money_reply_fields(value, metric.get("unit")),
                     "metric_code": metric["code"],
                     "metric_name": metric["name"],
                     "org_name": row.get("org_name"),
@@ -78,9 +81,12 @@ class CalculationApplicationService:
         self.execution_service = execution_service
         self.uow_factory = execution_service.uow_factory
 
-    def calculate(self, payload: CalculationRequest, actor, request_id: str) -> dict:
+    def calculate(
+        self, payload: CalculationRequest, actor, request_id: str, *,
+        comparable_metric_codes: frozenset[str] = frozenset(),
+    ) -> dict:
         try:
-            return self._calculate(payload, actor, request_id)
+            return self._calculate(payload, actor, request_id, comparable_metric_codes)
         except CalculationError as exc:
             raise ApplicationError("CALCULATION_INVALID", str(exc), status_code=422) from exc
         except PermissionDeniedError as exc:
@@ -92,7 +98,10 @@ class CalculationApplicationService:
                 "CALCULATION_CATALOG_CHANGED", "目录已变化，请重新查询。", status_code=422
             ) from exc
 
-    def _calculate(self, payload: CalculationRequest, actor, request_id: str) -> dict:
+    def _calculate(
+        self, payload: CalculationRequest, actor, request_id: str,
+        comparable_metric_codes: frozenset[str] = frozenset(),
+    ) -> dict:
         snapshots = payload.source_policy == "conversation_snapshots"
         if snapshots:
             question = payload.user_question
@@ -111,7 +120,9 @@ class CalculationApplicationService:
         if (set(payload.constants) | set(payload.bindings)) & {"sum", "avg", "min", "max", "abs"}:
             raise CalculationError("变量名称不能覆盖数学函数。")
         fingerprint = sha256(
-            json.dumps(payload.model_dump(), sort_keys=True, ensure_ascii=False).encode()
+            json.dumps(([payload.model_dump(), sorted(comparable_metric_codes)]
+                        if comparable_metric_codes else payload.model_dump()),
+                       sort_keys=True, ensure_ascii=False).encode()
         ).hexdigest()
         # 消息主键按会话和请求键定位；来源任务只归档证据，不能改变幂等检查范围。
         message_id = "calculation:" + sha256(
@@ -208,10 +219,29 @@ class CalculationApplicationService:
                         status_code=422,
                     )
                 current_metric = metric_catalog.get(fact.get("metric_code"))
-                if current_metric is None or current_metric.unit != fact.get("unit"):
+                if current_metric is None:
                     raise CalculationError("指标单位或启用状态已变化，请重新查询后计算。")
                 inputs[name] = deepcopy(fact)
-                values[name] = quantity(fact["value"], fact["unit"])
+                raw_identity = None
+                if fact.get("value_policy") == "source_raw_v1":
+                    if (fact.get("source_metric_code")
+                            != getattr(current_metric, "source_metric_code", None)
+                            or fact.get("value_basis")
+                            != getattr(current_metric, "value_basis", None)):
+                        raise CalculationError("正式指标来源或口径已变化，请重新查询。")
+                    raw_identity = json.dumps([
+                        fact["metric_code"], fact.get("source_metric_code"),
+                        fact.get("value_basis"),
+                    ], ensure_ascii=False)
+                    if fact["metric_code"] in comparable_metric_codes:
+                        # 正式关系仅由治理模块传入，HTTP/模型请求不开放此参数。
+                        raw_identity = json.dumps(["approved_relation",
+                                                   sorted(comparable_metric_codes)])
+                elif (getattr(current_metric, "value_policy", "catalog_units_v1")
+                      != "source_raw_v1"
+                      and current_metric.unit != fact.get("unit")):
+                    raise CalculationError("指标单位已变化，请重新查询后计算。")
+                values[name] = quantity(fact["value"], fact.get("unit"), raw_identity=raw_identity)
             if not snapshots and len(questions) != 1:
                 raise CalculationError("数据必须来自同一个明确的用户问题。")
             # 新计算可组合多轮快照，系数只从本轮原文核验，不能借用历史问题中的数字。

@@ -774,7 +774,11 @@ class QueryExecutionApplicationService:
         )
         plan.catalog = {
             "metrics": [
-                {"code": item.code, "name": item.name, "unit": item.unit}
+                {"code": item.code, "name": item.name, "unit": item.unit,
+                 **({"value_policy": item.value_policy,
+                     "source_metric_code": item.source_metric_code,
+                     "value_basis": item.value_basis}
+                    if item.value_policy == "source_raw_v1" else {})}
                 for item in metric_catalog if item.code in dsl.metrics
             ],
             "organizations": [

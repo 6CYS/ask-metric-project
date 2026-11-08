@@ -17,6 +17,7 @@ export interface CompositionPieChartInput {
   parts: Array<{ref: string; name: string; value: string; display: string}>;
   tolerance?: string;
   toleranceUnit?: string;
+  sourceRaw?: boolean;
 }
 
 type Decimal = {coefficient: bigint; scale: number};
@@ -70,13 +71,15 @@ function metricFact(sources: OverviewEvidence[], metric: string, date: string, o
   });
   requireChart(facts.length, "本次分项数据不完整，暂不能绘制完整结构饼图。");
   const first = facts[0]!, value = text(first.value), amount = decimal(value), unit = text(first.unit);
-  requireChart(amount.coefficient >= 0 && Number.isFinite(Number(value)) && unit && text(first.fact_id));
-  for (const fact of facts) requireChart(fact.date === date && fact.org_code === org && fact.unit === unit
+  requireChart(amount.coefficient >= 0 && Number.isFinite(Number(value))
+    && (unit || first.value_policy === "source_raw_v1") && text(first.fact_id));
+  for (const fact of facts) requireChart(fact.date === date && fact.org_code === org && text(fact.unit) === unit
+    && fact.value_policy === first.value_policy
     && text(fact.fact_id) && equal(decimal(fact.value), amount));
   const atoms = sources.flatMap(source => source.evidence_items).filter(item => item.ref === `${metric}.current`).map(record);
   requireChart(atoms.length, "本次分项缺少已核对的展示数据，暂不能绘制饼图。");
   const atom = atoms[0]!;
-  for (const item of atoms) requireChart(item.date === date && item.unit === unit && text(item.display)
+  for (const item of atoms) requireChart(item.date === date && text(item.unit) === unit && text(item.display)
     && item.display === atom.display && equal(decimal(item.value), amount)
     && facts.some(fact => fact.fact_id === item.fact_id));
   return {facts, value, amount, atom, unit};
@@ -133,7 +136,8 @@ function withinTolerance(parts: Array<{amount: Decimal}>, total: {amount: Decima
 export function buildCompositionPieChart(input: CompositionPieChartInput): ChartResult {
   try {
     requireChart(text(input.title).trim() && /^\d{4}-\d{2}-\d{2}$/u.test(input.date)
-      && text(input.unit).trim() && input.unit !== "%" && input.total && text(input.total.ref).trim());
+      && (text(input.unit).trim() || input.sourceRaw === true) && input.unit !== "%"
+      && input.total && text(input.total.ref).trim());
     requireChart(Array.isArray(input.parts) && input.parts.length >= 2 && input.parts.length <= 20,
       "本次完整结构需要2至20个分项，暂不能绘制饼图。");
     const total = {amount: decimal(input.total.value), unit: input.unit};
@@ -184,8 +188,11 @@ function buildGroup(sources: OverviewEvidence[], topic: RecordValue, relationshi
   // Number 仅检查 ECharts 的可绘制范围；金额总分校验仍使用下方的精确十进制比较。
   requireChart(parts.some(part => part.amount.coefficient > 0) && Number.isFinite(parts.reduce((sum, part) => sum + Number(part.value), 0)),
     "分项均为零或数值超出图形范围，暂不能绘制结构饼图。");
-  requireChart(moneyPowers[total.unit] !== undefined);
-  requireChart(withinTolerance(parts, total, relationship), "分项合计与总额不一致，暂不能将其作为完整结构绘制饼图。");
+  const raw = total.facts.every(fact => fact.value_policy === "source_raw_v1")
+    && parts.every(part => part.facts.every(fact => fact.value_policy === "source_raw_v1"));
+  requireChart(raw || moneyPowers[total.unit] !== undefined);
+  requireChart(withinTolerance(parts, total, raw ? {pie_tolerance: "0", pie_tolerance_unit: ""} : relationship),
+    "分项合计与总额不一致，暂不能将其作为完整结构绘制饼图。");
   const points = parts.map((part, index) => {
     const metric = children[index] as string;
     return {name: text(definitions.find(item => item.id === metric)?.label), value: part.value,

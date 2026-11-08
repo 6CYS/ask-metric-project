@@ -55,7 +55,10 @@ export function resolveResultVisualization(
   const dates = uniqueText(rows, "stat_date")
   const units = uniqueText(rows, "unit")
   // 单位和统计口径不完整时保留明细，不能用柱高暗示可比性。
-  if (units.length !== 1 || rows.some(row => !String(row.unit ?? "").trim())) {
+  const rawSameMetric = rows.every(row => row.value_policy === "source_raw_v1")
+    && uniqueText(rows, "metric_code").length === 1
+    && rows.every(row => typeof row.metric_code === "string" && row.metric_code.trim())
+  if (!rawSameMetric && (units.length !== 1 || rows.some(row => !String(row.unit ?? "").trim()))) {
     return tableOnly("单位未知或不一致")
   }
   // 百分比原值可能是小数比率或百分数；当前结果未声明编码，不能直接当作纵轴值。

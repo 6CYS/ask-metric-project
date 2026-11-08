@@ -105,7 +105,7 @@ def bind_metrics(topic: dict, catalog) -> tuple[dict, list[dict]]:
                 if definition.get("code")
                 else bool(set(definition["names"]) & {item.name, *item.aliases})
             )
-            and item.unit in definition["units"]
+            and (item.value_policy == "source_raw_v1" or item.unit in definition["units"])
             and (not item.value_basis or item.value_basis == definition["value_basis"])
         ]
         if len(candidates) == 1:
@@ -427,7 +427,8 @@ class BusinessOverviewService:
                             == item.name.removesuffix(definition["value_basis"])
                             + suffix["value_basis"]
                         )
-                        and entry.unit == ("%" if measure == "rate" else item.unit)
+                        and (entry.value_policy == "source_raw_v1"
+                             or entry.unit == ("%" if measure == "rate" else item.unit))
                     ]
                     if len(matches) == 1:
                         comparison_metrics[(comparison, measure)] = matches[0]
@@ -949,7 +950,9 @@ class BusinessOverviewService:
                 )
                 receipt = calculated["results"][0]
                 factors = {"元": Decimal("100000000"), "万元": Decimal("10000"), "亿元": Decimal(1)}
-                tolerance = Decimal(relation["tolerance"]) * factors[receipt["unit"]]
+                # 无单位无法换算旧容差；只接受精确恒等，非零残差如实列为核对缺口。
+                tolerance = (Decimal(relation["tolerance"]) * factors[receipt["unit"]]
+                             if receipt["unit"] in factors else Decimal(0))
                 passed = abs(Decimal(receipt["value"])) <= tolerance
                 result["reconciliations"].append({"date": day, "passed": passed, **calculated})
                 if not passed:
@@ -972,10 +975,15 @@ class BusinessOverviewService:
                 "bindings": {name: {"fact_id": fact["fact_id"]} for name, fact in facts.items()},
             }
         )
-        return self.calculation.calculate(request, actor, key)
+        return self.calculation.calculate(
+            request, actor, key,
+            comparable_metric_codes=frozenset(fact["metric_code"] for fact in facts.values()),
+        )
 
     def _finish(self, result: dict, notice="") -> dict:
         """文字仅引用不可变事实和计算回执；增长来源与因果解释明确区分。"""
+        from ask_metric.application.overview_evidence import display_value
+
         current = result["analysis_date"]
         lines = [
             f"{result['org_name']}{result['topic_name']}"
@@ -1005,9 +1013,7 @@ class BusinessOverviewService:
                 for item in load_topic(result["topic"])["metrics"]
                 if item["id"] == metric_id
             )
-            amount = fact.get("reply_value", fact["value"])
-            unit = fact.get("reply_unit", fact["unit"])
-            sentence = f"{label}为{amount}{unit}"
+            sentence = f"{label}为{display_value(fact)}"
             for calculation in result["calculations"]:
                 if calculation["metric"] != metric_id:
                     continue
@@ -1025,15 +1031,18 @@ class BusinessOverviewService:
                 difference = calculation["results"][0]
                 value = Decimal(difference["value"])
                 displayed = difference.get("reply_value", difference["display_value"])
-                displayed_unit = difference.get("reply_unit", difference["unit"])
                 if fact["unit"] == "%":
                     # Decimal 百分比事实以比例存储；回执 display_value 的单位为%，差值解释为百分点。
                     sentence += f"，{comparisons[calculation['comparison']]}变化{displayed}个百分点"
                 else:
                     direction = "增加" if value >= 0 else "减少"
+                    absolute = {**difference, "value": str(value.copy_abs()),
+                                "display_value": str(displayed).lstrip('-')}
+                    if "reply_value" in difference:
+                        absolute["reply_value"] = str(displayed).lstrip('-')
                     sentence += (
                         f"，{comparisons[calculation['comparison']]}{direction}"
-                        f"{str(displayed).lstrip('-')}{displayed_unit}"
+                        + display_value(absolute)
                     )
                     if len(calculation["results"]) > 1:
                         rate = calculation["results"][1]

@@ -503,7 +503,7 @@ class GeneralAnalysisService:
     def _calculate(self, context, metric, current, base, label, *, share=False,
                    snapshots=False, scope_policy=None, request_key=None):
         if (
-            not metric.get("unit")
+            not metric.get("unit") and metric.get("value_policy") != "source_raw_v1"
             or metric["unit"] == "%"
             and metric.get("value_encoding") not in {"ratio", "percent"}
         ):
@@ -524,7 +524,8 @@ class GeneralAnalysisService:
                     display="percent",
                 )
             ]
-        elif metric["unit"] in {"元", "万元", "亿元"} and Decimal(base["value"]) > 0:
+        elif (metric.get("value_policy") == "source_raw_v1"
+              or metric["unit"] in {"元", "万元", "亿元"}) and Decimal(base["value"]) > 0:
             expressions.append(
                 CalculationExpression(
                     name="change_rate",
@@ -556,6 +557,8 @@ class GeneralAnalysisService:
                     "share": share,
                 }
             ),
+            comparable_metric_codes=(frozenset([current["metric_code"], base["metric_code"]])
+                                     if share else frozenset()),
         )
         difference = next(
             (item for item in response["results"] if item["name"] == "difference"), None
@@ -877,6 +880,7 @@ class GeneralAnalysisService:
                         "date": fact["date"],
                         "value": fact["value"],
                         "unit": fact["unit"],
+                        "value_policy": fact.get("value_policy", metric.get("value_policy")),
                         "metadata_version": metric["metadata_version"],
                     }
                 )

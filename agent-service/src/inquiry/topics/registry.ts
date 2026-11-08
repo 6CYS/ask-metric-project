@@ -24,7 +24,7 @@ const schema = Type.Object({
       key: Type.String(),
       code: Type.String({ minLength: 1 }),
       name: Type.String({ minLength: 1 }),
-      unit: Type.String({ minLength: 1 }),
+      unit: Type.String(),
       change: Type.Union([
         Type.Literal("value"),
         Type.Literal("yoy_amount"),
