@@ -22,6 +22,9 @@ Ask Metric 是面向行内 GoldenDB/MySQL 应用库与只读数据湖的智能�
 
 当前源码的服务边界、内部模块、查询时序与部署关系见 [项目架构图](docs/项目架构.md)。
 
+基础启动、独立目录同步、原值模式及历史兼容规则见
+[启动容错与独立目录同步](docs/启动容错与独立目录同步.md)。
+
 跨主题指标发现、通用分析计划、真实取数与证据报告的接线、接口及升级方式见
 [通用分析底座实施说明](docs/通用分析底座实施说明.md)。无需为每个新主题预建 JSON；未知口径和缺少证据的分析仍会明确说明边界。
 
@@ -51,7 +54,7 @@ Frame 可以调用现有后端查询、覆盖和计算服务。支持字段补�
 - Node.js 22.12+（22.x）或 24.x 与 npm，用于构建 Vue 前端；
 - GoldenDB/MySQL 应用库；
 - GoldenDB/MySQL 或 Inceptor 只读指标查询库；
-- 问数需要可访问的 Chat 模型服务；Embedding、Reranker 为可选角色；
+- 问数需要可访问的 Chat 模型服务；当前运行策略固定停用 Embedding、Reranker；
 - 生产部署可选 Nginx、systemd、Nacos 与统一 Gateway。
 
 ## 本地启动
@@ -164,7 +167,7 @@ NACOS_FAIL_FAST=false
 
 ### 模型、提示词与 SQL 生成
 
-模型基础配置位于 `backend-next/config/model-config.json`。Chat、Embedding、Reranker 可分别设置 API 路径、模型名、认证方式、密钥环境变量、超时和厂商扩展参数；服务地址分别由 `MODEL_CHAT_BASE_URL`、`MODEL_EMBEDDING_BASE_URL`、`MODEL_RERANK_BASE_URL` 从外置环境读取。模型地址和密钥均不写入源码配置、日志或查询响应。
+模型基础配置位于 `backend-next/config/model-config.json`，配置中心启用时以 Nacos 为准。Chat 可设置 API 路径、模型名、认证方式、密钥环境变量、超时和厂商扩展参数，地址由 `MODEL_CHAT_BASE_URL` 从外置环境读取。当前代码固定停用 Embedding、Reranker、目录向量预热和缓存；旧角色配置保留在现场文档中也不会触发调用。模型地址和密钥均不写入源码配置、日志或查询响应。
 
 管理员页面需要写入配置时设置：
 
