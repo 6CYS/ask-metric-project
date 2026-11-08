@@ -11,5 +11,6 @@ echo
 if curl --fail --silent "$AGENT_URL/health" >/dev/null 2>&1; then
   echo '{"agent":"ok"}'
 else
-  echo "agent-service health check skipped or failed: $AGENT_URL" >&2
+  echo "agent-service health check failed: $AGENT_URL" >&2
+  exit 1
 fi

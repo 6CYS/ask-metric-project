@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import math
@@ -11,6 +10,7 @@ from pathlib import Path
 from threading import BoundedSemaphore, Semaphore
 from time import perf_counter
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import httpx
 from dotenv import dotenv_values
@@ -118,20 +118,13 @@ class ConfigurableModelService:
         self._concurrency_wait_seconds = concurrency_wait_seconds
 
     def is_enabled(self, role: ModelRole) -> bool:
+        if role in {"embedding", "reranker"}:
+            return False
         return bool(getattr(self.model_configs.load().models, role).enabled)
 
     def embedding_cache_key(self) -> str:
         """Fingerprint effective embedding configuration without retaining raw secrets."""
-        endpoint = self.model_configs.load().models.embedding
-        config = endpoint.model_dump(mode="json")
-        if endpoint.base_url_env:
-            config["base_url"] = (
-                self._credential_resolver(endpoint.base_url_env) or endpoint.base_url
-            ).rstrip("/")
-        config["authentication_headers"] = self._authentication_headers(endpoint)
-        return hashlib.sha256(
-            json.dumps(config, sort_keys=True, ensure_ascii=False).encode("utf-8")
-        ).hexdigest()
+        raise ModelServiceUnavailable("Embedding is disabled", category="configuration")
 
     def analyze(self, *, prompt: str, context: dict[str, Any]) -> dict[str, Any]:
         chat = self.model_configs.load().models.chat
@@ -202,6 +195,7 @@ class ConfigurableModelService:
             ) from exc
 
     def embed(self, texts: list[str]) -> list[list[float]]:
+        self._require_role("embedding")
         if not texts:
             return []
         embedding = self.model_configs.load().models.embedding
@@ -238,6 +232,7 @@ class ConfigurableModelService:
         documents: list[str],
         top_n: int | None = None,
     ) -> list[dict[str, Any]]:
+        self._require_role("reranker")
         if not documents:
             return []
         reranker = self.model_configs.load().models.reranker
@@ -256,7 +251,14 @@ class ConfigurableModelService:
         response = self._post(reranker, payload)
         return _normalize_rerank_response(response, documents, endpoint=reranker.path)
 
+    def _require_role(self, role: ModelRole) -> None:
+        if role in {"embedding", "reranker"}:
+            raise ModelServiceUnavailable(f"{role} is disabled", category="configuration")
+
     def _require_enabled(self, role: ModelRole, endpoint: ModelEndpointConfig) -> None:
+        self._require_role(role)
+        if not endpoint.model.strip() or not endpoint.path:
+            raise ModelServiceUnavailable("Model is not configured", category="configuration")
         if not endpoint.enabled:
             raise ModelServiceUnavailable(
                 f"The {role} model role is disabled",
@@ -283,7 +285,13 @@ class ConfigurableModelService:
                 "Model credential configuration cannot be decrypted",
                 category="configuration", endpoint=endpoint.path,
             ) from exc
-        if not base_url or not base_url.startswith(("http://", "https://")):
+        try:
+            parsed_url = urlsplit(base_url)
+            valid_url = (parsed_url.scheme in {"http", "https"} and bool(parsed_url.hostname)
+                         and (parsed_url.port is None or 0 < parsed_url.port < 65536))
+        except ValueError:
+            valid_url = False
+        if not valid_url:
             raise ModelServiceUnavailable(
                 "Model endpoint URL is not configured",
                 category="configuration",

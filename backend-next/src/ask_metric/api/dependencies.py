@@ -30,7 +30,6 @@ from ask_metric.infrastructure.db.session import (
     get_query_engine,
 )
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
-from ask_metric.infrastructure.model.catalog_vectors import catalog_embedding_texts
 from ask_metric.infrastructure.model.configuration import (
     ModelConfigRepository,
     PromptConfigRepository,
@@ -61,35 +60,8 @@ def warm_metric_index() -> list[MetricCatalogItem]:
 
 
 def initialize_query_catalog(request: Request) -> None:
-    """复用在线问数的模型配置、目录文本与缓存，避免预热和实际检索使用不同输入。"""
-    initialization = request.app.state.query_initialization
-    initialization.progress(0, 0)
-    # 指标识别索引与向量共用同一份目录，首个提问不再现场建索引。
-    items = warm_metric_index()
-    model = get_model_service(request)
-    if not model.is_enabled("embedding"):
-        return
-    settings = request.app.state.settings
-    config = (
-        SemanticConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
-            store=settings._config_center,
-        )
-        .load()
-        .metric_matching
-    )
-    corpus = catalog_embedding_texts(items)
-    # 后面的分批模型请求不占用数据库连接。
-    if not corpus:
-        raise ValueError("Enabled metric catalog is empty")
-    request.app.state.catalog_vector_cache.warmup(
-        # 传入绑定方法作为回调，缓存每完成一批便调用它更新公共初始化状态。
-        model,
-        corpus,
-        batch_size=config.embedding_batch_size,
-        wait_seconds=config.embedding_cache_wait_seconds,
-        progress=initialization.progress,
-    )
+    """旧入口仅为调用兼容保留；禁止借此恢复目录扫描和向量预热。"""
+    return None
 
 
 def get_authentication_service(request: Request) -> AuthenticationService:

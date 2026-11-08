@@ -5,9 +5,11 @@ from contextvars import ContextVar, Token
 from functools import lru_cache
 
 from sqlalchemy import Engine, create_engine, make_url
+from sqlalchemy.exc import ArgumentError, NoSuchModuleError
 from sqlalchemy.orm import Session, sessionmaker
 
 from ask_metric.core.config import get_settings
+from ask_metric.core.errors import ApplicationError
 
 
 @lru_cache(maxsize=1)
@@ -27,6 +29,7 @@ def get_app_engine() -> Engine:
 @lru_cache(maxsize=1)
 def get_query_engine() -> Engine:
     settings = get_settings()
+    _validate_source_url(settings.query_database_url)
     return create_engine(
         settings.query_database_url,
         pool_size=settings.database_pool_size,
@@ -70,6 +73,7 @@ def get_org_catalog_engine() -> Engine:
 
 def _create_source_engine(url: str) -> Engine:
     settings = get_settings()
+    _validate_source_url(url)
     return create_engine(
         url,
         pool_size=settings.database_pool_size,
@@ -79,6 +83,18 @@ def _create_source_engine(url: str) -> Engine:
         pool_recycle=settings.database_pool_recycle,
         echo=settings.sql_echo,
     )
+
+
+def _validate_source_url(url: str) -> None:
+    try:
+        parsed = make_url(url)
+        parsed.get_dialect()
+        if not parsed.host or not parsed.database:
+            raise ValueError("Incomplete data source")
+    except (ArgumentError, NoSuchModuleError, ValueError):
+        raise ApplicationError(
+            "DATA_SOURCE_NOT_CONFIGURED", "数据湖连接未正确配置，请联系管理员。", status_code=503,
+        ) from None
 
 
 @lru_cache(maxsize=1)

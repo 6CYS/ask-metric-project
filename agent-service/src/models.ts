@@ -85,6 +85,7 @@ export function wrapStreamsWithAuthorization(
   authorize: () => boolean,
   idleTimeoutMs?: number,
   firstResponseTimeoutMs?: number,
+  configurationError: () => string | undefined = () => undefined,
 ): ProviderStreams {
   const timed = <T extends {signal?: AbortSignal; timeoutMs?: number; fetch?: typeof fetch; sessionId?: string}>(
     options: T | undefined, watch: ResponseProgressWatch, model: Model<"openai-completions">,
@@ -98,7 +99,7 @@ export function wrapStreamsWithAuthorization(
     return {...rest, fetch: observedFetch,
       signal: options?.signal ? AbortSignal.any([options.signal, watch.signal]) : watch.signal} as T & {signal: AbortSignal};
   };
-  const denied = (model: Model<"openai-completions">): ReturnType<ProviderStreams["streamSimple"]> => {
+  const denied = (model: Model<"openai-completions">, error = "CONTEXT_ACCESS_CHANGED"): ReturnType<ProviderStreams["streamSimple"]> => {
     const stream = createAssistantMessageEventStream();
     const message: AssistantMessage = {
       role: "assistant",
@@ -115,7 +116,7 @@ export function wrapStreamsWithAuthorization(
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
       },
       stopReason: "error",
-      errorMessage: "CONTEXT_ACCESS_CHANGED",
+      errorMessage: error,
       timestamp: Date.now(),
     };
     queueMicrotask(() => {
@@ -127,6 +128,8 @@ export function wrapStreamsWithAuthorization(
   const guarded: ProviderStreams = {
     stream: (model, context, options) => {
       if (!authorize()) return denied(model as Model<"openai-completions">);
+      const invalid = configurationError();
+      if (invalid) return denied(model as Model<"openai-completions">, invalid);
       const watch = watchResponseProgress(firstResponseTimeoutMs, idleTimeoutMs);
       const requestOptions = timed(options, watch, model as Model<"openai-completions">);
       try {
@@ -136,6 +139,8 @@ export function wrapStreamsWithAuthorization(
     },
     streamSimple: (model, context, options) => {
       if (!authorize()) return denied(model as Model<"openai-completions">);
+      const invalid = configurationError();
+      if (invalid) return denied(model as Model<"openai-completions">, invalid);
       const watch = watchResponseProgress(firstResponseTimeoutMs, idleTimeoutMs);
       const requestOptions = timed(options, watch, model as Model<"openai-completions">);
       try {
@@ -148,6 +153,8 @@ export function wrapStreamsWithAuthorization(
     const fetchDeferred = inner.fetchDeferred;
     guarded.fetchDeferred = (model, handle, options) => {
       if (!authorize()) throw new Error("CONTEXT_ACCESS_CHANGED");
+      const invalid = configurationError();
+      if (invalid) throw new Error(invalid);
       return fetchDeferred(model, handle, options);
     };
   }
@@ -228,7 +235,12 @@ export function createAskMetricModels(
   authorize: () => boolean = () => true,
 ): ModelBundle {
   const { model: modelConfig } = config;
-  const siliconFlow = /(^|\.)siliconflow\.(cn|com)$/iu.test(new URL(modelConfig.baseUrl).hostname);
+  let endpoint: URL | undefined;
+  try { endpoint = new URL(modelConfig.baseUrl); } catch { /* 请求时报告配置问题，历史会话仍可打开。 */ }
+  const configurationError = () => !endpoint || !["http:", "https:"].includes(endpoint.protocol)
+    || !endpoint.hostname || !modelConfig.name.trim() || !modelConfig.apiKey.trim()
+    ? "MODEL_CONFIGURATION_INVALID: 模型地址、名称或凭据未正确配置，请联系管理员。" : undefined;
+  const siliconFlow = !!endpoint && /(^|\.)siliconflow\.(cn|com)$/iu.test(endpoint.hostname);
   const model: Model<"openai-completions"> = {
     id: modelConfig.name,
     name: modelConfig.name,
@@ -265,7 +277,7 @@ export function createAskMetricModels(
     },
     models: [model],
     api: wrapStreamsWithAuthorization(openAICompletionsApi(), authorize, config.modelStreamIdleTimeoutMs,
-      config.modelFirstResponseTimeoutMs),
+      config.modelFirstResponseTimeoutMs, configurationError),
   });
 
   const models = createModels();

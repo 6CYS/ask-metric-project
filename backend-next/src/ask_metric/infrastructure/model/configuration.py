@@ -73,8 +73,8 @@ class ModelEndpointConfig(BaseModel):
     enabled: bool = True
     base_url: str = ""
     base_url_env: str = Field(default="", pattern=r"^(?:MODEL_[A-Z0-9_]+)?$")
-    path: str = Field(min_length=1)
-    model: str = Field(min_length=1)
+    path: str = ""
+    model: str = ""
     send_model: bool = True
     api_key_env: str = Field(default="", pattern=r"^(?:MODEL_[A-Z0-9_]+)?$")
     authentication: ModelAuthenticationConfig = Field(
@@ -91,18 +91,13 @@ class ModelEndpointConfig(BaseModel):
     @model_validator(mode="after")
     def normalize_endpoint(self) -> ModelEndpointConfig:
         self.base_url = self.base_url.rstrip("/")
-        self.path = "/" + self.path.lstrip("/")
-        if not self.base_url and not self.base_url_env:
-            raise ValueError("Model endpoint requires base_url or base_url_env")
-        if self.base_url and not self.base_url.startswith(("http://", "https://")):
-            raise ValueError("Model endpoint base_url must use http or https")
-        if self.authentication.type != "none" and not self.api_key_env:
-            raise ValueError("Authenticated model endpoints require api_key_env")
+        self.path = "/" + self.path.lstrip("/") if self.path else ""
+        # 连通性所需字段留到实际调用校验；配置结构、额外参数与密文仍严格校验。
         return self
 
 
 class ChatModelConfig(ModelEndpointConfig):
-    model: str = Field(min_length=1)
+    model: str = ""
     temperature: float | None = Field(default=0, ge=0, le=2)
     max_tokens: int | None = Field(default=4096, gt=0)
     response_format: Literal["text", "json_object"] = "json_object"
@@ -182,8 +177,16 @@ class RerankerModelConfig(ModelEndpointConfig):
 
 class ModelRolesConfig(BaseModel):
     chat: ChatModelConfig
-    embedding: EmbeddingModelConfig
-    reranker: RerankerModelConfig
+    embedding: EmbeddingModelConfig = Field(default_factory=lambda: EmbeddingModelConfig(
+        enabled=False, authentication=ModelAuthenticationConfig(type="none")))
+    reranker: RerankerModelConfig = Field(default_factory=lambda: RerankerModelConfig(
+        enabled=False, authentication=ModelAuthenticationConfig(type="none")))
+
+    @field_validator("embedding", "reranker", mode="before")
+    @classmethod
+    def disable_retrieval_roles(cls, value: Any) -> dict[str, Any]:
+        # 运行策略高于旧文件/Nacos 开关；读取不改写现场文档，也不解析停用角色凭据。
+        return {"enabled": False, "authentication": {"type": "none"}}
 
 
 class ModelRuntimeConfig(BaseModel):
@@ -217,12 +220,17 @@ class ModelConfigRepository:
         self.store = store
 
     def load(self) -> ModelRuntimeConfig:
+        return ModelRuntimeConfig.model_validate(self.read_document())
+
+    def read_document(self) -> dict[str, Any]:
         data = (
             self.store.read_json("sznsznws_backend_model.json")
             if self.store
             else _read_json(self.path)
         )
-        return ModelRuntimeConfig.model_validate(data)
+        if not isinstance(data, dict):
+            raise ValueError("Model configuration must be an object")
+        return data
 
     def save(self, config: ModelRuntimeConfig) -> None:
         if self.store:

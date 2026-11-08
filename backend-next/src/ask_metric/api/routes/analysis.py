@@ -73,7 +73,7 @@ def discover_metrics(
     try:
         scores = metric_embedding_scores(
             keyword, list(semantics.items.values()), model_service=model,
-            catalog_vector_cache=request.app.state.catalog_vector_cache,
+            catalog_vector_cache=None,
             is_embedding_enabled=enabled, embedding_top_k=matching.embedding_top_k,
             batch_size=matching.embedding_batch_size,
             wait_seconds=matching.embedding_cache_wait_seconds,

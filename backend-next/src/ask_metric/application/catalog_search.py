@@ -250,7 +250,7 @@ def metric_embedding_scores(
     items: Sequence[MetricCatalogItem],
     *,
     model_service: ModelService,
-    catalog_vector_cache: CatalogVectorCache,
+    catalog_vector_cache: CatalogVectorCache | None,
     is_embedding_enabled: bool,
     embedding_top_k: int,
     batch_size: int,
@@ -261,7 +261,7 @@ def metric_embedding_scores(
     复用启动预热的目录向量缓存；embedding 未启用或向量条数异常时返回 None，
     调用方降级为纯词法结果，与语义链路 fallback 行为一致。
     """
-    if not is_embedding_enabled or not items:
+    if not is_embedding_enabled or not items or catalog_vector_cache is None:
         return None
     corpus = catalog_embedding_texts(items)
     vectors = catalog_vector_cache.embed(

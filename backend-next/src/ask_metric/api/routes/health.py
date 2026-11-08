@@ -33,8 +33,7 @@ def readiness(
     request: Request,
     checker: Annotated[DatabaseReadiness, Depends(get_database_readiness)],
 ) -> HealthResponse | JSONResponse:
-    query_ready = request.app.state.query_initialization.snapshot()["status"] == "ready"
-    if not query_ready or not checker.is_ready():
+    if not checker.is_ready():
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content=HealthResponse(status="unavailable").model_dump(),

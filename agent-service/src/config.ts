@@ -48,14 +48,6 @@ export interface AgentServiceConfig {
   };
 }
 
-function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
-  const value = (env[name] ?? "").trim();
-  if (!value) {
-    throw new Error(`缺少必需环境变量 ${name}`);
-  }
-  return value;
-}
-
 function parsePositiveInt(raw: string | undefined, fallback: number, name: string): number {
   if (!raw || !raw.trim()) return fallback;
   const value = Number.parseInt(raw, 10);
@@ -94,7 +86,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceCo
   const resolve = (value: string): string =>
     isEncryptedConfigValue(value) ? decryptConfigValue(value, masterKey) : value;
 
-  const apiKey = resolve(requireEnv(env, "AGENT_MODEL_API_KEY"));
+  const apiKey = resolve(env.AGENT_MODEL_API_KEY?.trim() ?? "");
   const contextWindow = parsePositiveInt(env.AGENT_MODEL_CONTEXT_WINDOW, 128_000, "AGENT_MODEL_CONTEXT_WINDOW");
   const maxTokens = parsePositiveInt(env.AGENT_MODEL_MAX_TOKENS, 8_192, "AGENT_MODEL_MAX_TOKENS");
   // 收紧原生 SDK 的重试次数，避免未响应时多次重试拉长无反馈等待。
@@ -130,8 +122,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceCo
     answerStreaming: parseBoolean(env.AGENT_ANSWER_STREAMING, false, "AGENT_ANSWER_STREAMING"),
     topicQueryEnabled: parseBoolean(env.AGENT_TOPIC_QUERY_ENABLED, false, "AGENT_TOPIC_QUERY_ENABLED"),
     model: {
-      baseUrl: requireEnv(env, "AGENT_MODEL_BASE_URL").replace(/\/+$/, ""),
-      name: requireEnv(env, "AGENT_MODEL_NAME"),
+      baseUrl: (env.AGENT_MODEL_BASE_URL?.trim() ?? "").replace(/\/+$/, ""),
+      name: env.AGENT_MODEL_NAME?.trim() ?? "",
       apiKey,
       authHeader: (env.AGENT_MODEL_AUTH_HEADER ?? "Authorization").trim() || "Authorization",
       authPrefix: env.AGENT_MODEL_AUTH_PREFIX ?? "Bearer",

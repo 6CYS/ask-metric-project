@@ -133,6 +133,8 @@ def check_chat(client, endpoint, url, headers):
 
 
 def check_json(client, role, endpoint, url, headers):
+    if role in {"embedding", "reranker"}:
+        return "运行策略已停用；不解析凭据或发送探测请求"
     payload = (
         {"input": ["deployment check"], "encoding_format": endpoint.encoding_format}
         if role == "embedding"

@@ -54,8 +54,6 @@ const promptFields: Array<{ key: PromptField; label: string }> = [
 ]
 const modelRoles: Array<{ key: ModelRole; label: string; description: string }> = [
   { key: "chat", label: "Chat / 语义模型", description: "意图识别、语义结构化与结果总结" },
-  { key: "embedding", label: "Embedding 模型", description: "指标和机构候选的向量召回，可独立停用" },
-  { key: "reranker", label: "Reranker 模型", description: "对候选指标重新排序，可独立停用" },
 ]
 const visiblePromptFields = computed(() => promptFields.filter((field) => promptDraft.value?.[field.key] != null))
 const currentPromptVariables = computed(() => {

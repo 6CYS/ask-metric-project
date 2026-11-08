@@ -1,12 +1,11 @@
-"""应用入口：装配 HTTP 服务，并管理模型连接、向量预热及关闭顺序。"""
+"""应用入口：管理基础资源生命周期，业务连接与目录索引按需建立。"""
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
-from threading import BoundedSemaphore, Event
+from threading import BoundedSemaphore
 
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ask_metric.api.router import api_router
@@ -15,23 +14,17 @@ from ask_metric.core.errors import install_exception_handlers
 from ask_metric.core.logging import LoggingConfig, configure_logging
 from ask_metric.core.request_context import FlowIdConfig, RequestIdMiddleware
 from ask_metric.infrastructure.discovery.nacos_registry import NacosRegistry
-from ask_metric.infrastructure.model.catalog_vectors import CatalogVectorCache
 from ask_metric.infrastructure.model.query_initialization import QueryInitialization
 
 logger = logging.getLogger(__name__)
-# 目录同步或同义词修改后，后台按此间隔检查并重建指标识别索引；目录未变时只做版本查询。
-METRIC_INDEX_REFRESH_SECONDS = 60
 
 
 def create_app(
     settings: Settings | None = None, *, initialize_catalog_on_startup: bool | None = None,
 ) -> FastAPI:
     resolved_settings = settings or get_settings()
-    # 隔离测试默认跳过真实数据库和模型；启动流程测试会显式开启预热并替换依赖。
-    initialize_catalog = (
-        resolved_settings.app_env.lower() != "test"
-        if initialize_catalog_on_startup is None else initialize_catalog_on_startup
-    )
+    # 保留旧调用参数，但启动不读取业务目录、不调用模型；索引由请求按目录版本懒加载。
+    initialize_catalog = False
     configure_logging(
         LoggingConfig(
             level=resolved_settings.log_level,
@@ -66,48 +59,16 @@ def create_app(
         )
         # 信号量限制同时调用模型的请求数，与 HTTP 连接池大小是两个独立限制。
         app.state.model_semaphore = BoundedSemaphore(resolved_settings.model_max_concurrency)
-        app.state.catalog_vector_cache = CatalogVectorCache()
         nacos_registry = NacosRegistry(resolved_settings)
         app.state.nacos_registry = nacos_registry
-        from ask_metric.api.dependencies import initialize_query_catalog, warm_metric_index
-
         initialization = QueryInitialization(enabled=initialize_catalog)
         app.state.query_initialization = initialization
-
-        def warm_catalog() -> None:
-            # 只借用 Request 读取同一份应用配置和连接，不发送内部 HTTP 请求。
-            initialize_query_catalog(Request({"type": "http", "app": app}))
-
-        refresh_stop = Event()
-
-        def refresh_metric_index() -> None:
-            # 目录在其他进程同步或经管理接口修改后，由后台重建索引，用户提问不等待。
-            while not refresh_stop.wait(METRIC_INDEX_REFRESH_SECONDS):
-                try:
-                    warm_metric_index()
-                except Exception:
-                    # 刷新失败不影响在线问数：提问时仍按当前目录现场建索引。
-                    logger.warning("metric_index_refresh_failed", exc_info=True)
-
-        warmup = refresher = None
-        if initialize_catalog:
-            # 传函数名而非 warm_catalog()：让后台线程稍后调用，并在失败后重试。
-            # to_thread 承接同步数据库/模型 I/O，主事件循环仍能响应初始化状态查询。
-            warmup = asyncio.create_task(asyncio.to_thread(initialization.run, warm_catalog))
-            refresher = asyncio.create_task(asyncio.to_thread(refresh_metric_index))
         try:
             await nacos_registry.start()
             yield
         finally:
             logger.info("application_stopping")
             initialization.stop()
-            refresh_stop.set()
-            if refresher is not None:
-                await refresher
-            if warmup is not None:
-                # 取消 asyncio 任务不会终止线程中的 HTTP 请求，因此先通知停止，
-                # 等后台线程退出后再关闭它仍可能使用的共享客户端。
-                await warmup
             await nacos_registry.stop()
             app.state.model_http_client.close()
 

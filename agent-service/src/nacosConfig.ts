@@ -104,7 +104,7 @@ export async function loadRuntimeConfig(
       } else throw new Error(`Nacos 配置字段类型无效：${name}`);
     }
   }
-  if (!isEncryptedConfigValue(selected.AGENT_MODEL_API_KEY)) {
+  if (selected.AGENT_MODEL_API_KEY && !isEncryptedConfigValue(selected.AGENT_MODEL_API_KEY)) {
     throw new Error("Nacos 中 AGENT_MODEL_API_KEY 必须使用 SM4 密文");
   }
   return loadConfig(selected);

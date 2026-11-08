@@ -81,9 +81,8 @@ def prepare():
     if not model_source.is_absolute() or not prompt_source.is_absolute():
         raise SystemExit('MODEL_CONFIG_PATH and PROMPT_CONFIG_PATH must be absolute before prepare.')
     # Only copy known runtime configuration; do not copy backups or unrelated data.
-    model = json.loads(model_source.read_text(encoding='utf-8'))
-    if 'siliconflow' in json.dumps(model).lower():
-        raise SystemExit('Existing model config references SiliconFlow. Configure bank models first.')
+    from ask_metric.infrastructure.model.configuration import ModelConfigRepository
+    ModelConfigRepository(model_source).load()
     key = secrets.token_bytes(16)
     os.umask(0o077)
     backup = SITE / ('ask-metric-backup-r9-' + time.strftime('%Y%m%d-%H%M%S'))
@@ -138,20 +137,14 @@ def check():
     from ask_metric.core.gm_crypto import load_sm2_keypair
     settings = Settings(_env_file=None)
     load_sm2_keypair(settings.sm2_private_key, allow_ephemeral=False)
-    for name in ('APP_DATABASE_URL', 'QUERY_DATABASE_URL'):
+    for name in ('APP_DATABASE_URL',):
         if not config.get(name, '').startswith('ENC[SM4:v1:'):
             raise SystemExit(f'{name} must be configured and encrypted.')
     for name in ('MODEL_CONFIG_PATH', 'PROMPT_CONFIG_PATH', 'SEMANTIC_CONFIG_PATH'):
         json.loads(Path(config[name]).read_text(encoding='utf-8'))
-    model = json.loads(Path(config['MODEL_CONFIG_PATH']).read_text(encoding='utf-8'))
     from ask_metric.infrastructure.model.configuration import ModelConfigRepository
     ModelConfigRepository(Path(config['MODEL_CONFIG_PATH'])).load()
-    for role, endpoint in model.get('models', {}).items():
-        if not endpoint.get('enabled', True):
-            continue
-        url = config.get(endpoint.get('base_url_env', ''), '') or endpoint.get('base_url', '')
-        if not url.startswith(('http://', 'https://')) or 'siliconflow' in url.lower() or '<' in url:
-            raise SystemExit(f'{role}: configure the bank model endpoint.')
+    # 模型业务可用性由显式 model-check 检查，不作为基础启动门槛。
     import ask_metric
     print(f'Config and SM4/SM2: OK\nLoaded: {ask_metric.__file__}\nNo database writes performed.')
 

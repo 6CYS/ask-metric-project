@@ -87,7 +87,9 @@ def load_settings() -> Settings:
     from ask_metric.infrastructure.model.configuration import ModelConfigRepository
 
     try:
-        model = ModelConfigRepository(Path("unused"), store=store).load()
+        repository = ModelConfigRepository(Path("unused"), store=store)
+        model = repository.read_document()
+        repository.load()
     except ValueError:
         raise ConfigCenterError("Nacos 模型配置校验失败") from None
     merged = merge_business_documents(store, model)
@@ -121,14 +123,21 @@ def load_settings() -> Settings:
     return result
 
 
+def _model_references(model, *, keys_only: bool = False) -> set[str]:
+    # 仅检查文档中的引用名称及已有密文完整性，不解析停用角色的凭据。
+    raw = model if isinstance(model, dict) else model.model_dump(mode="json")
+    fields = ("api_key_env",) if keys_only else ("base_url_env", "api_key_env")
+    return {
+        value
+        for endpoint in raw.get("models", {}).values() if isinstance(endpoint, dict)
+        for field in fields
+        if isinstance(value := endpoint.get(field), str) and value
+    }
+
+
 def merge_business_documents(store, model) -> dict:
     """启动和离线加密共用字段校验，阻止拼写错误及节点参数混入。"""
-    model_reference_fields = {
-        value.lower()
-        for endpoint in (model.models.chat, model.models.embedding, model.models.reranker)
-        for value in (endpoint.base_url_env, endpoint.api_key_env)
-        if value
-    }
+    model_reference_fields = {value.lower() for value in _model_references(model)}
     model_reference_fields.update(
         f"model_{role}_{suffix}"
         for role in ("chat", "embedding", "rerank")
@@ -148,7 +157,7 @@ def merge_business_documents(store, model) -> dict:
                 raise ConfigCenterError(f"未知配置字段：{name}")
             merged[name] = value
     # 数据库连接必须明确给出，不允许连接本地开发默认库。
-    for name in ("app_env", "app_database_url", "query_database_url"):
+    for name in ("app_env", "app_database_url"):
         if not merged.get(name):
             raise ConfigCenterError(f"配置中心缺少必填字段：{name}")
     return merged
@@ -196,11 +205,7 @@ def validate_sensitive_fields(values: dict, model, key) -> None:
         "model_embedding_api_key",
         "model_rerank_api_key",
     }
-    sensitive.update(
-        endpoint.api_key_env.lower()
-        for endpoint in (model.models.chat, model.models.embedding, model.models.reranker)
-        if endpoint.api_key_env
-    )
+    sensitive.update(value.lower() for value in _model_references(model, keys_only=True))
     for name in sensitive:
         value = values.get(name)
         if value:

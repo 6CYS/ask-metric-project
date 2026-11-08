@@ -265,7 +265,7 @@ def search_metric_catalog(
         keyword,
         items,
         model_service=model_service,
-        catalog_vector_cache=request.app.state.catalog_vector_cache,
+        catalog_vector_cache=None,
         is_embedding_enabled=model_service.is_enabled("embedding"),
         embedding_top_k=matching.embedding_top_k,
         batch_size=matching.embedding_batch_size,

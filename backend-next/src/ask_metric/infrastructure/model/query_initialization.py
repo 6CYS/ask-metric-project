@@ -28,7 +28,7 @@ class QueryInitialization:
         self._lock = Lock()
         self._stop = Event()
         self._status = InitializationStatus() if enabled else InitializationStatus(
-            status="ready", message="问数系统已就绪。",
+            status="ready", message="基础服务已启动；目录、数据源与模型在业务请求时检查。",
         )
 
     def snapshot(self) -> dict:

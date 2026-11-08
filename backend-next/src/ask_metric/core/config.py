@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     nacos_cache_dir: Path = PROJECT_DIR / ".runtime" / "nacos" / "cache"
     nacos_log_dir: Path = PROJECT_DIR / ".runtime" / "nacos" / "logs"
     app_database_url: str = DEFAULT_APP_DATABASE_URL
-    query_database_url: str = DEFAULT_QUERY_DATABASE_URL
+    query_database_url: str = ""
     app_database_dialect: str = "mysql"
     query_database_dialect: str = "mysql"
     # 源表使用 Inceptor 查询结构时，显式指定承载数据库的 SQL 语法。
@@ -103,11 +103,11 @@ class Settings(BaseSettings):
     sit_org_snapshot_field: str = "etl_date"
     # 以下 6 项无默认值：机构目录范围是正式治理口径，旧 env 缺失时拒绝启动，
     # 不允许隐式沿用历史默认范围。
-    sit_org_corporation_code_max: str
-    sit_org_excluded_corporation_code: str
-    sit_org_head_office_corporation_code: str
-    sit_org_legal_entity_hier_code: str
-    sit_org_head_office_hier_code: str
+    sit_org_corporation_code_max: str = ""
+    sit_org_excluded_corporation_code: str = ""
+    sit_org_head_office_corporation_code: str = ""
+    sit_org_legal_entity_hier_code: str = ""
+    sit_org_head_office_hier_code: str = ""
     # 支行层级扩展（默认关闭，保持现行 61 家行为）：开启前须由
     # scripts/verify_org_hierarchy.py 核实数据湖层级字段与支行事实数据。
     # True 时机构同步纳入 org_hier_code='2' 支行，并按 sit_org_parent_field
@@ -115,7 +115,7 @@ class Settings(BaseSettings):
     sit_org_include_branch_level: bool = False
     sit_org_branch_hier_code: str = "2"
     sit_org_parent_field: str = Field(default_factory=str)
-    sit_org_expected_count: int = Field(gt=0)
+    sit_org_expected_count: int = Field(default=0, ge=0)
     # Compatibility-only switches retained for existing environment files. Runtime
     # metric queries always filter by sit_fact_data_date_field; load/snapshot dates
     # are never constrained to the requested business-date range.
@@ -382,10 +382,7 @@ class Settings(BaseSettings):
         if app_url_backend in supported_database_dialects:
             if app_url_backend != self.app_database_dialect:
                 raise ValueError("APP_DATABASE_URL backend must match APP_DATABASE_DIALECT")
-        query_url_backend = make_url(self.query_database_url).get_backend_name()
-        if query_url_backend == "mysql" and self.query_database_dialect == "mysql":
-            if query_url_backend != self.query_database_dialect:
-                raise ValueError("QUERY_DATABASE_URL backend must match QUERY_DATABASE_DIALECT")
+        # 数据湖地址在实际取数/独立同步时校验，不作为应用库和历史会话的启动门槛。
         if self.sit_partition_mode not in {"data_date", "none"}:
             raise ValueError("SIT_PARTITION_MODE must be data_date or none")
         ordered_fields = [part.split()[0] for part in self.sit_batch_order.split(",")]

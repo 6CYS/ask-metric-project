@@ -73,8 +73,8 @@ def _credential_status(settings: Settings, config: ModelRuntimeConfig) -> dict[s
         store=settings._config_center,
     )
     return {
-        role: endpoint.authentication.type == "none"
-        or bool(endpoint.api_key_env and resolve_credential(endpoint.api_key_env))
+        role: role == "chat" and (endpoint.authentication.type == "none"
+        or bool(endpoint.api_key_env and resolve_credential(endpoint.api_key_env)))
         for role, endpoint in {
             "chat": config.models.chat,
             "embedding": config.models.embedding,
