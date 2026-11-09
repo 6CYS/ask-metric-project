@@ -1,11 +1,17 @@
 """目录读取契约与取数开销；SQLite 样本仅用于隔离验证。"""
 
+from decimal import Decimal
+
 import pytest
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session
 
 from ask_metric.application.metric_semantics import MetricSemantics
+from ask_metric.application.result_enrichment import CatalogResultEnricher
+from ask_metric.application.result_processing import process_query_result
 from ask_metric.core.errors import ApplicationError
+from ask_metric.domain.query_execution import QueryExecutionPlan
+from ask_metric.domain.value_presentation import display_number
 from ask_metric.infrastructure.db.models import MetricSynonym, MetricTerm
 from ask_metric.infrastructure.semantic.catalogs import SqlAlchemyMetricCatalogRepository
 
@@ -56,12 +62,14 @@ def catalog_database(tmp_path, request):
 
 def expected_catalog(source_columns):
     return [
-        {"code": "a", "name": "甲余额", "unit": "元", "description": "人工维护口径",
+        {"code": "a", "name": "甲余额", "unit": "元", "value_policy": "catalog_units_v1",
+         "description": "人工维护口径",
          "explanation": "源表指标定义", "aliases": ["c-alias", "a-alias", "b-alias"],
          "source_metric_code": "source-a" if source_columns else None,
          "base_name": "甲指标" if source_columns else None,
          "value_basis": "余额" if source_columns else None},
-        {"code": "b", "name": "乙指标", "unit": None, "description": "", "explanation": "",
+        {"code": "b", "name": "乙指标", "unit": None, "value_policy": "catalog_units_v1",
+         "description": "", "explanation": "",
          "aliases": [], "source_metric_code": None, "base_name": None, "value_basis": None},
     ]
 
@@ -88,6 +96,7 @@ def test_enabled_catalog_preserves_fields_order_and_avoids_unused_entity_columns
             assert repository.list_enabled() == result
             assert all("max(" in statement for statement in statements
                        if statement.startswith("select"))
+            assert repository.list_disabled()[0].unit == "元"
     finally:
         event.remove(engine, "before_cursor_execute", record_sql)
 
@@ -150,6 +159,48 @@ def test_matching_keeps_all_name_and_alias_competitors_without_semantic_filterin
         assert result[2].unit == "%"
         assert result[2].aliases == ["c-alias"]
         assert result[3].value_basis == ("日均" if source_columns else None)
+
+
+def test_approved_ratio_keeps_display_and_legacy_binding(catalog_database, tmp_path):
+    engine, _source_columns = catalog_database
+    with engine.begin() as connection:
+        connection.execute(text(
+            "INSERT INTO metric_terms (metric_code, metric_name, description, unit, "
+            "metric_explanation, enabled, created_at, updated_at) VALUES "
+            "('ratio', '测试比率', '', '%', '', 1, '2026-11-02', '2026-11-02')"
+        ))
+    path = tmp_path / "semantics.json"
+    path.write_text(
+        '{"metrics":{"ratio":{"status":"approved","source":"隔离测试口径","value_encoding":"ratio"}}}',
+        encoding="utf-8",
+    )
+    with Session(engine) as session:
+        items = SqlAlchemyMetricCatalogRepository(session).list_enabled_matching(
+            codes={"ratio"}, names=set(),
+        )
+    semantics = MetricSemantics(
+        items, secret="test-secret", actor_id="test-user", topics={}, semantics_path=path,
+    )
+    assert display_number("1.6797", semantics.descriptor("ratio")) == "167.97%"
+    # 同一正式指标和审核口径在切换前签发的测试引用。
+    legacy = "m1.cmF0aW8.2531bc61a9059acf0d9e8c44.355516b75daa1a25fc662f93740bf125"
+    assert semantics.resolve(legacy)["code"] == "ratio"
+
+
+def test_query_result_keeps_catalog_unit_and_source_precision(catalog_database):
+    engine, _source_columns = catalog_database
+    rows = CatalogResultEnricher(lambda: Session(engine)).enrich([
+        {"metric_code": "a", "metric_value": Decimal("123.45600"), "unit": "亿元"},
+        {"metric_code": "b", "metric_value": Decimal("0.123400"), "unit": "元"},
+    ])
+    plan = QueryExecutionPlan(
+        shape="metric_value", template="metric_value_latest", dialect="sqlite", dsl={},
+    )
+    results, _ = process_query_result(plan, rows)
+    assert [(row["metric_value"], row["unit"]) for row in results] == [
+        ("123.45600", "元"),
+        ("0.123400", None),
+    ]
 
 
 def test_matching_reads_only_candidates_without_polluting_full_catalog_cache(catalog_database):

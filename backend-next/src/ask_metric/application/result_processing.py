@@ -11,8 +11,6 @@ def process_query_result(
     plan: QueryExecutionPlan,
     rows: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    # 此入口仅处理新执行；历史回读不经过它，旧快照保持原来的数值语义。
-    rows = [{**row, "unit": None, "value_policy": "source_raw_v1"} for row in rows]
     safe_rows = [json_safe(row) for row in rows]
     if plan.shape.value == "metric_period_compare":
         safe_rows = _process_period_compare(rows)
@@ -56,7 +54,7 @@ def _process_period_compare(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "metric_code": metric_code,
                     "metric_name": sample.get("metric_name"),
                     "unit": sample.get("unit"),
-                    "value_policy": sample.get("value_policy"),
+                    **({"value_policy": sample["value_policy"]} if "value_policy" in sample else {}),
                     "org_name": org_name,
                     "current_date": current.get("stat_date") if current else None,
                     "current_value": current_value,
@@ -94,15 +92,17 @@ def _process_entity_compare(
         if len(ordered_names) < 2:
             continue
         left_name, right_name = ordered_names[:2]
-        left = Decimal(str(org_rows[left_name]["metric_value"]))
+        left_row = org_rows[left_name]
+        left = Decimal(str(left_row["metric_value"]))
         right = Decimal(str(org_rows[right_name]["metric_value"]))
         ratio = None if right == 0 else left / right
         results.append(
             json_safe(
                 {
                     "metric_code": metric_code,
-                    "unit": org_rows[left_name].get("unit"),
-                    "value_policy": org_rows[left_name].get("value_policy"),
+                    "unit": left_row.get("unit"),
+                    **({"value_policy": left_row["value_policy"]}
+                       if "value_policy" in left_row else {}),
                     "stat_date": stat_date,
                     "left_org": left_name,
                     "left_value": left,

@@ -182,14 +182,13 @@ class MetricSemantics:
         extension = self.extensions.get("metrics", {}).get(code, {})
         approved = extension if extension.get("status") == "approved" else {}
         attributes = self.topic_attributes.get(code, {})
-        encoding = (None if item.value_policy == "source_raw_v1" else
-                    approved.get("value_encoding") or attributes.get("value_encoding"))
+        raw = item.value_policy == "source_raw_v1"
+        encoding = approved.get("value_encoding") or attributes.get("value_encoding")
         value = {
-            **item.model_dump(),
-            "value_encoding": encoding,
-            "source_value_encoding": (
-                approved.get("value_encoding") or attributes.get("value_encoding")
-            ),
+            # 目录口径沿用原描述字段，维持相同口径下历史引用的版本。
+            **item.model_dump(exclude=set() if raw else {"value_policy"}),
+            "value_encoding": None if raw else encoding,
+            **({"source_value_encoding": encoding} if raw else {}),
             "frequency": approved.get("frequency"),
             "quantity_kind": approved.get("quantity_kind"),
             "business_direction": approved.get("business_direction"),

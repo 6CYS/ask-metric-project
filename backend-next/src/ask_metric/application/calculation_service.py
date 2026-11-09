@@ -36,6 +36,9 @@ def build_calculation_facts(task_id: str, rows: list[dict], catalog: dict) -> li
         metric = metrics.get(row.get("metric_code"))
         if not metric:
             continue
+        raw = metric.get("value_policy") == "source_raw_v1"
+        if not metric.get("unit") and not raw:
+            continue
         org_code = row.get("org_code")
         if not org_code:
             org_name = row.get("org_name")
@@ -59,9 +62,11 @@ def build_calculation_facts(task_id: str, rows: list[dict], catalog: dict) -> li
                     "field": field,
                     "value": str(value),
                     "unit": metric.get("unit"),
-                    "value_policy": metric.get("value_policy", "catalog_units_v1"),
-                    "value_basis": metric.get("value_basis"),
-                    "source_metric_code": metric.get("source_metric_code"),
+                    **({
+                        "value_policy": metric["value_policy"],
+                        "value_basis": metric.get("value_basis"),
+                        "source_metric_code": metric.get("source_metric_code"),
+                    } if raw else {}),
                     **money_reply_fields(value, metric.get("unit")),
                     "metric_code": metric["code"],
                     "metric_name": metric["name"],

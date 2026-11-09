@@ -81,8 +81,7 @@ class SqlAlchemyMetricCatalogRepository:
         query = select(MetricTerm).where(MetricTerm.enabled.is_(False))
         if source_available:
             query = query.options(undefer_group("metric_source"))
-        return [MetricCatalogItem(code=term.metric_code, name=term.metric_name, unit=None,
-                                  value_policy="source_raw_v1",
+        return [MetricCatalogItem(code=term.metric_code, name=term.metric_name, unit=term.unit,
                                   **self._source_fields(term, source_available))
                 for term in self.session.execute(query).scalars()]
 
@@ -162,8 +161,7 @@ class SqlAlchemyMetricCatalogRepository:
                 value_basis=term.get("value_basis"),
                 aliases=aliases[term["metric_code"]],
                 description=term["description"],
-                unit=None,
-                value_policy="source_raw_v1",
+                unit=term["unit"],
                 explanation=term["metric_explanation"],
             )
             for term in terms

@@ -56,8 +56,7 @@ class CatalogResultEnricher:
             # Never trust the fact table's indcr_nm; the data-lake template does not
             # select it and names are sourced exclusively from the application catalog.
             row["metric_name"] = metric.metric_name if metric else "未登记指标"
-            row["unit"] = None
-            row["value_policy"] = "source_raw_v1"
+            row["unit"] = metric.unit if metric else None
             row["org_name"] = organization.org_name if organization else "未登记机构"
             enriched.append(row)
         return enriched
