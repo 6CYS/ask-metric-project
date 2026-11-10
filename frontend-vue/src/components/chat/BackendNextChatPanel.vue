@@ -7,7 +7,7 @@ import { governedReply, catalogOverviewReply, type CatalogOverviewDetails } from
 import { businessReportPresentation } from "@/lib/businessReportPresentation"
 import { applyChatToolResult } from "@/lib/chatToolResults"
 import { AlertTriangle, Bot, Check, Copy, Ellipsis, LoaderCircle, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Trash2 } from "@lucide/vue"
-import { computed, onActivated, onMounted, onBeforeUnmount, ref, watch } from "vue"
+import { computed, nextTick, onActivated, onMounted, onBeforeUnmount, ref, watch } from "vue"
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from "reka-ui"
 
 import CatalogQuestionComposer from "@/components/chat/CatalogQuestionComposer.vue"
@@ -22,15 +22,17 @@ import { semanticQuestionFeedback } from "@/lib/clarificationChoices"
 import BaseAlert from "@/components/ui/BaseAlert.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton.vue"
-import BaseModal from "@/components/ui/BaseModal.vue"
-import ConfirmDialog from "@/components/ui/ConfirmDialog.vue"
+import BaseCheckbox from "@/components/ui/BaseCheckbox.vue"
+import ConversationRenameField from "@/components/chat/ConversationRenameField.vue"
+import ConversationDeleteDialog from "@/components/chat/ConversationDeleteDialog.vue"
+import { useConversationManagement } from "@/composables/useConversationManagement"
 import {
   AgentApiError,
   AgentSessionNotFoundError,
   cancelAgentOperation,
   cancelAgentRequest,
   createAgentSession,
-  deleteAgentSession,
+  renameAgentSession,
   getAgentSession,
   isAgentAbortError,
   listAgentSessions,
@@ -217,15 +219,13 @@ let presentationDisposed = false
 const copiedMessageId = ref("")
 const HISTORY_PAGE_SIZE = 12
 const historyVisibleCount = ref(HISTORY_PAGE_SIZE)
-const renameTargetId = ref("")
-const renameDraft = ref("")
-const isRenaming = ref(false)
 const hasActivatedOnce = ref(false)
-const deletingConversation = ref<DisplayConversation | null>(null)
-const isDeletingConversation = ref(false)
 const isHistoryCollapsed = ref(false)
+const panelRoot = ref<HTMLElement | null>(null)
+const headerTitle = ref<HTMLButtonElement | null>(null)
+const conversationMenuId = ref("")
 const loadedUserId = ref<string | null>(null)
-/** agent 会话无改名接口，标题覆盖记录保存在本地（不含任何凭据）。 */
+/** 兼容既有本机标题与尚未创建服务端会话的草稿；正式改名由服务端保存。 */
 const titleOverrides = ref<Record<string, string>>({})
 let historyLoadVersion = 0
 
@@ -287,6 +287,59 @@ const sortedConversations = computed(() => conversations.value
 // 会话接口一次返回全量列表，沿用“显示更多”交互做前端分页。
 const visibleConversations = computed(() => sortedConversations.value.slice(0, historyVisibleCount.value))
 const hasMoreConversations = computed(() => sortedConversations.value.length > historyVisibleCount.value)
+const management = useConversationManagement({
+  conversations,
+  history: sortedConversations,
+  visible: visibleConversations,
+  sending: sendingConversationIds,
+  actorId: computed(() => auth.user.value?.id ?? null),
+  onRenamed: (conversation, title) => {
+    const key = conversation.serverId ?? conversation.id
+    const next = { ...titleOverrides.value }
+    if (conversation.serverId) delete next[key]
+    else next[key] = title
+    titleOverrides.value = next
+    persistTitleOverrides()
+    updateConversation(conversation.id, item => ({ ...item, title }))
+  },
+  onRemoved: async (ids) => {
+    const removed = conversations.value.filter(item => ids.has(item.id))
+    conversations.value = conversations.value.filter(item => !ids.has(item.id))
+    const next = { ...titleOverrides.value }
+    for (const item of removed) { delete next[item.id]; if (item.serverId) delete next[item.serverId] }
+    titleOverrides.value = next
+    persistTitleOverrides()
+    if (ids.has(activeConversationId.value)) {
+      const first = conversations.value[0]
+      if (first) await selectConversation(first.id)
+      else handleNewConversation()
+    } else persistActiveConversation()
+  },
+})
+const {
+  managing: isManagingConversations, selectedIds: selectedConversationIds, selected: selectedConversations,
+  eligible: deletableConversations, visibleEligible: visibleDeletableConversations,
+  allVisibleSelected, someVisibleSelected, allSelected, renameTargetId, renameSource,
+  renameBusy: isRenaming, renameError, notice: managementNotice, deleteOpen, deleteTargets,
+  deleting: isDeletingConversation, deleteFinished, processed: deletedProgress, failures: deleteFailures,
+} = management
+watch(renameTargetId, async (value, previous) => {
+  if (value || !previous) return
+  await nextTick()
+  if (renameSource.value === "header") headerTitle.value?.focus()
+  else [...(panelRoot.value?.querySelectorAll<HTMLButtonElement>("[data-conversation-open]") ?? [])]
+    .find(button => button.dataset.conversationOpen === previous)?.focus()
+})
+watch(deleteOpen, async (open, previous) => {
+  if (open || !previous) return
+  await nextTick()
+  panelRoot.value?.querySelector<HTMLButtonElement>("[data-conversation-manage]")?.focus()
+})
+let managementNoticeTimer: ReturnType<typeof setTimeout> | undefined
+watch(managementNotice, (value) => {
+  if (managementNoticeTimer) clearTimeout(managementNoticeTimer)
+  if (value) managementNoticeTimer = setTimeout(() => { managementNotice.value = "" }, 3000)
+})
 
 watch(() => props.initialMessage, (value) => {
   if (!message.value.trim()) message.value = value.trim()
@@ -298,6 +351,8 @@ watch(() => auth.user.value?.id ?? null, (userId) => {
 
 onMounted(() => void synchronizeAuthenticatedUser(auth.user.value?.id ?? null))
 onBeforeUnmount(() => {
+  if (managementNoticeTimer) clearTimeout(managementNoticeTimer)
+  management.reset()
   presentationDisposed = true
   answerFrames.dispose()
   scrollFollow.dispose()
@@ -307,6 +362,7 @@ onBeforeUnmount(() => {
 onActivated(() => void activateAuthenticatedUser())
 
 function activateAuthenticatedUser() {
+  if (isDeletingConversation.value) return Promise.resolve()
   const userId = auth.user.value?.id ?? null
   let pending = Promise.resolve()
   if (loadedUserId.value !== userId) pending = synchronizeAuthenticatedUser(userId)
@@ -318,6 +374,8 @@ function activateAuthenticatedUser() {
 }
 
 function resetChatSessionState() {
+  management.reset()
+  conversationMenuId.value = ""
   answerFrames.clear()
   scrollFollow.reset()
   historyLoadVersion += 1
@@ -769,7 +827,10 @@ async function selectConversation(conversationId: string) {
       messages: conversationFromDetail(detail).messages,
       questionStates: detail.question_states ?? [],
     }
-    loaded.title = titleOverrides.value[loaded.serverId ?? ""] ?? detail.title ?? conversationTitle(loaded.serverId, loaded.messages)
+    // 双击会同时触发打开历史；较早发出的详情响应不能覆盖随后已保存的新名称。
+    const latest = conversations.value.find(item => item.id === conversationId)
+    loaded.title = latest && latest.title !== conversation.title ? latest.title
+      : titleOverrides.value[loaded.serverId ?? ""] ?? detail.title ?? conversationTitle(loaded.serverId, loaded.messages)
     const lastAssistant = [...loaded.messages].reverse().find((item) => item.role === "assistant")
     loaded.preview = detail.preview ?? lastAssistant?.content ?? loaded.preview
     conversations.value = conversations.value.map((item) => item.id === conversationId ? loaded : item)
@@ -809,25 +870,14 @@ function onHistoryScroll(event: Event) {
   if (container.scrollTop + container.clientHeight >= container.scrollHeight - 48) showMoreConversations()
 }
 
-function openRenameConversation(conversation: DisplayConversation) {
-  renameTargetId.value = conversation.id
-  renameDraft.value = conversation.title
+function openRenameConversation(conversation: DisplayConversation, source: "list" | "header" = "list") {
+  conversationMenuId.value = ""
+  management.openRename(conversation, source)
 }
 
-async function submitConversationRename() {
-  const title = renameDraft.value.trim()
-  const conversation = conversations.value.find((item) => item.id === renameTargetId.value)
-  if (!conversation || !title || isRenaming.value) return
-  isRenaming.value = true
-  try {
-    const key = conversation.serverId ?? conversation.id
-    titleOverrides.value = { ...titleOverrides.value, [key]: title }
-    persistTitleOverrides()
-    updateConversation(conversation.id, (item) => ({ ...item, title }))
-    renameTargetId.value = ""
-  } finally {
-    isRenaming.value = false
-  }
+function openDeleteConversations(targets: DisplayConversation[]) {
+  conversationMenuId.value = ""
+  management.openDelete(targets)
 }
 
 async function copyUserQuestion(chatMessage: DisplayMessage) {
@@ -897,45 +947,8 @@ function handleNewConversation() {
   persistActiveConversation()
 }
 
-async function handleDeleteConversation(conversationId: string) {
-  const target = conversations.value.find((item) => item.id === conversationId)
-  if (!target || sendingConversationIds.value.has(conversationId)) return false
-  try {
-    if (target.serverId) {
-      try {
-        await deleteAgentSession(target.serverId)
-      } catch (error) {
-        // 服务端已不存在视为删除成功，本地照常移除。
-        if (!(error instanceof AgentSessionNotFoundError)) throw error
-      }
-    }
-    conversations.value = conversations.value.filter((item) => item.id !== conversationId)
-    if (activeConversationId.value === conversationId) {
-      const nextConversation = conversations.value[0]
-      if (nextConversation) await selectConversation(nextConversation.id)
-      else handleNewConversation()
-    } else {
-      persistActiveConversation()
-    }
-    return true
-  } catch (error) {
-    historyError.value = error instanceof Error ? error.message : "删除会话失败。"
-    return false
-  }
-}
-
-async function confirmDeleteConversation() {
-  const target = deletingConversation.value
-  if (!target || isDeletingConversation.value) return
-  isDeletingConversation.value = true
-  try {
-    if (await handleDeleteConversation(target.id)) deletingConversation.value = null
-  } finally {
-    isDeletingConversation.value = false
-  }
-}
-
 function handleSubmit(text: string, entities: ComposerEntity[] = []) {
+  if (isDeletingConversation.value) return
   if (!queryReady.value) return
   // 正文用于展示；目录编码与澄清标识独立传递，由服务端绑定当前任务。
   const label = composeQuestion(text, entities)
@@ -1025,16 +1038,24 @@ async function runQuestion(conversationId: string, question: string, kind: strin
 /** 草稿会话在首次发送时创建服务端会话，并沿用首个问题作为默认标题。 */
 async function ensureServerSession(conversationId: string) {
   const conversation = conversations.value.find((item) => item.id === conversationId)
-  if (conversation?.serverId) return conversation.serverId
-  const created = await createAgentSession()
-  updateConversation(conversationId, (item) => ({
-    ...item,
-    serverId: created.session_id,
-    persisted: true,
-    createdAt: created.created_at,
-  }))
+  let serverId = conversation?.serverId
+  if (!serverId) {
+    const created = await createAgentSession()
+    serverId = created.session_id
+    updateConversation(conversationId, (item) => ({ ...item, serverId: created.session_id, persisted: true, createdAt: created.created_at }))
+  }
+  // 草稿和旧版本浏览器覆盖标题，在取得正式会话身份后迁移到同一原生名称。
+  const customTitle = titleOverrides.value[conversationId] ?? titleOverrides.value[serverId]
+  if (customTitle) {
+    await renameAgentSession(serverId, customTitle)
+    const next = { ...titleOverrides.value }
+    delete next[conversationId]
+    delete next[serverId]
+    titleOverrides.value = next
+    persistTitleOverrides()
+  }
   persistActiveConversation()
-  return created.session_id
+  return serverId
 }
 
 async function streamPrompt(conversationId: string, serverId: string, input: AgentPromptInput, assistantId: string, controller: AbortController) {
@@ -1355,35 +1376,53 @@ function pendingAnswer(chatMessage: DisplayMessage): string | undefined {
 </script>
 
 <template>
-  <section class="grid min-h-0 flex-1 overflow-hidden border-x border-b bg-background" :class="isHistoryCollapsed ? 'grid-cols-[44px_minmax(0,1fr)] grid-rows-1' : 'grid-rows-[minmax(0,15rem)_minmax(0,1fr)] sm:grid-cols-[240px_minmax(0,1fr)] sm:grid-rows-1 lg:grid-cols-[300px_minmax(0,1fr)]'">
+  <section ref="panelRoot" class="grid min-h-0 flex-1 overflow-hidden border-x border-b bg-background" :class="isHistoryCollapsed ? 'grid-cols-[44px_minmax(0,1fr)] grid-rows-1' : 'grid-rows-[minmax(0,18rem)_minmax(0,1fr)] sm:grid-cols-[260px_minmax(0,1fr)] sm:grid-rows-1 lg:grid-cols-[300px_minmax(0,1fr)]'">
     <aside v-if="!isHistoryCollapsed" class="flex min-h-0 flex-col border-b bg-muted/30 sm:border-r sm:border-b-0">
       <div class="flex h-[var(--workspace-header-height)] shrink-0 items-center gap-2 border-b px-3">
-        <BaseButton variant="outline" class="min-w-0 flex-1 justify-start border-border/70 bg-background/70 text-foreground shadow-none hover:bg-muted/70" @click="handleNewConversation"><Plus />新建对话</BaseButton>
+        <BaseButton variant="outline" class="min-w-0 flex-1 justify-start border-border/70 bg-background/70 text-foreground shadow-none hover:bg-muted/70" :disabled="isDeletingConversation" @click="handleNewConversation"><Plus />新建对话</BaseButton>
+        <BaseButton data-conversation-manage variant="ghost" :disabled="isHistoryLoading || isDeletingConversation || isRenaming" :aria-pressed="isManagingConversations" @click="management.setManaging(!isManagingConversations)">{{ isManagingConversations ? '完成' : '管理' }}</BaseButton>
         <BaseTooltip content="收起历史对话"><BaseButton variant="ghost" size="icon" class="shrink-0 text-muted-foreground" aria-label="收起历史对话" @click="isHistoryCollapsed = true"><PanelLeftClose /></BaseButton></BaseTooltip>
       </div>
+      <template v-if="isManagingConversations">
+        <div class="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2 text-xs">
+          <label class="flex items-center gap-2"><BaseCheckbox :model-value="allVisibleSelected ? true : someVisibleSelected ? 'indeterminate' : false" :disabled="!visibleDeletableConversations.length || isDeletingConversation" aria-label="全选已加载会话" @update:model-value="management.selectVisible" />全选已加载</label>
+          <span class="text-muted-foreground">{{ visibleConversations.length }} / {{ sortedConversations.length }}</span>
+        </div>
+        <div v-if="allVisibleSelected && deletableConversations.length > visibleDeletableConversations.length" class="shrink-0 space-y-1 border-b bg-muted/40 px-3 py-2 text-xs">
+          <p class="text-muted-foreground">{{ allSelected ? `已选择全部 ${selectedConversations.length} 个可删除会话` : `已选择已加载中的 ${selectedConversations.length} 个会话` }}</p>
+          <BaseButton variant="link" size="sm" :disabled="isDeletingConversation" @click="management.selectAll">{{ allSelected ? '清除全部选择' : `选择全部 ${deletableConversations.length} 个可删除会话` }}</BaseButton>
+        </div>
+      </template>
       <div class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-2.5 py-2 [scrollbar-gutter:stable]" @scroll="onHistoryScroll">
         <LoadingSkeleton v-if="isHistoryLoading" :rows="3" row-class="h-14" />
         <div v-else class="flex flex-col gap-1.5">
-          <div v-for="conversation in visibleConversations" :key="conversation.id" class="group/history flex h-[82px] w-full min-w-0 shrink-0 items-start gap-1.5 rounded-xl border border-border/70 bg-background px-2.5 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:border-muted-foreground/35 hover:bg-background" :class="conversation.id === activeConversation?.id && 'border-primary/35 bg-primary/[0.025] ring-1 ring-primary/10'">
-            <BaseTooltip :content="`会话创建时间：${formatConversationDate(conversation.createdAt)}`"><button type="button" class="min-w-0 flex-1 px-1 text-left text-sm" @click="selectConversation(conversation.id)">
-              <span class="flex items-center gap-1.5"><span class="line-clamp-1 min-w-0 flex-1 font-medium">{{ conversation.title }}</span><span v-if="conversation.legacy" class="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">旧会话</span><LoaderCircle v-if="sendingConversationIds.has(conversation.id) || conversation.running" class="size-3.5 animate-spin" /></span>
+          <div v-for="conversation in visibleConversations" :key="conversation.id" class="group/history flex min-h-[82px] w-full min-w-0 shrink-0 items-start gap-1.5 rounded-xl border border-border/70 bg-background px-2.5 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:border-muted-foreground/35 hover:bg-background" :class="(isManagingConversations ? selectedConversationIds.has(conversation.id) : conversation.id === activeConversation?.id) && 'border-primary/35 bg-primary/[0.025] ring-1 ring-primary/10'">
+            <BaseCheckbox v-if="isManagingConversations" class="mt-1" :model-value="selectedConversationIds.has(conversation.id) && management.canDelete(conversation)" :disabled="!management.canDelete(conversation) || isDeletingConversation" :aria-label="`选择会话：${conversation.title}`" @update:model-value="management.toggleSelected(conversation, $event)" />
+            <ConversationRenameField v-if="renameTargetId === conversation.id && renameSource === 'list'" :title="conversation.title" :busy="isRenaming" :error="renameError" @save="management.saveRename" @cancel="management.cancelRename" />
+            <BaseTooltip v-else :content="`${conversation.title} · ${formatConversationDate(conversation.createdAt)}`"><button type="button" class="min-w-0 flex-1 px-1 text-left text-sm" :data-conversation-open="conversation.id" :disabled="isDeletingConversation || (isManagingConversations && !management.canDelete(conversation))" @click="isManagingConversations ? management.toggleSelected(conversation, !selectedConversationIds.has(conversation.id)) : selectConversation(conversation.id)" @keydown.f2.prevent="openRenameConversation(conversation)">
+              <span class="flex items-center gap-1.5"><span class="line-clamp-1 min-w-0 flex-1 font-medium" @dblclick.stop="!isManagingConversations && openRenameConversation(conversation)">{{ conversation.title }}</span><span v-if="conversation.legacy" class="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">旧会话</span><LoaderCircle v-if="sendingConversationIds.has(conversation.id) || conversation.running" class="size-3.5 animate-spin" /></span>
               <span class="mt-0.5 block h-4 truncate text-xs text-muted-foreground">{{ conversation.preview || conversation.title }}</span>
               <span class="mt-1.5 block text-[11px] text-muted-foreground/80">{{ formatConversationDate(conversation.createdAt) }}</span>
             </button></BaseTooltip>
-            <PopoverRoot v-if="!conversation.legacy">
-              <BaseTooltip content="会话操作"><PopoverTrigger as-child>
-                <BaseButton variant="ghost" size="icon" class="size-7 shrink-0 text-muted-foreground" aria-label="会话操作"><Ellipsis /></BaseButton>
-              </PopoverTrigger></BaseTooltip>
+            <PopoverRoot v-if="!conversation.legacy && !isManagingConversations && renameTargetId !== conversation.id" :open="conversationMenuId === conversation.id" @update:open="conversationMenuId = $event ? conversation.id : ''">
+              <PopoverTrigger as-child><BaseTooltip content="会话操作">
+                <BaseButton variant="ghost" size="icon" class="size-7 shrink-0 text-muted-foreground" :disabled="isDeletingConversation || isRenaming" :aria-label="`会话操作：${conversation.title}`"><Ellipsis /></BaseButton>
+              </BaseTooltip></PopoverTrigger>
               <PopoverPortal>
-                <PopoverContent side="right" :side-offset="6" align="start" class="z-50 w-36 rounded-md border bg-popover p-1 text-popover-foreground shadow-lg">
+                <PopoverContent side="right" :side-offset="6" align="start" class="z-50 w-44 rounded-md border bg-popover p-1 text-popover-foreground shadow-lg" @close-auto-focus="(event) => { if (renameTargetId || deleteOpen) event.preventDefault() }">
                   <button type="button" class="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm hover:bg-muted" @click="openRenameConversation(conversation)"><Pencil class="size-3.5" />修改名称</button>
-                  <button type="button" class="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50" :disabled="sendingConversationIds.has(conversation.id)" @click="deletingConversation = conversation"><Trash2 class="size-3.5" />删除会话</button>
+                  <button type="button" class="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50" :disabled="!management.canDelete(conversation)" @click="openDeleteConversations([conversation])"><Trash2 class="size-3.5" />删除会话</button>
+                  <p v-if="!management.canDelete(conversation)" class="border-t px-2.5 py-2 text-xs text-muted-foreground">正在分析，停止后可删除</p>
                 </PopoverContent>
               </PopoverPortal>
             </PopoverRoot>
           </div>
           <p v-if="isHistoryLoadingMore" class="flex items-center justify-center gap-1.5 py-2 text-xs text-muted-foreground"><LoaderCircle class="size-3.5 animate-spin" />正在加载更多会话…</p>
         </div>
+      </div>
+      <div v-if="isManagingConversations" class="shrink-0 space-y-2 border-t bg-background p-3">
+        <p class="text-xs text-muted-foreground" role="status" aria-live="polite">已选择 {{ selectedConversations.length }} 个会话 · 排除分析中和只读会话</p>
+        <div class="flex gap-2"><BaseButton variant="outline" :disabled="isDeletingConversation" @click="management.setManaging(false)">取消</BaseButton><BaseButton variant="destructive" class="min-w-0 flex-1" :disabled="!selectedConversations.length || isDeletingConversation" @click="openDeleteConversations(selectedConversations)"><Trash2 />删除已选（{{ selectedConversations.length }}）</BaseButton></div>
       </div>
     </aside>
     <aside v-else class="flex min-h-0 flex-col border-r bg-muted/30">
@@ -1393,8 +1432,9 @@ function pendingAnswer(chatMessage: DisplayMessage): string | undefined {
     </aside>
 
     <div class="flex min-h-0 min-w-0 flex-col">
-      <header class="flex h-[var(--workspace-header-height)] shrink-0 items-center border-b px-4">
-        <h1 class="min-w-0 truncate text-base font-semibold">{{ activeConversation?.title ?? "指标问数" }}</h1>
+      <header class="flex min-h-[var(--workspace-header-height)] shrink-0 items-center gap-2 border-b px-4 py-2">
+        <ConversationRenameField v-if="activeConversation && renameTargetId === activeConversation.id && renameSource === 'header'" :title="activeConversation.title" :busy="isRenaming" :error="renameError" @save="management.saveRename" @cancel="management.cancelRename" />
+        <template v-else><h1 class="min-w-0 text-base font-semibold"><BaseTooltip :content="`${activeConversation?.title ?? '指标问数'} · 双击修改名称`"><button ref="headerTitle" type="button" class="max-w-full truncate text-left outline-none focus-visible:ring-2 focus-visible:ring-ring" :disabled="!activeConversation || activeConversation.legacy || isDeletingConversation || isRenaming" aria-label="当前会话名称" @dblclick="activeConversation && openRenameConversation(activeConversation, 'header')" @keydown.f2.prevent="activeConversation && openRenameConversation(activeConversation, 'header')">{{ activeConversation?.title ?? "指标问数" }}</button></BaseTooltip></h1></template>
       </header>
 
       <div ref="messagesScroll" class="min-h-0 flex-1 overflow-y-auto bg-muted/20 px-4 py-5" @scroll="scrollFollow.onScroll">
@@ -1466,22 +1506,10 @@ function pendingAnswer(chatMessage: DisplayMessage): string | undefined {
           <span>{{ queryReadiness.message }}<span v-if="queryReadiness.total > 0">（{{ queryReadiness.completed }}/{{ queryReadiness.total }}）</span></span></div>
         <p v-else-if="activeConversation?.legacy" class="mb-3 text-sm text-muted-foreground">旧格式会话仅支持查看，请新建对话继续提问。</p>
         <p v-else-if="activeConversation?.running && !activeConversationIsSending" class="mb-3 text-sm text-muted-foreground">该会话正在其他窗口运行，请稍候或新建对话。</p>
-        <CatalogQuestionComposer :key="auth.user.value?.id" v-model="message" :context-key="`${activeConversationId}:${activeClarificationMessage?.clarification?.id ?? activeConversation?.messages.length ?? 0}`" :clarification="activeClarificationMessage?.clarification" :auto-open-clarification-id="autoOpenClarificationId" :is-submitting="activeConversationIsSending" :disabled="!queryReady || Boolean(activeConversation?.legacy) || Boolean(activeConversation?.running && !activeConversationIsSending)" :placeholder="composerPlaceholder" @submit="handleSubmit" @stop="stopActiveConversation" />
+        <CatalogQuestionComposer :key="auth.user.value?.id" v-model="message" :context-key="`${activeConversationId}:${activeClarificationMessage?.clarification?.id ?? activeConversation?.messages.length ?? 0}`" :clarification="activeClarificationMessage?.clarification" :auto-open-clarification-id="autoOpenClarificationId" :is-submitting="activeConversationIsSending" :disabled="isDeletingConversation || !queryReady || Boolean(activeConversation?.legacy) || Boolean(activeConversation?.running && !activeConversationIsSending)" :placeholder="composerPlaceholder" @submit="handleSubmit" @stop="stopActiveConversation" />
       </div>
     </div>
   </section>
-  <ConfirmDialog :open="Boolean(deletingConversation)" title="删除历史会话" :busy="isDeletingConversation" @update:open="!$event && (deletingConversation = null)" @confirm="confirmDeleteConversation">
-    即将永久删除会话 <strong class="font-medium text-foreground">「{{ deletingConversation?.title }}」</strong> 及其消息记录。此操作无法撤销。
-  </ConfirmDialog>
-  <BaseModal :open="Boolean(renameTargetId)" title="修改会话名称" description="新名称会同时显示在历史会话列表和当前会话标题中。" :busy="isRenaming" size="sm" @update:open="(open) => { if (!open) renameTargetId = '' }">
-    <form class="space-y-2" @submit.prevent="submitConversationRename">
-      <label for="conversation-title" class="text-sm font-medium">会话名称</label>
-      <input id="conversation-title" v-model="renameDraft" maxlength="255" autofocus class="min-h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/30" placeholder="输入会话名称" @keydown.enter.prevent="submitConversationRename">
-      <p class="text-xs text-muted-foreground">最多 255 个字符。</p>
-    </form>
-    <template #footer>
-      <BaseButton variant="outline" :disabled="isRenaming" @click="renameTargetId = ''">取消</BaseButton>
-      <BaseButton :disabled="!renameDraft.trim() || isRenaming" @click="submitConversationRename"><LoaderCircle v-if="isRenaming" class="animate-spin" />保存</BaseButton>
-    </template>
-  </BaseModal>
+  <div v-if="managementNotice && !deleteOpen" role="status" aria-live="polite" class="fixed bottom-5 left-1/2 z-40 max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-lg border bg-popover px-4 py-2 text-sm text-popover-foreground shadow-lg">{{ managementNotice }}</div>
+  <ConversationDeleteDialog :open="deleteOpen" :targets="deleteTargets" :busy="isDeletingConversation" :finished="deleteFinished" :processed="deletedProgress" :failures="deleteFailures" @close="management.closeDelete" @confirm="management.confirmDelete()" @retry="management.confirmDelete(true)" />
 </template>
