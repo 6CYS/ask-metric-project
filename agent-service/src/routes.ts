@@ -162,6 +162,21 @@ export function createApp(
     });
   });
 
+  app.patch("/sessions/:id", async (c) => {
+    const body: unknown = await c.req.json().catch(() => null);
+    const title = body && typeof body === "object" && "title" in body
+      && typeof body.title === "string" ? body.title.trim() : "";
+    if (!title || title.length > 255) {
+      return c.json({ detail: "会话名称不能为空，且不能超过255个字符" }, 400);
+    }
+    const hosted = await host.openSession(c.get("user"), c.req.param("id"));
+    if (!hosted) return c.json({ detail: "会话不存在" }, 404);
+    if (hosted.readOnlyReason) return c.json({ detail: "旧格式会话仅支持查看" }, 409);
+    // 名称只写入原生会话元数据，不改写提问、分析上下文或历史正文。
+    await hosted.harness.setName(title, BACKGROUND_CONTEXT);
+    return c.json({ session_id: hosted.sessionId, title });
+  });
+
   app.delete("/sessions/:id", async (c) => {
     const user = c.get("user");
     const hosted = await host.openSession(user, c.req.param("id"));

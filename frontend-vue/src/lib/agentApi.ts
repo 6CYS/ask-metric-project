@@ -307,6 +307,13 @@ export function deleteAgentSession(sessionId: string) {
   return request<void>(`/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" })
 }
 
+export function renameAgentSession(sessionId: string, title: string) {
+  return request<{ session_id: string; title: string }>(`/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title }),
+  })
+}
+
 /** 显式停止：原生取消指定 operation；只停止观察不等于取消执行 */
 export function cancelAgentOperation(sessionId: string, operationId: string) {
   return request<void>(`/sessions/${encodeURIComponent(sessionId)}/cancel`, {
