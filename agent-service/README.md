@@ -131,6 +131,7 @@ Skill 全文留在首次可见的读取回执，动态业务状态仅放在发�
 
 - `GET /health`：健康检查（无需鉴权）。
 - `POST /sessions`、`GET /sessions`、`GET /sessions/{id}`、`DELETE /sessions/{id}`：会话管理；历史消息由原生记录投影（含工具回执引用），删除活动会话返回 409。
+- 批量删除沿用逐条接口及账号归属、活动状态校验；同一用户文件仓库的目录扫描与删除按序执行，避免并发删除使扫描遇到已移除文件。不同用户独立排队，不改变问数执行方式；部分失败仍由前端保留失败项供重试。
 - `POST /sessions/{id}/prompt`：提问，SSE 事件流。请求体为 `{protocol_version: 3, request_id, message, answers?, clarification_target?, selected_answers?, time_override?}`；`request_id` 由浏览器每次确认发送生成，重试不变。旧协议请求返回 `CLIENT_UPGRADE_REQUIRED`。
 - `GET /sessions/{id}/stream`：只读观察流（断线重连：快照 + 实时事件），不接纳新输入。
 - `POST /sessions/{id}/cancel`：传operation_id停止指定操作，或传request_id取消尚未收到accepted的请求；两者恰好一个。

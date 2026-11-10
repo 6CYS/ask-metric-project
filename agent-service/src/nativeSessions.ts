@@ -53,6 +53,7 @@ function isProcessAlive(pid: number): boolean {
 
 export class NativeSessionStore {
   private readonly repos = new Map<string, JsonlSessionRepo>();
+  private readonly directoryOperations = new Map<string, Promise<void>>();
   /** 已打开会话缓存：JsonlSessionRepo 对重复 open 抛错，必须在本层去重复用 */
   private readonly openSessions = new Map<string, Session<JsonlSessionMetadata>>();
   private readonly rootDir: string;
@@ -78,7 +79,26 @@ export class NativeSessionStore {
   }
 
   async list(ownerUserId: string, context: Context = BACKGROUND_CONTEXT): Promise<JsonlSessionMetadata[]> {
-    return this.repoFor(ownerUserId).list(undefined, context);
+    return this.withDirectoryAccess(ownerUserId, () => this.repoFor(ownerUserId).list(undefined, context));
+  }
+
+  /**
+   * 原生 list 会枚举目录后逐个读取文件；期间删除任一文件都可能令整次扫描 ENOENT。
+   * 同一用户的扫描与删除共用队列，不同用户互不阻塞；队列不覆盖模型或问数执行。
+   */
+  private async withDirectoryAccess<T>(ownerUserId: string, run: () => Promise<T>): Promise<T> {
+    const previous = this.directoryOperations.get(ownerUserId) ?? Promise.resolve();
+    let release: () => void = () => {};
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    const tail = previous.then(() => current);
+    this.directoryOperations.set(ownerUserId, tail);
+    await previous;
+    try {
+      return await run();
+    } finally {
+      release();
+      if (this.directoryOperations.get(ownerUserId) === tail) this.directoryOperations.delete(ownerUserId);
+    }
   }
 
   async create(ownerUserId: string, context: Context = BACKGROUND_CONTEXT): Promise<Session<JsonlSessionMetadata>> {
@@ -125,13 +145,16 @@ export class NativeSessionStore {
   }
 
   async delete(ownerUserId: string, metadata: JsonlSessionMetadata, context: Context = BACKGROUND_CONTEXT): Promise<void> {
-    // 仓库要求删除前会话处于关闭状态
-    await this.release(ownerUserId, metadata.id, context);
-    return this.repoFor(ownerUserId).delete(metadata, context);
+    return this.withDirectoryAccess(ownerUserId, async () => {
+      // 仓库要求删除前会话处于关闭状态；关闭与删除结束后才允许下一次目录扫描。
+      await this.release(ownerUserId, metadata.id, context);
+      await this.repoFor(ownerUserId).delete(metadata, context);
+    });
   }
 
   /** 进程关闭时关闭全部会话与仓库；只释放句柄，不删除任何历史数据 */
   async close(): Promise<void> {
+    await Promise.all(this.directoryOperations.values());
     const sessions = [...this.openSessions.values()];
     this.openSessions.clear();
     await Promise.all(sessions.map((session) => session.close(BACKGROUND_CONTEXT).catch(() => undefined)));
