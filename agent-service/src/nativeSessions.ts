@@ -15,6 +15,7 @@ import {
   type Session,
 } from "@earendil-works/pi-agent-core";
 import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import type { DatabaseSessionStore } from "./databaseSessions.js";
 
 const REPO_SUBDIR = "native-v1";
 
@@ -52,6 +53,8 @@ function isProcessAlive(pid: number): boolean {
 }
 
 export class NativeSessionStore {
+  /** 集群扩展仅在显式数据库模式启用；本地 JSONL 的行为保持不变。 */
+  readonly cluster?: DatabaseSessionStore;
   private readonly repos = new Map<string, JsonlSessionRepo>();
   private readonly directoryOperations = new Map<string, Promise<void>>();
   /** 已打开会话缓存：JsonlSessionRepo 对重复 open 抛错，必须在本层去重复用 */
