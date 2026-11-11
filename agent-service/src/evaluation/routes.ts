@@ -71,6 +71,19 @@ export function createEvaluationRoutes(
   router.get("/runs", (context) =>
     context.json({ items: service.listRuns(context.get("user").id) }),
   );
+  router.delete("/datasets/:id", async (context) => {
+    const body = evaluationRecord(await readBody(context.req.raw));
+    service.deleteDataset(
+      context.get("user").id,
+      context.req.param("id"),
+      evaluationVersion(body.version),
+    );
+    return context.body(null, 204);
+  });
+  router.delete("/runs/:id", async (context) => {
+    await service.deleteRun(context.get("user").id, context.get("token"), context.req.param("id"));
+    return context.body(null, 204);
+  });
   router.post("/runs", async (context) =>
     context.json(
       service.startRun(context.get("user"), context.get("token"), await readBody(context.req.raw)),

@@ -3,39 +3,66 @@
   "entries": [
     {
       "topic": "loan",
-      "title": "贷款规模、增长与结构的分析组织方式",
-      "text": "可先看贷款期末规模及增长，再按借款主体、期限等分类分析结构。分类必须映射到本行正式指标；不同分类可能交叉，不能混合相加。全国统计结果不表示本机构表现。",
-      "source": "中国人民银行金融统计数据报告",
+      "title": "贷款规模、增长与客群结构的分析方式",
+      "text": "贷款分析可先看期末规模及正式增长结果，再按借款主体、期限等分类观察结构。对公与个人贷款的余额、占比和信贷客户数可用于了解业务重心，但应先确认各项统计范围及包含关系；对公贷款不含贴现及买断式转贴现、个人贷款不含贴现等限定不能省略。分类必须映射到本行正式指标，不同分类可能交叉，不能混合相加，也不能仅凭名称认定分项覆盖全部贷款。个人与对公的规模变化可提供增长来源线索；进一步判断客户扩面、用信加深、客群迁移或风险变化，仍需可比基期、客户行为与业务明细。全国统计结果不表示本机构表现。",
+      "source": "中国人民银行金融统计数据报告；结合本行正式指标目录补充计财分析方法",
       "role": "分析维度参考，不能替代本行口径或作为本行数值证据",
       "url": "https://www.pbc.gov.cn/diaochatongjisi/116219/116225/2026081416320925645/index.html",
       "date": "2026-08-14",
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_CORP_LOAN_EXCLD_DSCNT_BAL",
+        "ORG_PSON_LOAN_BAL",
+        "ORG_PSON_LOAN_BAL_PRPR",
+        "ORG_CORP_CMIS_CUST_QTY",
+        "ORG_PSON_CMIS_CUST_QTY"
+      ],
       "id": "loan-analysis-dimensions",
-      "updated_at": null
+      "updated_at": "2026-11-05T08:49:23.945742Z"
     },
     {
       "topic": "loan",
-      "title": "余额变化与业务原因的证据边界",
-      "text": "余额及分项变化能支持增长来源分析，不能单独证明客户需求、流失、营销或政策的因果影响。业务原因需要同期间投放、还款、核销或客户明细等证据；缺少时列为待核实方向。",
-      "source": "本项目试点分析规则",
+      "title": "贷款余额变化、客户扩面与存量经营的原因核验",
+      "text": "贷款余额及分项变化能支持增长来源分析，不能单独证明客户需求、流失、营销或政策的因果影响。分析贷款增长是客户扩面还是存量客户用信加深时，先选择范围一致的信贷客户数和贷款余额，核对同期间的规模与正式变化。客户数增加而余额变化不大，可继续调查新增客户用信、客群结构与存量偿还；余额增加而客户数变化不大，可关注既有客户用信及集中情况。客户总数变化不大仍可能包含大量进入退出，单期户数和余额只能提供当前结构线索。确认原因需同口径客户数基期、新增及退出客户、投放、还款、核销和存量用信记录；缺少时列为待核实方向。评价户均、转化和客户价值，还需确认客户范围、有效用信、收入成本及正式计算方法，不能由总量直接认定营销效果或风险集中。",
+      "source": "本项目试点分析规则；结合本行正式指标目录补充计财分析方法",
       "role": "结论边界",
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_CMIS_CUST_QTY",
+        "ORG_CORP_CMIS_CUST_QTY",
+        "ORG_PSON_CMIS_CUST_QTY",
+        "ORG_VRS_LOAN_BAL",
+        "ORG_CORP_LOAN_EXCLD_DSCNT_BAL",
+        "ORG_PSON_LOAN_BAL"
+      ],
       "id": "loan-causality-boundary",
-      "updated_at": null
+      "updated_at": "2026-11-05T08:49:23.945742Z"
     },
     {
       "topic": "deposit",
-      "title": "存款结构分析与原因核验",
-      "text": "分析存款变化时，先核实总量的实际增减及比较基期，再观察个人与对公的增减金额。继续追问某一类别时，沿已配置关系查看该类别的活期、定期，再按需要检查可用期限明细，保持已确认的机构、统计日和比较基期。分项余额及增减合计都须与父项核对；存在差额、交叉或缺项时，说明已查分项的变化，不能宣称完整贡献或全部原因。保证金、客户类型和期限分类不能混合加总。活期占比变化不直接证明成本升降，余额下降不直接证明客户流失；需付息率、账户或客户流水验证。不同来源、日期的比值不得混算。",
-      "source": "项目存款试点方法（待业务审核）",
+      "title": "存款增长、客群结构与付息成本的原因核验",
+      "text": "分析存款变化，先核实总量的实际增减及比较基期，再观察个人与对公的增减金额，了解业务重心及两类资金是否形成抵补。继续追问某一类别时，沿已配置关系查看活期、定期，再按需要检查可用期限明细，保持已确认的机构、统计日和比较基期。分项余额及增减合计须与父项核对；存在差额、交叉或缺项时，说明已查分项，不能宣称完整贡献或全部原因。保证金、客户类型和期限分类不能混合加总。存款扩张是否伴随更高资金成本，要另看同口径存款付息比率及储蓄、对公付息表现，再核查客群、期限和定价。储蓄与个人存款范围、对公付息指标不含拆放非银等限定需确认，个人资金并不天然比对公资金成本低。活期占比或低付息类别期末余额增加只提供成本改善线索，量化影响需同期间平均余额、实际付息、到期续存、新增定价和重定价资料。余额下降不直接证明客户流失，还需账户或客户流水；不同来源、日期的比值不得混算，日期不同的余额与付息数据分别说明。",
+      "source": "项目存款试点方法（待业务审核）；结合本行正式指标目录补充计财分析方法",
       "role": "分析方法，不作为本机构事实或原因证据",
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_DEPT_INT_PYMT_RT",
+        "ORG_SVNG_DEPT_INT_PYMT_RT",
+        "ORG_CORP_DEPT_INT_PYMT_RT_EXBRRNBNK",
+        "ORG_PSON_DEPT_BAL",
+        "ORG_CORP_DEPT_BAL",
+        "ORG_VRS_DEPT_BAL",
+        "ORG_PSON_DEPT_BAL_PRPR"
+      ],
       "id": "deposit-evidence-boundary",
-      "updated_at": "2026-10-25T13:11:38.050594Z"
+      "updated_at": "2026-11-05T08:49:23.945742Z"
     },
     {
       "topic": null,
@@ -46,6 +73,8 @@
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [],
       "id": "a1a00b5d-0646-4053-a6f4-fe0aa8e2c92d",
       "updated_at": "2026-10-25T12:35:15.150344Z"
     },
@@ -58,44 +87,79 @@
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [],
       "id": "dc4ae8f8-b988-4ce7-a4a8-31430e877992",
       "updated_at": "2026-11-03T09:48:48.845927Z"
     },
     {
       "topic": null,
-      "title": "较上月、较同期与较年初",
-      "text": "较上月、较同期、较年初分别描述不同基期下的变化，应结合实际本期日、基期日和指标口径解读。月中统计日的结果不等同于完整月份的经营表现。同一指标较上月减少、较同期增加可以同时成立，不能因此认定增长正在加速或持续转弱；判断趋势需要连续且可比的时点。正式增量、正式增幅和另行查询的历史余额应区分，反推出来的基期值不能冒充已经查到的历史事实。",
-      "source": "现有存贷款比较指标与统计日期说明",
-      "role": "",
+      "title": "较上月、较同期与较年初的比较解读",
+      "text": "较上月、较同期、较年初分别描述不同基期下的变化，应结合实际本期日、基期日和指标口径解读。正式比较指标已有有效结果时，可直接用于相应增减分析，并分别说明变化额和变化率；有这些结果不等于已有连续多期原值。月中统计日的结果不等同完整月份的经营表现，较上月的基期也不能未经确认就写成上月末。同一指标较上月减少、较同期增加可以同时成立，不能因此认定增长正在加速或持续转弱；判断趋势需要连续且可比的时点。利润等期间指标还需确认累计或单期定义，不能把累计值较上月直接称为单月利润环比。正式增量、正式增幅与另行查询的历史原值应区分，反推出来的基期值不能冒充已经查到的历史事实。",
+      "source": "现有存贷款比较指标与统计日期说明；结合本行正式指标目录补充计财分析方法",
+      "role": "业务分析方法，不作为本机构表现、已证实原因或未经确认的正式指标定义",
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_VRS_DEPT_BAL",
+        "ORG_VRS_DEPT_BAL_CMP_SAMEPRD",
+        "ORG_VRS_DEPT_BAL_CMP_SAMEPRD_INCRRNG",
+        "ORG_VRS_DEPT_BAL_CMPRLATMO",
+        "ORG_VRS_DEPT_BAL_CMPRLATMO_INCRRNG",
+        "ORG_VRS_DEPT_BAL_CMPBGNYR",
+        "ORG_VRS_DEPT_BAL_CMPBGNYR_INCRRNG",
+        "ORG_NETPRFT_AMT",
+        "ORG_NETPRFT_AMT_CMP_SAMEPRD",
+        "ORG_NETPRFT_AMT_CMPRLATMO"
+      ],
       "id": "d3fb2255-5d65-489d-9c2c-17cbb143f156",
-      "updated_at": "2026-10-25T12:35:15.161379Z"
+      "updated_at": "2026-11-05T08:49:23.945742Z"
     },
     {
       "topic": null,
       "title": "金额增减、增幅与百分点",
-      "text": "金额增减回答“多了或少了多少钱”，增幅回答“相对基期变化了多大比例”；金额变化较大，不一定意味着增幅也较大。比率统一表达成百分数后，两期数值之差用百分点表达，与比率本身的相对增幅不同。比较前需对齐单位、统计范围和分母，不能只看指标单位都是“%”就混用。基期为零、缺失或口径变化时，相对增幅的可比性需单独说明，不据此给出正常增长判断。",
-      "source": "现有余额增量、增幅、占比及不良比率指标目录",
-      "role": "",
+      "text": "金额增减回答多了或少了多少钱，增幅回答相对基期变化了多大比例；增量最大不一定增速最快，排名时需说明所用维度。比率统一表达成百分数后，两期数值之差用百分点表达，与比率本身的相对增幅不同。解释不良率等比例变化，应先核实正式比较指标代表差额还是相对变化，再说明方向和数值；不能只看单位都是“%”就混用。比较前对齐单位、统计范围、分母和基期。基期为零、缺失或口径变化时，相对增幅的可比性需单独说明；负基期的符号与经营含义也需依据正式算法解释，不机械认定正常增长或改善。",
+      "source": "现有余额增量、增幅、占比及不良比率指标目录；结合本行正式指标目录补充计财分析方法",
+      "role": "业务分析方法，不作为本机构表现、已证实原因或未经确认的正式指标定义",
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_VRS_LOAN_BAL_CMP_SAMEPRD",
+        "ORG_VRS_LOAN_BAL_CMP_SAMEPRD_INCRRNG",
+        "ORG_BAD_RT",
+        "ORG_BAD_RT_CMP_SAMEPRD",
+        "ORG_BAD_RT_CMP_SAMEPRD_INCRRNG",
+        "ORG_NETPRFT_AMT",
+        "ORG_NETPRFT_AMT_CMP_SAMEPRD",
+        "ORG_NETPRFT_AMT_CMP_SAMEPRD_INCRRNG"
+      ],
       "id": "eb33cae3-36fd-40b9-bc53-d1d08825a8f8",
-      "updated_at": "2026-10-25T12:35:15.167641Z"
+      "updated_at": "2026-11-05T08:49:23.945742Z"
     },
     {
       "topic": null,
-      "title": "存款结构占比与市场份额",
-      "text": "个人、对公、活期和定期等分类用于观察本行存款结构；存款市场份额用于观察本行在特定市场范围中的位置，两类比例的分母不同。个人存款占比和个人活期存款占比也不能仅凭名称认定使用同一分母。某类存款占比下降，不一定说明其余额下降，也可能是其他类别增长更快。分析时应同时观察可比余额、比例及其正式分母；市场份额还需明确地域、同业范围和统计时点。",
-      "source": "现有存款结构及市场份额指标目录",
-      "role": "",
+      "title": "结构占比、市场份额与地域比较",
+      "text": "个人、对公、活期和定期等分类用于观察本行存款结构，市场份额用于观察本行在特定市场范围中的位置，两类比例分母不同。个人存款占比与个人活期存款占比也不能仅凭名称认定使用同一分母。某类占比下降不一定余额下降，也可能是其他类别增长更快，应联合观察可比余额、比例及正式分母。评价某家机构在当地的竞争位置，需要机构或业务到地区的正式映射、相同日期和业务口径的区域市场分母及可比同业范围；机构名称中的地名不能替代业务覆盖范围。地域分析可先分别观察已确认范围内的存贷规模、增长、盈利和风险，指出相对对象及维度。若市场分母或地区映射不足，只说明已查机构差异，不能把几家机构的表现推广为整个地区优势，也不能用省级金融总量替代当地市场分母。",
+      "source": "现有存款结构及市场份额指标目录；结合本行正式指标目录补充计财分析方法",
+      "role": "业务分析方法，不作为本机构表现、已证实原因或未经确认的正式指标定义",
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_VRS_DEPT_BAL",
+        "ORG_VRS_DEPT_BAL_CMP_SAMEPRD",
+        "ORG_VRS_LOAN_BAL",
+        "ORG_VRS_LOAN_BAL_CMP_SAMEPRD",
+        "ORG_NETPRFT_AMT",
+        "ORG_BAD_RT"
+      ],
       "id": "1d47e496-d2d5-4a12-a9e5-18810bc98022",
-      "updated_at": "2026-10-25T12:35:15.173130Z"
+      "updated_at": "2026-11-05T08:49:23.945742Z"
     },
     {
       "topic": null,
@@ -106,32 +170,57 @@
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [],
       "id": "f4f3d609-be2e-47ba-ac6a-c07d1e8da494",
       "updated_at": "2026-10-25T12:35:15.177506Z"
     },
     {
       "topic": null,
-      "title": "不良贷款余额与不良率一起看",
-      "text": "不良贷款余额反映金额规模，不良贷款比率反映相对规模。不良率下降不能单独说明不良余额减少。分析两者变化，应使用相同日期、可比口径的正式指标，并核实不良率的分母定义。仅凭余额与比率同向或反向变化，不能判断分母的影响，也不能认定某一因素是主要驱动；主次贡献需要正式关系、可比的两期数据及相应分解依据。依据不足时分别说明已确认的变化，不直接用任意贷款总量重算替代正式比率。清收、核销或风险化解效果还需业务明细，余额和比率本身不能确认原因。",
-      "source": "现有不良贷款余额、比率指标及口径约束",
-      "role": "",
+      "title": "不良贷款余额、不良率与分母影响",
+      "text": "不良贷款余额反映金额规模，不良贷款比率反映相对规模。不良率下降不能单独说明不良余额减少。判断下降来自分子减少、分母扩大还是共同作用，应使用相同日期、可比口径的正式指标，先核实不良率分母与所用贷款余额的范围一致。仅凭余额与比率同向或反向变化，不能判断分母影响，也不能认定某一因素是主要驱动；主次贡献需要正式关系、可比两期数据及相应分解依据。不良余额比较期未取得时，分别说明已确认变化并保留待核解释，不反推未经确认的前期余额，也不使用任意贷款总量重算替代正式比率。清收、核销或风险化解效果还需业务明细，余额和比率本身不能确认原因。",
+      "source": "现有不良贷款余额、比率指标及口径约束；结合本行正式指标目录补充计财分析方法",
+      "role": "业务分析方法，不作为本机构表现、已证实原因或未经确认的正式指标定义",
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_BAD_RT",
+        "ORG_BAD_LOAN_BAL",
+        "ORG_VRS_LOAN_BAL",
+        "ORG_BAD_RT_CMP_SAMEPRD",
+        "ORG_BAD_RT_CMP_SAMEPRD_INCRRNG",
+        "ORG_VRS_LOAN_BAL_CMP_SAMEPRD",
+        "ORG_VRS_LOAN_BAL_CMP_SAMEPRD_INCRRNG"
+      ],
       "id": "7e63aa05-ab59-430f-82c3-f50c8f92068c",
-      "updated_at": "2026-11-03T08:35:53.446017Z"
+      "updated_at": "2026-11-05T08:49:23.945742Z"
     },
     {
       "topic": null,
-      "title": "机构排名与增减贡献",
-      "text": "比较哪些机构拉动或拖累整体，应先统一指标、比较基期和可比机构层级。按余额、增减金额和增幅排名，回答的是不同问题；增幅最高的机构未必带来最多的增量。汇总机构可以说明整体规模，但不能与其组成机构重复加总或混入同级排名。贡献比例需明确分母，分母为零时不计算比例，净变化为负时需说明符号含义；整体净变化很小时可能出现很大的比例。存在正负抵消或机构覆盖不完整时，应同时说明增减金额及未覆盖部分。",
-      "source": "MFWS 机构比较方法；现有机构指标比较能力",
-      "role": "",
+      "title": "机构比较、排名与增减贡献",
+      "text": "比较机构时先明确法人、集团合并或区域汇总范围，统一指标、实际统计日或累计期间、币种、单位和可比层级；期末与日均余额分别观察。汇总机构可以说明整体规模，但不能与其组成机构重复加总或混入同级排名。不同更新日期可并列披露各自情况，不能拼成同一时点的完整画像。解释相近资产规模机构为何净利润不同，先说明对标选择依据及业务结构是否可比，再沿营业收入、拨备前利润、净利润逐层定位，联看管理费、减值与税费。规模接近只是筛选条件，差异不能直接证明管理优劣，也不以期末资产代替平均资产算回报。按余额、增减金额和增幅排名回答不同问题，增幅最高未必带来最多增量。计算增减贡献比例需明确分母；分母为零不计算，净变化为负说明符号，整体净变化很小时比例可能很大。正负抵消或覆盖不完整时，同时说明金额和未覆盖部分。",
+      "source": "MFWS 机构比较方法；现有机构指标比较能力；结合本行正式指标目录补充计财分析方法",
+      "role": "业务分析方法，不作为本机构表现、已证实原因或未经确认的正式指标定义",
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_AST_TOTAMT",
+        "ORG_VRS_DEPT_BAL",
+        "ORG_VRS_LOAN_BAL",
+        "ORG_OPRTG_INCM_AMT",
+        "ORG_NETPRFT_AMT",
+        "ORG_BAD_RT",
+        "ORG_PRVSN_BFR_PRFT_AMT",
+        "ORG_BUSI_MGMTFEE_AMT",
+        "ORG_CRDT_IMPRMT_RPTLOSS_AMT",
+        "ORG_INCMTAX_FEE_AMT"
+      ],
       "id": "e45aeaf1-2cd4-48eb-945b-aa89a3ad615a",
-      "updated_at": "2026-10-25T12:35:15.186635Z"
+      "updated_at": "2026-11-05T08:49:23.945742Z"
     },
     {
       "topic": null,
@@ -142,6 +231,8 @@
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [],
       "id": "c2dcf358-1acf-4ebb-ad65-332b19794f22",
       "updated_at": "2026-10-25T13:11:38.058453Z"
     },
@@ -154,74 +245,240 @@
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [],
       "id": "6928e5cd-be14-44b4-95a3-dfd51326a357",
       "updated_at": "2026-10-25T13:11:38.065149Z"
     },
     {
       "topic": null,
-      "title": "收益与盈利表现的分析方法",
-      "text": "经营状况可以从规模、盈利和风险等方面观察，单一利润指标不能代表整体经营表现。关注收益或盈利表现时，先明确采用净利润还是利润总额，在用户指定的可比机构范围内比较规模与同比变化，找出需要关注的机构；只覆盖部分机构时，结论限于已查范围。解释收支时，对齐同一机构、同一统计期间，累计值与相同累计期间比较，不用不同期间的分项解释利润变化。收入增长而利润下降时，观察收入增量、成本费用、减值及税费变化。正式定义明确组成关系后，再核对分项能解释多少利润变化；资料不全时保留未解释部分。横向比较兼顾规模与可用效率指标，金额低不等于盈利能力差，利润下降与亏损分别描述。息差、营销或风险等业务原因还需相应明细支持。",
-      "source": "项目盈利分析方法（待业务确认）",
+      "title": "规模增长、收入来源与利润转化分析",
+      "text": "按用户问题确定分析范围。查询利润水平与变化时，围绕所问利润指标及正式比较结果说明；经营评价、利润转化或原因分析，再按需要联看规模、收入、费用、减值与税费。单一利润指标不能代表整体经营表现。收入与利润的单期或累计性质以正式定义为准；未确认时只称对应统计日的指标值，确认后按相同期间比较。营业收入与利润共同下降只能说明变化同向，不能单凭这一点认定收入下降是利润承压的主要来源。分析范围沿用用户指定的可比机构，部分机构的数据只支持该范围结论。解释营业收入、拨备前利润和净利润同比是否一致时，先对齐同一机构、同一统计期间，定位差异出现在哪个利润转化环节，再核查管理费、减值、税费与其他损益。拨备前利润与净利润之差不能全部视为拨备；分项只有当期值时，不能量化其对同比变化的贡献。正式定义明确组成关系且证据齐全后再核对贡献，资料不全保留未解释部分。营收增长来源可分别观察利息净收入、手续费及佣金净收入、投资收益和公允价值变动损益；当前占比较高不代表贡献主要增量，不同日期或组成不完整时不拼完整结构或贡献率。市场损益持续性需持仓、处置及收益确认资料，投资收益不一概视为一次性。资产增长未带来相应营收增长时，还要调查生息资产配置、投放时点及利息与非息来源；期末资产增量不能直接解释期间收入。横向比较兼顾规模与口径明确的效率指标，金额低不等于盈利能力差，利润下降与亏损分别描述。利润增长但风险信号增强时继续核查收益风险匹配，息差、营销和风险等原因仍需相应明细支持。",
+      "source": "项目盈利分析方法（待业务确认）；结合本行正式指标目录补充计财分析方法",
       "role": "分析方法，不作为机构表现、正式指标定义或原因证据",
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_AST_TOTAMT",
+        "ORG_VRS_DEPT_BAL",
+        "ORG_VRS_LOAN_BAL",
+        "ORG_OPRTG_INCM_AMT",
+        "ORG_PRVSN_BFR_PRFT_AMT",
+        "ORG_NETPRFT_AMT",
+        "ORG_BAD_LOAN_BAL",
+        "ORG_BAD_RT",
+        "ORG_AST_TOTAMT_CMP_SAMEPRD",
+        "ORG_AST_TOTAMT_CMP_SAMEPRD_INCRRNG",
+        "ORG_OPRTG_INCM_AMT_CMP_SAMEPRD",
+        "ORG_OPRTG_INCM_AMT_CMP_SAMEPRD_INCRRNG",
+        "ORG_PRVSN_BFR_PRFT_AMT_CMP_SAMEPRD",
+        "ORG_PRVSN_BFR_PRFT_AMT_CMP_SAMEPRD_INCRRNG",
+        "ORG_NETPRFT_AMT_CMP_SAMEPRD",
+        "ORG_NETPRFT_AMT_CMP_SAMEPRD_INCRRNG",
+        "ORG_BUSI_MGMTFEE_AMT",
+        "ORG_CRDT_IMPRMT_RPTLOSS_AMT",
+        "ORG_INCMTAX_FEE_AMT",
+        "ORG_INT_NETINCM_AMT_DETLLST",
+        "ORG_CUR_YR_SVC_CMMSON_NETINCM_AMT",
+        "ORG_IVS_PROFIT_AMT",
+        "ORG_FAIR_VAL_CHANGE_PRFTLOSS_AMT"
+      ],
       "id": "profit-performance-analysis",
-      "updated_at": "2026-10-28T14:16:04.699612Z"
+      "updated_at": "2026-11-05T10:20:38.861561Z"
     },
     {
       "topic": null,
-      "title": "收入与业务及管理费的费用压力分析",
-      "text": "观察费用压力，先核对同机构、同期间的营业收入和业务及管理费，用本期金额与同比变化额说明两者的变化方向。判断是否同向不要求补齐增幅；不同指标减少的金额不能直接比较下降速度。需要评价相对变化或费用效率时，采用口径明确的正式增幅或成本收入比，并核实分母和期间；相关口径不明确时，保留已有金额和方向，说明暂不能评价效率，不据此认定费用控制合理或效率改善。收入下降而费用增加时，可以指出收支压力；只有继续查明原因时，再查看相应费用分项。人员、渠道或系统投入等具体原因，需要费用明细和业务资料支持；预算执行情况另需实际预算依据。",
-      "source": "项目分析方法（待业务确认）",
+      "title": "指标数值查询",
+      "text": "指标查询默认查询当日数",
+      "source": "",
+      "role": "",
+      "url": null,
+      "date": null,
+      "enabled": false,
+      "batch_query_enabled": false,
+      "metric_codes": [],
+      "id": "316c6636-7461-4d63-b86d-211571add8b0",
+      "updated_at": "2026-10-26T00:58:17.193314Z"
+    },
+    {
+      "topic": null,
+      "title": "三季末",
+      "text": "因为缺少测试数据，三季末的数据特指2026-08-27",
+      "source": "",
+      "role": "",
+      "url": null,
+      "date": null,
+      "enabled": false,
+      "batch_query_enabled": false,
+      "metric_codes": [],
+      "id": "86ff8e3d-54c0-47e9-8e11-aae3074c7dda",
+      "updated_at": "2026-10-26T08:46:11.892424Z"
+    },
+    {
+      "topic": null,
+      "title": "三季末",
+      "text": "三季末默认指定为2026-08-27",
+      "source": "",
+      "role": "",
+      "url": null,
+      "date": null,
+      "enabled": false,
+      "batch_query_enabled": false,
+      "metric_codes": [],
+      "id": "204072bd-e602-48a7-8d8b-ebe91b35359e",
+      "updated_at": "2026-10-26T09:01:19.848717Z"
+    },
+    {
+      "topic": null,
+      "title": "8月末",
+      "text": "8月末指的是8月27号",
+      "source": "",
+      "role": "",
+      "url": null,
+      "date": null,
+      "enabled": false,
+      "batch_query_enabled": false,
+      "metric_codes": [],
+      "id": "9c02c9ab-8c82-4eef-905a-1ee5a9f75a2c",
+      "updated_at": "2026-10-26T09:09:00.222719Z"
+    },
+    {
+      "topic": null,
+      "title": "输出",
+      "text": "你接下来所有的思考内容，也就是  和  包裹里面的推理过程，**必须全部使用简体中文书写，禁止出现英文思考草稿**。最终输出回答也使用中文。",
+      "source": "",
+      "role": "",
+      "url": null,
+      "date": null,
+      "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [],
+      "id": "45ebc6ed-b0df-4a04-8449-16f72cd20c72",
+      "updated_at": "2026-10-26T09:42:44.882960Z"
+    },
+    {
+      "topic": null,
+      "title": "8月末",
+      "text": "8月末特指2026年8月27日",
+      "source": "",
+      "role": "",
+      "url": null,
+      "date": null,
+      "enabled": false,
+      "batch_query_enabled": false,
+      "metric_codes": [],
+      "id": "938f12f2-2ccd-49e8-a362-36f1a13efee5",
+      "updated_at": "2026-10-26T10:15:37.074975Z"
+    },
+    {
+      "topic": null,
+      "title": "费用压力、投入产出与经营效率分析",
+      "text": "观察费用压力，先核对同机构、同期间的营业收入和业务及管理费，用本期金额与同比变化额说明方向。判断是否同向不要求补齐增幅，不同指标减少的金额不能直接比较下降速度。收入下降而费用增加时，可指出收支压力；需要评价相对变化或费用效率时，使用口径明确的正式增幅或成本收入比，并核实分母与期间。目录中的净收入费用比率须确认公式和编码，不能直接改称成本收入比。口径不明时保留金额和方向，不认定费用控制合理或效率改善。解释费用增加是否带来收入和产出，可联看拨备前利润及口径一致的人均产出，再核查人工、渠道、系统、折旧等明细、对应受益业务及合理见效期间。一次投入与持续运营费用分别说明，机构比较兼顾业务结构及分摊规则。只有费用增加不能认定浪费，费用下降也不直接代表效率改善；收入与费用同步变化不能证明因果，费用当期值不能替代同比增量。具体投入原因需要业务资料，预算评价另需批准的预算依据。",
+      "source": "项目分析方法（待业务确认）；结合本行正式指标目录补充计财分析方法",
       "role": "分析方法，不作为正式指标定义、机构事实或原因证据",
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_BUSI_MGMTFEE_AMT",
+        "ORG_OPRTG_INCM_AMT",
+        "ORG_NETINCM_FEE_RT",
+        "ORG_PRVSN_BFR_PRFT_AMT"
+      ],
       "id": "operating-expense-pressure-analysis",
-      "updated_at": "2026-11-03T11:08:44Z"
+      "updated_at": "2026-11-05T08:49:23.945742Z"
     },
     {
       "topic": null,
-      "title": "利息收入、利息支出与利息净收入的变化分析",
-      "text": "分析利息收支，先对齐同机构、同期间的利息收入和利息支出，分别比较本期规模、同期增减金额和增幅。比较收支两端的变动时，同时说明金额影响与相对变化，增幅较大未必意味着金额影响较大。利息净收入采用正式定义，组成关系明确后再核对收支变动的影响。进一步分析收益率、负债成本或息差，需要可比的平均余额和相应利率指标；只有收支金额时，先说明已观察到的变化。",
-      "source": "项目分析方法（待业务确认）",
+      "title": "利息收支、息差两端与量价结构分析",
+      "text": "分析利息净收入压力，先对齐同机构、同期间的利息收入、利息支出及正式净额，分别核对本期金额、同期增减金额与增幅。识别收入减少、支出增加及两者共同影响，也要识别收支同时下降但幅度不同的情况。金额影响与相对变化分别说明，增幅较大未必金额影响较大；净额组成关系明确后才核对收支变动贡献。仅有当期金额时先描述构成，取得可比基期后再判断哪一端发生变化。进一步从资产与负债两端观察贷款及生息资产收息、存款及付息负债付息指标，先确认公式、期间、分母、年化和单位；收息比率不直接替代平均收益率，内部或外部管理净息差也不能未经定义直接等同年报净息差。规模增长但利息增收不足时，核查有效生息规模、价格和业务结构：资产端查看贷款与投资等平均余额、收入确认、停息及重定价，负债端查看存款与其他融资平均余额、到期续存和付息安排。完整量价数据及分解方法经确认后才量化贡献，期末规模增加不能直接证明增收能力改善。",
+      "source": "项目分析方法（待业务确认）；结合本行正式指标目录补充计财分析方法",
       "role": "分析方法，不作为正式指标定义、机构事实或原因证据",
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_LOAN_INTCLLC_RT",
+        "ORG_YLDINT_AST_INTCLLC_RT",
+        "ORG_DEPT_INT_PYMT_RT",
+        "ORG_INT_PYMT_LBLTY_INT_PYMT_RT",
+        "ORG_NETINTMGN_AMT_EXTE_MGMT",
+        "ORG_NETINTMGN_AMT_INTRL_MGMT",
+        "ORG_INT_NETINCM_AMT_DETLLST",
+        "ORG_INT_INCM_AMT",
+        "ORG_INT_EXPTR_AMT"
+      ],
       "id": "interest-income-expense-analysis",
-      "updated_at": "2026-10-28T14:16:04.699612Z"
+      "updated_at": "2026-11-05T08:49:23.945742Z"
     },
     {
       "topic": null,
-      "title": "手续费及佣金收入、支出与净收入的分析方法",
-      "text": "分析手续费及佣金业务，先分别查看同机构、同期间的收入、支出及同比变化，再按正式口径观察净收入。收入增加与净收入增加是两个观察结果，应结合支出变化理解；比较时兼顾增减金额和增幅。需要了解增长来源或支出压力时，可按正式目录中的业务分项继续查看，并核对分项与总额的覆盖关系。客户活跃、业务量、收费标准及渠道成本等原因，需要相应业务资料，收支汇总只能说明已发生的金额变化。",
-      "source": "项目分析方法（待业务确认）",
+      "title": "手续费及佣金收支、业务支撑与增长分析",
+      "text": "分析手续费及佣金业务，先分别查看同机构、同期间的收入、支出及同比变化，再按正式口径观察净收入。收入增加与净收入增加是不同结果，应结合支出变化解释，兼顾增减金额和增幅。了解增长来源或支出压力时，按正式目录业务分项继续查看，并核对分项与总额覆盖关系。中收改善是否有持续业务支撑，需要对应客户或交易量、代销量、实际收费、渠道返佣及结算周期资料，分别理解业务扩面、收费调整、成本变化和一次性项目。客户活跃、营销效果或业务量变化不能由收支汇总直接证明；缺少明细时先说明已确认金额变化，再列出待核查的业务因素。",
+      "source": "项目分析方法（待业务确认）；结合本行正式指标目录补充计财分析方法",
       "role": "分析方法，不作为正式指标定义、机构事实或原因证据",
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_CUR_YR_SVC_CMMSON_NETINCM_AMT",
+        "ORG_OPRTG_INCM_AMT"
+      ],
       "id": "fee-commission-income-expense-analysis",
-      "updated_at": "2026-10-28T14:16:04.699612Z"
+      "updated_at": "2026-11-05T08:49:23.945742Z"
     },
     {
       "topic": null,
-      "title": "投资收益与金融市场业务净收益的比较分析",
-      "text": "观察投资收益与金融市场业务净收益，先核实两项正式定义，再分别列出同机构、同期间的规模和同比变化。两项名称相近，但统计范围和组成未必一致，应根据目录说明确认是否存在包含关系，避免重复计算。进一步拆解时，按正式关系查看可用的投资、公允价值变动或汇兑等相关项目，并区分已实现收益与账面估值影响。对市场行情、持仓调整或交易能力的解释，还需要持仓、交易及估值资料支持。",
-      "source": "项目分析方法（待业务确认）",
+      "title": "投资、估值损益与金融市场收入分析",
+      "text": "观察投资收益与金融市场业务净收益，先核实正式定义，分别列出同机构、同期间的规模和同比变化。名称相近不表示范围和组成一致，应确认包含关系，避免重复计算。进一步按正式关系查看投资收益、公允价值变动或汇兑等项目，区分已实现收益与账面估值影响。投资收益改善而公允价值损益下降时，分别核查对应持仓、交易处置、估值和确认范围，不能只用一个项目代表全部金融市场表现。评价营收增长对处置及估值的依赖与持续性，需要可比基期、分资产持仓、期限、资金占用及后续安排；不能一概把投资收益视为一次性，也不能仅据损益方向认定市场行情或交易能力是原因。",
+      "source": "项目分析方法（待业务确认）；结合本行正式指标目录补充计财分析方法",
       "role": "分析方法，不作为正式指标定义、机构事实或原因证据",
       "url": null,
       "date": null,
       "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_IVS_PROFIT_AMT",
+        "ORG_FAIR_VAL_CHANGE_PRFTLOSS_AMT",
+        "ORG_OPRTG_INCM_AMT"
+      ],
       "id": "investment-financial-market-income-analysis",
-      "updated_at": "2026-10-28T14:16:04.699612Z"
+      "updated_at": "2026-11-05T08:49:23.945742Z"
     },
     {
-      "id": "profitability",
+      "topic": null,
+      "title": "经营质量与前端风险信号",
+      "text": "分析经营质量，可从正式不良贷款比率观察资产质量，再结合关注类贷款占比、逾期欠息贷款占比及当年新形成不良，分别了解存量风险、潜在压力、履约表现与新形成风险。单一不良率不能代表整体经营质量；不良率平稳也不证明前端压力减轻。各指标先核实范围、分母、比例编码和期间，再比较同口径变化，识别需重点核查的客户、行业或产品。不同日期的数据分别解释，不能拼作同一期风险变化；只有单期指标时先描述已见分布，具备连续可比资料后才判断压力是否持续。风险迁徙、集中分布及原因还需客户或行业明细，不从比例变化直接推断客户违约或风险化解效果。",
+      "source": "本地正式指标目录与计财业务分析方法；公开报告仅作观察维度参考；结合本行正式指标目录补充计财分析方法",
+      "role": "业务分析方法，不作为本机构表现、已证实原因或未经确认的正式指标定义",
+      "url": null,
+      "date": null,
+      "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_BAD_RT",
+        "ORG_WTHLISCATG_LOAN_BAL_PRPR",
+        "ORG_OVDUE_DBTINT_LOAN_BAL_PRPR",
+        "ORG_NRML_WTHLISCATG_OVDUE_DBTINT_LOAN_PRPR",
+        "ORG_NFNPL_CY_BAL_STIS_BRFTAB",
+        "ORG_NFNPL_CY_BAL_OCPY_PROPT_DETLLST"
+      ],
+      "id": "e1a18323-99dc-42c8-a67c-3b1f3eae1afb",
+      "updated_at": "2026-11-05T08:49:23.945742Z"
+    },
+    {
       "topic": null,
       "title": "收益与利润分析",
       "text": "利润规模、收益下降、收入与费用减值变化线索；规模小与经营差分开，不能把同比金额称为增幅。 分析时区分规模、变化与解释线索，机构和期间沿用用户问题。试行分析范围，尚非业务确认的评价标准；排名、变动方向及相关线索不等于已证明的根因。",
+      "source": "已有五类分析方案迁入，指标组合在本页面统一维护",
+      "role": "试行分析方法，不替代正式指标定义或原因证据",
+      "url": null,
+      "date": null,
       "enabled": true,
       "batch_query_enabled": true,
       "metric_codes": [
@@ -246,17 +503,17 @@
         "ORG_INCMTAX_FEE_AMT",
         "ORG_INCMTAX_FEE_AMT_CMP_SAMEPRD"
       ],
+      "id": "profitability",
+      "updated_at": null
+    },
+    {
+      "topic": null,
+      "title": "贷款质量",
+      "text": "贷款余额、不良余额与比率、拨备覆盖及其变化；没有风险偏好或阈值时陈述风险变化，不虚构好坏标准。 分析时区分规模、变化与解释线索，机构和期间沿用用户问题。试行分析范围，尚非业务确认的评价标准；排名、变动方向及相关线索不等于已证明的根因。",
       "source": "已有五类分析方案迁入，指标组合在本页面统一维护",
       "role": "试行分析方法，不替代正式指标定义或原因证据",
       "url": null,
       "date": null,
-      "updated_at": null
-    },
-    {
-      "id": "loan_quality",
-      "topic": null,
-      "title": "贷款质量",
-      "text": "贷款余额、不良余额与比率、拨备覆盖及其变化；没有风险偏好或阈值时陈述风险变化，不虚构好坏标准。 分析时区分规模、变化与解释线索，机构和期间沿用用户问题。试行分析范围，尚非业务确认的评价标准；排名、变动方向及相关线索不等于已证明的根因。",
       "enabled": true,
       "batch_query_enabled": true,
       "metric_codes": [
@@ -269,17 +526,17 @@
         "ORG_PRVSN_CVR_RT",
         "ORG_PRVSN_CVR_RT_CMP_SAMEPRD"
       ],
+      "id": "loan_quality",
+      "updated_at": null
+    },
+    {
+      "topic": null,
+      "title": "经营概览与机构经营对比",
+      "text": "经营好坏及多机构经营概况：存贷规模、收入利润与贷款质量，依据已有变化列出改善和承压维度，不硬给综合评分。 分析时区分规模、变化与解释线索，机构和期间沿用用户问题。试行分析范围，尚非业务确认的评价标准；排名、变动方向及相关线索不等于已证明的根因。",
       "source": "已有五类分析方案迁入，指标组合在本页面统一维护",
       "role": "试行分析方法，不替代正式指标定义或原因证据",
       "url": null,
       "date": null,
-      "updated_at": null
-    },
-    {
-      "id": "operations",
-      "topic": null,
-      "title": "经营概览与机构经营对比",
-      "text": "经营好坏及多机构经营概况：存贷规模、收入利润与贷款质量，依据已有变化列出改善和承压维度，不硬给综合评分。 分析时区分规模、变化与解释线索，机构和期间沿用用户问题。试行分析范围，尚非业务确认的评价标准；排名、变动方向及相关线索不等于已证明的根因。",
       "enabled": true,
       "batch_query_enabled": true,
       "metric_codes": [
@@ -302,17 +559,17 @@
         "ORG_CRDT_IMPRMT_RPTLOSS_AMT",
         "ORG_CRDT_IMPRMT_RPTLOSS_AMT_CMP_SAMEPRD"
       ],
+      "id": "operations",
+      "updated_at": null
+    },
+    {
+      "topic": null,
+      "title": "存款规模、结构与增长",
+      "text": "各项存款、个人和对公存款规模及同比、环比金额；分项增长与总量分开，明确实际日期和同比/环比口径。 分析时区分规模、变化与解释线索，机构和期间沿用用户问题。试行分析范围，尚非业务确认的评价标准；排名、变动方向及相关线索不等于已证明的根因。",
       "source": "已有五类分析方案迁入，指标组合在本页面统一维护",
       "role": "试行分析方法，不替代正式指标定义或原因证据",
       "url": null,
       "date": null,
-      "updated_at": null
-    },
-    {
-      "id": "deposit",
-      "topic": null,
-      "title": "存款规模、结构与增长",
-      "text": "各项存款、个人和对公存款规模及同比、环比金额；分项增长与总量分开，明确实际日期和同比/环比口径。 分析时区分规模、变化与解释线索，机构和期间沿用用户问题。试行分析范围，尚非业务确认的评价标准；排名、变动方向及相关线索不等于已证明的根因。",
       "enabled": true,
       "batch_query_enabled": true,
       "metric_codes": [
@@ -326,17 +583,17 @@
         "ORG_PSON_DEPT_BAL_CMPRLATMO",
         "ORG_CORP_DEPT_BAL_CMPRLATMO"
       ],
+      "id": "deposit",
+      "updated_at": null
+    },
+    {
+      "topic": null,
+      "title": "费用控制与收入匹配",
+      "text": "收入、管理费、营业支出及其同比金额方向，比较是否同向，缺少基数或费用率不能宣称变化比例或效率优劣。 分析时区分规模、变化与解释线索，机构和期间沿用用户问题。试行分析范围，尚非业务确认的评价标准；排名、变动方向及相关线索不等于已证明的根因。",
       "source": "已有五类分析方案迁入，指标组合在本页面统一维护",
       "role": "试行分析方法，不替代正式指标定义或原因证据",
       "url": null,
       "date": null,
-      "updated_at": null
-    },
-    {
-      "id": "expense_control",
-      "topic": null,
-      "title": "费用控制与收入匹配",
-      "text": "收入、管理费、营业支出及其同比金额方向，比较是否同向，缺少基数或费用率不能宣称变化比例或效率优劣。 分析时区分规模、变化与解释线索，机构和期间沿用用户问题。试行分析范围，尚非业务确认的评价标准；排名、变动方向及相关线索不等于已证明的根因。",
       "enabled": true,
       "batch_query_enabled": true,
       "metric_codes": [
@@ -351,11 +608,354 @@
         "ORG_AST_IMPRMT_RPTLOSS_AMT",
         "ORG_AST_IMPRMT_RPTLOSS_AMT_CMP_SAMEPRD"
       ],
-      "source": "已有五类分析方案迁入，指标组合在本页面统一维护",
-      "role": "试行分析方法，不替代正式指标定义或原因证据",
+      "id": "expense_control",
+      "updated_at": null
+    },
+    {
+      "topic": null,
+      "title": "计财经营对比报告",
+      "text": "适用于计财部门的银行经营对比报告。机构、期间和分析范围以用户问题为准；普通利润、存贷款问数采用简洁回答，不套完整报告。\n\n默认报告使用本方案24项核心指标，按“经营摘要—规模与资管—盈利表现—费用与风险成本—资产质量—核心优势与压力—经营建议”组织。核心查询完成后先形成有依据的报告，不为凑章节、指标数量或图形种类自动扩查。经营摘要先写最重要的几条结论；各专题用连贯段落解释关键差异、证据和业务含义，配实际事实对照表，不逐项重复抄表，也不只写一句空泛概括。\n\n1. 规模与资管：资产、存款、贷款、理财及可用的正式同比变化。分清规模与增长，理财余额不等于全量AUM，不把规模领先直接说成效率领先。\n2. 盈利表现：营业收入、拨备前利润、利润总额、净利润及正式同比变化。比较利润转化的差异；拨备前利润与净利润之差不能全部解释为拨备。\n3. 费用与风险成本：业务及管理费、信用减值损失及正式同比变化，结合营收和利润观察压力。区分已证实的分项变化与尚待核实的原因。\n4. 资产质量：不良余额、不良率、拨备覆盖率及可用的正式同比变化。余额与比率联合判断；口径未确认的比例单独说明，不自行转换。已有查询数据不得写成未取得。\n5. 核心优势与压力：只归纳前文已成立的差异，写清比较维度与期间，不编综合评分，不以单项指标概括整体优劣。\n6. 经营建议：围绕最重要的经营差异写优先事项、数据依据和下一步核查方向，避免与正文脱节的通用口号。\n\n表格由已执行方案的输出结构生成，保留机构、实际统计日和单位；金额、百分比、百分点及同比基期按正式口径表达。统计日不同分别列示，不假设共同截至日；不把当日指标擅称累计数。没有比较期不补写增长趋势。数据缺口集中简述，避免连续铺开空章节。\n\n原因判断必须有对应分项和可比期间支持。营收与利润同向变化、或变化金额大小不同，不能单独证明主要原因、成本拖累或经营措施成效。新增差额、倍数、比率及贡献须使用正式计算结果；证据不足时明确待核查，不把推测写成结论。\n\n息差与资金成本、收入细分、资本流动性、客户、预算、地域等保留为按需专题，仅在用户明确要求或解释核心差异确有必要时定向补查。先复用本轮已有结果；未取得正式目录引用的指标先检索，不把报告展示映射当作查询凭据。局部缺数不重复跑完整方案。\n\n图表使用已有查询结果，同一章节内同日、同单位、同基期的多个指标优先合并为机构分组对比，费用与风险成本优先观察正式同比变化。保留少量关键图，其余数据进入对照表；不同统计日、金额与比率、本期与同比分别呈现。连续历史实际值可用折线图，完整正式组成可用结构图，不为增加图形种类补查数据。",
+      "source": "计财经营报告模板；参考常熟银行2025年报第26—30页、江阴银行2025年报第15—17页、苏农银行2025年报第26页的经营分析组织方式",
+      "role": "报告交付结构、专题范围和分析方法；本轮实际数据决定结论，正式指标和用户机构期间要求优先",
+      "url": "https://www.csrcbank.com/tzzgx/dqbg/202604/P020260427588728143075.pdf",
+      "date": "2026-11-05",
+      "enabled": true,
+      "batch_query_enabled": true,
+      "metric_codes": [
+        "ORG_VRS_DEPT_BAL",
+        "ORG_VRS_DEPT_BAL_CMP_SAMEPRD",
+        "ORG_VRS_LOAN_BAL",
+        "ORG_VRS_LOAN_BAL_CMP_SAMEPRD",
+        "ORG_NETPRFT_AMT",
+        "ORG_NETPRFT_AMT_CMP_SAMEPRD",
+        "ORG_PRFT_TOTAMT",
+        "ORG_PRFT_TOTAMT_CMP_SAMEPRD",
+        "ORG_OPRTG_INCM_AMT",
+        "ORG_OPRTG_INCM_AMT_CMP_SAMEPRD",
+        "ORG_BAD_LOAN_BAL",
+        "ORG_BAD_LOAN_BAL_CMP_SAMEPRD",
+        "ORG_BAD_RT",
+        "ORG_BAD_RT_CMP_SAMEPRD",
+        "ORG_BUSI_MGMTFEE_AMT",
+        "ORG_BUSI_MGMTFEE_AMT_CMP_SAMEPRD",
+        "ORG_CRDT_IMPRMT_RPTLOSS_AMT",
+        "ORG_CRDT_IMPRMT_RPTLOSS_AMT_CMP_SAMEPRD",
+        "ORG_AST_TOTAMT",
+        "ORG_AST_TOTAMT_CMP_SAMEPRD",
+        "ORG_PRVSN_BFR_PRFT_AMT",
+        "ORG_PRVSN_BFR_PRFT_AMT_CMP_SAMEPRD",
+        "ORG_FINCL_BAL",
+        "ORG_PRVSN_CVR_RT"
+      ],
+      "report_layout": {
+        "title": "计财经营对比分析报告",
+        "sections": [
+          {
+            "id": "scale",
+            "title": "一、规模与资管业务",
+            "metric_codes": [
+              "ORG_AST_TOTAMT",
+              "ORG_AST_TOTAMT_CMP_SAMEPRD",
+              "ORG_VRS_DEPT_BAL",
+              "ORG_VRS_DEPT_BAL_CMP_SAMEPRD",
+              "ORG_VRS_LOAN_BAL",
+              "ORG_VRS_LOAN_BAL_CMP_SAMEPRD",
+              "ORG_FINCL_BAL"
+            ],
+            "table": true
+          },
+          {
+            "id": "profit",
+            "title": "二、盈利表现",
+            "metric_codes": [
+              "ORG_OPRTG_INCM_AMT",
+              "ORG_OPRTG_INCM_AMT_CMP_SAMEPRD",
+              "ORG_PRVSN_BFR_PRFT_AMT",
+              "ORG_PRVSN_BFR_PRFT_AMT_CMP_SAMEPRD",
+              "ORG_PRFT_TOTAMT",
+              "ORG_PRFT_TOTAMT_CMP_SAMEPRD",
+              "ORG_NETPRFT_AMT",
+              "ORG_NETPRFT_AMT_CMP_SAMEPRD"
+            ],
+            "table": true
+          },
+          {
+            "id": "expenses",
+            "title": "三、费用与风险成本",
+            "metric_codes": [
+              "ORG_BUSI_MGMTFEE_AMT_CMP_SAMEPRD",
+              "ORG_CRDT_IMPRMT_RPTLOSS_AMT_CMP_SAMEPRD",
+              "ORG_BUSI_MGMTFEE_AMT",
+              "ORG_CRDT_IMPRMT_RPTLOSS_AMT"
+            ],
+            "table": true
+          },
+          {
+            "id": "risk",
+            "title": "四、资产质量与风险抵补",
+            "metric_codes": [
+              "ORG_BAD_LOAN_BAL",
+              "ORG_BAD_LOAN_BAL_CMP_SAMEPRD",
+              "ORG_BAD_RT",
+              "ORG_BAD_RT_CMP_SAMEPRD",
+              "ORG_PRVSN_CVR_RT",
+              "ORG_CRDT_IMPRMT_RPTLOSS_AMT"
+            ],
+            "table": true
+          },
+          {
+            "id": "strengths",
+            "title": "五、核心优势与经营压力",
+            "metric_codes": [],
+            "table": false
+          },
+          {
+            "id": "recommendations",
+            "title": "六、经营建议",
+            "metric_codes": [],
+            "table": false
+          }
+        ]
+      },
+      "id": "48c750ca-823e-4024-803f-61bf2df97c64",
+      "updated_at": "2026-11-05T14:56:08.278350Z"
+    },
+    {
+      "topic": null,
+      "title": "经营建议从已证实差异转为具体核查事项",
+      "text": "经营建议围绕已有差异选择下一步行动。先说明需要关注的事实、比较对象和期间，再列出可检验的解释及必要明细，使计财能够安排后续核查。收入承压可分别核查利息、手续费及投资等来源；费用增加可核查构成与投入节奏；利润与风险分化可核查减值计提和资产质量。对每个方向交代现有依据、所需补充及核查后如何影响判断。涉及调价、压降费用、调整资产或客户策略时，还要结合风险偏好、预算、资本及流动性约束。原因尚未证实时先给调查重点，证据成立后再提出具体经营措施，避免把通用经验写成本机构已确认原因。可连续追问四层问题：哪些机构存在已核实的经营分化；差异首先出现在哪个环节；哪些解释有数据支持、哪些仍待确认；若优先核查三件事，应查什么及为何优先。结论按证据强弱和经营影响安排核查顺序，不用固定原因替代实际分析。",
+      "source": "结合本地收入、费用、风险与预算指标形成的计财管理分析建议",
+      "role": "从经营观察到核查行动的方法，不代替经营决策或原因认定",
       "url": null,
       "date": null,
-      "updated_at": null
+      "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_OPRTG_INCM_AMT",
+        "ORG_NETPRFT_AMT",
+        "ORG_BUSI_MGMTFEE_AMT",
+        "ORG_CRDT_IMPRMT_RPTLOSS_AMT",
+        "ORG_NFNPL_CY_BAL_STIS_BRFTAB",
+        "ORG_NETPRFT_AMT_PLAN",
+        "ORG_NETPRFT_AMT_CMPLRATE"
+      ],
+      "id": "jicai-management-follow-through",
+      "updated_at": "2026-11-05T08:49:23.945742Z"
+    },
+    {
+      "topic": null,
+      "title": "人均产出结合拨备前表现和利润转化观察",
+      "text": "人均指标适合提示组织产出的差异，解释时要同时看业务覆盖和利润转化。可并列观察人均拨备前利润与人均净利润，先确认员工范围、平均或期末人数、利润归属及考核调整；两项可比后，再判断差异主要体现产出水平还是拨备后结果。对拨备前表现较好而净利润承压的机构，可进一步观察信用减值损失和所得税费用，选择需要核查的转化环节，而不是直接把两项人均数之差作为风险成本。跨机构比较应补充分摊、外包、网点和业务结构资料；只取得人均净利润考核口径时，交付该口径的相对表现，不把它等同员工个人绩效或资产资本回报。",
+      "source": "参考常熟银行与江阴银行2025年报对费用、减值及利润的分层观察；人均联合分析为结合本地目录形成的建议",
+      "role": "计财分析方法建议，需结合正式口径和实际证据使用；不作为本机构事实、公式或原因证据",
+      "url": "https://www.csrcbank.com/tzzgx/dqbg/202604/P020260427588728143075.pdf",
+      "date": null,
+      "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_PERCPT_PRVSN_BFR_PRFT_AMT",
+        "ORG_PERCPT_NETPRFT_AMT_ASMT",
+        "ORG_CRDT_IMPRMT_RPTLOSS_AMT",
+        "ORG_INCMTAX_FEE_AMT"
+      ],
+      "id": "jicai-per-capita-profit-conversion",
+      "updated_at": "2026-11-05T08:49:23.945742Z"
+    },
+    {
+      "topic": null,
+      "title": "盈利效率区分资产回报、资本回报与税费影响",
+      "text": "资产回报和资本回报回答不同问题：前者关注资产运用的盈利表现，后者关注权益或资本对应的利润。可将正式资产收益比率、净资产收益比率与资本利润比率分别列示，核实利润口径、平均分母、年化和数值编码后，再开展同口径机构比较。资本回报较高而资产回报不突出时，可进一步核查资本结构与资产规模，不能仅据比率判断经营效率更优。解释税后表现时，结合税金及附加和所得税费用区分影响环节，税率变化需有应税基础和调整资料。资本利润比率不能直接替代ROE；若收益比率的单位或分母尚不明确，先保留正式名称，待定义核清后再作效率评价。",
+      "source": "参考常熟银行2025年报对资产、净资产收益及所得税的分别披露；结合本地三类回报指标形成比较建议",
+      "role": "计财分析方法建议，需结合正式口径和实际证据使用；不作为本机构事实、公式或原因证据",
+      "url": "https://www.csrcbank.com/tzzgx/dqbg/202604/P020260427588728143075.pdf",
+      "date": null,
+      "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_AST_RT",
+        "ORG_NETAST_PROFIT_RT",
+        "ORG_ASTS_PRFT_RT",
+        "ORG_TXS_ADTNL_AMT",
+        "ORG_INCMTAX_FEE_AMT"
+      ],
+      "id": "jicai-asset-capital-return",
+      "updated_at": "2026-11-05T08:49:23.945742Z"
+    },
+    {
+      "topic": null,
+      "title": "分别观察风险形成与处置回收",
+      "text": "解释风险化解表现，可沿风险形成与处置回收两条线展开：查看当年新形成不良的规模，再分别观察当年核销金额和表外不良现金清收金额。前者帮助识别新增压力，后两项帮助了解不同处置环节的工作结果。回答“核销或清收增加，资产质量是否改善”时，应结合对应贷款群体和观察期间，查明处置对象、回款性质及资产分类变化。经业务确认各项流入流出范围并完成勾稽后，才适合进一步解释不良存量变化；尚未建立完整对应关系时，分别报告已核实的形成和处置结果，并把尚待说明的变动交给风险台账继续核查。",
+      "source": "江阴银行2025年年度报告第三节风险管理披露框架；结合本地新形成不良、核销及清收目录形成的分析建议",
+      "role": "公开方法仅作分析组织参考；本条为待业务审定的建议，不提供未经确认的不良余额勾稽公式",
+      "url": "https://disc.static.szse.cn/download/disc/disk03/finalpage/2026-04-29/079a7a19-78cd-4886-ae71-6198c89669fe.PDF",
+      "date": null,
+      "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_NFNPL_CY_BAL_STIS_BRFTAB",
+        "ORG_CUR_YR_WROFF_LOAN_AMT",
+        "ORG_OBALSH_BAD_LOAN_CC_AMT"
+      ],
+      "id": "jicai-risk-formation-resolution",
+      "updated_at": "2026-11-05T08:49:23.945742Z"
+    },
+    {
+      "topic": null,
+      "title": "把风险形成与减值费用分层分析",
+      "text": "风险对经营成果的影响，可从资产质量变化与减值费用变化两个层面观察。先并列查看新形成不良、信用减值损失、资产减值损失及拨备减值计提，说明风险信号与会计费用各自发生了什么。面对“新增不良不多，为什么减值费用增加”，下一步核查受影响资产类别、预期损失评估及计提或转回事项，并与财务报表核对。各类减值项目的包含关系、确认期间及损益归属经审核后，才能解释其对盈利的具体影响。结论应落到已取得的资产和计提证据，分别说明风险变化、费用压力与尚待确认的估计变化。",
+      "source": "招商银行2026年半年度报告摘要第5页的资产质量与信用成本分层披露；结合本地减值目录形成的分析建议",
+      "role": "公开方法仅作观察维度参考；本条不定义本行信用成本，也不建立减值项目加总或利润分解公式",
+      "url": "https://static.cninfo.com.cn/finalpage/2026-08-29/1225530235.PDF",
+      "date": null,
+      "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_NFNPL_CY_BAL_STIS_BRFTAB",
+        "ORG_CRDT_IMPRMT_RPTLOSS_AMT",
+        "ORG_AST_IMPRMT_RPTLOSS_AMT",
+        "ORG_PRVSN_IMPRMT_ACRL_AMT"
+      ],
+      "id": "jicai-risk-impairment-pressure",
+      "updated_at": "2026-11-05T08:49:23.945742Z"
+    },
+    {
+      "topic": null,
+      "title": "资本、资金约束与业务承载能力",
+      "text": "讨论经营扩张的约束，分别观察资本充足比率、核心一级资本充足比率、存贷配置和流动性，区分资本承载与资金安排。资本充足水平下降，不能仅凭比率判断来自资本净额减少还是风险加权资产增长；先核实法人或合并范围、计量方法及范围变动，再取得两期可比的资本净额、风险加权资产、利润留存、分红和资本补充资料。用户问贷款能否继续增长时，结合获批资本规划、适用要求和风险偏好，核查拟投放业务的期限、风险权重、资本占用及资金来源。存贷比变化只是结构线索，管理含义需结合全表资产负债和内部规划；资金充裕不代表资本充足，资本充足也不保证期限资金匹配。进一步取得存款稳定性、融资期限、贷款到期与新增安排、资本与流动性压力情景资料，才能区分补资本、补资金或调整投放结构的需要。仅有指标值时说明相应时点水平及待核线索，不直接认定业务扩张空间。",
+      "source": "参考招商银行2026年半年度报告摘要及江阴银行2025年报的资本、流动性披露框架；结合本地目录形成的资源配置分析建议",
+      "role": "公开方法仅作分析参考；本机构适用要求、资本规划及资金安排另行确认，不套用他行门槛或替代经营决策",
+      "url": "https://static.cninfo.com.cn/finalpage/2026-08-29/1225530235.PDF",
+      "date": null,
+      "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_ASTS_ADQT_RT",
+        "ORG_CORE_LV1_ASTS_ADQT_RT",
+        "ORG_DLR_RATE",
+        "ORG_LQDT_RATIO_RT",
+        "ORG_D30_LQDT_GAP_RT"
+      ],
+      "id": "jicai-capital-business-capacity",
+      "updated_at": "2026-11-05T08:49:23.945742Z"
+    },
+    {
+      "topic": null,
+      "title": "按期限联合观察流动性",
+      "text": "判断资金安排是否稳妥，可把流动性比率、流动性覆盖比率以及三十天、九十天流动性缺口比率分层列示，先明确各项衡量的范围、期限和正负方向。面对“一个指标较好，为何仍提示资金压力”，应查明其他期限的到期集中情况及可用资金安排，而后讨论差异。评价时依据该机构适用的监管要求和内部限额，保留各项实际统计日。下一步取得到期现金流、可变现资产、融资可用额度及压力测试结果，形成需要重点管理的期限清单。连续观察有助于识别压力演变，单一时点先说明已核实的覆盖情况。",
+      "source": "江阴银行2025年年度报告第31—32页流动性风险管理披露框架；结合本地期限指标形成的分析建议",
+      "role": "公开披露仅参考现金流与期限管理思路；本地指标定义、方向和适用限额须单独审核",
+      "url": "https://disc.static.szse.cn/download/disc/disk03/finalpage/2026-04-29/079a7a19-78cd-4886-ae71-6198c89669fe.PDF",
+      "date": null,
+      "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_LQDT_RATIO_RT",
+        "ORG_LQDT_CVR_RT",
+        "ORG_D30_LQDT_GAP_RT",
+        "ORG_D90_LQDT_GAP_RT"
+      ],
+      "id": "jicai-liquidity-term-observation",
+      "updated_at": "2026-11-05T08:49:23.945742Z"
+    },
+    {
+      "topic": null,
+      "title": "存量信贷有效与活跃客户分别评价",
+      "text": "客户经营分析先明确所说的客户属于存量、信贷、有效还是活跃范围。存量客户数描述客户基础，信贷客户数描述特定业务覆盖，有效与活跃则依赖各自的账户、交易或余额规则。可先并列个人、对公存量客户数与信贷客户数，说明已有业务覆盖，再根据问题查有效或活跃定义和相应指标。分类可能包含或交叉，只有正式关系确认后才评价转化率或合计客户数。客户数量较多并不自动代表价值较高，进一步评价贡献时需匹配收入、资金成本、费用及风险资料；仅有数量时，先交付覆盖差异和明确的后续核查方向。",
+      "source": "本地存量客户与信贷客户数量目录；结合业务覆盖提出分析建议",
+      "role": "客户分类与经营价值的分析方法，不新增客户认定标准",
+      "url": null,
+      "date": null,
+      "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_CORP_INVNY_CUST_QTY",
+        "ORG_PSON_INVNY_CUST_QTY",
+        "ORG_CORP_CMIS_CUST_QTY",
+        "ORG_PSON_CMIS_CUST_QTY",
+        "ORG_CMIS_CUST_QTY"
+      ],
+      "id": "jicai-customer-definitions-value",
+      "updated_at": "2026-11-05T08:49:23.945742Z"
+    },
+    {
+      "topic": null,
+      "title": "按计划口径观察存贷款任务进展",
+      "text": "查看存贷款任务进展，可先将正式计划值与对应完成率成对列示，再核对计划适用机构、年度或阶段、版本及实际统计日。名称为较年初增量计划值时，应围绕相同增量口径观察，实际增长事实与期末余额分别说明。面对“完成率是否符合预期”，先取得获批阶段安排和业务季节性依据，再评价执行节奏。下一步可按计划分解层级核查重点机构、客群和产品的实际进展，形成待协调事项。完成率计算及单位以正式说明为准；缺少阶段计划时，先报告已核实的任务进展与未解释部分，把是否需要调整任务留给相应业务资料支持。",
+      "source": "江阴银行2025年年度报告第12页预算执行观察框架；结合本地存贷款计划值与完成率目录形成的建议",
+      "role": "公开披露仅参考预算执行观察维度；本条不规定完成率公式，也不设置统一时间进度标准",
+      "url": "https://disc.static.szse.cn/download/disc/disk03/finalpage/2026-04-29/079a7a19-78cd-4886-ae71-6198c89669fe.PDF",
+      "date": null,
+      "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_VRS_DEPT_BAL_CMPBGNYR_PLAN",
+        "ORG_VRS_DEPT_BAL_CMPBGNYR_CMPLRATE",
+        "ORG_VRS_LOAN_BAL_CMPBGNYR_PLAN",
+        "ORG_VRS_LOAN_BAL_CMPBGNYR_CMPLRATE"
+      ],
+      "id": "jicai-budget-scale-progress",
+      "updated_at": "2026-11-05T08:49:23.945742Z"
+    },
+    {
+      "topic": null,
+      "title": "联看利润任务与主要收入任务",
+      "text": "讨论利润任务推进情况，可把净利润、利息净收入和中间业务净收入的计划值及完成率并列观察，先确认各项任务的考核期间和实际值口径。面对“利润任务承压，优先看哪一端”，可从正式任务进展找出需要核查的收入方向，再联查同期间费用、减值和税费资料。计划完成情况用于识别管理关注点，实际利润变化的解释仍需完整收支证据。下一步取得预算编制假设、业务分解和阶段安排，区分业务规模、价格及费用因素，并核对计划调整是否已经生效。累计任务与单期任务分别评价，收入目标之间的关系按批准预算说明确认。利润与收入任务不同步时，核查预算假设、实际经营偏差和计划调整，不能只凭完成率高低判定原因。仅有汇总计划时，解释范围限于该汇总层级。中间业务净收入任务与手续费及佣金净收入是否同口径须另行确认；精确预算差异归因需要批准的阶段计划及完整收支依据。",
+      "source": "江阴银行2025年年度报告第12页预算执行与经营管理观察框架；结合本地利润及收入计划目录形成的建议",
+      "role": "公开披露仅参考任务与经营成果联合观察思路；具体分析路径为本地建议，不是已审定预算关系或利润公式",
+      "url": "https://disc.static.szse.cn/download/disc/disk03/finalpage/2026-04-29/079a7a19-78cd-4886-ae71-6198c89669fe.PDF",
+      "date": null,
+      "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_NETPRFT_AMT_PLAN",
+        "ORG_NETPRFT_AMT_CMPLRATE",
+        "ORG_INT_NETINCM_AMT_DETLLST_PLAN",
+        "ORG_INT_NETINCM_AMT_DETLLST_CMPLRATE",
+        "ORG_MDDL_BUSI_NETINCM_AMT_PLAN",
+        "ORG_MDDL_BUSI_NETINCM_AMT_CMPLRATE"
+      ],
+      "id": "jicai-budget-profit-income-alignment",
+      "updated_at": "2026-11-05T08:49:23.945742Z"
+    },
+    {
+      "topic": null,
+      "title": "按风险目标方向解读执行情况",
+      "text": "不良余额和不良比率任务应先识别目标的管理方向，再解读计划值与完成率。计财可先查明获批任务是控制上限、压降要求还是其他安排，并核对完成率的正式算法及实际观察期间。回答“风险任务完成率较高是否表现更好”时，应结合目标方向、对应风险事实和风险形成处置资料，分别说明目标执行与资产质量变化。下一步取得任务下达文件、调整记录和阶段化解方案，核查应由哪些责任范围落实。具备正逆向规则后，再比较可比机构或任务；证据尚不完整时，先列明已核实的计划、进展及需业务确认的评价依据。",
+      "source": "江阴银行2025年年度报告第10、12页风险指标与经营管理分层观察框架；结合本地风险计划目录形成的建议",
+      "role": "公开披露仅作观察框架参考；风险目标方向与完成率算法由任务制度确认，本条不预设正逆向公式",
+      "url": "https://disc.static.szse.cn/download/disc/disk03/finalpage/2026-04-29/079a7a19-78cd-4886-ae71-6198c89669fe.PDF",
+      "date": null,
+      "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_BAD_LOAN_BAL_PLAN",
+        "ORG_BAD_LOAN_BAL_CMPLRATE",
+        "ORG_BAD_RT_PLAN",
+        "ORG_BAD_RT_CMPLRATE"
+      ],
+      "id": "jicai-budget-risk-target-direction",
+      "updated_at": "2026-11-05T08:49:23.945742Z"
+    },
+    {
+      "topic": null,
+      "title": "理财规模与非存AUM按正式范围比较",
+      "text": "资管和财富业务分析先明确所问的管理范围。理财余额、自营理财、代销理财、非存AUM和代销非存AUM分别代表不同观察项目，按正式名称和范围比较规模及变化。若问题关注理财规模，可先看正式理财余额，再在组成关系明确时观察自营与代销；若关注完整资管或全量AUM，应核对是否还包括存款、基金、保险等及其估值方式。不同范围的余额可能包含，不能简单相加。规模增长后是否带来收入改善，可进一步核查对应手续费、产品结构与客户持有情况；管理余额、销售发生额和客户贡献分别说明，不把业务规模直接当作收益或经营成效。检验理财或非存AUM增长是否带来中收改善，先确认两者可比期间，再取得对应产品的收费、代销结算、返佣和收入确认明细。全口径手续费及佣金净收入只能作为收入线索，不能全部归给理财业务，也不能直接用其除以期末AUM解释费率。",
+      "source": "本地理财、自营代销与非存AUM正式指标目录；结合用户资管分析需求形成的方法",
+      "role": "资管与财富规模的范围识别方法，不预设全量AUM组成公式",
+      "url": null,
+      "date": null,
+      "enabled": true,
+      "batch_query_enabled": false,
+      "metric_codes": [
+        "ORG_FINCL_BAL",
+        "ORG_OWNOPRN_FINCL_BAL",
+        "ORG_OFFRSALE_FINCL_BAL",
+        "ORG_NODEP_AUM_BUSI_BAL",
+        "ORG_NDOFFRSALE_AST_BUSI_BAL_EX_OWNONFIN",
+        "ORG_CUR_YR_SVC_CMMSON_NETINCM_AMT"
+      ],
+      "id": "jicai-wealth-scope",
+      "updated_at": "2026-11-05T08:49:23.945742Z"
     }
   ]
 }

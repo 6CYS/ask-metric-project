@@ -72,6 +72,7 @@ def parse_time_expression(
     today: date,
     default: str = "latest",
     reference_year: int | None = None,
+    allow_cutoff_day: bool = True,
 ) -> LogicalTimeRange:
     if not expression:
         return LogicalTimeRange(preset="latest" if default == "latest" else None)
@@ -86,6 +87,7 @@ def parse_time_expression(
             raise SemanticValidationError(["time"], "Latest data date requires a calendar range")
         result = parse_time_expression(
             calendar_expression, today=today, default=default, reference_year=reference_year,
+            allow_cutoff_day=False,
         )
         if result.start is None or result.end is None:
             raise SemanticValidationError(["time"], "Latest data date requires a calendar range")
@@ -281,7 +283,12 @@ def parse_time_expression(
         return _month_range(
             reference_year or today.year, month, month_end=bool(yearless_month_match.group(2))
         )
-    date_match = re.fullmatch(r"(\d{4})[-年](\d{1,2})[-月](\d{1,2})(?:日|号)?(?:当日|当天|这一天)?", value)
+    # 完整截至日只在单独解析时接受；不能当作离散日期片段或最新有值范围。
+    day_expression = value.removeprefix("截至").lstrip() if allow_cutoff_day else value
+    date_match = re.fullmatch(
+        r"(\d{4})[-年](\d{1,2})[-月](\d{1,2})(?:日|号)?(?:当日|当天|这一天)?",
+        day_expression,
+    )
     if date_match:
         target = date(*map(int, date_match.groups()))
         return LogicalTimeRange(start=target, end=target)
@@ -345,7 +352,9 @@ def parse_discrete_dates(
     inferred_year = reference_year
     for part in parts:
         try:
-            single = parse_time_expression(part, today=today, reference_year=inferred_year)
+            single = parse_time_expression(
+                part, today=today, reference_year=inferred_year, allow_cutoff_day=False,
+            )
         except SemanticValidationError:
             return None
         # 任一段是区间/latest/无法定位单日 → 整体不是离散集合，回退。

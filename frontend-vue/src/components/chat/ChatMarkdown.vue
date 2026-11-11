@@ -5,8 +5,8 @@ import type { Token } from "markdown-it"
 import BaseTooltip from "@/components/ui/BaseTooltip.vue"
 import { parseAssistantMarkdown } from "@/lib/assistantMarkdown"
 
-const props = defineProps<{ source: string }>()
-const tokens = computed(() => parseAssistantMarkdown(props.source))
+const props = defineProps<{ source?: string; tokens?: Token[] }>()
+const tokens = computed(() => props.tokens ?? parseAssistantMarkdown(props.source ?? ""))
 
 function renderElement(token: Token, children: VNodeChild[]): VNodeChild {
   if (token.hidden) return children

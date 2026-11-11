@@ -10,6 +10,7 @@ import {
   type ProvisionalAnswer,
 } from "../src/lib/provisionalAnswer"
 import type { AgentStreamEvent } from "../src/lib/agentApi"
+import type { BusinessReportChart } from "../src/types/api"
 
 // 仅隔离浏览器帧时钟，正文状态与滚动决策使用实际实现。
 let callbacks: Map<number, FrameRequestCallback>
@@ -33,6 +34,19 @@ function advanceFrame() {
 
 function delta(text: string, callSeq = 1): Extract<AgentStreamEvent, { type: "answer_delta" }> {
   return { type: "answer_delta", call_seq: callSeq, mode: "text", text }
+}
+
+const previewChart: BusinessReportChart = {
+  type: "bar",
+  title: "已核验图",
+  dates: ["2026-08-27"],
+  unit: "元",
+  source_refs: ["a", "b"],
+  placement: { after_paragraph: 1 },
+  points: [
+    { name: "甲", value: "12.00", display: "12.00元" },
+    { name: "乙", value: "8.00", display: "8.00元" },
+  ],
 }
 
 function answerHarness() {
@@ -71,8 +85,14 @@ describe("累计正文按浏览器帧展示", () => {
     const nextCall = applyProvisionalAnswer(message, delta("已收到正文", 2))
     expect(nextCall).not.toBe(message)
     expect(nextCall.provisionalCallSeq).toBe(2)
-    const reset = applyProvisionalAnswer(nextCall, { type: "answer_reset", call_seq: 2, reason: "retry" })
-    expect(applyProvisionalAnswer(reset, delta("已收到正文", 2)).provisionalContent).toBe("已收到正文")
+    const reset = applyProvisionalAnswer(nextCall, {
+      type: "answer_reset",
+      call_seq: 2,
+      reason: "retry",
+    })
+    expect(applyProvisionalAnswer(reset, delta("已收到正文", 2)).provisionalContent).toBe(
+      "已收到正文",
+    )
   })
 
   it("同帧累计正文只展示最新全文，不拼接重复内容", () => {
@@ -130,6 +150,83 @@ describe("累计正文按浏览器帧展示", () => {
     scheduler.enqueue("conversation", "answer", delta("卸载后"))
     advanceFrame()
     expect(displayed).toEqual([])
+  })
+})
+
+describe("累计正文与已核验图表原子更新", () => {
+  it("同帧后续旧协议文本保留同次调用已到达图集，空图集明确清除", () => {
+    const test = answerHarness()
+    test.scheduler.enqueue("conversation", "answer", { ...delta("第一段"), charts: [previewChart] })
+    test.scheduler.enqueue("conversation", "answer", delta("第一段\n\n第二段"))
+    advanceFrame()
+    expect(test.message()).toMatchObject({
+      provisionalContent: "第一段\n\n第二段",
+      provisionalCharts: [previewChart],
+    })
+    test.scheduler.enqueue("conversation", "answer", { ...delta("第一段\n\n第二段"), charts: [] })
+    advanceFrame()
+    expect(test.message().provisionalCharts).toEqual([])
+  })
+
+  it("正文相同仍接收新增图，追加正文复用未变图对象，非法图不影响正文", () => {
+    let message = applyProvisionalAnswer({ status: "pending" }, delta("第一段"))
+    message = applyProvisionalAnswer(message, { ...delta("第一段"), charts: [previewChart] })
+    expect(message.provisionalCharts).toEqual([previewChart])
+    const original = message.provisionalCharts?.[0]
+    message = applyProvisionalAnswer(message, {
+      ...delta("第一段\n\n第二段"),
+      charts: structuredClone([previewChart]),
+    })
+    expect(message.provisionalCharts?.[0]).toBe(original)
+    const invalid = { ...previewChart, points: [] }
+    message = applyProvisionalAnswer(message, {
+      ...delta("合法正文"),
+      charts: [invalid, previewChart],
+    })
+    expect(message).toMatchObject({
+      provisionalContent: "合法正文",
+      provisionalCharts: [previewChart],
+    })
+  })
+
+  it("新调用、撤回及正式终态清除图集，迟到旧调用不得复活", () => {
+    const test = answerHarness()
+    test.scheduler.enqueue("conversation", "answer", { ...delta("旧正文"), charts: [previewChart] })
+    test.scheduler.enqueue("conversation", "answer", delta("新调用", 2))
+    advanceFrame()
+    expect(test.message().provisionalCharts).toBeUndefined()
+    test.scheduler.enqueue("conversation", "answer", {
+      ...delta("新图", 2),
+      charts: [previewChart],
+    })
+    test.reset(2)
+    advanceFrame()
+    expect(test.message().provisionalCharts).toBeUndefined()
+    test.scheduler.enqueue("conversation", "answer", {
+      ...delta("待终态", 3),
+      charts: [previewChart],
+    })
+    test.finish()
+    advanceFrame()
+    expect(test.message()).toEqual({ status: "done", content: "正式正文" })
+    expect(
+      applyProvisionalAnswer(test.message(), { ...delta("迟到", 2), charts: [previewChart] }),
+    ).toEqual(test.message())
+  })
+
+  it("不同会话的同帧文本和图集独立，不让缺图事件继承另一会话图", () => {
+    const seen = new Map<string, ProvisionalAnswer>()
+    const scheduler = createProvisionalAnswerScheduler((conversation, _message, event) => {
+      seen.set(
+        conversation,
+        applyProvisionalAnswer({ status: "pending", ...seen.get(conversation) }, event),
+      )
+    })
+    scheduler.enqueue("first", "answer", { ...delta("甲"), charts: [previewChart] })
+    scheduler.enqueue("second", "answer", delta("乙"))
+    advanceFrame()
+    expect(seen.get("first")?.provisionalCharts).toEqual([previewChart])
+    expect(seen.get("second")?.provisionalCharts).toBeUndefined()
   })
 })
 
@@ -221,6 +318,7 @@ describe("重连快照与临时正文", () => {
     content: "",
     provisionalContent: "已核验第一段",
     provisionalCallSeq: 3,
+    provisionalCharts: [previewChart],
   }
   const restored = {
     id: "snapshot-answer",
@@ -240,6 +338,7 @@ describe("重连快照与临时正文", () => {
     expect(answer.status).toBe("pending")
     expect(answer.provisionalContent).toBe("已核验第一段")
     expect(answer.provisionalCallSeq).toBe(3)
+    expect(answer.provisionalCharts).toEqual([previewChart])
     expect(answer.nativeAnswer).toBe(true)
     expect(
       applyProvisionalAnswer(answer, delta("已核验第一段\n\n第二段", 3)).provisionalContent,
@@ -262,6 +361,7 @@ describe("重连快照与临时正文", () => {
     ]) {
       const answer = reconcileAnswerSnapshot(restored, previous, changed)
       expect(answer.provisionalContent).toBeUndefined()
+      expect(answer.provisionalCharts).toBeUndefined()
       expect(answer.status).toBe("pending")
     }
   })
@@ -275,6 +375,12 @@ describe("重连快照与临时正文", () => {
     }
     expect(reconcileAnswerSnapshot(final, previous, { ...context, running: false })).toEqual(final)
     expect(reconcileAnswerSnapshot(final, previous, context)).toEqual(final)
+    const failed = reconcileAnswerSnapshot(
+      { ...restored, status: "error" as const, provisionalCharts: [previewChart] },
+      previous,
+      { ...context, running: false },
+    )
+    expect(failed.provisionalCharts).toBeUndefined()
   })
 
   it("已完成或停止的本地气泡不会把旧预览带入运行快照", () => {

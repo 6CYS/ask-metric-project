@@ -2,8 +2,9 @@
 
 from copy import deepcopy
 
-from ask_metric.application.analysis_report_view import report_rows, shared_date_text
 from test_analysis_report_claims import evidence, report
+
+from ask_metric.application.analysis_report_view import report_rows, shared_date_text
 
 
 def test_public_narrative_keeps_actual_dates_and_gaps_without_appending_internal_notes():
@@ -67,6 +68,34 @@ def test_repeated_canonical_scope_is_rendered_once_and_evidence_indices_stay_ali
     result = report(f"{scope}\n\n存款余额为{{{{total}}}}。")
     assert result["public_answer"].count(scope) == 1
     assert not result["report"]["summary"].startswith(scope)
+    assert result["report"]["body_evidence"] == [{"paragraph": 1, "evidence_refs": ["total"]}]
+
+
+def test_shared_date_cleanup_keeps_standalone_date_paragraph_and_evidence_aligned():
+    result = report("截至2026-08-27，\n\n存款余额为{{total}}。")
+    assert result["report"]["summary"].split("\n\n") == [
+        "截至2026-08-27，", "存款余额为100元。",
+    ]
+    assert result["report"]["body_evidence"] == [
+        {"paragraph": 1, "evidence_refs": []},
+        {"paragraph": 2, "evidence_refs": ["total"]},
+    ]
+
+
+def test_shared_date_cleanup_does_not_join_separate_paragraphs():
+    result = report("截至2026-08-27\n\n，存款余额为{{total}}。")
+    assert result["report"]["summary"].split("\n\n") == [
+        "截至2026-08-27", "，存款余额为100元。",
+    ]
+    assert result["report"]["body_evidence"] == [
+        {"paragraph": 1, "evidence_refs": []},
+        {"paragraph": 2, "evidence_refs": ["total"]},
+    ]
+
+
+def test_shared_date_cleanup_still_removes_same_paragraph_date_prefix():
+    result = report("截至2026-08-27，存款余额为{{total}}。")
+    assert result["report"]["summary"] == "存款余额为100元。"
     assert result["report"]["body_evidence"] == [{"paragraph": 1, "evidence_refs": ["total"]}]
 
 

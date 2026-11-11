@@ -21,7 +21,7 @@ export interface EvaluationDataset extends DatasetInput {
   updated_at: string;
 }
 export type RunStatus =
-  "running" | "cancelling" | "completed" | "failed" | "cancelled" | "interrupted";
+  "running" | "cancelling" | "completed" | "failed" | "cancelled" | "interrupted" | "deleting";
 export type TurnStatus = "pending" | "running" | "completed" | "failed" | "cancelled" | "skipped";
 export interface EvaluationReview {
   verdict: "passed" | "failed" | "needs_review";
@@ -91,6 +91,7 @@ export interface EvaluationTurnDetail {
 export type EvaluationRequest = (path: string, init?: RequestInit) => Promise<Response>;
 export interface SessionEvaluationClient {
   createSession(token: string): Promise<string>;
+  deleteSession(token: string, sessionId: string, signal?: AbortSignal): Promise<void>;
   executeTurn(input: {
     token: string;
     sessionId: string;

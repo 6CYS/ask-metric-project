@@ -272,6 +272,55 @@ describe("关联知识在取数前提供正式候选", () => {
     linked_catalog: { items, total: 2, has_more: false, unavailable_codes: [] },
   });
 
+  it.each([31, 300])("%d项知识关联目录完整接纳，第三十一项与末项可直接绑定取数", async count => {
+    const f = fixture();
+    const codes = Array.from({ length: count }, (_, index) => `ORG_LINKED_${index + 1}`);
+    const items = codes.map(code => ({ ...descriptor, code, binding_ref: `signed:${code}` }));
+    f.backend.searchBusinessKnowledge.mockResolvedValue({
+      revision: "a".repeat(64),
+      entries: Array.from({ length: Math.ceil(count / 100) }, (_, index) => ({
+        id: `linked-${index}`, title: "收益分析", text: "仅选择问题所需指标。", role: "方法参考",
+        metric_codes: codes.slice(index * 100, (index + 1) * 100),
+      })),
+      linked_catalog: { items, total: count, has_more: false, unavailable_codes: [] },
+    });
+    const result = await loadTurnBusinessKnowledge(f.request, []);
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") throw new Error("关联目录未接纳");
+    expect(result.linked_catalog?.items.map(item => item.binding_ref)).toEqual(codes);
+    const selected = [...new Set([codes[30]!, codes[count - 1]!])].sort();
+    await f.call("metric_query", { ...query, metric_refs: selected });
+    expect(f.backend.analysisExecute.mock.calls[0]?.[0]).toMatchObject({
+      plan: { steps: [expect.objectContaining({ metric_refs: selected.map(code => `signed:${code}`) })] },
+    });
+    expect(f.backend.analysisCatalog).not.toHaveBeenCalled();
+  });
+
+  it("重复知识关联只注册正式候选，未找到的编码不能凭知识正文获得绑定", async () => {
+    const f = fixture();
+    const code = "ORG_KNOWN", missing = "ORG_UNAVAILABLE";
+    f.backend.searchBusinessKnowledge.mockResolvedValue({
+      revision: "a".repeat(64),
+      entries: ["first", "second"].map(id => ({
+        id, title: "收益分析", text: "按正式口径分析。", role: "方法参考",
+        metric_codes: [code, code, missing],
+      })),
+      linked_catalog: { items: [{ ...descriptor, code, binding_ref: `signed:${code}` }],
+        total: 2, has_more: false, unavailable_codes: [missing] },
+    });
+    const result = await loadTurnBusinessKnowledge(f.request, []);
+    expect(result).toMatchObject({ status: "ok", entries: [
+      { metric_codes: [code, missing] }, { metric_codes: [code, missing] },
+    ], linked_catalog: { items: [{ code, binding_ref: code }], unavailable_codes: [missing] } });
+    const failed = await f.call("metric_query", { ...query, metric_refs: [missing] });
+    expect(failed.details).toMatchObject({ kind: "inquiry_query_error", code: "ANALYSIS_BINDING_INVALID" });
+    expect(f.backend.analysisExecute).not.toHaveBeenCalled();
+    await f.call("metric_query", { ...query, metric_refs: [code] });
+    expect(f.backend.analysisExecute.mock.calls[0]?.[0]).toMatchObject({
+      plan: { steps: [expect.objectContaining({ metric_refs: [`signed:${code}`] })] },
+    });
+  });
+
   it("自动前置的正式候选可直接取数，只执行模型选择的指标", async () => {
     const f = fixture();
     f.backend.searchBusinessKnowledge.mockResolvedValue(knowledge());
@@ -1916,8 +1965,14 @@ describe("inquiry direct query tools", () => {
   async function ordinaryBatch(count: number) {
     const f = largeTarget(count);
     delete f.request.inquiryAdmission;
-    for (let offset = 0; offset < f.codes.length; offset += 8)
-      await f.call("metric_search", { keywords: f.codes.slice(offset, offset + 8) });
+    const search = createInquiryQueryTools().find((item) => item.name === "metric_search")!;
+    for (let offset = 0; offset < f.codes.length; offset += 8) {
+      const searchInput = { keywords: f.codes.slice(offset, offset + 8) };
+      validateToolArguments(search, {
+        type: "toolCall", name: search.name, id: `search-${offset}`, arguments: searchInput,
+      });
+      await f.call("metric_search", searchInput);
+    }
     const input = {
       ...query,
       date: "2026-07-31",

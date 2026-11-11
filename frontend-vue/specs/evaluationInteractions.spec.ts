@@ -125,13 +125,18 @@ describe("问题集确认操作", () => {
 
 type ViewState = {
   state: { activate(): Promise<void>; deactivate(): void }
-  datasetEditor: { isDirty(): boolean }
+  datasetEditor: { isDirty(): boolean; deleted?(id: string): Promise<void> }
   changeTab(tab: string): void
   closeLeaveConfirmation(): void
   confirmLeave(): Promise<void>
   cancelRun(run: EvaluationRun): Promise<void> | void
   confirmCancelRun(): Promise<void>
   pendingCancelRun: EvaluationRun | null
+  requestDeleteRun(run: EvaluationRun): void
+  requestDeleteDataset(dataset: EvaluationDataset): void
+  closeDelete(): void
+  confirmDelete(): Promise<void>
+  pendingDelete: { kind: "run" | "dataset"; value: EvaluationRun | EvaluationDataset } | null
   actionError: string
 }
 async function view() {
@@ -156,6 +161,47 @@ async function view() {
 }
 
 describe("测评页离开与停止确认", () => {
+  it("批次删除必须确认，取消保留数据；失败保留弹窗，成功才关闭且不重复提交", async () => {
+    const { state, run } = await view()
+    const completed = { ...run, status: "completed" as const }
+    const remove = vi.spyOn(evaluationApi, "deleteRun").mockRejectedValue(new Error("删除未完成"))
+    try {
+      state.requestDeleteRun(run)
+      expect(state.pendingDelete).toBeNull()
+      state.requestDeleteRun(completed)
+      expect(remove).not.toHaveBeenCalled()
+      state.closeDelete()
+      expect(remove).not.toHaveBeenCalled()
+      state.requestDeleteRun(completed)
+      await Promise.all([state.confirmDelete(), state.confirmDelete()])
+      expect(remove).toHaveBeenCalledTimes(1)
+      expect(state.pendingDelete?.value.id).toBe(run.id)
+      expect(state.actionError).toBe("删除未完成")
+      remove.mockResolvedValue(undefined)
+      await state.confirmDelete()
+      expect(state.pendingDelete).toBeNull()
+      expect(remove).toHaveBeenCalledTimes(2)
+    } finally {
+      state.state.deactivate()
+    }
+  })
+  it("删除问题集只在确认后发送，取消不清除未保存草稿", async () => {
+    const { state, run } = await view()
+    const remove = vi.spyOn(evaluationApi, "deleteDataset").mockResolvedValue(undefined)
+    try {
+      state.datasetEditor = { isDirty: () => true, deleted: () => Promise.resolve() }
+      state.requestDeleteDataset(run.dataset)
+      state.closeDelete()
+      expect(remove).not.toHaveBeenCalled()
+      expect(state.datasetEditor.isDirty()).toBe(true)
+      state.requestDeleteDataset(run.dataset)
+      await state.confirmDelete()
+      expect(remove).toHaveBeenCalledWith(run.dataset)
+      expect(state.pendingDelete).toBeNull()
+    } finally {
+      state.state.deactivate()
+    }
+  })
   it("未保存草稿切换分区和离开路由都等待确认，取消保留原位置", async () => {
     const { state, router } = await view()
     try {

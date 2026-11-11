@@ -72,25 +72,24 @@ def search_knowledge(
     ))
     if not codes:
         return result
-    # 沿用目录单页30项上限；超出部分仍保留显式编码，按本次问题继续精确检索。
-    selected = codes[:30]
+    # 知识关联不是分页检索；最多3条、每条100项的既有契约已限定解析范围。
     semantics = load_analysis_semantics(
         SqlAlchemyUnitOfWork, secret=request.app.state.settings.jwt_secret,
-        actor_id=actor.user_id or actor.subject, metric_codes=selected,
+        actor_id=actor.user_id or actor.subject, metric_codes=codes,
         semantics_path=resolve_config_path(
             PROJECT_DIR, request.app.state.settings.analysis_semantics_path,
         ),
     )
     items = []
-    for code in selected:
+    for code in codes:
         if code not in semantics.items:
             continue
         descriptor = semantics.descriptor(code)
         items.append({**descriptor, "binding_ref": semantics.binding(descriptor, code),
                       "match_type": "exact"})
     result["linked_catalog"] = {
-        "items": items, "total": len(codes), "has_more": len(codes) > len(selected),
-        "unavailable_codes": [code for code in selected if code not in semantics.items],
+        "items": items, "total": len(codes), "has_more": False,
+        "unavailable_codes": [code for code in codes if code not in semantics.items],
     }
     return result
 

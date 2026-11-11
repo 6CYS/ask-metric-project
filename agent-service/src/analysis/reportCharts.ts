@@ -9,21 +9,35 @@ export const reportSeriesChartSchema = Type.Object({
 }, {additionalProperties: false});
 
 export const reportChartSchema = Type.Union([reportSeriesChartSchema, Type.Object({
+  type: Type.Literal("grouped_bar"),
+  evidence_refs: Type.Array(Type.String({minLength: 1}), {minItems: 4, maxItems: 24, uniqueItems: true,
+    description: "分组柱图选择同日、同单位、同基期至少两个指标与两个机构的完整组合；每个机构须包含全部指标，不补零。只提交已有真实数值原子引用。"}),
+}, {additionalProperties: false}), Type.Object({
   type: Type.Literal("pie"),
   evidence_refs: Type.Array(Type.String({minLength: 1}), {minItems: 3, maxItems: 21, uniqueItems: true,
     description: "结构饼图选择同机构、同日、同单位的总量及完整互斥分项余额/数量引用（例如总存款、个人存款、对公存款）。总量只作分母，不画为扇区；程序计算占比。不要选占比、增幅或同比环比差额，不提交手写数值。"}),
 }, {additionalProperties: false})]);
 
-export interface ReportChartSelection {type: "bar" | "line" | "pie"; evidence_refs: string[]}
+export interface ReportChartSelection {type: "bar" | "line" | "pie" | "grouped_bar"; evidence_refs: string[]}
 export interface BusinessSeriesChart {
   type: "bar" | "line";
+  category_kind?: "organization" | "metric" | "time";
   title: string;
   dates: string[];
   unit: string;
   source_refs: string[];
   points: Array<{name: string; value: string; display: string}>;
 }
-export type BusinessReportChart = BusinessPieChart | BusinessSeriesChart;
+export interface BusinessGroupedChart {
+  type: "grouped_bar";
+  title: string;
+  dates: string[];
+  unit: string;
+  source_refs: string[];
+  categories: string[];
+  series: Array<{name: string; points: Array<{value: string; display: string}>}>;
+}
+export type BusinessReportChart = BusinessPieChart | BusinessSeriesChart | BusinessGroupedChart;
 type Source = {ref: string; evidence: object};
 type Row = Record<string, unknown>;
 type Point = {ref: string; name: string; metric: string; org: string; orgName: string; date: string;
@@ -74,9 +88,11 @@ function point(source: Row, atom: Row): Point | undefined {
   ]);
   const value = unit === "%" ? percentage(raw, atom.value_encoding ?? descriptor.value_encoding) : raw;
   const rawValue = atom.value_policy === "source_raw_v1" || descriptor.value_policy === "source_raw_v1";
+  const chartUnit = unit === "%" && (atom.comparison_role ?? hint.comparison_role) === "difference"
+    ? "个百分点" : unit;
   if (!ref || !metric || !name || !org || !orgName || !datePattern.test(date) || (!unit && !rawValue) || !display
     || !value || value.length > 220 || !numeric.test(value) || !Number.isFinite(Number(value))) return undefined;
-  return {ref, name, metric, org, orgName, date, unit, value, display, period,
+  return {ref, name, metric, org, orgName, date, unit: chartUnit, value, display, period,
     group: overview ? text(source.topic) : text(hint.topic), metricId: text(hint.metric_id),
     valueBasis: text(descriptor.value_basis), raw: rawValue,
     currentFact: atom.type === "fact" && !hint.comparison && !atom.comparison};
@@ -149,8 +165,37 @@ function distinctPoints(points: Point[]): Point[] | undefined {
   return [...result.values()];
 }
 
+function automaticPoints(available: NonNullable<ReturnType<typeof candidates>>, narrativeRefs?: readonly string[]): Point[] | undefined {
+  if (narrativeRefs?.some(ref => !available.byRef.has(ref))) return;
+  const refs = narrativeRefs ?? available.points.flatMap(item => item ? [item.ref] : []);
+  return refs.map(ref => available.byRef.get(ref)).filter((item): item is Point => !!item);
+}
+
+function compositionGroups(values: Point[]): Point[][] {
+  const groups = new Map<string, Point[]>();
+  for (const item of values) {
+    if (!item.currentFact || !item.group || !item.metricId) continue;
+    const key = JSON.stringify([item.group, item.org, item.date, item.unit, item.period]);
+    const group = groups.get(key) ?? [];
+    group.push(item); groups.set(key, group);
+  }
+  return [...groups.values()].flatMap(group => {
+    const distinct = distinctPoints(group);
+    return distinct && unique(distinct, "metricId").size >= 3 ? [distinct] : [];
+  });
+}
+
+/** 候选只包含正文已有的事实，不因引用总量而补入未被引用的分项。 */
+export function reportChartCompositionSelections(sources: Source[], narrativeRefs?: readonly string[]):
+  Array<{topic: string; selection: {type: "pie"; evidence_refs: string[]}}> {
+  const available = candidates(sources);
+  const values = available && automaticPoints(available, narrativeRefs);
+  return values ? compositionGroups(values).map(group => ({topic: group[0]!.group,
+    selection: {type: "pie", evidence_refs: group.map(item => item.ref)}})) : [];
+}
+
 function seriesChart(values: Point[], selection?: ReportChartSelection): BusinessSeriesChart | undefined {
-  if (selection?.type === "pie") return;
+  if (selection?.type === "pie" || selection?.type === "grouped_bar") return;
   if (values.length < 2 || values.length > 24
     || unique(values, "unit").size !== 1 || unique(values, "period").size !== 1) return;
   const first = values[0]!;
@@ -159,7 +204,6 @@ function seriesChart(values: Point[], selection?: ReportChartSelection): Busines
   const dates = [...unique(values, "date")].sort();
   const line = sameMetric && sameOrg && dates.length === values.length;
   const orgComparison = sameMetric && dates.length === 1 && unique(values, "org").size === values.length;
-  if (!selection && !orgComparison && values.length < 3) return;
   // 多指标柱图显式选点，并按机构、日期、单位与基期保持可比。
   const metricComparison = !!selection && sameOrg && dates.length === 1 && unique(values, "metric").size === values.length;
   const type = selection?.type ?? (line ? "line" : "bar");
@@ -168,8 +212,77 @@ function seriesChart(values: Point[], selection?: ReportChartSelection): Busines
   const chartPoints = ordered.map(item => ({name: type === "line" ? item.date : orgComparison ? item.orgName : item.name,
     value: item.value, display: item.display}));
   if (new Set(chartPoints.map(item => item.name)).size !== chartPoints.length) return;
-  return {type, title: sameMetric ? first.name : "指标比较", dates, unit: first.unit,
+  return {type, category_kind: type === "line" ? "time" : orgComparison ? "organization" : "metric",
+    title: sameMetric ? first.name : "指标比较", dates, unit: first.unit,
     source_refs: ordered.map(item => item.ref), points: chartPoints};
+}
+
+/** 分组必须覆盖指标与机构的完整矩形，缺失单元格不能靠零值或错位展示补齐。 */
+function groupedChart(values: Point[]): BusinessGroupedChart | undefined {
+  const first = values[0];
+  if (!first || values.length < 4 || values.length > 24
+    || values.some(item => item.raw)
+    || (["date", "unit", "period"] as const).some(field => unique(values, field).size !== 1)) return;
+  const metrics = new Map<string, string>(), organizations = new Map<string, string>();
+  const cells = new Map<string, Point>();
+  for (const item of values) {
+    if (metrics.has(item.metric) && metrics.get(item.metric) !== item.name
+      || organizations.has(item.org) && organizations.get(item.org) !== item.orgName) return;
+    metrics.set(item.metric, item.name);
+    organizations.set(item.org, item.orgName);
+    const key = JSON.stringify([item.org, item.metric]), previous = cells.get(key);
+    if (previous && decimalKey(previous.value) !== decimalKey(item.value)) return;
+    if (!previous) cells.set(key, item);
+  }
+  if (metrics.size < 2 || organizations.size < 2 || cells.size !== metrics.size * organizations.size
+    || new Set(metrics.values()).size !== metrics.size
+    || new Set(organizations.values()).size !== organizations.size) return;
+  const sourceRefs: string[] = [], series: BusinessGroupedChart["series"] = [];
+  for (const [org, name] of organizations) {
+    const points: BusinessGroupedChart["series"][number]["points"] = [];
+    for (const metric of metrics.keys()) {
+      const cell = cells.get(JSON.stringify([org, metric]));
+      if (!cell) return;
+      sourceRefs.push(cell.ref);
+      points.push({value: cell.value, display: cell.display});
+    }
+    series.push({name, points});
+  }
+  return {type: "grouped_bar", title: "机构指标对比", dates: [first.date], unit: first.unit,
+    source_refs: sourceRefs, categories: [...metrics.values()], series};
+}
+
+/** 按报告章节组合可比指标；单机构比较指标，多机构继续核对完整矩形。 */
+export function reportChartSectionCharts(sources: Source[],
+  sections: readonly {title: string; metric_codes: readonly string[]}[], orgCodes: readonly string[],
+  narrativeRefs?: readonly string[]): Array<BusinessSeriesChart | BusinessGroupedChart> {
+  const available = candidates(sources);
+  const values = available && automaticPoints(available, narrativeRefs);
+  if (!values) return [];
+  const primaryRefs = new Set(sources.filter(source => record(source.evidence).inquiry_scope_role !== "reference")
+    .flatMap(source => rows(record(source.evidence).evidence_items).map(atom => text(atom.ref))));
+  const scoped = values.filter(item => orgCodes.includes(item.org) && primaryRefs.has(item.ref));
+  // 以已选报告范围判定，不能把多机构缺数当成单机构报告。
+  const singleOrganization = new Set(orgCodes).size === 1;
+  return sections.flatMap(section => {
+    const groups = new Map<string, Point[]>();
+    for (const code of section.metric_codes) {
+      for (const item of scoped.filter(item => item.metric === code)) {
+        const key = JSON.stringify([item.date, item.unit, item.period]);
+        const group = groups.get(key) ?? [];
+        group.push(item); groups.set(key, group);
+      }
+    }
+    return [...groups.values()].flatMap(group => {
+      const distinct = distinctPoints(group);
+      const chart = distinct && (singleOrganization
+        ? seriesChart(distinct, {type: "bar", evidence_refs: distinct.map(item => item.ref)})
+        : groupedChart(distinct));
+      const basis = distinct && unique(distinct, "valueBasis").size === 1 ? distinct[0]?.valueBasis : "";
+      const comparison = basis === "较同期" ? "同比变化" : basis === "较上月" ? "环比变化" : "";
+      return chart ? [{...chart, title: `${section.title}${comparison ? ` · ${comparison}` : ""}`}] : [];
+    });
+  });
 }
 
 /** 主题来自正式指标描述，不按用户问句或指标名猜测组成关系。 */
@@ -213,6 +326,20 @@ function compositionChart(values: Point[], topic?: Row): {charts: BusinessPieCha
   return unavailable;
 }
 
+function automaticCompositionCharts(values: Point[], topic: Row): BusinessPieChart[] {
+  const charts: BusinessPieChart[] = [];
+  for (const group of compositionGroups(values)) {
+    for (const relation of rows(topic.relationships)) {
+      if (relation.pie_chart !== true) continue;
+      const ids = new Set([relation.parent, ...(Array.isArray(relation.children) ? relation.children : [])]);
+      const related = group.filter(item => ids.has(item.metricId));
+      charts.push(...compositionChart(related, {...topic, relationships: [relation]}).charts
+        .map(chart => ({...chart, title: `${group[0]!.orgName} · ${chart.title}`})));
+    }
+  }
+  return charts;
+}
+
 /** 调用方先核验回执归属、权限与事实；此处只从这些回执选点，不接收模型数值。 */
 export function buildReportChart(sources: Source[], selection?: ReportChartSelection, question = "", narrativeRefs?: readonly string[], topic?: Row):
   {charts: BusinessReportChart[]; notice?: string} {
@@ -220,27 +347,52 @@ export function buildReportChart(sources: Source[], selection?: ReportChartSelec
   const fail = () => ({charts: [], ...(selection ? {notice: "所选数据的机构、日期、单位或比较口径不一致，暂未绘制图表。"} : {})});
   const available = candidates(sources);
   if (!available) return fail();
-  const {byRef, points} = available;
+  const {byRef} = available;
   const selected = selection ? selection.evidence_refs.map(ref => byRef.get(ref))
-    : narrativeRefs !== undefined ? narrativeRefs.map(ref => byRef.get(ref)).filter(item => item !== null) : points;
-  if (selection && new Set(selection.evidence_refs).size !== selection.evidence_refs.length || selected.some(item => !item)) return fail();
-  const values = distinctPoints(selected as Point[]);
+    : automaticPoints(available, narrativeRefs);
+  if (!selected || selection && (new Set(selection.evidence_refs).size !== selection.evidence_refs.length
+    || selected.some(item => !item))) return fail();
+  if (selection?.type === "grouped_bar") {
+    const chart = groupedChart(selected as Point[]);
+    return chart ? {charts: [chart]} : fail();
+  }
+  const values = selection ? distinctPoints(selected as Point[]) : selected as Point[];
   if (!values) return fail();
   if (selection?.type === "pie") return compositionChart(values, topic);
-  if (!selection && narrativeRefs !== undefined) {
+  if (!selection) {
     const groups = new Map<string, Point[]>();
     for (const item of values) {
       const key = JSON.stringify([item.metric, item.unit, item.period]), group = groups.get(key) ?? [];
       group.push(item); groups.set(key, group);
     }
-    for (const group of groups.values()) {
-      const chart = seriesChart(group);
-      if (chart) {
-        if (chart.type === "bar") chart.title += "（文中机构）";
-        return {charts: [chart]};
+    const charts: BusinessReportChart[] = [];
+    for (const items of groups.values()) {
+      const group = distinctPoints(items);
+      if (!group) continue;
+      const dates = new Map<string, Point[]>(), organizations = new Map<string, Point[]>();
+      for (const item of group) {
+        const dateValues = dates.get(item.date) ?? [], orgValues = organizations.get(item.org) ?? [];
+        dateValues.push(item); dates.set(item.date, dateValues);
+        orgValues.push(item); organizations.set(item.org, orgValues);
+      }
+      // 同日机构比较和单机构时序分别成图，不能把不同日期的机构值拼在一根分类轴上。
+      for (const points of dates.values()) {
+        const chart = seriesChart(points);
+        if (chart?.type === "bar") {
+          if (narrativeRefs !== undefined) chart.title += "（文中机构）";
+          charts.push(chart);
+        }
+      }
+      for (const points of organizations.values()) {
+        const chart = seriesChart(points);
+        if (chart?.type === "line") {
+          if (organizations.size > 1 && points[0]) chart.title = `${points[0].orgName} · ${chart.title}`;
+          charts.push(chart);
+        }
       }
     }
-    return fail();
+    if (topic) charts.push(...automaticCompositionCharts(values, topic));
+    return {charts};
   }
   const chart = seriesChart(values, selection);
   if (chart) return {charts: [chart]};
@@ -248,10 +400,9 @@ export function buildReportChart(sources: Source[], selection?: ReportChartSelec
     && unique(values, "org").size > 1 && unique(values, "date").size === 1
     && unique(values, "unit").size === 1 && unique(values, "period").size === 1) {
     const groups = [...unique(values, "metric")].map(metric => seriesChart(values.filter(item => item.metric === metric), selection));
-    // 只有每组本身可比时才提示重新选指标，不用单系列限制掩盖日期、单位或缺值问题。
+    // 每组独立成图；任何组不可比时整体拒绝，不能静默丢掉用户选中的指标。
     if (groups.every(group => group !== undefined)) {
-      const choices = groups.slice(0, 3).map(group => group.title);
-      return {charts: [], notice: `不同机构可以比较；当前同时选择了多个指标和多个机构，跨机构柱图每次只选一个指标。可选择：${choices.join("、")}。`};
+      return {charts: groups};
     }
   }
   return fail();

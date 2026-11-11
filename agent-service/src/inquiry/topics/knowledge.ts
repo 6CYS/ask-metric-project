@@ -3,6 +3,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { Check } from "typebox/value";
 import { validateTopicRegistry, type TopicRegistry } from "./registry.js";
 import { records, string } from "./view.js";
+import { reportLayoutSchema, validReportLayout } from "../reportFormat.js";
 
 const planSchema = Type.Object({
   version: Type.String({ pattern: "^[a-f0-9]{64}$" }),
@@ -12,6 +13,7 @@ const planSchema = Type.Object({
     text: Type.String({ minLength: 1, maxLength: 8000 }),
     enabled: Type.Literal(true),
     batch_query_enabled: Type.Literal(true),
+    report_layout: Type.Optional(reportLayoutSchema),
     metric_codes: Type.Array(Type.String({ minLength: 1, maxLength: 150 }), {
       minItems: 1,
       maxItems: 24,
@@ -21,7 +23,11 @@ const planSchema = Type.Object({
 });
 
 export function readKnowledgePlan(value: unknown, id: string) {
-  if (!Check(planSchema, value) || value.entry.id !== id)
+  if (
+    !Check(planSchema, value) ||
+    value.entry.id !== id ||
+    (value.entry.report_layout !== undefined && !validReportLayout(value.entry.report_layout))
+  )
     throw new Error("INVALID_KNOWLEDGE_ANALYSIS_PLAN");
   return value;
 }
@@ -87,6 +93,7 @@ export function knowledgeTopicRegistry(
           id: plan.entry.id,
           name: plan.entry.title,
           description: plan.entry.text,
+          ...(plan.entry.report_layout ? { report_layout: plan.entry.report_layout } : {}),
           metric_keys: keys,
           core_keys: core.length ? core : keys,
           rank_keys: ranks.length ? ranks : keys.slice(0, 4),

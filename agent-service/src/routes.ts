@@ -15,12 +15,14 @@ import { NativeSemanticTaskStore } from "./semantic-task/store.js";
 import { normalizeAnswerInput, type ClickAnswerInput } from "./semantic-task/questions.js";
 import { projectEntries, projectSnapshot, projectWatchEvent, projectBusinessTasks, projectQuestionStates, type ProjectedMessage } from "./sessionProjection.js";
 import {AnswerStreamProjector} from "./answerStream.js";
-import { createInquiryReportPreview } from "./inquiry/reportTool.js";
+import { compileInquiryReportDraft, createInquiryReportPreview } from "./inquiry/reportTool.js";
 import { receiptDelivery } from "./runtime/delivery.js";
 import {historySources, resolveHistoryOrganizationScopes, type HistoryQuestionReader} from "./historySources.js";
 import {isCalendarDate} from "./tools/shared.js";
 import { createEvaluationRoutes } from "./evaluation/routes.js";
 import type { EvaluationService } from "./evaluation/service.js";
+import { createBusinessSkillRoutes } from "./businessSkillRoutes.js";
+import type { BusinessSkillStore } from "./businessSkillStore.js";
 
 type Variables = { user: BackendUser; token: string; startedAt: number; authMs: number };
 
@@ -36,6 +38,7 @@ export function createApp(
   host: HarnessHost,
   store: NativeSessionStore,
   evaluations?: EvaluationService,
+  skills?: BusinessSkillStore,
 ): Hono<{ Variables: Variables }> {
   const app = new Hono<{ Variables: Variables }>();
 
@@ -69,6 +72,7 @@ export function createApp(
     }
   });
 
+  if (skills) app.route("/skills", createBusinessSkillRoutes(skills, config));
   if (evaluations) app.route("/evaluations", createEvaluationRoutes(evaluations));
   else app.all("/evaluations/*", c => c.json({code: "EVALUATION_UNAVAILABLE", detail: "测评存储暂不可用，请联系管理员检查"}, 503));
 
@@ -234,6 +238,10 @@ export function createApp(
         if (!activeRequest || activeRequest.operationId !== observedOperationId) return Promise.resolve(undefined);
         // 只借用本轮证据，重连的读取权限由本次认证身份与客户端重新核验。
         return previewReport(body, { ...activeRequest, actor: user, backend }, signal);
+      }, (args, ended) => {
+        const activeRequest = hosted.activeRequest;
+        if (!activeRequest || activeRequest.operationId !== observedOperationId) return Promise.resolve(undefined);
+        return compileInquiryReportDraft(args, { ...activeRequest, actor: user, backend }, ended);
       });
       let watch = await host.watch(hosted);
       let heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -386,7 +394,8 @@ export function createApp(
       const previewReport = createInquiryReportPreview();
       const projector = new AnswerStreamProjector((type, data) => {
         if (!stream.aborted) void send(type, data).catch(() => {});
-      }, (body, signal) => previewReport(body, admitted.request, signal));
+      }, (body, signal) => previewReport(body, admitted.request, signal),
+      (args, ended) => compileInquiryReportDraft(args, admitted.request, ended));
 
       // 观察与驱动分离：浏览器断线只取消观察，不中止执行
       const watch = await host.watch(hosted);

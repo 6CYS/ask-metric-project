@@ -19,6 +19,7 @@ const props = defineProps<{ datasets: EvaluationDataset[]; busy: boolean }>()
 const emit = defineEmits<{
   save: [input: DatasetInput, existing?: EvaluationDataset]
   run: [dataset: EvaluationDataset]
+  delete: [dataset: EvaluationDataset]
 }>()
 const selected = ref<EvaluationDataset | undefined>()
 const draft = ref<DatasetInput | null>(null)
@@ -74,7 +75,16 @@ function saved(dataset: EvaluationDataset) {
   draft.value = parseDatasetInput(dataset)
   dirty.value = false
 }
-defineExpose({ saved, isDirty: () => dirty.value })
+async function deleted(id: string) {
+  if (selected.value?.id !== id) return
+  selected.value = undefined
+  draft.value = null
+  dirty.value = false
+  error.value = ""
+  await nextTick()
+  document.querySelector<HTMLElement>("[data-evaluation-new-dataset]")?.focus()
+}
+defineExpose({ saved, deleted, isDirty: () => dirty.value })
 function addTurn(group: EvaluationGroup) {
   group.turns.push({ id: createEvaluationId(), question: "", expected: "" })
   dirty.value = true
@@ -169,7 +179,12 @@ function handleImport(event: Event) {
         <header class="evaluation-dataset-list-header">
           <div class="flex items-center justify-between gap-2">
             <h2 class="text-sm font-semibold">问题集</h2>
-            <BaseButton variant="outline" size="sm" :disabled="editorBusy" @click="open()"
+            <BaseButton
+              data-evaluation-new-dataset
+              variant="outline"
+              size="sm"
+              :disabled="editorBusy"
+              @click="open()"
               ><Plus />新建问题集</BaseButton
             >
           </div>
@@ -209,7 +224,15 @@ function handleImport(event: Event) {
               <BaseBadge variant="outline">{{ totalTurns }}/100 轮</BaseBadge
               ><span v-if="dirty" class="text-xs text-amber-700">未保存</span>
             </div>
-            <div class="flex gap-2">
+            <div class="flex flex-wrap gap-2">
+              <BaseButton
+                v-if="selected"
+                variant="ghost"
+                class="text-destructive"
+                :disabled="editorBusy"
+                @click="emit('delete', selected)"
+                ><Trash2 />删除问题集</BaseButton
+              >
               <BaseButton variant="ghost" :disabled="editorBusy" @click="downloadDataset(draft)"
                 ><Download />导出 JSON</BaseButton
               ><BaseButton type="submit" :disabled="editorBusy"

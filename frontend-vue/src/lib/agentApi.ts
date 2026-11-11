@@ -228,7 +228,7 @@ export type AgentStreamEvent =
   | { type: "tool_start"; tool: string; tool_call_id?: string }
   | { type: "tool_end"; tool: string; tool_call_id?: string; details: unknown; isError: boolean }
   | { type: "message_done"; text: string }
-  | { type: "answer_delta"; call_seq: number; mode: "text" | "reply"; text: string }
+  | { type: "answer_delta"; call_seq: number; mode: "text" | "reply"; text: string; charts?: BusinessReportChart[] }
   | { type: "answer_reset"; call_seq: number; reason: "tool_call" | "retry" | "error" | "superseded" }
   /** 执行期心跳：模型重试与工具执行期间没有可投影事件，用于区分“仍在执行”与“卡死”。 */
   | { type: "progress"; elapsed_ms?: number }

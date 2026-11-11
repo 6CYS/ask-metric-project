@@ -47,11 +47,12 @@ import {
   type QuerySourceContext,
 } from "./sourceConditions.js";
 
+const SEARCH_CONCURRENCY = 4;
 const searchParameters = Type.Object(
   {
     keywords: Type.Array(Type.String({ minLength: 1, maxLength: 200 }), {
       minItems: 1,
-      maxItems: 4,
+      maxItems: PLAN_METRIC_LIMIT,
       description:
         "每项独立检索一个完整指标表达，将业务主体与所需口径放在同一项；多项用于不同指标或同一指标的完整替代表达，不是分词后的AND条件。",
     }),
@@ -1142,33 +1143,38 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
         const returned = catalogSearchPage(result);
         return { ...result, ...(returned ? { next_page: returned.has_more ? returned.page + 1 : null } : {}) };
       };
-      const results = await Promise.all(
-        [...new Set(input.keywords.map((value) => value.trim()))].map(async (keyword) => {
-          const previous = previousPages.filter((item) => item.keyword === keyword);
-          const latest = previous.at(-1);
-          previous.forEach((item) => item.exact_refs.forEach((ref) => existingRefs.add(ref)));
-          const reused = reusableCatalogPage(request, messages, keyword, page, pageSize);
-          if (reused) return reused;
-          const endKnown =
-            latest && previous.some((item) => !item.has_more && item.total === latest.total);
-          // 总量与请求偏移量比较，允许换页大小后仍有数据的页；新回合重新检索。
-          if (page > 1 && latest && endKnown && (page - 1) * pageSize >= latest.total) {
-            return {
-              keyword,
-              page,
-              page_size: pageSize,
-              total: latest.total,
-              has_more: false,
-              next_page: null,
-              pagination_status: "exhausted",
-              items: [],
-              notice:
-                "该关键词已无后续页，本次未重复访问目录。请核对已有候选的定义、单位和方法后取数；不适用时换关键词，不再增加该关键词页码。",
-            };
-          }
-          return fetchPage(keyword);
-        }),
-      );
+      const searchKeyword = async (keyword: string) => {
+        const previous = previousPages.filter((item) => item.keyword === keyword);
+        const latest = previous.at(-1);
+        previous.forEach((item) => item.exact_refs.forEach((ref) => existingRefs.add(ref)));
+        const reused = reusableCatalogPage(request, messages, keyword, page, pageSize);
+        if (reused) return reused;
+        const endKnown =
+          latest && previous.some((item) => !item.has_more && item.total === latest.total);
+        // 总量与请求偏移量比较，允许换页大小后仍有数据的页；新回合重新检索。
+        if (page > 1 && latest && endKnown && (page - 1) * pageSize >= latest.total) {
+          return {
+            keyword,
+            page,
+            page_size: pageSize,
+            total: latest.total,
+            has_more: false,
+            next_page: null,
+            pagination_status: "exhausted",
+            items: [],
+            notice:
+              "该关键词已无后续页，本次未重复访问目录。请核对已有候选的定义、单位和方法后取数；不适用时换关键词，不再增加该关键词页码。",
+          };
+        }
+        return fetchPage(keyword);
+      };
+      const results: Record<string, unknown>[] = [];
+      // 业务批次可以包含多个所需指标，后端目录请求仍保持有限并发。
+      const keywords = [...new Set(input.keywords.map((value) => value.trim()))];
+      for (const group of chunks(keywords, SEARCH_CONCURRENCY)) {
+        context.abortSignal?.throwIfAborted();
+        results.push(...(await Promise.all(group.map(searchKeyword))));
+      }
       context.abortSignal?.throwIfAborted();
       const boundResults = results.map(result => record(result).reused === true ? record(result) : record(catalogBindingView(request, result)));
       // 同批新关键词可能带来新版口径；登记完新结果后再核对复用页，避免并存新旧引用。

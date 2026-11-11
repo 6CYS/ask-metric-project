@@ -172,9 +172,15 @@ function isStoredRun(value: unknown): value is EvaluationRun {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const row = value as Record<string, unknown>;
   if (
-    !["running", "cancelling", "completed", "failed", "cancelled", "interrupted"].includes(
-      String(row.status),
-    )
+    ![
+      "running",
+      "cancelling",
+      "completed",
+      "failed",
+      "cancelled",
+      "interrupted",
+      "deleting",
+    ].includes(String(row.status))
   )
     return false;
   if (!Array.isArray(row.turns) || row.turns.length > 100 || !row.turns.every(isStoredTurn))
@@ -301,6 +307,25 @@ export class EvaluationStore {
         .map((name) => storedRun(readJson(join(this.directory(ownerId, "runs"), name))))
         .sort((left, right) => right.created_at.localeCompare(left.created_at)),
     );
+  }
+
+  deleteDataset(ownerId: string, id: string, version: number): void {
+    evaluationVersion(version);
+    const current = this.getDataset(ownerId, id);
+    if (current.version !== version)
+      throw new EvaluationError(
+        409,
+        "EVALUATION_VERSION_CONFLICT",
+        "问题集版本已变化，请刷新后重试",
+      );
+    this.io(() => rmSync(join(this.directory(ownerId, "datasets"), `${id}.json`)));
+  }
+
+  deleteRun(ownerId: string, id: string): void {
+    const current = this.getRun(ownerId, id);
+    if (current.status !== "deleting")
+      throw new EvaluationError(409, "EVALUATION_DELETE_NOT_STARTED", "尚未开始清理批次会话");
+    this.io(() => rmSync(join(this.directory(ownerId, "runs"), `${id}.json`)));
   }
 
   getRun(ownerId: string, id: string): EvaluationRun {

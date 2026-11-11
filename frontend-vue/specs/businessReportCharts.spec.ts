@@ -34,12 +34,12 @@ function details(charts: unknown): MetricAskDetails {
 }
 
 describe("报告中的已核验图表", () => {
-  it("八个机构的报告条形图按点数增高，折线图和饼图高度保持原样", async () => {
+  it("多机构报告使用固定绘图区与类别窗口，折线图和饼图高度保持原样", async () => {
     const points = Array.from({ length: 8 }, (_, index) => ({ name: `江苏测试${index + 1}农村商业银行`,
       value: String(index - 3), display: `${index - 3}元` }))
     const bar = { ...comparison, type: "bar" as const, points, source_refs: points.map((_, index) => `fact-${index}`) }
     const html = await renderToString(createSSRApp(ChatResultChart, { series: bar }))
-    expect(html).toContain("height:376px")
+    expect(html).toContain("height:340px")
     const dates = points.map((_, index) => `2026-08-${20 + index}`)
     const line = { ...bar, type: "line" as const, dates, points: points.map((point, index) => ({ ...point, name: dates[index]! })) }
     expect(await renderToString(createSSRApp(ChatResultChart, { series: line }))).toContain("height:288px")

@@ -14,6 +14,7 @@ import EvaluationRunPanel from "@/components/evaluation/EvaluationRunPanel.vue"
 import EvaluationTurnDetail from "@/components/evaluation/EvaluationTurnDetail.vue"
 import EvaluationComparison from "@/components/evaluation/EvaluationComparison.vue"
 import { useEvaluation } from "@/composables/useEvaluation"
+import { isActiveRun } from "@/lib/evaluation"
 import type {
   DatasetInput,
   EvaluationDataset,
@@ -59,11 +60,18 @@ const pendingLeave = ref<PendingLeave | null>(null)
 const leaving = ref(false)
 const pendingCancelRun = ref<EvaluationRun | null>(null)
 const stoppingRun = ref(false)
+type PendingDelete =
+  | { kind: "dataset"; value: EvaluationDataset; dirty: boolean }
+  | { kind: "run"; value: EvaluationRun }
+const pendingDelete = ref<PendingDelete | null>(null)
+const deleting = ref(false)
 const activationKey = ref(0)
 const initialDatasetId = ref("")
-const datasetEditor = ref<{ saved(dataset: EvaluationDataset): void; isDirty(): boolean } | null>(
-  null,
-)
+const datasetEditor = ref<{
+  saved(dataset: EvaluationDataset): void
+  deleted(id: string): Promise<void>
+  isDirty(): boolean
+} | null>(null)
 let active = false
 let locationSequence = 0
 let locationRequest: { key: string; promise: Promise<void> } | null = null
@@ -146,6 +154,7 @@ onDeactivated(() => {
   runDialogOpen.value = false
   closeLeaveConfirmation()
   pendingCancelRun.value = null
+  pendingDelete.value = null
   ++locationSequence
   state.deactivate()
 })
@@ -167,6 +176,49 @@ function openRun(dataset?: EvaluationDataset) {
 async function saveDataset(input: DatasetInput, existing?: EvaluationDataset) {
   const saved = await state.saveDataset(input, existing)
   if (saved) datasetEditor.value?.saved(saved)
+}
+function requestDeleteDataset(dataset: EvaluationDataset) {
+  if (busy.value || deleting.value || pendingDelete.value) return
+  actionError.value = ""
+  pendingDelete.value = {
+    kind: "dataset",
+    value: dataset,
+    dirty: datasetEditor.value?.isDirty() ?? false,
+  }
+}
+function requestDeleteRun(run: EvaluationRun) {
+  if (busy.value || deleting.value || pendingDelete.value || isActiveRun(run)) return
+  actionError.value = ""
+  pendingDelete.value = { kind: "run", value: run }
+}
+function closeDelete() {
+  if (!busy.value && !deleting.value) pendingDelete.value = null
+}
+async function confirmDelete() {
+  const pending = pendingDelete.value
+  if (!pending || busy.value || deleting.value) return
+  deleting.value = true
+  try {
+    const removed =
+      pending.kind === "dataset"
+        ? await state.deleteDataset(pending.value)
+        : await state.deleteRun(pending.value)
+    if (!removed || pendingDelete.value !== pending) return
+    pendingDelete.value = null
+    if (pending.kind === "dataset") await datasetEditor.value?.deleted(pending.value.id)
+    else {
+      if (route.query.run === pending.value.id) await navigate({ run: undefined, turn: undefined })
+      await nextTick()
+      if (typeof document !== "undefined")
+        document
+          .querySelector<HTMLElement>('[aria-label="测评批次列表"]')
+          ?.focus({ preventScroll: true })
+    }
+  } catch (reason) {
+    reportError(reason)
+  } finally {
+    deleting.value = false
+  }
 }
 async function startRun(input: RunInput) {
   const created = await state.createRun(input)
@@ -254,7 +306,7 @@ function retryDetail() {
         ></BaseAlert
       >
       <BaseAlert
-        v-if="actionError && !runDialogOpen && !pendingCancelRun"
+        v-if="actionError && !runDialogOpen && !pendingCancelRun && !pendingDelete"
         title="操作未完成"
         variant="destructive"
         >{{ actionError }}</BaseAlert
@@ -289,6 +341,7 @@ function retryDetail() {
         :busy="busy"
         @save="saveDataset"
         @run="openRun"
+        @delete="requestDeleteDataset"
       />
       <template v-else-if="currentTab === 'runs'">
         <EvaluationRunList
@@ -297,6 +350,7 @@ function retryDetail() {
           :busy="busy"
           @select="selectRun"
           @cancel="cancelRun"
+          @delete="requestDeleteRun"
         />
         <p v-if="runLoading" role="status" class="evaluation-note p-4">正在加载批次…</p>
         <BaseAlert v-else-if="runError" title="批次读取失败" variant="destructive"
@@ -317,6 +371,7 @@ function retryDetail() {
           @select="selectTurn"
           @cancel="cancelRun(selectedRun)"
           @rerun="openRun()"
+          @delete="requestDeleteRun(selectedRun)"
         />
         <EvaluationTurnDetail
           v-if="selectedTurnId"
@@ -349,6 +404,30 @@ function retryDetail() {
             ? "问题集尚未保存，确认离开测评中心？"
             : "问题集尚未保存，确认离开编辑区？"
         }}
+      </ConfirmDialog>
+      <ConfirmDialog
+        :open="Boolean(pendingDelete)"
+        :title="pendingDelete?.kind === 'dataset' ? '删除问题集' : '删除测评批次'"
+        :busy="busy || deleting"
+        @update:open="closeDelete"
+        @confirm="confirmDelete"
+      >
+        <p v-if="pendingDelete?.kind === 'dataset'">
+          确认删除“{{ pendingDelete.value.name }}”？已有测评批次及其题目快照、结果会保留。
+          删除后不能恢复，也不能再用该问题集发起测评。
+        </p>
+        <p v-else>
+          确认删除“{{
+            pendingDelete?.value.name
+          }}”？将删除本批次的结果、人工复核和专属测评会话，无法恢复。
+          问题集、其他批次和普通聊天会保留。
+        </p>
+        <p v-if="pendingDelete?.kind === 'dataset' && pendingDelete.dirty" class="mt-2">
+          当前未保存的修改也会丢弃。
+        </p>
+        <BaseAlert v-if="actionError" title="删除未完成" variant="destructive" class="mt-3">{{
+          actionError
+        }}</BaseAlert>
       </ConfirmDialog>
       <ConfirmDialog
         :open="Boolean(pendingCancelRun)"

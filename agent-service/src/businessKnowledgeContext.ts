@@ -91,7 +91,7 @@ function readReference(value: unknown): BusinessKnowledgeReference {
 function readLinkedCatalog(value: unknown, entries: BusinessKnowledgeReference[]): LinkedMetricCatalog | undefined {
   if (value === undefined) return undefined;
   const codes = new Set(entries.flatMap(entry => entry.metric_codes ?? []));
-  if (!record(value) || !Array.isArray(value.items) || value.items.length > 30
+  if (!record(value) || !Array.isArray(value.items) || value.items.length > codes.size
     || typeof value.total !== "number" || value.total !== codes.size || typeof value.has_more !== "boolean"
     || !Array.isArray(value.unavailable_codes) || value.unavailable_codes.some(code => typeof code !== "string" || !codes.has(code)))
     throw new Error("INVALID_KNOWLEDGE_LINKED_CATALOG");

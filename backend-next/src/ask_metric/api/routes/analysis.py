@@ -101,6 +101,7 @@ class CatalogBindingRequest(BaseModel):
     metric_codes: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
         min_length=1, max_length=100
     )
+    include_comparisons: bool = False
 
 
 @router.post("/catalog/bind")
@@ -113,13 +114,16 @@ def bind_catalog_metrics(
     semantics = service.semantics(actor)
     codes = list(dict.fromkeys(payload.metric_codes))
     descriptors = [semantics.descriptor(code) for code in codes if code in semantics.items]
-    return {
+    result = {
         "items": [
             {**item, "binding_ref": semantics.binding(item, item["code"])}
             for item in descriptors
         ],
         "missing_codes": [code for code in codes if code not in semantics.items],
     }
+    if payload.include_comparisons:
+        result["comparison_items"] = semantics.bind_comparisons(codes)
+    return result
 
 
 class PlanValidationRequest(BaseModel):

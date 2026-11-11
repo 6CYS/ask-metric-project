@@ -1,5 +1,17 @@
 import type { AssistantBlock } from "@/lib/assistantText"
 
+export type BusinessSkillItem = {
+  name: string
+  display_name: string
+  description: string
+  content: string
+  revision: string
+  editable: boolean
+  modified: boolean
+  updated_at: string | null
+  updated_by: string | null
+}
+
 /** 问数运行日志。字段与后端 QueryRunRead 保持一致。 */
 export type QueryRunItem = {
   id: number | string
@@ -201,6 +213,11 @@ export type TimeVariant = {
   start: string
   end: string
 }
+export type BusinessReportChartPlacement = {
+  /** 最终正文按空行分隔的非空段落序号，从 1 开始；缺少节索引时指向摘要。 */
+  after_paragraph: number
+  section_index?: number
+}
 /** 图形面积使用原始值，金额和占比文案沿用服务端已核验的显示值。 */
 export type BusinessPieChart = {
   type: "pie"
@@ -209,17 +226,30 @@ export type BusinessPieChart = {
   unit: string
   source_refs: string[]
   points: Array<{ name: string; value: string; display: string; share: string }>
+  placement?: BusinessReportChartPlacement
 }
 
 export type BusinessSeriesChart = {
   type: "bar" | "line"
+  category_kind?: "organization" | "metric" | "time"
   title: string
   dates: string[]
   unit: string
   source_refs: string[]
   points: Array<{ name: string; value: string; display: string }>
+  placement?: BusinessReportChartPlacement
 }
-export type BusinessReportChart = BusinessPieChart | BusinessSeriesChart
+export type BusinessGroupedChart = {
+  type: "grouped_bar"
+  title: string
+  dates: string[]
+  unit: string
+  source_refs: string[]
+  categories: string[]
+  series: Array<{ name: string; points: Array<{ value: string; display: string }> }>
+  placement?: BusinessReportChartPlacement
+}
+export type BusinessReportChart = BusinessPieChart | BusinessSeriesChart | BusinessGroupedChart
 
 /** 已由服务端校验的报告内容；只负责展示，不在前端重新生成业务结论。 */
 export type AnalysisReportView = {
@@ -439,6 +469,10 @@ export type BusinessKnowledgePayload = {
 export type BusinessKnowledgeItem = Omit<BusinessKnowledgePayload, "revision"> & {
   id: string
   updated_at: string | null
+  report_layout?: {
+    title: string
+    sections: Array<{ id: string; title: string; metric_codes: string[]; table: boolean }>
+  }
 }
 
 export type BusinessKnowledgeList = {

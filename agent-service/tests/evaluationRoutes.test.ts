@@ -55,6 +55,7 @@ describe("evaluation routes", () => {
         }),
       readTurn: () => Promise.resolve([]),
       cancelTurn: () => Promise.resolve(),
+      deleteSession: () => Promise.resolve(),
     };
     service = new EvaluationService(new EvaluationStore(root), client, config);
     app = new Hono();

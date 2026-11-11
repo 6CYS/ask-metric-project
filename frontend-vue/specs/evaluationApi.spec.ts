@@ -9,6 +9,44 @@ afterEach(() => {
 })
 
 describe("测评接口边界", () => {
+  it("删除使用当前身份、问题集版本和独立资源地址，并接受204空响应", async () => {
+    setAccessToken("delete-token")
+    const calls: Array<{
+      path: string
+      method?: string
+      body?: BodyInit | null
+      auth: string | null
+    }> = []
+    vi.stubGlobal("fetch", (path: string, init: RequestInit) => {
+      calls.push({
+        path,
+        method: init.method,
+        body: init.body,
+        auth: new Headers(init.headers).get("Authorization"),
+      })
+      return Promise.resolve(new Response(null, { status: 204 }))
+    })
+    await evaluationApi.deleteDataset(runFixture().dataset)
+    await evaluationApi.deleteRun("run/a")
+    expect(calls).toEqual([
+      {
+        path: "/agent-api/evaluations/datasets/dataset-a",
+        method: "DELETE",
+        body: '{"version":1}',
+        auth: "Bearer delete-token",
+      },
+      {
+        path: "/agent-api/evaluations/runs/run%2Fa",
+        method: "DELETE",
+        body: undefined,
+        auth: "Bearer delete-token",
+      },
+    ])
+  })
+  it("接纳删除未完成状态，供刷新后继续处理", async () => {
+    vi.stubGlobal("fetch", () => Promise.resolve(Response.json(runFixture({ status: "deleting" }))))
+    expect((await evaluationApi.getRun("run-a")).status).toBe("deleting")
+  })
   it("使用同源接口和内存身份，保留服务端错误", async () => {
     setAccessToken("isolated-test-token")
     let requestedUrl = ""

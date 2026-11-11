@@ -264,6 +264,17 @@ def _actor_name(actor: ActorContext) -> str:
     return actor.user_id or actor.subject
 
 
+@router.post("/authorize-write")
+def authorize_config_write(
+    request: Request,
+    actor: Annotated[ActorContext, Depends(require_actor)],
+    admin_token: Annotated[str | None, Header(alias="X-Model-Admin-Token")] = None,
+) -> dict[str, bool]:
+    """Agent 侧配置维护复用同一写入授权，不触发配置修改或模型请求。"""
+    _require_config_write(request.app.state.settings, actor, admin_token)
+    return {"authorized": True}
+
+
 @router.get("", response_model=ModelConfigResponse)
 def get_model_config(
     request: Request,

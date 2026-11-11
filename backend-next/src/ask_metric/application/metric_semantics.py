@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+from collections import defaultdict
 from pathlib import Path
 from typing import Literal
 
@@ -20,6 +21,7 @@ CONFIG_DIR = runtime_config_dir()
 METHOD_VERSION = "general-analysis-v1"
 DISCOVERY_RELATION_LIMIT = 8
 DISCOVERY_RELATED_METRIC_LIMIT = 24
+_COMPARISON_PERIODS = {"较同期": "yoy", "较上月": "mom", "较年初": "ytd"}
 
 
 class MetricExtension(BaseModel):
@@ -228,6 +230,40 @@ class MetricSemantics:
         return hmac.new(
             self.secret, f"analysis-binding-v1:{self.actor_id}:{body}".encode(), hashlib.sha256
         ).hexdigest()
+
+    def bind_comparisons(self, codes: list[str]) -> list[dict]:
+        """只提示同源、同基础名称、同单位且口径唯一的正式差额指标。"""
+        base_keys = {}
+        for code in codes:
+            item = self.items.get(code)
+            if item is None or item.value_basis != "当日数":
+                continue
+            identity = (item.source_metric_code, item.base_name, item.unit)
+            if all(part and part.strip() for part in identity):
+                base_keys[code] = identity
+        if not base_keys:
+            return []
+
+        identities = set(base_keys.values())
+        comparison_codes = defaultdict(list)
+        for item in self.items.values():
+            identity = (item.source_metric_code, item.base_name, item.unit)
+            if identity in identities and item.value_basis in _COMPARISON_PERIODS:
+                comparison_codes[identity, item.value_basis].append(item.code)
+
+        hints = []
+        for base_code, identity in base_keys.items():
+            for basis, period in _COMPARISON_PERIODS.items():
+                candidates = comparison_codes.get((identity, basis), [])
+                if len(candidates) != 1:
+                    continue
+                code = candidates[0]
+                descriptor = self.descriptor(code)
+                hints.append({
+                    **descriptor, "binding_ref": self.binding(descriptor, code),
+                    "base_metric_code": base_code, "comparison_period": period,
+                })
+        return hints
 
     def binding(self, descriptor: dict, keyword: str) -> str:
         # 短引用降低模型抄写长JSON签名时的差错；128位MAC仍绑定用户、指标和版本。

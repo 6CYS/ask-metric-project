@@ -1,6 +1,12 @@
 {
   "schema_version": 1,
   "version": "general-analysis-v1",
-  "metrics": {},
+  "metrics": {
+    "ORG_PRVSN_CVR_RT": {
+      "status": "approved",
+      "source": "用户于2026-11-06确认：紫金2026-07-31原始值1.6797对应167.97%，该指标按小数比值存储。",
+      "value_encoding": "ratio"
+    }
+  },
   "relations": []
 }

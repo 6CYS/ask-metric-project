@@ -60,6 +60,7 @@ function boundary(onExecute?: SessionEvaluationClient["executeTurn"]): SessionEv
     executeTurn: onExecute ?? (() => Promise.resolve(success)),
     readTurn: () => Promise.resolve([]),
     cancelTurn: () => Promise.resolve(),
+    deleteSession: () => Promise.resolve(),
   };
 }
 

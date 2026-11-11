@@ -51,7 +51,15 @@ function decodeDataset(value: unknown): EvaluationDataset {
 function isRunStatus(value: unknown): value is RunStatus {
   return (
     typeof value === "string" &&
-    ["running", "cancelling", "completed", "failed", "cancelled", "interrupted"].includes(value)
+    [
+      "running",
+      "cancelling",
+      "completed",
+      "failed",
+      "cancelled",
+      "interrupted",
+      "deleting",
+    ].includes(value)
   )
 }
 function isTurnStatus(value: unknown): value is TurnStatus {
@@ -266,6 +274,15 @@ const encoded = encodeURIComponent
 export const evaluationApi = {
   listDatasets: (signal?: AbortSignal) => list("/datasets", decodeDataset, signal),
   listRuns: (signal?: AbortSignal) => list("/runs", decodeRun, signal),
+  async deleteDataset(dataset: EvaluationDataset) {
+    await request(`/datasets/${encoded(dataset.id)}`, {
+      method: "DELETE",
+      body: JSON.stringify({ version: dataset.version }),
+    })
+  },
+  async deleteRun(id: string) {
+    await request(`/runs/${encoded(id)}`, { method: "DELETE" })
+  },
   async saveDataset(input: DatasetInput, existing?: EvaluationDataset) {
     return decodeDataset(
       await request(existing ? `/datasets/${encoded(existing.id)}` : "/datasets", {

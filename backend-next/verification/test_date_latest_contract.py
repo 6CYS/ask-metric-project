@@ -55,10 +55,46 @@ def test_latest_resolution_preserves_explicit_source_calendar(question, start, e
     }
 
 
+@pytest.mark.parametrize("expression", ["截至2026年7月31日", "截至 2026-07-31"])
+def test_explicit_as_of_day_resolves_without_model_calendar(expression):
+    payload = ResolveFieldRequest(
+        entity="date", raw_values=[expression], business_date=TODAY,
+        source_question=f"{expression}，利润比去年同期表现怎么样？",
+    )
+    result = resolve_field(payload, actor=object(), uow=object(), permissions=object())
+
+    exact_day = {"start": "2026-07-31", "end": "2026-07-31"}
+    assert result["status"] == "resolved"
+    assert result["value"] == exact_day
+    assert result["metadata"]["resolution_source"] == "deterministic"
+    assert result["metadata"]["source_calendar"] == {
+        "ranges": [exact_day, {"start": "2025-01-01", "end": "2025-12-31"}],
+        "unresolved": [],
+    }
+
+
+@pytest.mark.parametrize("expression", [
+    "截至2026年7月31日的最新可用数据",
+    "截至2026年7月31日范围内最新有数据日期",
+])
+def test_as_of_latest_available_phrase_does_not_become_an_exact_day(expression):
+    payload = ResolveFieldRequest(
+        entity="date", raw_values=[expression], business_date=TODAY,
+        model_value={"start": "2026-07-01", "end": "2026-07-31"},
+    )
+    result = resolve_field(payload, actor=object(), uow=object(), permissions=object())
+
+    assert result["status"] == "resolved"
+    assert result["value"] == {"start": "2026-07-01", "end": "2026-07-31"}
+    assert result["metadata"]["resolution_source"] == "model"
+
+
 @pytest.mark.parametrize(("expression", "reason"), [
     ("2026-02-30", "invalid_calendar"),
+    ("截至2026年2月30日", "invalid_calendar"),
     ("2026-13", "invalid_calendar"),
     ("到2026年8月末", "incomplete_range"),
+    ("截至2026年7月31日至", "incomplete_range"),
 ])
 def test_invalid_calendar_cannot_be_replaced_with_model_date(expression, reason):
     payload = ResolveFieldRequest(

@@ -68,6 +68,10 @@ export function useEvaluation(api: EvaluationApi = evaluationApi) {
     runLoading.value = false
     runError.value = ""
     selectedRun.value = run
+    if (run.status === "deleting") {
+      clearDetail()
+      return
+    }
     const nextTurn = run.turns.find((turn) => turn.id === selectedTurnId.value)
     if (previousTurn && nextTurn && previousTurn.status !== nextTurn.status)
       await selectTurn(run.id, nextTurn.id)
@@ -97,6 +101,7 @@ export function useEvaluation(api: EvaluationApi = evaluationApi) {
       hasLoaded.value = true
       const updated = loadedRuns.find((run) => run.id === selectedRunId.value)
       if (updated) await updateSelectedRun(updated)
+      else if (selectedRunId.value) await selectRun("")
     } catch (error) {
       if (sequence === listSequence && !cancelled(error)) loadError.value = message(error)
     } finally {
@@ -196,6 +201,32 @@ export function useEvaluation(api: EvaluationApi = evaluationApi) {
     }
     return created
   }
+  async function deleteDataset(dataset: EvaluationDataset) {
+    const deleted = await mutate(async () => {
+      await api.deleteDataset(dataset)
+      return true
+    })
+    if (deleted) datasets.value = datasets.value.filter((item) => item.id !== dataset.id)
+    return deleted === true
+  }
+  async function deleteRun(run: EvaluationRun) {
+    if (busy.value) return false
+    const lifecycle = lifecycleSequence
+    const deleted = await mutate(async () => {
+      // 删除请求可能已生效但回执丢失；确认前使旧依据失效，刷新后以服务端状态为准。
+      await updateRun({ ...run, status: "deleting" })
+      await api.deleteRun(run.id)
+      return true
+    })
+    if (deleted) {
+      runs.value = runs.value.filter((item) => item.id !== run.id)
+      if (selectedRunId.value === run.id) await selectRun("")
+    } else if (active && lifecycle === lifecycleSequence) {
+      // 清理可能已部分完成，重新读取删除状态，不能继续展示缓存的完整结果。
+      await refresh(true)
+    }
+    return deleted === true
+  }
   async function cancelRun(run: EvaluationRun) {
     const stopped = await mutate(() => api.cancelRun(run.id))
     if (stopped) await updateRun(stopped)
@@ -275,6 +306,8 @@ export function useEvaluation(api: EvaluationApi = evaluationApi) {
     selectTurn,
     clearDetail,
     saveDataset,
+    deleteDataset,
+    deleteRun,
     createRun,
     cancelRun,
     saveReview,

@@ -159,6 +159,8 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = Field(default=480, gt=0)
     jwt_issuer: str = "ask-metric"
     jwt_audience: str = "ask-metric-web"
+    # 缺省沿用环境安全策略；仅显式 HTTP 部署可设为 False，HTTPS 仍强制 Secure。
+    browser_session_cookie_secure: bool | None = None
     # 登录国密传输：SM2 私钥（64 位 hex）。开发/测试缺省时使用进程级临时密钥，
     # 生产环境必须显式配置，且不得提交到 Git。
     sm2_private_key: str = Field(default_factory=str, repr=False)

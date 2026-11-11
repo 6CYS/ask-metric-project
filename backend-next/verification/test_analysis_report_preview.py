@@ -41,7 +41,7 @@ def value_table(cell, header="个人存款"):
     return f"| 机构 | {header} |\n|---|---|\n| 测试机构 | {cell} |"
 
 
-def test_preview_returns_only_rendered_body_without_mutating_sources():
+def test_preview_returns_rendered_body_and_verified_mapping_without_mutating_sources():
     source, service, request = setup_preview("余额为{{total}}。\n\n个人存款60元{{personal|cite}}。")
     source["gaps"] = ["尚未取得其他期间记录。"]
     original = deepcopy(source)
@@ -52,6 +52,10 @@ def test_preview_returns_only_rendered_body_without_mutating_sources():
         "kind": "analysis_report_preview",
         "status": "succeeded",
         "preview_text": "余额为100元。\n\n个人存款60元。",
+        "body_evidence": [
+            {"paragraph": 1, "evidence_refs": ["total"]},
+            {"paragraph": 2, "evidence_refs": ["personal"]},
+        ],
     }
     assert source == original
 
@@ -361,6 +365,9 @@ def test_preview_http_reuses_saved_calculation_without_committing_or_changing_st
         "kind": "analysis_report_preview",
         "status": "succeeded",
         "preview_text": "两期差额为2.50个百分点。",
+        "body_evidence": [
+            {"paragraph": 1, "evidence_refs": sorted([atom["ref"], *atom["input_refs"]])}
+        ],
     }
     assert source == original_source
     assert {key: value.payload for key, value in saved.items()} == original_records

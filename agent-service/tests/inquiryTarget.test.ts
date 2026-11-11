@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { QueryDate } from "../src/inquiry/sourceConditions.js";
 import type { DateModelValue } from "../src/business-context/types.js";
+import { BackendApiError, type BackendClient } from "../src/backendClient.js";
+import { inquiryTargetReference } from "../src/inquiry/targetContext.js";
+import { catalogBindingState } from "../src/analysis/bindings.js";
+import { MemoryCommandBridge, testRequestContext } from "../src/tools/testUtils.js";
 import {
   inquiryTargetCoverage,
   resolveInquiryTarget,
@@ -51,6 +55,74 @@ function fixture(prior = baseline) {
 }
 
 describe("普通问数目标变更", () => {
+  it("只换机构时单独保留继承的分析要求，新主题不继承", async () => {
+    const { context } = fixture();
+    const next = await resolveInquiryTarget({
+      mode: "update", base_ref: baseline.ref,
+      organizations: { mode: "replace", scope: "named", names: ["B"] },
+    }, context);
+    expect(readInquiryTargetSnapshot(next)).toMatchObject({
+      sourceQuestion: "追问", analysisQuestion: baseline.sourceQuestion,
+    });
+    const different = await resolveInquiryTarget({
+      mode: "update", base_ref: baseline.ref, topic: "营业收入",
+    }, context);
+    expect(different.analysisQuestion).toBeUndefined();
+  });
+
+  it("按原问提供已确认的目录引用，追问可看见原范围，且同轮不重复匹配", async () => {
+    const matchMetricQuestion = vi.fn((question: string) => Promise.resolve({
+      mentions: question === baseline.sourceQuestion ? [
+        { text: "存款余额", resolution: { status: "resolved", value: { codes: ["D"] }, metadata: { match: "exact" } } },
+        { text: "相似项", resolution: { status: "resolved", value: { codes: ["X"] }, metadata: { match: "homophone" } } },
+      ] : [],
+    }));
+    const analysisBindMetrics = vi.fn(() => Promise.resolve({ items: [
+      { code: "D", name: "存款余额当日数", binding_ref: "signed-D" },
+    ], comparison_items: [
+      { code: "D_YOY", name: "存款余额较同期", binding_ref: "signed-D-YOY", base_metric_code: "D", comparison_period: "yoy" },
+    ] }));
+    const request = testRequestContext({
+      resolveBusinessField: (_field: string, codes: string[]) => Promise.resolve({ status: "resolved", value: { codes } }),
+      matchMetricQuestion, analysisBindMetrics,
+    } as unknown as BackendClient, new MemoryCommandBridge(), {
+      originalMessage: "乙行呢", inquiryTargetContext: { version: 1, baseline },
+    });
+    const messages: AgentMessage[] = [
+      { role: "user", content: "乙行呢", timestamp: 0 },
+      {
+        role: "toolResult", toolName: "metric_search", toolCallId: "lookup", timestamp: 0,
+        isError: false, content: [],
+        details: { kind: "analysis_catalog", status: "succeeded", binding_map: { k1: "signed-other" } },
+      },
+    ];
+    const first = await inquiryTargetReference(request, messages);
+    expect(JSON.parse(first.split("\n").at(-1)!)).toMatchObject({ previous_question_metrics: [{
+      text: "存款余额", code: "D", name: "存款余额当日数", binding_ref: "D",
+      comparisons: [{ period: "yoy", code: "D_YOY", binding_ref: "D_YOY" }],
+    }] });
+    expect(first).not.toContain("signed-D");
+    expect(first).not.toContain("相似项");
+    expect(catalogBindingState(request)["code:D"]).toBe("signed-D");
+    expect(catalogBindingState(request)["code:D_YOY"]).toBe("signed-D-YOY");
+    expect(catalogBindingState(request).k1).toBe("signed-other");
+    expect(await inquiryTargetReference(request, messages)).toBe(first);
+    expect(matchMetricQuestion).toHaveBeenCalledTimes(2);
+    expect(analysisBindMetrics).toHaveBeenCalledExactlyOnceWith(["D"], { signal: undefined, includeComparisons: true });
+  });
+
+  it("目录参考临时不可用时沿用普通问数，认证错误仍传播", async () => {
+    const request = (failure: Error) => testRequestContext({
+      matchMetricQuestion: () => Promise.reject(failure),
+    } as unknown as BackendClient, new MemoryCommandBridge(), {
+      inquiryTargetContext: { version: 1 },
+    });
+    await expect(inquiryTargetReference(request(new TypeError("network unavailable")), []))
+      .resolves.toContain('"current_target":null');
+    const denied = new BackendApiError(403, "forbidden");
+    await expect(inquiryTargetReference(request(denied), [])).rejects.toBe(denied);
+  });
+
   it("新期间契约保留原表达并允许区间内最新，继承时不重新解释", async () => {
     const { context, resolveTime } = fixture();
     const calendar = { start: "2026-01-01", end: "2026-06-30" };

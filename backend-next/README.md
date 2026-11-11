@@ -186,7 +186,7 @@ QUERY_DATABASE_URL=ENC[SM4:v1:...]
 登录或延长有效期。调整实际环境配置并重启后，对新登录生效，已签发令牌仍按原 `exp` 过期。
 
 浏览器登录及 SSO 通过同源 `/api/v1/auth/` 接口申请会话 Cookie。Cookie 使用 `HttpOnly`、
-`SameSite=Strict`、限定 Path，不设置 Domain；生产使用 `__Secure-ask_metric_session`，强制
+`SameSite=Strict`、限定 Path，不设置 Domain；生产默认使用 `__Secure-ask_metric_session` 和
 `Secure`。浏览器脚本不读取 Cookie，不把访问令牌写入 localStorage/sessionStorage。刷新时调用
 `POST /api/v1/auth/session`，重新校验原 JWT 和当前账号、机构、角色、会话版本，返回原访问令牌
 供页面内存使用；不签发新令牌、不续期。正常业务接口仍仅接受 Bearer，不接受 Cookie 认证。
@@ -199,8 +199,10 @@ QUERY_DATABASE_URL=ENC[SM4:v1:...]
 部署与升级要求：
 
 - 同步更新前后端；升级后首次需要正常登录一次，建立新的恢复 Cookie，无数据库迁移。
-- 生产浏览器入口必须为 HTTPS，可由行内网关终止 TLS。仅内部代理到后端可使用 HTTP；生产
-  HTTP 入口无法保存 Secure Cookie，不可通过关闭 Secure 或改成开发环境绕过。
+- 生产默认使用 Secure Cookie，支持由行内网关终止 TLS、内部代理到后端使用 HTTP。明确选择
+  HTTP 浏览器入口时，显式设置 `BROWSER_SESSION_COOKIE_SECURE=false`，并保持
+  `APP_ENV=production`；此时使用无 Secure 前缀的 `ask_metric_session`。HTTPS 请求始终使用
+  Secure Cookie。该配置不改变 HttpOnly、SameSite、Path、同源校验或业务接口 Bearer 鉴权。
 - 保留浏览器原始 Host（含端口），并由可信代理传递正确的协议。若多层代理导致后端看到内部
   地址，在 `CORS_ORIGINS` 中明确登记浏览器入口的完整 origin（协议、主机、端口，不含路径），
   不使用通配符。这只用于已有允许来源配置，不开启跨域 Cookie。

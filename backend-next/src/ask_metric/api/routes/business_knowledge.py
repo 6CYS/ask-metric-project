@@ -54,7 +54,12 @@ def list_knowledge(
     return knowledge_store(request).read(metric_code=metric_code)
 
 
-def validate_metric_links(metric_codes: list[str]) -> None:
+def validate_metric_links(fields: KnowledgeFields) -> None:
+    metric_codes = list(fields.metric_codes)
+    if fields.report_layout is not None:
+        metric_codes.extend(code for section in fields.report_layout.sections
+                            for code in section.metric_codes)
+    metric_codes = list(dict.fromkeys(metric_codes))
     if not metric_codes:
         return
     with app_read_session() as session:
@@ -74,7 +79,7 @@ def create_knowledge(payload: KnowledgeWrite, request: Request) -> dict:
     fields = KnowledgeFields.model_validate(
         payload.model_dump(exclude={"revision"}, exclude_unset=True),
     )
-    validate_metric_links(fields.metric_codes)
+    validate_metric_links(fields)
     return knowledge_store(request).create(fields, payload.revision)
 
 
@@ -83,7 +88,7 @@ def update_knowledge(entry_id: str, payload: KnowledgeWrite, request: Request) -
     fields = KnowledgeFields.model_validate(
         payload.model_dump(exclude={"revision"}, exclude_unset=True),
     )
-    validate_metric_links(fields.metric_codes)
+    validate_metric_links(fields)
     return knowledge_store(request).update(entry_id, fields, payload.revision)
 
 

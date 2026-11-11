@@ -2,7 +2,7 @@
  * 请求上下文：通过原生 Context 传递当次请求的身份、后端客户端与标识。
  * 承载本轮可信输入以及原生业务 Frame/结果存储桥接；模型消息和压缩仍由 Pi 管理。
  */
-import { createContextKey, withContextValue, type Context } from "@earendil-works/pi-agent-core";
+import { createContextKey, withContextValue, type Context, type Skill } from "@earendil-works/pi-agent-core";
 import type { BackendClient, BackendUser } from "./backendClient.js";
 import type { EvidenceReference } from "./answerEvidence.js";
 
@@ -79,10 +79,14 @@ export interface AskMetricRequestContext {
   backend: BackendClient;
   /** 本轮原始用户输入原文 */
   originalMessage: string;
+  /** 接纳本轮时固定的方法版本；配置发布只影响后续轮次。 */
+  businessSkills?: readonly Skill[];
   /** 当前请求的有权机构清单；临时失败不缓存，本轮降级为原文名称解析。 */
   orgCatalog?: Promise<import("./business-context/orgCatalog.js").OrgCatalog>;
   /** 仅本轮复用权限检查，下一轮必须重新校验，不能成为会话授权票。 */
   semanticScopeChecks?: Map<string, Promise<boolean>>;
+  /** 本轮历史任务复核得到的正式结果 ID，包含进行中的复核。 */
+  historyTaskChecks?: Map<string, Promise<string | undefined>>;
   /** 本次模型实际看到的正式历史来源；普通回答复述也随回执保存权限来源。 */
   replyHistorySources?: HistoryReadSources;
   /** 完整 PromptInput 的确定性指纹（宿主计算） */

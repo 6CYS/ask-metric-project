@@ -229,6 +229,19 @@ export function createSessionEvaluationClient(
         throw new BackendApiError(502, "未取得测评会话身份", "EVALUATION_PROTOCOL_INVALID");
       return value.session_id;
     },
+    async deleteSession(token, sessionId, signal) {
+      try {
+        await call(
+          token,
+          `/sessions/${encodeURIComponent(sessionId)}`,
+          { method: "DELETE" },
+          signal,
+        );
+      } catch (error) {
+        // 清理中断后允许继续；权限、运行中和服务异常仍交由调用方处理。
+        if (!(error instanceof BackendApiError && error.status === 404)) throw error;
+      }
+    },
     cancelTurn,
     async readTurn(token, sessionId, userEntryId) {
       return currentTurn((await snapshot(token, sessionId)).messages, userEntryId);

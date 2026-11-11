@@ -203,6 +203,7 @@ describe("每轮业务知识前置", () => {
     {revision, entries: [{...entry, text: "长".repeat(8001)}]},
     {revision, entries: [{...entry, text: 123}]},
     {revision, entries: [{...entry, enabled: false}]},
+    {revision, entries: [{...entry, metric_codes: Array.from({length: 101}, (_, i) => `M${i}`)}]},
   ])("不将不合契约或超限响应注入模型", async body => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(body)));
     expect(await loadTurnBusinessKnowledge(request(), [])).toEqual({status: "unavailable", entries: []});

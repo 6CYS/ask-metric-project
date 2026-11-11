@@ -12,7 +12,11 @@ import {
 } from "@/lib/evaluation"
 import type { EvaluationRun } from "@/types/evaluation"
 const props = defineProps<{ runs: EvaluationRun[]; selectedId: string; busy: boolean }>()
-const emit = defineEmits<{ select: [id: string]; cancel: [run: EvaluationRun] }>()
+const emit = defineEmits<{
+  select: [id: string]
+  cancel: [run: EvaluationRun]
+  delete: [run: EvaluationRun]
+}>()
 const keyword = ref("")
 const searchInput = ref<HTMLInputElement | null>(null)
 const shown = computed(() =>
@@ -35,7 +39,7 @@ function handleSearchEscape(event: KeyboardEvent) {
 }
 </script>
 <template>
-  <section class="evaluation-panel">
+  <section class="evaluation-panel" aria-label="测评批次列表" tabindex="-1">
     <header class="evaluation-panel-header">
       <div>
         <h2>测评批次</h2>
@@ -99,16 +103,19 @@ function handleSearchEscape(event: KeyboardEvent) {
             </td>
             <td>
               <EvaluationStatusBadge :status="run.status" batch />
-              <p class="evaluation-note">
+              <p v-if="run.status !== 'deleting'" class="evaluation-note">
                 {{ evaluationSummary(run).completed }}/{{ run.turns.length }} 轮执行完成
               </p>
             </td>
             <td>
-              <p>
-                {{ evaluationSummary(run).passed }} 通过 ·
-                {{ evaluationSummary(run).failed }} 未通过
-              </p>
-              <p class="evaluation-note">{{ evaluationSummary(run).pendingReview }} 待复核</p>
+              <p v-if="run.status === 'deleting'" class="evaluation-note">部分记录可能已清理</p>
+              <template v-else
+                ><p>
+                  {{ evaluationSummary(run).passed }} 通过 ·
+                  {{ evaluationSummary(run).failed }} 未通过
+                </p>
+                <p class="evaluation-note">{{ evaluationSummary(run).pendingReview }} 待复核</p>
+              </template>
             </td>
             <td class="text-xs">{{ evaluationDate(run.created_at) }}</td>
             <td>
@@ -128,6 +135,15 @@ function handleSearchEscape(event: KeyboardEvent) {
                         ? "停止中"
                         : "停止"
                   }}</BaseButton
+                >
+                <BaseButton
+                  v-else
+                  variant="ghost"
+                  size="sm"
+                  class="text-destructive"
+                  :disabled="busy"
+                  @click="emit('delete', run)"
+                  >{{ run.status === "deleting" ? "继续删除" : "删除" }}</BaseButton
                 >
               </div>
             </td>

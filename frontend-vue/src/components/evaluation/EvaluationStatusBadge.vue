@@ -14,7 +14,7 @@ const variant = computed(() =>
     ? "default"
     : props.status === "failed"
       ? "destructive"
-      : ["interrupted", "skipped"].includes(props.status)
+      : ["interrupted", "skipped", "deleting"].includes(props.status)
         ? "warning"
         : "secondary",
 )

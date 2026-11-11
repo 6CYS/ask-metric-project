@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onActivated, ref } from "vue"
-import { Activity, AlertTriangle, BrainCircuit, Braces, CheckCircle2, History, KeyRound, LoaderCircle, RefreshCw, RotateCcw, Save, ShieldCheck } from "@lucide/vue"
+import { Activity, AlertTriangle, BookOpenText, BrainCircuit, Braces, CheckCircle2, History, KeyRound, LoaderCircle, RefreshCw, RotateCcw, Save, ShieldCheck } from "@lucide/vue"
 
 import AppShell from "@/components/AppShell.vue"
 import PageHeader from "@/components/PageHeader.vue"
@@ -11,6 +11,7 @@ import BaseNumberField from "@/components/ui/BaseNumberField.vue"
 import BaseSelect from "@/components/ui/BaseSelect.vue"
 import BaseSwitch from "@/components/ui/BaseSwitch.vue"
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton.vue"
+import SkillConfigPanel from "@/components/llm/SkillConfigPanel.vue"
 import {
   getSmartConfig,
   listPromptVersions,
@@ -21,10 +22,11 @@ import {
 } from "@/lib/api"
 import type { ConfigVersion, ModelRole, ModelRuntimeConfig, PromptTemplateConfig, SmartConfigResponse } from "@/types/api"
 
-type Tab = "model" | "prompts"
+type Tab = "model" | "prompts" | "skills"
 type PromptField = "system" | "user_template" | "query_prefix" | "query_template"
 
 const activeTab = ref<Tab>("model")
+const skillRefreshKey = ref(0)
 const configResponse = ref<SmartConfigResponse | null>(null)
 const modelDraft = ref<ModelRuntimeConfig | null>(null)
 const selectedPromptName = ref("")
@@ -110,6 +112,7 @@ async function loadAll(refresh = false) {
     configResponse.value = nextConfig
     setModelDraft(nextConfig.config)
     selectPrompt(selectedPromptName.value || Object.keys(nextConfig.prompts.prompts)[0] || "")
+    if (refresh) skillRefreshKey.value++
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "配置加载失败。"
   } finally {
@@ -216,13 +219,13 @@ onActivated(() => loadAll())
 
 <template>
   <AppShell>
-    <PageHeader eyebrow="Runtime Configuration" title="智能配置" description="集中管理模型与业务提示词。提示词发布前经过约束校验，并保留可审计、可回滚的版本记录。" :stats="stats">
+    <PageHeader eyebrow="Runtime Configuration" title="智能配置" description="集中管理模型、业务提示词与 Skill 分析方法。" :stats="stats">
       <template #actions><BaseButton variant="outline" :disabled="isRefreshing" @click="loadAll(true)"><RefreshCw :class="isRefreshing && 'animate-spin'" />刷新</BaseButton></template>
     </PageHeader>
 
     <div class="mb-5 flex flex-wrap items-center justify-between gap-3 border-b">
       <div class="flex gap-1" role="tablist">
-        <button v-for="tab in [{ key: 'model', label: '模型配置', icon: BrainCircuit }, { key: 'prompts', label: '提示词配置', icon: Braces }]" :key="tab.key" type="button" class="flex h-10 items-center gap-2 border-b-2 px-3 text-sm font-medium" :class="activeTab === tab.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'" @click="activeTab = tab.key as Tab"><component :is="tab.icon" class="size-4" />{{ tab.label }}</button>
+        <button v-for="tab in [{ key: 'model', label: '模型配置', icon: BrainCircuit }, { key: 'prompts', label: '提示词配置', icon: Braces }, { key: 'skills', label: 'skill管理', icon: BookOpenText }]" :key="tab.key" type="button" class="flex h-10 items-center gap-2 border-b-2 px-3 text-sm font-medium" :class="activeTab === tab.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'" @click="activeTab = tab.key as Tab"><component :is="tab.icon" class="size-4" />{{ tab.label }}</button>
       </div>
       <label v-if="configResponse?.write_enabled && configResponse.write_token_required" class="mb-2 flex items-center gap-2 text-xs text-muted-foreground"><KeyRound class="size-4" />管理令牌<input v-model="adminToken" type="password" class="h-8 w-52 rounded-md border bg-background px-2 text-sm" placeholder="保存或回滚时必填" /></label>
       <BaseBadge v-else-if="configResponse?.write_enabled" variant="success" class="mb-2">本机管理员可直接写入</BaseBadge>
@@ -301,5 +304,8 @@ onActivated(() => loadAll())
       <aside class="border-l pl-4"><h2 class="flex items-center gap-2 text-sm font-semibold"><History class="size-4" />版本记录</h2><p v-if="!versions.length" class="mt-4 text-xs text-muted-foreground">首次发布时将自动保存系统基线。</p><div class="mt-3 grid gap-2"><div v-for="version in versions" :key="version.id" class="rounded-md border p-3 text-xs"><div class="flex items-center justify-between gap-2"><span class="font-medium">v{{ version.version_number }} · {{ version.action === 'rollback' ? '回滚' : '发布' }}</span><BaseButton variant="ghost" size="sm" :disabled="!canWrite || isSaving" @click="rollbackPrompt(version)"><RotateCcw />回滚</BaseButton></div><p class="mt-1 text-muted-foreground">{{ version.created_by }} · {{ formatDate(version.created_at) }}</p></div></div></aside>
     </section>
 
+    <KeepAlive>
+      <SkillConfigPanel v-if="!isLoading && configResponse && activeTab === 'skills'" :can-write="canWrite" :admin-token="adminToken" :refresh-key="skillRefreshKey" />
+    </KeepAlive>
   </AppShell>
 </template>

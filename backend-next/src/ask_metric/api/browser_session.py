@@ -9,15 +9,20 @@ COOKIE_PATH = "/api/v1/auth"
 
 
 def cookie_secure(request: Request) -> bool:
-    # 生产环境即使位于 TLS 反向代理后，也始终设置 Secure，不能随内部 HTTP 降级。
-    return (
-        request.app.state.settings.app_env.lower() not in {"development", "test"}
-        or request.url.scheme == "https"
-    )
+    settings = request.app.state.settings
+    secure = settings.browser_session_cookie_secure
+    if secure is None:
+        # 未显式配置时，生产环境即使位于 TLS 代理后也保持 Secure。
+        secure = settings.app_env.lower() not in {"development", "test"}
+    return secure or request.url.scheme == "https"
 
 
 def session_cookie_name(request: Request) -> str:
-    return "__Secure-ask_metric_session" if cookie_secure(request) else "ask_metric_session_dev"
+    if cookie_secure(request):
+        return "__Secure-ask_metric_session"
+    if request.app.state.settings.app_env.lower() in {"development", "test"}:
+        return "ask_metric_session_dev"
+    return "ask_metric_session"
 
 
 def require_browser_session_request(request: Request) -> None:

@@ -88,12 +88,14 @@ describe("自然正文继承当前图表选择", () => {
     expect(test.analysisExecute).not.toHaveBeenCalled();
   });
 
-  it("只采用当前轮最近成功选择，允许图点是正文依据的子集", async () => {
+  it("保留当前轮多次成功选择，允许图点是正文依据的子集", async () => {
     const test = fixture();
     await prepareChart(test);
     await prepareChart(test, ["e1.v2", "e1.v1"]);
     const result = await runTool(createInquiryReportTool(), {body: "甲行{{e1.v1}}、乙行{{e1.v2}}、丙行{{e1.v3}}。"}, test.request);
-    expect(result.details.report.charts[0].source_refs).toEqual(["run.f2", "run.f1"]);
+    expect(result.details.report.charts.map((chart: {source_refs: string[]}) => chart.source_refs)).toEqual([
+      ["run.f3", "run.f1", "run.f2"], ["run.f2", "run.f1"],
+    ]);
   });
 
   it("显式纠正选择优先于此前准备的图", async () => {

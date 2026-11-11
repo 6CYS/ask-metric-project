@@ -212,25 +212,52 @@ def test_runtime_links_supply_only_formal_enabled_candidates(metric_catalog, mon
         other_actor.resolve(catalog["items"][0]["binding_ref"])
 
 
-def test_runtime_linked_catalog_is_bounded_and_preserves_remaining_codes(metric_catalog):
+@pytest.mark.parametrize("count", [31, 300])
+def test_runtime_linked_catalog_resolves_all_selected_knowledge_codes(metric_catalog, count):
     from ask_metric.infrastructure.db.models import MetricTerm
     from ask_metric.infrastructure.db.session import get_app_session_factory
 
     client, path, _ = metric_catalog
-    codes = [f"LINKED_{index}" for index in range(35)]
+    codes = [f"LINKED_{index}" for index in range(count)]
     with get_app_session_factory()() as session:
         session.add_all([MetricTerm(metric_code=code, metric_name=f"关联指标{index}")
                          for index, code in enumerate(codes)])
         session.commit()
     path.write_text(json.dumps({"entries": [{
-        "id": "linked", "title": "存款分析", "text": "仅按问题选择相关指标。",
-        "metric_codes": codes,
-    }]}), encoding="utf-8")
+        "id": f"linked-{offset}", "title": "存款分析", "text": "仅按问题选择相关指标。",
+        "metric_codes": codes[offset:offset + 100],
+    } for offset in range(0, count, 100)]}), encoding="utf-8")
     data = client.post("/api/v1/business-knowledge/search", json={"query": "存款"}).json()
-    assert data["entries"][0]["metric_codes"] == codes
-    assert len(data["linked_catalog"]["items"]) == 30
-    assert data["linked_catalog"]["total"] == 35
-    assert data["linked_catalog"]["has_more"] is True
+    assert [code for entry in data["entries"] for code in entry["metric_codes"]] == codes
+    catalog = data["linked_catalog"]
+    assert [item["code"] for item in catalog["items"]] == codes
+    assert all(item["binding_ref"].startswith("m1.") for item in catalog["items"])
+    assert catalog["total"] == count
+    assert catalog["has_more"] is False
+    assert catalog["unavailable_codes"] == []
+
+
+def test_runtime_linked_catalog_deduplicates_and_reports_unavailable_after_thirty(metric_catalog):
+    from ask_metric.infrastructure.db.models import MetricTerm
+    from ask_metric.infrastructure.db.session import get_app_session_factory
+
+    client, path, _ = metric_catalog
+    codes = [f"LINKED_{index}" for index in range(31)]
+    with get_app_session_factory()() as session:
+        session.add_all([MetricTerm(metric_code=code, metric_name=code) for code in codes])
+        session.commit()
+    path.write_text(json.dumps({"entries": [
+        {"id": "first", "title": "存款分析", "text": "比较口径。",
+         "metric_codes": [*codes, "MISSING", "ORG_B"]},
+        {"id": "second", "title": "存款分析", "text": "比较口径。",
+         "metric_codes": [codes[0], codes[-1], "MISSING"]},
+    ]}), encoding="utf-8")
+    data = client.post("/api/v1/business-knowledge/search", json={"query": "存款"}).json()
+    catalog = data["linked_catalog"]
+    assert [item["code"] for item in catalog["items"]] == codes
+    assert catalog["total"] == 33
+    assert catalog["unavailable_codes"] == ["MISSING", "ORG_B"]
+    assert catalog["has_more"] is False
 
 
 def test_minimal_create_and_edit_preserve_legacy_metadata(environment):

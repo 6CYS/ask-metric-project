@@ -16,8 +16,9 @@ import type { EvaluationComparisonRow } from "@/lib/evaluation"
 import type { EvaluationRun } from "@/types/evaluation"
 const props = defineProps<{ runs: EvaluationRun[] }>()
 const emit = defineEmits<{ detail: [runId: string, turnId: string] }>()
+const availableRuns = computed(() => props.runs.filter((run) => run.status !== "deleting"))
 const runOptions = computed(() =>
-  props.runs.map((run) => ({
+  availableRuns.value.map((run) => ({
     value: run.id,
     label: `${run.name} · ${run.version_label || "未登记版本"}`,
   })),
@@ -27,21 +28,21 @@ const afterId = ref("")
 const expandedId = ref("")
 const comparisonDetails = useEvaluationComparisonDetails()
 const { before: beforeDetail, after: afterDetail } = comparisonDetails
-watch(() => props.runs, comparisonDetails.syncRuns)
+watch(availableRuns, comparisonDetails.syncRuns)
 watch([beforeId, afterId], () => {
   expandedId.value = ""
   comparisonDetails.clear()
 })
 watch(
-  () => props.runs.map((run) => run.id),
+  () => availableRuns.value.map((run) => run.id),
   (ids) => {
     if (!ids.includes(beforeId.value)) beforeId.value = ids[1] ?? ids[0] ?? ""
     if (!ids.includes(afterId.value)) afterId.value = ids[0] ?? ""
   },
   { immediate: true },
 )
-const before = computed(() => props.runs.find((run) => run.id === beforeId.value))
-const after = computed(() => props.runs.find((run) => run.id === afterId.value))
+const before = computed(() => availableRuns.value.find((run) => run.id === beforeId.value))
+const after = computed(() => availableRuns.value.find((run) => run.id === afterId.value))
 const comparison = computed(() =>
   before.value && after.value && before.value.id !== after.value.id
     ? compareEvaluationRuns(before.value, after.value)

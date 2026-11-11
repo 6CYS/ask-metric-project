@@ -49,7 +49,13 @@ export function createProvisionalAnswerScheduler(
       const previous = pending.get(key)
       if (previous && event.call_seq < previous.event.call_seq) return
       // answer_delta 是累计全文；同帧只需要最新一次，不能拼接成重复正文。
-      pending.set(key, { conversationId, messageId, event })
+      const merged =
+        previous?.event.call_seq === event.call_seq &&
+        event.charts === undefined &&
+        previous.event.charts !== undefined
+          ? { ...event, charts: previous.event.charts }
+          : event
+      pending.set(key, { conversationId, messageId, event: merged })
       if (frame === null)
         frame = requestAnimationFrame(() => {
           frame = null
@@ -155,6 +161,7 @@ export function reconcileAnswerSnapshot<T extends SnapshotAnswer>(
       ? {
           provisionalContent: previous.provisionalContent,
           provisionalCallSeq: previous.provisionalCallSeq,
+          provisionalCharts: previous.provisionalCharts,
         }
       : {}),
   }

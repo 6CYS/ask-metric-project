@@ -13,6 +13,7 @@ import { createApp } from "./routes.js";
 import { createSessionEvaluationClient } from "./evaluation/sessionClient.js";
 import { EvaluationStore } from "./evaluation/store.js";
 import { EvaluationService } from "./evaluation/service.js";
+import { BusinessSkillStore } from "./businessSkillStore.js";
 
 async function main(): Promise<void> {
   const config = await loadRuntimeConfig();
@@ -20,12 +21,13 @@ async function main(): Promise<void> {
   const releaseLock = acquireWriterLock(config.dataDir);
   const store = new NativeSessionStore(config.dataDir);
   const skills = await loadBusinessSkills();
+  const skillStore = new BusinessSkillStore(config.dataDir, skills);
   const host = new HarnessHost(
     config,
     (authorize) => createAskMetricModels(config, authorize),
     store,
     [...createAskMetricTools({ topicsEnabled: config.topicQueryEnabled ?? false }), createBusinessSkillReadTool(skills)],
-    { skills },
+    { getSkills: () => skillStore.snapshot() },
   );
   // 复用同一组会话路由和鉴权；内部请求不绕开当前账号权限，也不另建 Agent。
   const evaluationClient = createSessionEvaluationClient((path, init) => Promise.resolve(app.request(path, init)));
@@ -36,7 +38,7 @@ async function main(): Promise<void> {
     // 独立维护模块不可用时保留现有问数服务，测评接口明确返回不可用。
     console.error("测评存储初始化失败，测评接口暂不可用");
   }
-  const app = createApp(config, host, store, evaluations);
+  const app = createApp(config, host, store, evaluations, skillStore);
 
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
     console.log(`ask-metric-agent-service listening on ${info.address}:${info.port}`);

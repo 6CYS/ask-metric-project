@@ -492,8 +492,11 @@ def shared_date_text(text: str, dates: list[str]) -> str:
         return text
     day = dates[0]
     variants = [re.escape(day), f"{int(day[:4])}年0?{int(day[5:7])}月0?{int(day[8:10])}日"]
+    # 段落已绑定依据编号；只精简同一行且后面仍有正文的日期，不能吞掉空行或清空日期段。
     pattern = re.compile(
-        r"(^|\n\s*\n)([ \t]*)(?:截至|截止)\s*(?:" + "|".join(variants) + r")日?\s*[，,：:]\s*"
+        r"(^|\n\s*\n)([ \t]*)(?:截至|截止)[^\S\r\n]*(?:"
+        + "|".join(variants)
+        + r")日?[^\S\r\n]*[，,：:][^\S\r\n]*(?=\S)"
     )
     parts = re.split(r"(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)", text)
     heading_date = re.compile(

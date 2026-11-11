@@ -20,7 +20,8 @@ defineOptions({ inheritAttrs: false })
 
 const props = defineProps<{
   modelValue: T | null
-  options: ReadonlyArray<{ value: T; label: string; disabled?: boolean }>
+  options: ReadonlyArray<{ value: T; label: string; description?: string; disabled?: boolean }>
+  contentWidth?: string
   placeholder?: string
   disabled?: boolean
   name?: string
@@ -66,6 +67,7 @@ function updateValue(key: string) {
         position="popper"
         :side-offset="4"
         :collision-padding="8"
+        :style="contentWidth ? { width: contentWidth } : undefined"
         class="z-[70] flex max-h-[min(20rem,var(--reka-select-content-available-height))] w-[var(--reka-select-trigger-width)] min-w-32 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-lg border bg-popover text-sm font-normal text-popover-foreground shadow-lg outline-none"
       >
         <SelectScrollUpButton class="flex h-6 shrink-0 items-center justify-center bg-popover">
@@ -80,9 +82,16 @@ function updateValue(key: string) {
             :text-value="option.label"
             class="relative flex min-h-8 cursor-default items-center rounded-md py-1.5 pr-8 pl-2 outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[state=checked]:bg-primary/10 data-[state=checked]:text-primary"
           >
-            <SelectItemText class="min-w-0 whitespace-normal [overflow-wrap:anywhere]">
-              {{ option.label }}
-            </SelectItemText>
+            <span class="min-w-0">
+              <SelectItemText class="block whitespace-normal [overflow-wrap:anywhere]">
+                {{ option.label }}
+              </SelectItemText>
+              <span
+                v-if="option.description"
+                class="mt-0.5 block text-xs leading-5 text-muted-foreground"
+                >{{ option.description }}</span
+              >
+            </span>
             <SelectItemIndicator class="absolute right-2 inline-flex items-center">
               <Check class="size-4" />
             </SelectItemIndicator>

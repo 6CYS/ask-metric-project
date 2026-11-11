@@ -1,7 +1,7 @@
-import {describe, expect, it} from "vitest";
+import {describe, expect, it, vi} from "vitest";
 import type {AgentMessage} from "@earendil-works/pi-agent-core";
 import {safeWorkingHistory, workingMessages} from "../src/semantic-task/contextMemory.js";
-import type {BackendClient} from "../src/backendClient.js";
+import {BackendApiError, type BackendClient} from "../src/backendClient.js";
 import {MemoryCommandBridge, testRequestContext} from "../src/tools/testUtils.js";
 
 const usage = {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
@@ -64,5 +64,45 @@ describe("历史发送预算", () => {
     expect(calls).toEqual([["O1"]]);
     expect(safe[2]).toMatchObject({content: [{type: "text", text: "历史来源当前不可访问。"}]});
     expect(receipt.content).toEqual([{type: "text", text: "历史结果正文"}]);
+  });
+});
+
+describe("历史任务权限复核", () => {
+  const history = (resultId: string): AgentMessage[] => [user("原问题"), {
+    role: "toolResult", toolCallId: "previous", toolName: "metric_read", isError: false,
+    timestamp: 0, content: [{type: "text", text: "历史结果正文"}],
+    details: {kind: "metric_read", status: "succeeded", task_id: "task-1", result_id: resultId},
+  }, user("追问")];
+  const task = {task_id: "task-1", status: "SUCCEEDED", result: {result_id: "result-1"}};
+
+  it("同轮并发与后续调用复用任务查询，仍分别核对各回执的结果身份", async () => {
+    const getTask = vi.fn(async () => task);
+    const backend = {getTask} as unknown as BackendClient;
+    const request = testRequestContext(backend, new MemoryCommandBridge());
+    const correct = history("result-1");
+    const stale = history("result-old");
+    const [unavailable, available] = await Promise.all([
+      safeWorkingHistory(request, stale), safeWorkingHistory(request, correct),
+    ]);
+    expect(unavailable[1]).toMatchObject({content: [{type: "text", text: "历史来源当前不可访问。"}]});
+    expect(available).toEqual(correct);
+    expect(await safeWorkingHistory(request, correct)).toEqual(correct);
+    expect(getTask).toHaveBeenCalledExactlyOnceWith("task-1");
+
+    getTask.mockRejectedValueOnce(new BackendApiError(403, "历史任务访问已撤销"));
+    const next = testRequestContext(backend, new MemoryCommandBridge(), {requestId: "req-2", operationId: "op-2"});
+    const revoked = await safeWorkingHistory(next, correct);
+    expect(revoked[1]).toMatchObject({content: [{type: "text", text: "历史来源当前不可访问。"}]});
+    expect(getTask).toHaveBeenCalledTimes(2);
+  });
+
+  it("传播暂时性后端异常，并允许本轮下一次复核重新查询", async () => {
+    const unavailable = new BackendApiError(503, "复核服务暂不可用");
+    const getTask = vi.fn(async () => task).mockRejectedValueOnce(unavailable);
+    const request = testRequestContext({getTask} as unknown as BackendClient, new MemoryCommandBridge());
+    const messages = history("result-1");
+    await expect(safeWorkingHistory(request, messages)).rejects.toBe(unavailable);
+    expect(await safeWorkingHistory(request, messages)).toEqual(messages);
+    expect(getTask).toHaveBeenCalledTimes(2);
   });
 });

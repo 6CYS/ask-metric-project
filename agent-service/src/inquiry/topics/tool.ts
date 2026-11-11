@@ -6,6 +6,8 @@ import { analysisCandidates, catalogBindingView } from "../../analysis/bindings.
 import { BackendApiError } from "../../backendClient.js";
 import type { DateModelValue, ResolvedOrganizations } from "../../business-context/types.js";
 import { businessDate } from "../../business-context/resolvers.js";
+import { currentTurnMessages } from "../../tools/turnContract.js";
+import type { SelectedReportPlan } from "../reportFormat.js";
 import { currentInquiryTarget, inquiryDateCalendarSchema } from "../target.js";
 import { loadTopicRegistry, type TopicRegistry } from "./registry.js";
 import { knowledgeTopicRegistry, readKnowledgePlan } from "./knowledge.js";
@@ -123,6 +125,7 @@ export function createTopicQueryTool(
       let registry = configuredRegistry;
       let binding: Record<string, unknown> | undefined;
       let managedMissing: string[] = [];
+      let planVersion: string | undefined;
       if (!registry) {
         try {
           // 每次执行重验管理员开关，历史候选或旧复用回执不能恢复已停用的方案。
@@ -136,6 +139,7 @@ export function createTopicQueryTool(
             signal: context.abortSignal,
           });
           const compiled = knowledgeTopicRegistry(plan, binding, templates);
+          planVersion = plan.version;
           registry = compiled.registry;
           managedMissing = compiled.missing;
           if (!registry)
@@ -159,6 +163,27 @@ export function createTopicQueryTool(
       }
       const topic = registry.topics.find((item) => item.id === input.topic_id);
       if (!topic) return declined("TOPIC_NOT_FOUND", "主题不存在，使用默认能力处理该目标。");
+      const reportPlan = (evidence: Record<string, unknown>) => {
+        const orgCodes = Array.isArray(evidence.org_codes)
+          ? evidence.org_codes.filter((code): code is string => typeof code === "string" && !!code)
+          : [];
+        if (!topic.report_layout || !orgCodes.length) return {};
+        // 固定本次执行所选布局与真实机构，后续配置或补查不能改写已产生的快照。
+        const snapshot: SelectedReportPlan = structuredClone({
+          id: topic.id,
+          version: planVersion ?? registry.version,
+          text: topic.description,
+          report_layout: topic.report_layout,
+          org_codes: orgCodes,
+        });
+        return {
+          report_plan: snapshot,
+          report_delivery:
+            "使用analysis_answer.report交付：plan_id填report_plan.id，overview写经营摘要，" +
+            "sections按report_layout.sections顺序提交section_id与分析text。系统生成标题和正式事实表；" +
+            "补查沿用本方案，不替换章节或机构范围。",
+        };
+      };
       const key = createHash("sha256")
         .update(
           JSON.stringify({
@@ -169,11 +194,13 @@ export function createTopicQueryTool(
         )
         .digest("hex");
       const messages = (await request.turnMessages?.()) ?? [];
-      const prior = [...messages]
+      const prior = [...currentTurnMessages(messages)]
         .reverse()
         .find(
           (message) =>
             message.role === "toolResult" &&
+            message.toolName === "topic_query" &&
+            !message.isError &&
             record(record(message.details).topic_execution).key === key &&
             record(record(message.details).topic_execution).completed === true,
         );
@@ -183,6 +210,12 @@ export function createTopicQueryTool(
         const source = sources.find(
           (source) => string(record(source.evidence).run_ref) === receipt.run_ref,
         );
+        const priorExecution = record(receipt.topic_execution);
+        const scope = source
+          ? record(source.evidence)
+          : {
+              org_codes: receipt.org_codes ?? record(priorExecution.report_plan).org_codes,
+            };
         const body = {
           kind: "inquiry_query_reuse",
           status: "succeeded",
@@ -190,7 +223,7 @@ export function createTopicQueryTool(
           no_new_evidence: true,
           run_ref: receipt.run_ref,
           evidence_ref: source?.ref,
-          topic_execution: receipt.topic_execution,
+          topic_execution: { ...priorExecution, ...reportPlan(scope) },
           notice:
             "完整主题已执行，本次未取数或重复注入证据；使用原事实引用组织回答。缺数是已完成查询的结果，不是重试理由。",
         };
@@ -308,14 +341,19 @@ export function createTopicQueryTool(
             ...(input.date_calendar && !selectedDate ? { date_calendar: input.date_calendar } : {}),
           }
         : {};
-      const targetTime = request.inquiryTargetContext?.time_contract === 2
-        ? date
-          ? { time: {
-              expression: date,
-              ...(input.date_calendar && !selectedDate ? { calendar: input.date_calendar } : {}),
-            } }
-          : {}
-        : dateInput;
+      const targetTime =
+        request.inquiryTargetContext?.time_contract === 2
+          ? date
+            ? {
+                time: {
+                  expression: date,
+                  ...(input.date_calendar && !selectedDate
+                    ? { calendar: input.date_calendar }
+                    : {}),
+                },
+              }
+            : {}
+          : dateInput;
       const queryInput = {
         purpose: topic.name,
         metric_refs: metricRefs,
@@ -354,11 +392,27 @@ export function createTopicQueryTool(
       const result = await query.execute(id, queryInput, update, request, invocation, context);
       const details = record(result.details);
       if (details.kind === "inquiry_query_reuse") {
+        const sources = (await request.answerEvidence?.()) ?? [];
+        const source = sources.find(
+          (source) => record(source.evidence).run_ref === details.run_ref,
+        );
         const body = {
           ...details,
+          topic_execution: {
+            key,
+            topic_id: topic.id,
+            topic_name: topic.name,
+            version: registry.version,
+            completed: true,
+            ...reportPlan(record(source?.evidence)),
+          },
           notice: "主题所需证据已在本轮取得；复用原引用，不重复注入结果或重新取数。",
         };
-        return { ...result, content: [{ type: "text", text: JSON.stringify(body) }] };
+        return {
+          ...result,
+          content: [{ type: "text", text: JSON.stringify(body) }],
+          details: body,
+        };
       }
       if (details.kind !== "analysis_evidence" || details.status !== "succeeded") return result;
       const metricKeys = new Map(
@@ -387,6 +441,7 @@ export function createTopicQueryTool(
           ? "available_or_partial"
           : "no_data",
         no_retry_for_missing_data: true,
+        ...reportPlan(details),
       };
       const body = topicEvidenceView(details, `e${offset + 1}`, topic, registry);
       body.topic_execution = execution;

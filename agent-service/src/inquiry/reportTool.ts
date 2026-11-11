@@ -1,3 +1,4 @@
+import type { AnswerStreamPreview } from "../answerStream.js";
 import { selectReportSources } from "../analysis/reportSources.js";
 import { markPartialAnalysisReport } from "../tools/partialAnalysis.js";
 import { Type, type Static } from "@earendil-works/pi-ai";
@@ -18,23 +19,39 @@ import {
   expandFindingRefs,
   findingDependencies,
 } from "../analysis/verifiedFindings.js";
-import { reportChartHasNarrativeEvidence, reportChartSchema } from "../analysis/reportCharts.js";
-import { buildInquiryChart, latestInquiryChart } from "./chartTool.js";
+import {
+  reportChartHasNarrativeEvidence,
+  reportChartSchema,
+  type BusinessReportChart,
+} from "../analysis/reportCharts.js";
+import { layoutReportCharts } from "../analysis/reportChartLayout.js";
+import { buildInquiryChart, inquiryCharts } from "./chartTool.js";
 import { currentTurnMessages } from "../tools/turnContract.js";
 import { isInquiryCalculation, type InquiryCalculation } from "./calculationTool.js";
 import type { TimeAlternative } from "../business-context/types.js";
 import { currentInquiryTarget, inquiryTargetCoverage } from "./target.js";
+import { compileReportBody, selectedReportPlan, structuredReportSchema } from "./reportFormat.js";
 
 const parameters = Type.Object(
   {
-    body: Type.String({
-      minLength: 1,
-      // 包含引用坐标的传输长度；剥离协议后，正文仍由后端限制为 6000 字符。
-      maxLength: 24000,
-      description:
-        "自然回答原问题。精确数字使用{{e1.v1}}，最终显示该事实的数值和单位；机构、指标、日期按引用所属结果表述。{{e1.v1|cite}}只关联来源，不显示值，也不证明整句判断已经核验。可自然概括已有且口径确认的比例，不为措辞补查、计算或逐段重复引用；新增运算结果仍通过计算工具取得。先给业务结论，再用关键数据说明，不逐项抄表。缺数如实说明，口径未确认的比例暂不用于分析。",
-    }),
+    body: Type.Optional(
+      Type.String({
+        minLength: 1,
+        // 旧正文传输边界保持兼容；模板附表另有独立预算。
+        maxLength: 24000,
+        description:
+          "自然回答原问题。精确数字使用{{e1.v1}}，最终显示该事实的数值和单位；机构、指标、日期按引用所属结果表述。{{e1.v1|cite}}只关联来源，不显示值，也不证明整句判断已经核验。可自然概括已有且口径确认的比例，不为措辞补查、计算或逐段重复引用；新增运算结果仍通过计算工具取得。先给业务结论，再用关键数据说明，不逐项抄表。缺数如实说明，口径未确认的比例暂不用于分析。",
+      }),
+    ),
+    report: Type.Optional(structuredReportSchema),
     chart: Type.Optional(reportChartSchema),
+    charts: Type.Optional(
+      Type.Array(reportChartSchema, {
+        maxItems: 12,
+        description:
+          "按分析内容选择多张图，每张只引用真实数据。图表自动放在对应证据段落后；多个机构的多个指标会拆成独立小图。省略时按正文自动配图，空数组表示不配图。与旧chart参数二选一。",
+      }),
+    ),
   },
   { additionalProperties: false },
 );
@@ -112,14 +129,14 @@ export function createInquiryReportTool(): AgentHarnessTool<
     label: "回答业务问题",
     parameters,
     description:
-      "完成必要调查后依据真实结果交付自然正文，可同时选一张有助理解的图。来源自动采用本轮成功查询或已鉴权读取的结果；历史结果须先analysis_read。校验错误按所指问题修正，已有数据不重复查询，确实缺少依据时可定向补查。图表只引用现有结果，不提交手写数值。",
+      "完成必要调查后依据真实结果交付自然正文。本轮topic_execution.report_plan带report_layout时，使用report：plan_id填该方案id，overview写经营摘要，sections按配置顺序提交section_id与分析text；系统按配置生成标题、章节和正式事实对照表，无需模型抄表。数字仍使用{{ref}}。普通问数使用body；body与report只提交一种。可用charts同时选择多张有助理解的图，或省略以按章节自动配图。来源自动采用本轮成功查询或已鉴权读取的结果；历史结果须先analysis_read。校验错误按所指问题修正，已有数据不重复查询，确实缺少依据时可定向补查。图表只引用现有结果，不提交手写数值。",
     prepareArguments: (args) => {
       if (!args || typeof args !== "object" || Array.isArray(args))
         throw new Error("回答参数必须是对象。");
       // 兼容升级前尚未执行的调用；来源不再由模型重复筛选，其余参数仍交给原 schema 校验。
       const input = { ...(args as Record<string, unknown>) };
       delete input.evidence_refs;
-      return input as Static<typeof parameters>;
+      return input;
     },
     execute: (_id, input, _update, request, _invocation, context) =>
       executeInquiryReport(input, request, context.abortSignal),
@@ -133,8 +150,14 @@ async function prepareInquiryReport(
   options: { fallback?: boolean; preview?: boolean } = {},
 ) {
   const { fallback = false, preview = false } = options;
-  if (!input.body.trim())
+  if (!input.body?.trim() && !input.report)
     throw new BackendApiError(422, "请提交完整回答正文。", "ANALYSIS_REPORT_SUMMARY");
+  if (input.chart && input.charts !== undefined)
+    throw new BackendApiError(
+      422,
+      "请使用charts或兼容的chart参数之一提交图表。",
+      "ANALYSIS_REPORT_FORMAT",
+    );
   const turnEvidence = (await request.answerEvidence?.()) ?? [];
   const available = turnEvidence.filter(
     (item): item is Source =>
@@ -151,6 +174,13 @@ async function prepareInquiryReport(
   const needsTargetCoverage = Boolean(request.inquiryTargetContext && !request.inquiryAdmission);
   // 预览不选图或复查可用日期，仅目标覆盖检查需要消息；来源仍逐段交后端复核。
   const messages = !preview || needsTargetCoverage ? ((await request.turnMessages?.()) ?? []) : [];
+  if (input.body !== undefined && input.report !== undefined)
+    throw new NarrativeReferenceError("body与report只提交一种，避免丢失或重复正文。");
+  const reportPlan = selectedReportPlan(messages, input.report?.plan_id);
+  // 预览接收同一编译器已生成的累计正文，不再次附表。
+  const body = preview
+    ? (input.body ?? "")
+    : compileReportBody(input, reportPlan, available);
   const target = needsTargetCoverage
     ? currentInquiryTarget(messages, request.operationId)
     : undefined;
@@ -182,22 +212,38 @@ async function prepareInquiryReport(
     ),
   );
   const rawRef = (ref: string) => aliases.get(ref) ?? ref;
-  const narrative = normalizeReportNarrative({ body: input.body });
+  const narrative = normalizeReportNarrative({ body });
   const refs = [...new Set(narrativeEvidenceRefs(narrative.summary).map(rawRef))];
-  const prepared = input.chart || preview ? undefined : latestInquiryChart(messages);
-  const chartSelection = input.chart ?? prepared?.selection;
-  const chartRefs = chartSelection?.evidence_refs.map(rawRef) ?? [];
-  const preparedAvailable =
-    !prepared ||
-    (prepared.run_refs.every((ref) => available.some((item) => item.evidence.run_ref === ref)) &&
-      prepared.source_refs.every((ref) => known.has(ref)));
-  if ([...refs, ...(input.chart ? chartRefs : [])].some((ref) => !known.has(ref)))
+  const explicitSelections = input.charts ?? (input.chart ? [input.chart] : undefined);
+  const prepared = explicitSelections !== undefined || preview ? [] : inquiryCharts(messages);
+  const chartChoices =
+    explicitSelections !== undefined
+      ? explicitSelections.map((selection) => ({
+          selection: { ...selection, evidence_refs: selection.evidence_refs.map(rawRef) },
+          run_refs: [] as string[],
+        }))
+      : prepared;
+  const selections = chartChoices.map((choice) => ({
+    ...choice,
+    available:
+      choice.run_refs.every((ref) => available.some((item) => item.evidence.run_ref === ref)) &&
+      choice.selection.evidence_refs.every((ref) => known.has(ref)),
+  }));
+  if (refs.some((ref) => !known.has(ref)))
     throw new BackendApiError(
       422,
       "正文或图表包含不属于本轮成功来源的原子，请使用回执中的真实引用。",
       "ANALYSIS_REPORT_REFERENCE",
     );
-  const focusRefs = [...new Set([...refs, ...(preparedAvailable ? chartRefs : [])])];
+  // 无效选图只影响自身；有效图独有的来源仍必须进入最终后端鉴权。
+  const focusRefs = [
+    ...new Set([
+      ...refs,
+      ...selections
+        .filter((choice) => choice.available)
+        .flatMap((choice) => choice.selection.evidence_refs),
+    ]),
+  ];
   const referenced = new Set(focusRefs);
   const selectedCalculations = calculations.filter((item) =>
     item.evidence.evidence_items.some((atom) => referenced.has(atom.ref)),
@@ -292,7 +338,9 @@ async function prepareInquiryReport(
         .map((atom) => atom.ref),
     );
     // 当前查询与历史采用相同的显式选择；恢复不因取数集合较宽而扩展回答。
-    fallbackFocus.push(...[...referenced].filter(ref => !historyAtoms.has(ref) && !covered.has(ref)));
+    fallbackFocus.push(
+      ...[...referenced].filter((ref) => !historyAtoms.has(ref) && !covered.has(ref)),
+    );
   }
   // 服务端重读不可变运行并校验权限、来源、范围、数字、单位和日期。
   const payload = {
@@ -320,12 +368,63 @@ async function prepareInquiryReport(
     payload,
     refs,
     usable,
-    prepared,
-    preparedAvailable,
-    chartSelection,
+    // 计算结果随身份提交后端核验，但没有绘图维度；自动选图仅忽略这些结果引用，保留父事实。
+    calculationAtomRefs: new Set(
+      selectedCalculations.flatMap(({ evidence }) =>
+        evidence.evidence_items.map((atom) => atom.ref),
+      ),
+    ),
+    selections,
+    automaticCharts: explicitSelections === undefined && !prepared.length,
     runRefs,
     targetCoverage,
+    reportPlan: reportPlan ?? null,
   };
+}
+
+type PreviewBodyEvidence = { paragraph: number; evidence_refs: string[] };
+
+/** 流式参数未闭合时只编译已形成的字段，仍由原预览接口核验引用与权限。 */
+export async function compileInquiryReportDraft(
+  input: Record<string, unknown>,
+  request: AskMetricRequestContext,
+  ended: boolean,
+): Promise<string | undefined> {
+  if (input.report === undefined) return typeof input.body === "string" ? input.body : undefined;
+  const [messages, evidence] = await Promise.all([
+    request.turnMessages?.() ?? [],
+    request.answerEvidence?.() ?? [],
+  ]);
+  const report =
+    input.report && typeof input.report === "object"
+      ? (input.report as Record<string, unknown>)
+      : {};
+  if (typeof report.plan_id !== "string") return;
+  const plan = selectedReportPlan(messages, report.plan_id);
+  // 完整回执尚未进入上下文时等待，不将未完成参数降级为业务正文。
+  if (!plan) return;
+  return compileReportBody({ report: input.report }, plan, evidence, ended);
+}
+
+/** 旧后端可只返回文字；仅接受与本次渲染段落一一对应的来源映射。 */
+function previewBodyEvidence(value: unknown, text: string): PreviewBodyEvidence[] | undefined {
+  const count = text.split(/\n\s*\n/u).filter((part) => part.trim()).length;
+  if (!Array.isArray(value) || value.length !== count) return;
+  const entries: PreviewBodyEvidence[] = [];
+  for (const [index, item] of (value as unknown[]).entries()) {
+    if (
+      !item ||
+      typeof item !== "object" ||
+      !("paragraph" in item) ||
+      item.paragraph !== index + 1 ||
+      !("evidence_refs" in item) ||
+      !Array.isArray(item.evidence_refs) ||
+      !item.evidence_refs.every((ref: unknown): ref is string => typeof ref === "string" && !!ref)
+    )
+      return;
+    entries.push({ paragraph: index + 1, evidence_refs: item.evidence_refs });
+  }
+  return entries;
 }
 
 /** 每个观察流独立保存已核验前缀；后端仍逐次鉴权，正式报告不复用预览结果。 */
@@ -338,16 +437,20 @@ export function createInquiryReportPreview() {
         context: string;
         summary: string;
         text: string;
+        bodyEvidence: PreviewBodyEvidence[] | undefined;
       }
     | undefined;
   return async (
     body: string,
     request: AskMetricRequestContext,
     signal?: AbortSignal,
-  ): Promise<string | null | undefined> => {
+  ): Promise<AnswerStreamPreview | null | undefined> => {
     try {
       signal?.throwIfAborted();
-      const { payload } = await prepareInquiryReport({ body }, request, { preview: true });
+      const { payload, refs, usable, calculationAtomRefs, reportPlan } =
+        await prepareInquiryReport({ body }, request, {
+          preview: true,
+        });
       const { summary, ...sources } = payload;
       const context = JSON.stringify(sources);
       // 来源、历史焦点和计算依赖变化会影响前文核验，必须回到全文。
@@ -376,6 +479,36 @@ export function createInquiryReportPreview() {
         const text = reusable
           ? reusable.text + "\n\n" + details.preview_text
           : details.preview_text;
+        const deltaEvidence = previewBodyEvidence(details.body_evidence, details.preview_text);
+        const bodyEvidence =
+          deltaEvidence && (!reusable || reusable.bodyEvidence)
+            ? [
+                ...(reusable?.bodyEvidence ?? []),
+                ...deltaEvidence.map((item) => ({
+                  ...item,
+                  paragraph: item.paragraph + (reusable?.bodyEvidence?.length ?? 0),
+                })),
+              ]
+            : undefined;
+        let result: AnswerStreamPreview = text;
+        if (bodyEvidence) {
+          const report = { summary: text, body_evidence: bodyEvidence };
+          const generated = await buildInquiryChart(
+            usable,
+            undefined,
+            request,
+            (verifiedNarrativeRefs(report, refs) ?? []).filter(
+              (ref) => !calculationAtomRefs.has(ref),
+            ),
+            signal,
+            reportPlan,
+          );
+          result = { text, charts: layoutReportCharts(generated.charts, report, true) };
+        } else if (previous?.bodyEvidence) {
+          // 映射中途不可用时明确撤下旧图，避免旧图继续附着于无法定位的新正文。
+          result = { text, charts: [] };
+        }
+        signal?.throwIfAborted();
         previous = {
           operationId: request.operationId,
           callSeq: request.answerStream?.callSeq,
@@ -383,8 +516,9 @@ export function createInquiryReportPreview() {
           context,
           summary,
           text,
+          bodyEvidence,
         };
-        return text;
+        return result;
       }
       // 响应契约异常不是正文确定性错误，留给观察器按服务失败处理。
       throw new Error("Invalid report preview response");
@@ -434,11 +568,12 @@ export async function executeInquiryReport(
       payload,
       refs,
       usable,
-      prepared,
-      preparedAvailable,
-      chartSelection,
+      calculationAtomRefs,
+      selections,
+      automaticCharts,
       runRefs,
       targetCoverage,
+      reportPlan,
     } = await prepareInquiryReport(input, request, { fallback });
     let details = await request.backend.analysisReport(
       fallback
@@ -457,13 +592,57 @@ export async function executeInquiryReport(
     )
       throw new Error("INVALID_ANALYSIS_REPORT");
     const verifiedRefs = verifiedNarrativeRefs(details.report, refs) ?? [];
-    const preparedInScope =
-      preparedAvailable && (!prepared || prepared.run_refs.every((ref) => runRefs.includes(ref)));
-    const generated =
-      chartSelection &&
-      (!preparedInScope || !reportChartHasNarrativeEvidence(usable, chartSelection, verifiedRefs))
-        ? { charts: [], notice: "所选图表与本次回答的数据范围或指标口径不一致，暂未展示。" }
-        : await buildInquiryChart(usable, chartSelection, request, verifiedRefs, signal);
+    const charts: BusinessReportChart[] = [];
+    const chartNotices = new Set<string>();
+    if (automaticCharts) {
+      const generated = await buildInquiryChart(
+        usable,
+        undefined,
+        request,
+        verifiedRefs.filter((ref) => !calculationAtomRefs.has(ref)),
+        signal,
+        reportPlan,
+      );
+      charts.push(...generated.charts);
+      if (generated.notice) chartNotices.add(generated.notice);
+    } else {
+      for (const choice of selections) {
+        if (
+          !choice.available ||
+          !choice.run_refs.every((ref) => runRefs.includes(ref)) ||
+          !reportChartHasNarrativeEvidence(usable, choice.selection, verifiedRefs)
+        ) {
+          chartNotices.add("所选图表与本次回答的数据范围或指标口径不一致，暂未展示。");
+          continue;
+        }
+        const generated = await buildInquiryChart(
+          usable,
+          choice.selection,
+          request,
+          verifiedRefs,
+          signal,
+        );
+        if (!generated.charts.length && choice.selection.type === "grouped_bar") {
+          // 来源与正文关联已通过；只重排本次选中的真实点，不扩取正文其他指标或机构。
+          const recovered = await buildInquiryChart(
+            usable,
+            undefined,
+            request,
+            choice.selection.evidence_refs,
+            signal,
+            reportPlan,
+          );
+          if (recovered.charts.length) {
+            charts.push(...recovered.charts);
+            chartNotices.add("分组图无法直接比较，已按可比数据分别展示。");
+            continue;
+          }
+        }
+        charts.push(...generated.charts);
+        if (generated.notice) chartNotices.add(generated.notice);
+      }
+    }
+    const notice = [...chartNotices].join("\n\n");
     const report = details.report as Record<string, unknown>;
     const gaps = Array.isArray(details.gaps) ? Array.from<unknown>(details.gaps) : [];
     if (targetCoverage && !targetCoverage.complete) {
@@ -480,7 +659,7 @@ export async function executeInquiryReport(
     const reportSummary =
       typeof report.summary === "string" ? report.summary : details.public_answer;
     let publicAnswer = details.public_answer;
-    if (generated.notice) publicAnswer += `\n\n${generated.notice}`;
+    if (notice) publicAnswer += `\n\n${notice}`;
     const timeAlternatives = currentTimeAlternatives(usable, request);
     delete details.time_variants;
     details = {
@@ -488,14 +667,19 @@ export async function executeInquiryReport(
       public_answer: publicAnswer,
       ...(targetCoverage ? { target_coverage: targetCoverage, gaps } : {}),
       ...(timeAlternatives.length ? { time_variants: timeAlternatives } : {}),
-      ...(generated.notice ? { partial_analysis: true, gaps: [...gaps, generated.notice] } : {}),
+      ...(notice ? { partial_analysis: true, gaps: [...gaps, ...chartNotices] } : {}),
       report: {
         ...report,
-        charts: generated.charts,
-        ...(generated.notice ? { summary: `${reportSummary}\n\n${generated.notice}` } : {}),
+        charts,
+        ...(notice ? { summary: `${reportSummary}\n\n${notice}` } : {}),
       },
     };
     if (fallback) details = markPartialAnalysisReport(details, "corrections_exhausted");
+    const finalReport = details.report as Record<string, unknown>;
+    details = {
+      ...details,
+      report: { ...finalReport, charts: layoutReportCharts(charts, finalReport, automaticCharts) },
+    };
     return {
       content: [{ type: "text" as const, text: details.public_answer as string }],
       details,

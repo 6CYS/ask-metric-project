@@ -72,9 +72,9 @@ class AnalysisReportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     run_refs: list[str] = Field(min_length=1, max_length=REPORT_SOURCE_LIMIT)
     context_run_refs: list[str] = Field(default_factory=list, max_length=REPORT_SOURCE_LIMIT)
-    focus_refs: list[str] = Field(default_factory=list, max_length=80)
+    focus_refs: list[str] = Field(default_factory=list)
     calculation_refs: list[CalculationReference] = Field(default_factory=list, max_length=16)
-    summary: str = Field(default="", max_length=6000)
+    summary: str = Field(default="", max_length=32000)
     fact_bindings: list[ReportFactBinding] = Field(default_factory=list, max_length=300)
     sections: list[ReportSection] = Field(default_factory=list, max_length=12)
     planning_gaps: list[str] = Field(default_factory=list, max_length=12)
@@ -626,7 +626,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
         return refs
 
     def render(text, references=None, location="主要判断", used_refs=None):
-        def reject_number(value: str) -> NoReturn:
+        def reject_number(value: str, *, unbound_table: bool = False) -> NoReturn:
             raise ApplicationError(
                 "ANALYSIS_REPORT_NUMBER",
                 f"{location}的结构化展示值与引用不一致：{value}。"
@@ -635,6 +635,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
                 "{{ref|cite}}仅关联依据，不能使不匹配或未经计算的数值通过核验。"
                 "保留已正确的内容，只修正所指出的数值表达。",
                 status_code=422,
+                details={"reason": "unbound_table"} if unbound_table else None,
             )
 
         refs = validate_references(text, references)
@@ -667,7 +668,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
                         and matches_quantity(quantity[0], atoms[ref]["display"])
                     ]
                     if not matching:
-                        reject_number(quantity[0])
+                        reject_number(quantity[0], unbound_table=not refs)
                 label = re.fullmatch(
                     r"(?:排名|名次|序号)(?:[（(](前序|后序)[）)])?", plain_cell(column[0])
                 )
@@ -766,6 +767,8 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
         validate_references(section.title)
         validate_references(section.text, section.evidence_refs)
     repaired: NarrativeCoverage | None = None
+    omitted_tables: list[ApplicationError] = []
+    table_notice = "这张表未能核对数据来源，已核验的结果见数据明细。"
     empty_inquiry = (
         request.fallback
         and any(source.get("execution_mode") == "inquiry" for source in sources)
@@ -781,12 +784,19 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             repaired = fact_narrative(sources, exact_run_refs=context_refs)
             paragraphs = []
             for recovered_paragraph in repaired["paragraphs"]:
-                recovered_refs = sorted(expanded_refs(recovered_paragraph["evidence_refs"]))
-                paragraphs.append(render(recovered_paragraph["text"], recovered_refs or None))
-                summary_refs.update(recovered_refs)
-                body_evidence.append(
-                    {"paragraph": len(paragraphs), "evidence_refs": recovered_refs}
+                validate_references(
+                    recovered_paragraph["text"], recovered_paragraph["evidence_refs"]
                 )
+                # 恢复块可能同时包含标题与表格，按实际正文段落绑定各自出现的依据。
+                for paragraph in re.split(r"\n\s*\n", recovered_paragraph["text"]):
+                    if not paragraph.strip():
+                        continue
+                    recovered_refs: set[str] = set()
+                    paragraphs.append(render(paragraph, used_refs=recovered_refs))
+                    summary_refs.update(recovered_refs)
+                    body_evidence.append(
+                        {"paragraph": len(paragraphs), "evidence_refs": sorted(recovered_refs)}
+                    )
             summary, sections = "\n\n".join(paragraphs), []
     else:
         if not request.summary:
@@ -795,13 +805,23 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             )
         failures = []
 
-        def validate_render(text, references=None, location="主要判断", used_refs=None):
+        def validate_render(
+            text, references=None, location="主要判断", used_refs=None, *, recover_table=False
+        ):
             try:
                 return render(text, references, location, used_refs)
             except ApplicationError as error:
+                if recover_table and error.details == {"reason": "unbound_table"}:
+                    rows = list(report_table_rows(text))
+                    if rows and len(rows) + 2 == len(text.strip().splitlines()):
+                        omitted_tables.append(error)
+                        return table_notice
                 failures.append(error)
                 return ""
 
+        recover_table = not request.preview and all(
+            source.get("execution_mode") == "inquiry" for source in sources
+        )
         paragraphs = []
         for paragraph in re.split(r"\n\s*\n", request.summary):
             if not paragraph.strip():
@@ -809,7 +829,8 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             paragraph_refs: set[str] = set()
             paragraphs.append(
                 validate_render(
-                    paragraph, location=f"正文第{len(paragraphs) + 1}段", used_refs=paragraph_refs
+                    paragraph, location=f"正文第{len(paragraphs) + 1}段", used_refs=paragraph_refs,
+                    recover_table=recover_table,
                 )
             )
             summary_refs.update(paragraph_refs)
@@ -817,6 +838,14 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
                 {"paragraph": len(paragraphs), "evidence_refs": sorted(paragraph_refs)}
             )
         summary = "\n\n".join(paragraphs)
+        # 只有另有可独立交付的事实正文时，才略去完全无引用的附表。表格本身仍须逐格核验。
+        if omitted_tables and not any(
+            paragraph.strip()
+            and any(atoms[ref]["type"] in {"fact", "calculation"} for ref in item["evidence_refs"])
+            and not any(report_table_rows(paragraph))
+            for paragraph, item in zip(paragraphs, body_evidence, strict=True)
+        ):
+            failures.extend(omitted_tables)
         sections = []
         for section in request.sections:
             section_refs: set[str] = set()
@@ -844,6 +873,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             "kind": "analysis_report_preview",
             "status": "succeeded",
             "preview_text": summary,
+            "body_evidence": body_evidence,
         }
     # 原始子问题不会因最后一次补查缩小而消失；报告必须实际引用各子问题的证据。
     for rendered_section in sections:
@@ -950,6 +980,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             for item in [
                 *(item for source in coverage_sources for item in source["gaps"]),
                 *request.planning_gaps,
+                *([table_notice] if omitted_tables else []),
                 *(
                     f"尚未完成：{item['question']}。"
                     for item in requirement_coverage
@@ -1081,6 +1112,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
         "analysis_protocol": "general-analysis-v1",
         "public_answer": answer,
         "partial_analysis": bool(request.fallback and current and context_refs)
+        or bool(omitted_tables)
         or bool(request.planning_gaps)
         or bool(unconfirmed_codes)
         or bool(repaired and repaired["missing_count"])
@@ -1096,7 +1128,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             for source in coverage_sources
         )
         or any(item["status"] != "covered" for item in requirement_coverage),
-        "narrative_repaired": bool(repaired),
+        "narrative_repaired": bool(repaired or omitted_tables),
         "run_refs": [source["run_ref"] for source in coverage_sources],
         "evidence_view": {"kind": "focused_reuse", "focus_refs": request.focus_refs}
         if reuse_view

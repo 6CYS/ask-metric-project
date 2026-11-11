@@ -120,6 +120,7 @@ export class EvaluationService {
   private readonly persistenceFailures = new Map<string, EvaluationRun>();
   private readonly sessionIds = new Map<string, Set<string>>();
   private readonly loadedSessionOwners = new Set<string>();
+  private readonly deletingOwners = new Set<string>();
   constructor(
     private readonly store: EvaluationStore,
     private readonly client: SessionEvaluationClient,
@@ -137,6 +138,61 @@ export class EvaluationService {
   }
   updateDataset(userId: string, id: string, version: number, input: unknown): EvaluationDataset {
     return this.store.updateDataset(userId, id, version, input);
+  }
+  deleteDataset(userId: string, id: string, version: number): void {
+    this.store.deleteDataset(userId, id, version);
+  }
+
+  async deleteRun(userId: string, token: string, id: string): Promise<void> {
+    const run = this.getRun(userId, id);
+    if (run.status === "running" || run.status === "cancelling" || activeBatch?.run.id === id)
+      throw new EvaluationError(
+        409,
+        "EVALUATION_RUN_ACTIVE",
+        "请先停止测评并确认停止完成，再删除批次",
+      );
+    if (this.deletingOwners.has(userId))
+      throw new EvaluationError(409, "EVALUATION_DELETE_BUSY", "已有批次正在删除，请稍后重试");
+
+    const retainedSessions = new Set(
+      this.store
+        .listRuns(userId)
+        .filter((item) => item.id !== id)
+        .flatMap((item) =>
+          item.turns.flatMap((turn) => (turn.session_id ? [turn.session_id] : [])),
+        ),
+    );
+    const sessions = [
+      ...new Set(run.turns.flatMap((turn) => (turn.session_id ? [turn.session_id] : []))),
+    ].filter((sessionId) => !retainedSessions.has(sessionId));
+    // 先持久化删除意图；部分清理或进程中断后仍保留会话归属，不能恢复为完整测评结果。
+    run.status = "deleting";
+    this.store.saveRun(userId, run);
+    this.deletingOwners.add(userId);
+    try {
+      const deadline = AbortSignal.timeout(25_000);
+      for (const sessionId of sessions) {
+        deadline.throwIfAborted();
+        await this.client.deleteSession(token, sessionId, deadline);
+        // 逐项保存清理进度，重启或超时后只继续剩余会话，避免重复请求耗尽预算。
+        for (const turn of run.turns) {
+          if (turn.session_id === sessionId) turn.session_id = null;
+        }
+        this.store.saveRun(userId, run);
+        this.sessionIds.get(userId)?.delete(sessionId);
+      }
+      this.store.deleteRun(userId, id);
+    } catch (error) {
+      if (error instanceof BackendApiError && (error.status === 401 || error.status === 403))
+        throw error;
+      throw new EvaluationError(
+        error instanceof BackendApiError && error.status === 409 ? 409 : 503,
+        "EVALUATION_DELETE_INCOMPLETE",
+        "批次删除未完成，部分记录可能已清理。请稍后继续删除；已清理的内容无法恢复。",
+      );
+    } finally {
+      this.deletingOwners.delete(userId);
+    }
   }
   listRuns(userId: string): EvaluationRun[] {
     if ([...this.persistenceFailures.values()].some((run) => run.actor.id === userId))
@@ -418,6 +474,12 @@ export class EvaluationService {
     turnId: string,
   ): Promise<EvaluationTurnDetail> {
     const run = this.getRun(userId, runId);
+    if (run.status === "deleting")
+      throw new EvaluationError(
+        409,
+        "EVALUATION_DELETING",
+        "该批次已开始删除，不能再查看或复核依据",
+      );
     const turn = findTurn(run, turnId);
     // 只保存执行身份；正文必须通过当前令牌重新授权读取正式会话投影。
     const messages =
@@ -429,6 +491,12 @@ export class EvaluationService {
 
   reviewTurn(user: BackendUser, runId: string, turnId: string, value: unknown): EvaluationTurn {
     const stored = this.getRun(user.id, runId);
+    if (stored.status === "deleting")
+      throw new EvaluationError(
+        409,
+        "EVALUATION_DELETING",
+        "该批次已开始删除，不能再查看或复核依据",
+      );
     const run =
       activeBatch?.service === this && activeBatch.run.id === runId ? activeBatch.run : stored;
     const turn = findTurn(run, turnId);

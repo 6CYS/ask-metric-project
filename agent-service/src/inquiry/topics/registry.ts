@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Type, type Static } from "@earendil-works/pi-ai";
 import { Check } from "typebox/value";
+import { reportLayoutSchema, validReportLayout } from "../reportFormat.js";
 
 const keys = Type.Array(Type.String({ minLength: 1 }), {
   minItems: 1,
@@ -37,6 +38,7 @@ const schema = Type.Object({
       id: Type.String({ minLength: 1 }),
       name: Type.String({ minLength: 1 }),
       description: Type.String({ minLength: 1 }),
+      report_layout: Type.Optional(reportLayoutSchema),
       metric_keys: keys,
       core_keys: keys,
       rank_keys: keys,
@@ -65,6 +67,7 @@ export function validateTopicRegistry(value: unknown): TopicRegistry {
   for (const topic of value.topics) {
     if (
       ids.has(topic.id) ||
+      (topic.report_layout !== undefined && !validReportLayout(topic.report_layout)) ||
       topic.metric_keys.length > value.limits.max_metrics ||
       topic.rank_keys.length * value.limits.rank_n > value.limits.max_focus_orgs ||
       topic.metric_keys.some((key) => !value.metrics[key]) ||

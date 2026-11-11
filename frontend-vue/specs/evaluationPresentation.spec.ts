@@ -8,6 +8,20 @@ import EvaluationRunList from "../src/components/evaluation/EvaluationRunList.vu
 import { runFixture, reportEvidenceFixture } from "./evaluationFixtures"
 
 describe("测评正文与业务复核展示", () => {
+  it("删除未完成批次保留继续删除入口，停止展示可复核结果", async () => {
+    const run = runFixture({ status: "deleting" })
+    const html = await renderToString(
+      createSSRApp(EvaluationRunPanel as Component, {
+        run,
+        selectedTurnId: "",
+        busy: false,
+      }),
+    )
+    expect(html).toContain("删除未完成")
+    expect(html).toContain("继续删除")
+    expect(html).not.toContain("查看并复核")
+    expect(html).not.toContain("新建批次重跑")
+  })
   it("问题集空态不预置业务题目", async () => {
     const html = await renderToString(
       createSSRApp(EvaluationDatasetPanel as Component, { datasets: [], busy: false }),

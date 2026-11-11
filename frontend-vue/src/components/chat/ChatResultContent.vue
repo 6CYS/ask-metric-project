@@ -10,12 +10,13 @@ import BaseDisclosure from "@/components/ui/BaseDisclosure.vue"
 import BaseSelect from "@/components/ui/BaseSelect.vue"
 import ListPagination from "@/components/ListPagination.vue"
 import ChatMarkdown from "@/components/chat/ChatMarkdown.vue"
-import type { ChatResponse } from "@/types/api"
+import type { BusinessReportChart, ChatResponse } from "@/types/api"
 import { exportBackendNextTaskResult } from "@/lib/api"
 import { clarificationTranscript } from "@/lib/conversationMessages"
 import { copyText } from "@/lib/clipboard"
 import { flattenAssistantBlocks } from "@/lib/assistantText"
 import { blocksToMarkdown } from "@/lib/assistantMarkdown"
+import { layoutReportCharts, reportChartKey } from "@/lib/reportChartLayout"
 import { paginateResultRows, RESULT_PAGE_SIZE_OPTIONS, resultTotalPages } from "@/lib/resultPagination"
 import {
   formatResultTableValue,
@@ -36,6 +37,7 @@ const props = withDefaults(defineProps<{
   response?: ChatResponse
   pending?: boolean
   provisionalText?: string
+  provisionalCharts?: BusinessReportChart[]
   fallbackText?: string
   question?: string
   clarificationResolved?: boolean
@@ -150,13 +152,26 @@ const hasDataToolbar = computed(() => props.showDataDetails && answerStreamCompl
   && Boolean(response.value.result?.table) && hasResultRows.value)
 // 版本化报告按语义区块展示；旧消息与普通查数仍沿用原来的正文路径。
 const analysisReport = computed(() => answerStreamComplete.value ? response.value.analysis_report : undefined)
+const reportContent = computed(() => props.pending && props.provisionalText
+  ? layoutReportCharts({ summary: props.provisionalText, sections: [], charts: props.provisionalCharts })
+  : analysisReport.value ? layoutReportCharts(analysisReport.value) : undefined)
+// 流式前缀和无分节终态共用同一图文列表，位置修正时只移动图表，不重新挂载。
+const summaryParts = computed(() => {
+  const content = reportContent.value
+  if (!content) return []
+  return content.sections.length ? content.summary : [
+    ...content.summary,
+    ...content.trailingCharts.map(chart => ({ kind: "chart" as const, key: reportChartKey(chart), chart })),
+  ]
+})
+const trailingReportCharts = computed(() => reportContent.value?.sections.length ? reportContent.value.trailingCharts : [])
 const narrativeReport = computed(() => analysisReport.value?.body_mode === "narrative")
 const bodyMarkdown = computed(() => props.pending ? props.provisionalText ?? ""
   : analysisReport.value?.summary ?? (props.response ? answerMarkdown.value : props.fallbackText))
 const showBody = computed(() => showAnswer.value && (!props.pending || Boolean(props.provisionalText)))
 const bodyClass = computed(() => analysisReport.value
-  ? ["space-y-3", narrativeReport.value ? "leading-7" : "rounded-lg border border-border/70 bg-muted/20 p-4"]
-  : props.pending ? "leading-7"
+  ? ["report-flow", narrativeReport.value ? "leading-7" : "rounded-lg border border-border/70 bg-muted/20 p-4"]
+  : props.pending ? "report-flow leading-7"
     : props.response ? "group/answer relative space-y-1.5 break-words leading-7 pr-9" : "leading-6")
 // 自然报告的复制与明细入口共享一行，避免空正文容器撑开间距、悬浮按钮压到入口上。
 const copyInDataToolbar = computed(() => narrativeReport.value && showAnswer.value
@@ -255,13 +270,19 @@ async function copyAnswer() {
   <div class="flex min-w-0 flex-col gap-3">
     <!-- 正文始终位于同一父节点；预览、普通回答和自然报告只切换来源及现有样式。 -->
     <section v-show="showBody" :style="reportBlockStyle(analysisReport ? 'summary' : 'analysis')" :class="bodyClass" :aria-label="analysisReport ? '经营分析结论' : undefined" :aria-live="!pending && response.answer && !analysisReport ? 'polite' : undefined" :data-provisional-answer="pending && provisionalText ? '' : undefined">
-      <h3 v-if="analysisReport && !narrativeReport" class="font-semibold">{{ reportLabel('summary', '主要结论') }}</h3>
-      <p v-if="analysisReport" class="break-words text-xs leading-6 text-muted-foreground">{{ analysisReport.scope }}</p>
+      <h3 v-if="analysisReport && !narrativeReport" data-report-block="h3" class="font-semibold">{{ reportLabel('summary', '主要结论') }}</h3>
+      <p v-if="analysisReport" data-report-block="p" class="break-words text-xs leading-6 text-muted-foreground">{{ analysisReport.scope }}</p>
       <BaseDisclosure v-if="!analysisReport && response.analysis_plan?.length" class="mb-3 rounded-md border bg-muted/30 px-3 py-2 text-sm" trigger-class="font-medium">
         <template #trigger>分析思路</template>
         <ul class="mt-2 list-disc space-y-1 pl-5"><li v-for="question in [...new Set(response.analysis_plan)]" :key="question">{{ question }}</li></ul>
       </BaseDisclosure>
-      <ChatMarkdown :source="bodyMarkdown" :class="!pending && !props.response && 'leading-6'" />
+      <template v-if="reportContent">
+        <template v-for="part in summaryParts" :key="part.key">
+          <ChatMarkdown v-if="part.kind === 'markdown'" :tokens="part.tokens" :data-report-block="part.block" />
+          <ChatResultChart v-else :report="part.chart" data-report-block="chart" />
+        </template>
+      </template>
+      <ChatMarkdown v-else :source="bodyMarkdown" :class="!pending && !props.response && 'leading-6'" />
       <span v-if="pending && provisionalText || !answerStreamComplete" class="inline-block h-4 w-0.5 animate-pulse rounded-full bg-[#52789C] align-middle" aria-hidden="true" />
       <BaseTooltip v-if="!pending && props.response && !analysisReport && answerStreamComplete && answerMarkdown" :content="isAnswerCopied ? '已复制' : '复制回答'"><button type="button" class="absolute -top-1 right-0 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button></BaseTooltip>
     </section>
@@ -321,14 +342,17 @@ async function copyAnswer() {
     </div>
 
 
-    <div v-if="showAnswer && analysisReport && (!copyInDataToolbar || analysisReport.sections.length || analysisReport.charts?.length)" :style="reportBlockStyle('analysis')" class="group/answer relative space-y-1.5 break-words leading-7" :class="!copyInDataToolbar && 'pr-9'" aria-live="polite">
+    <div v-if="showAnswer && analysisReport && (!copyInDataToolbar || analysisReport.sections.length || trailingReportCharts.length)" :style="reportBlockStyle('analysis')" class="report-flow group/answer relative break-words leading-7" :class="!copyInDataToolbar && 'pr-9'" aria-live="polite">
       <template v-if="analysisReport">
-        <section v-for="(section, index) in analysisReport.sections" :key="index" class="mb-5 space-y-2" :aria-label="section.title">
-          <h3 class="font-semibold">{{ section.title }}</h3>
-          <ChatMarkdown :source="section.text" />
+        <section v-for="(section, index) in analysisReport.sections" :key="index" class="report-flow" data-report-block="section" :aria-label="section.title">
+          <h3 class="font-semibold" data-report-block="h3">{{ section.title }}</h3>
+          <template v-for="part in reportContent?.sections[index] ?? []" :key="part.key">
+            <ChatMarkdown v-if="part.kind === 'markdown'" :tokens="part.tokens" :data-report-block="part.block" />
+            <ChatResultChart v-else :report="part.chart" data-report-block="chart" />
+          </template>
         </section>
-        <ChatResultChart v-for="chart in analysisReport.charts ?? []" :key="chart.source_refs.join('|')"
-          :pie="chart.type === 'pie' ? chart : undefined" :series="chart.type !== 'pie' ? chart : undefined" />
+        <ChatResultChart v-for="chart in trailingReportCharts" :key="reportChartKey(chart)"
+          :report="chart" data-report-block="chart" />
         <!-- 必要限制由正文说明；来源、分析依据与完成状态保留在回执中，不额外渲染卡片。 -->
       </template>
       <BaseTooltip v-if="answerStreamComplete && answerMarkdown && !copyInDataToolbar" :content="isAnswerCopied ? '已复制' : '复制回答'"><button type="button" class="absolute -top-1 right-0 flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-40 transition-all hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30" :aria-label="isAnswerCopied ? '回答已复制' : '复制回答'" @click="copyAnswer"><Check v-if="isAnswerCopied" class="size-3.5 text-emerald-600" /><Copy v-else class="size-3.5" /></button></BaseTooltip>
@@ -341,3 +365,62 @@ async function copyAnswer() {
     <div v-if="showDebugButton && response.debug"><BaseButton variant="outline" size="sm" @click="emit('debug')"><Bug />详细调试信息</BaseButton></div>
   </div>
 </template>
+
+<style scoped>
+/* 报告块的外距只由此处负责；相邻块按较大外距合并，避免图表和正文重复留白。 */
+.report-flow {
+  display: flow-root;
+}
+
+.report-flow > [data-report-block] {
+  margin-block: 0 12px;
+}
+
+.report-flow > [data-report-block="h1"],
+.report-flow > [data-report-block="h2"] {
+  margin-block: 24px 10px;
+}
+
+.report-flow > [data-report-block="h3"] {
+  margin-block: 18px 8px;
+}
+
+.report-flow > [data-report-block="h4"],
+.report-flow > [data-report-block="h5"],
+.report-flow > [data-report-block="h6"] {
+  margin-block: 16px 7px;
+}
+
+.report-flow > [data-report-block="table"] {
+  margin-block: 14px 20px;
+}
+
+.report-flow > [data-report-block="ul"],
+.report-flow > [data-report-block="ol"] {
+  margin-block: 6px 14px;
+}
+
+.report-flow > [data-report-block="blockquote"] {
+  margin-block: 16px;
+}
+
+.report-flow > [data-report-block="section"] {
+  margin-block-start: 18px;
+}
+
+.report-flow > [data-report-block]:first-child {
+  margin-block-start: 0;
+}
+
+.report-flow > [data-report-block]:not(:has(~ [data-report-block])) {
+  margin-block-end: 0;
+}
+
+.report-flow > .chat-markdown :deep(> :first-child) {
+  margin-block-start: 0;
+}
+
+.report-flow > .chat-markdown :deep(> :last-child) {
+  margin-block-end: 0;
+}
+</style>

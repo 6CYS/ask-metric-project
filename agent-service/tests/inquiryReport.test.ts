@@ -10,6 +10,7 @@ import {
   createInquiryReportTool,
   executeInquiryReport,
   createInquiryReportPreview,
+  compileInquiryReportDraft,
 } from "../src/inquiry/reportTool.js";
 import {
   MAX_INVESTIGATION_CALLS,
@@ -123,6 +124,62 @@ const failedAnswer: AgentMessage = {
     error_code: "ANALYSIS_REPORT_NUMBER",
   },
 };
+
+describe("已执行查询方案的结构报告", () => {
+  it("流式与正式交付编译相同章节和带单位的事实引用，且普通body不借上轮布局", async () => {
+    const test = harness();
+    const user: AgentMessage = { role: "user", content: "比较甲乙", timestamp: 1 };
+    const receipt: AgentMessage = {
+      role: "toolResult",
+      toolName: "topic_query",
+      toolCallId: "topic",
+      timestamp: 2,
+      content: [],
+      isError: false,
+      details: {
+        topic_execution: {
+          completed: true,
+          report_plan: {
+            id: "finance",
+            version: "v1",
+            text: "方案说明",
+            org_codes: ["A", "B"],
+            report_layout: {
+              title: "经营对比",
+              sections: [
+                { id: "profit", title: "盈利分析", metric_codes: ["P"], table: true },
+                { id: "advice", title: "经营建议", metric_codes: [], table: false },
+              ],
+            },
+          },
+        },
+      },
+    };
+    test.request.turnMessages = () => Promise.resolve([user, receipt]);
+    const input = {
+      report: {
+        plan_id: "finance",
+        overview: "利润需要关注。",
+        sections: [
+          { section_id: "profit", text: "甲行变化{{e1.v1}}。" },
+          { section_id: "advice", text: "建议核实变动原因。" },
+        ],
+      },
+      charts: [],
+    };
+    const draft = await compileInquiryReportDraft(input, test.request, false);
+    expect(draft).toContain("| 净利润较同期 | 2026-08-27 | {{run-1.f1}} | {{run-1.f2}} |");
+    const final = await compileInquiryReportDraft(input, test.request, true);
+    await executeInquiryReport(input, test.request);
+    expect(test.analysisReport.mock.calls[0]?.[0].summary).toBe(
+      final?.replace("{{e1.v1}}", "{{run-1.f1}}"),
+    );
+    expect(test.analysisReport.mock.calls[0]?.[0].summary).not.toContain("丙行");
+    test.request.turnMessages = () => Promise.resolve([user, receipt, user]);
+    await executeInquiryReport({ body: "甲行{{e1.v1}}。", charts: [] }, test.request);
+    expect(test.analysisReport.mock.calls[1]?.[0].summary).toBe("甲行{{run-1.f1}}。");
+  });
+});
 
 describe("正文与参考查询的范围分离", () => {
   it("本轮独立补查仅在正文引用时作为背景进入报告", async () => {
@@ -433,6 +490,62 @@ describe("问数正文预览复用报告来源转换", () => {
     expect(await executeInquiryReport({ body: "甲行{{e1.v1}}。" }, test.request)).toMatchObject({
       terminate: true,
       details: { status: "succeeded", public_answer: answer },
+    });
+    expect(turnMessages).toHaveBeenCalledOnce();
+  });
+
+  it("带来源映射的普通预览不因自动选图额外读取历史", async () => {
+    const test = harness();
+    const turnMessages = vi
+      .fn<() => Promise<AgentMessage[]>>()
+      .mockRejectedValue(new Error("无关历史读取暂不可用"));
+    test.request.turnMessages = turnMessages;
+    test.analysisReport.mockResolvedValueOnce({
+      ...previewResponse,
+      body_evidence: [{ paragraph: 1, evidence_refs: ["run-1.f1"] }],
+    });
+    expect(await createInquiryReportPreview()("甲行{{e1.v1}}。", test.request)).toEqual({
+      text: previewResponse.preview_text,
+      charts: [],
+    });
+    expect(turnMessages).not.toHaveBeenCalled();
+  });
+
+  it("分组图失败后的单图恢复仍复用已解析方案，不再次读取历史", async () => {
+    const evidence = source();
+    const profits = evidence.evidence_items.slice(0, 2);
+    evidence.metric_descriptors.push({
+      binding_ref: "m2", code: "Q", name: "费用较同期", unit: "万元", value_basis: "yoy",
+    });
+    evidence.evidence_items = [...profits, ...profits.map((atom, index) => ({
+      ...atom,
+      ref: `run-1.q${index + 1}`,
+      metric_code: "Q",
+      metric_name: "费用较同期",
+      unit: "万元",
+      display: `${atom.value}万元`,
+    }))];
+    const test = harness([{ ref: "e1", evidence }]);
+    const turnMessages = vi.fn<() => Promise<AgentMessage[]>>().mockResolvedValue([]);
+    test.request.turnMessages = turnMessages;
+    test.analysisReport.mockResolvedValueOnce({
+      kind: "business_report",
+      status: "succeeded",
+      public_answer: "已核验正文。",
+      report: {
+        summary: "已核验正文。",
+        sections: [],
+        body_evidence: [{ paragraph: 1, evidence_refs: ["run-1.f1", "run-1.q1"] }],
+      },
+    });
+    const result = await executeInquiryReport({
+      body: "甲行利润{{e1.v1}}，费用{{e1.v3}}。",
+      charts: [{
+        type: "grouped_bar", evidence_refs: evidence.evidence_items.map(atom => atom.ref),
+      }],
+    }, test.request);
+    expect(result).toMatchObject({
+      details: { report: { charts: [{ type: "bar" }, { type: "bar" }] } },
     });
     expect(turnMessages).toHaveBeenCalledOnce();
   });
@@ -1568,7 +1681,7 @@ describe("普通调查的事实回答出口", () => {
     },
   );
 
-  it.each(["body", "chart"])("%s的未知引用不能在事实兜底中被忽略", async (selection) => {
+  it.each(["body", "chart"])("事实兜底分别处理%s的未知引用，不能将其作为事实展示", async (selection) => {
     const test = harness();
     const result = await executeInquiryReport(
       {
@@ -1581,8 +1694,15 @@ describe("普通调查的事实回答出口", () => {
       undefined,
       true,
     );
-    expect(result).toHaveProperty("details.error_code", "ANALYSIS_REPORT_REFERENCE");
-    expect(test.analysisReport).not.toHaveBeenCalled();
+    if (selection === "body") {
+      expect(result).toHaveProperty("details.error_code", "ANALYSIS_REPORT_REFERENCE");
+      expect(test.analysisReport).not.toHaveBeenCalled();
+    } else {
+      expect(result).toHaveProperty("details.status", "succeeded");
+      expect(result).toHaveProperty("details.report.charts", []);
+      expect(result).toHaveProperty("details.partial_analysis", true);
+      expect(test.analysisReport.mock.calls[0]?.[0]).toMatchObject({ focus_refs: ["run-1.f1"] });
+    }
   });
 
   it("事实兜底未核验图表依据时不从失败草稿补回配图", async () => {
@@ -1813,15 +1933,18 @@ describe("普通调查的事实回答出口", () => {
     expect(test.queryMetric).not.toHaveBeenCalled();
   });
 
-  it("图表也不能引用当前来源外的原子", async () => {
+  it("拒绝图表的外部原子时保留已核验正文并说明缺口", async () => {
     const test = harness();
     const result: unknown = await runTool(
       createInquiryReportTool(),
       { body: "甲行{{e1.v1}}。", chart: { type: "bar", evidence_refs: ["e1.v1", "foreign.f1"] } },
       test.request,
     );
-    expect(result).toHaveProperty("details.error_code", "ANALYSIS_REPORT_REFERENCE");
-    expect(test.analysisReport).not.toHaveBeenCalled();
+    expect(result).toHaveProperty("details.status", "succeeded");
+    expect(result).toHaveProperty("details.report.charts", []);
+    expect(result).toHaveProperty("details.partial_analysis", true);
+    expect(result).toHaveProperty("details.public_answer", expect.stringContaining(answer));
+    expect(test.analysisReport.mock.calls[0]?.[0]).toMatchObject({ run_refs: ["run-1"] });
   });
 });
 

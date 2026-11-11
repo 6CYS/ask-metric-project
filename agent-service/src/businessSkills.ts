@@ -23,6 +23,10 @@ export async function loadBusinessSkills(root = fileURLToPath(new URL("../skills
   } finally { await env.cleanup(BACKGROUND_CONTEXT); }
 }
 
+export function inquiryBusinessSkills(skills: readonly Skill[]): Skill[] {
+  return skills.filter(skill => skill.name === "inquiry-analysis");
+}
+
 /** 本服务提供按名称查阅的可选业务知识，不使用面向文件工具的必读指令。 */
 export function businessKnowledgeCatalog(skills: readonly Skill[]): string {
   const catalog = skills.filter(skill => !skill.disableModelInvocation)
@@ -73,17 +77,16 @@ export function projectBusinessSkillContext(messages: readonly AgentMessage[], s
   };
 }
 
-export function createBusinessSkillReadTool(skills: Skill[]): AgentHarnessTool<AskMetricRequestContext, typeof readParameters> {
-  const approved = new Map(skills.map(skill => [skill.name, skill]));
+export function createBusinessSkillReadTool(skills: readonly Skill[]): AgentHarnessTool<AskMetricRequestContext, typeof readParameters> {
   return {
     name: "business_skill_read", label: "读取业务知识",
     description: "用途：按目录名称查阅相关业务判断，包括指标查询口径、记录覆盖、公式计算和能力边界。可组合参考；当前上下文已有正文无需重读。详细参数及合法值以工具/能力Schema为准。读取只提供知识，不查询数据、不启用或切换工具，也不是执行业务目标的前置步骤。",
     parameters: readParameters,
-    execute: async (_id, params) => {
-      const skill = approved.get(params.name as string);
-      return skill
+    execute: (_id, params, _onUpdate, request) => {
+      const skill = (request.businessSkills ?? skills).find(item => item.name === params.name);
+      return Promise.resolve(skill
         ? { content: [{type: "text", text: skill.content}], details: {kind: "business_skill_read", status: "ok", name: skill.name} }
-        : { content: [{type: "text", text: "该业务方法未注册，请使用目录中的名称。"}], details: {kind: "business_skill_read", status: "error"} };
+        : { content: [{type: "text", text: "该业务方法未注册，请使用目录中的名称。"}], details: {kind: "business_skill_read", status: "error"} });
     },
   };
 }

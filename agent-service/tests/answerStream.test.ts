@@ -50,6 +50,45 @@ const tick = async () => {
   await Promise.resolve();
 };
 
+describe("结构化报告流式编译", () => {
+  it("使用可选编译器逐节交付完整表格，并保留旧body路径", async () => {
+    const sent: AnswerStreamData[] = [];
+    const compile = vi.fn((args: Record<string, unknown>) => {
+      const report = args.report as { ready: boolean };
+      return Promise.resolve(
+        report.ready
+          ? "# 报告\n\n摘要。\n\n## 盈利\n\n| 指标 | 值 |\n| --- | --- |\n| 利润 | {{f1}} |\n\n## 建议\n\n继续核实。"
+          : "# 报告\n\n摘要。",
+      );
+    });
+    const projector = new AnswerStreamProjector(
+      (_type, data) => sent.push(data),
+      (body) => Promise.resolve(body),
+      compile,
+    );
+    const event = (ready: boolean) =>
+      update("", false, [
+        {
+          type: "toolCall",
+          id: "answer",
+          name: "analysis_answer",
+          arguments: { report: { ready } },
+        },
+      ]);
+    projector.onWatchEvent(event(false), mode);
+    await tick();
+    projector.onWatchEvent(event(true), mode);
+    await tick();
+    const latest = sent.at(-1);
+    expect(latest && "text" in latest ? latest.text : "").toContain("| 利润 | {{f1}} |");
+    expect(compile).toHaveBeenCalledTimes(2);
+    projector.onWatchEvent(draft("普通回答。", true), { ...mode, callSeq: 2 });
+    await tick();
+    expect(sent.at(-1)).toMatchObject({ text: "普通回答。" });
+    expect(compile).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("回答完整片段", () => {
   it("普通句子不等空行，末尾分片引用仍等待，最终正文不用补空行", () => {
     expect(completeAnswerPrefix("余额{{e1.v1}}。\n\n结构{{e1.", false)).toBe("余额{{e1.v1}}。");
@@ -621,6 +660,117 @@ describe("预览失败恢复", () => {
       "answer_reset",
       "answer_delta",
     ]);
+    projector.close();
+  });
+});
+
+describe("图文原子预览事件", () => {
+  const charts = [
+    {
+      type: "bar" as const,
+      title: "余额",
+      unit: "元",
+      dates: ["2026-08-31"],
+      source_refs: ["a", "b"],
+      points: [
+        { name: "甲", value: "1", display: "1元" },
+        { name: "乙", value: "2", display: "2元" },
+      ],
+      placement: { after_paragraph: 1 },
+    },
+  ];
+
+  it("完整句核验后即发送累计正文与图，后续只变图集也不会被文字去重吞掉", async () => {
+    const send = vi.fn<(type: string, data: AnswerStreamData) => void>();
+    const render = vi
+      .fn()
+      .mockResolvedValueOnce({ text: "余额已确认。", charts })
+      .mockResolvedValueOnce({ text: "余额已确认。", charts: [] });
+    const projector = new AnswerStreamProjector(send, render);
+    projector.onWatchEvent(draft("余额{{a}}和{{b}}。"), mode);
+    await tick();
+    expect(send).toHaveBeenLastCalledWith("answer_delta", {
+      call_seq: 1,
+      mode: "text",
+      text: "余额已确认。",
+      charts,
+    });
+    projector.onWatchEvent(draft("余额{{a}}和{{b}}。\n\n说明。"), mode);
+    await tick();
+    expect(send).toHaveBeenLastCalledWith("answer_delta", {
+      call_seq: 1,
+      mode: "text",
+      text: "余额已确认。",
+      charts: [],
+    });
+    expect(send).toHaveBeenCalledTimes(2);
+    projector.close();
+  });
+
+  it("相同图文结果不重复发送，retry撤回后可重新发送相同图", async () => {
+    const send = vi.fn<(type: string, data: AnswerStreamData) => void>();
+    const render = vi.fn().mockResolvedValue({ text: "余额已确认。", charts });
+    const projector = new AnswerStreamProjector(send, render);
+    projector.onWatchEvent(draft("余额{{a}}和{{b}}。"), mode);
+    await tick();
+    projector.onWatchEvent(draft("余额{{a}}和{{b}}。\n\n说明。"), mode);
+    await tick();
+    expect(send).toHaveBeenCalledTimes(1);
+    projector.retry(1);
+    expect(send).toHaveBeenLastCalledWith("answer_reset", { call_seq: 1, reason: "retry" });
+    projector.onWatchEvent(draft("余额{{a}}和{{b}}。"), mode);
+    await tick();
+    expect(send).toHaveBeenLastCalledWith("answer_delta", {
+      call_seq: 1,
+      mode: "text",
+      text: "余额已确认。",
+      charts,
+    });
+    projector.close();
+  });
+
+  it("已发布图文之后权限失效撤回整份预览", async () => {
+    const send = vi.fn<(type: string, data: AnswerStreamData) => void>();
+    const render = vi
+      .fn()
+      .mockResolvedValueOnce({ text: "余额已确认。", charts })
+      .mockRejectedValueOnce(new BackendApiError(403, "禁止访问", "FORBIDDEN"));
+    const projector = new AnswerStreamProjector(send, render);
+    projector.onWatchEvent(draft("余额{{a}}和{{b}}。"), mode);
+    await tick();
+    expect(send).toHaveBeenCalledOnce();
+    projector.onWatchEvent(draft("余额{{a}}和{{b}}。\n\n说明。"), mode);
+    await tick();
+    expect(send).toHaveBeenLastCalledWith("answer_reset", { call_seq: 1, reason: "error" });
+    projector.close();
+  });
+
+  it("正式工具开始后不再发送晚到图文", async () => {
+    const send = vi.fn<(type: string, data: AnswerStreamData) => void>();
+    let complete!: (value: { text: string; charts: typeof charts }) => void;
+    const projector = new AnswerStreamProjector(
+      send,
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    projector.onWatchEvent(draft("余额{{a}}和{{b}}。"), mode);
+    projector.onWatchEvent(
+      {
+        type: "tool_start",
+        lane: "main",
+        runId: "run",
+        turnId: "t",
+        toolCallId: "c",
+        toolName: "analysis_answer",
+        args: {},
+      },
+      mode,
+    );
+    complete({ text: "余额已确认。", charts });
+    await tick();
+    expect(send).not.toHaveBeenCalled();
     projector.close();
   });
 });

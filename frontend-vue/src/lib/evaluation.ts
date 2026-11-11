@@ -15,6 +15,7 @@ export const runStatusLabels: Record<RunStatus, string> = {
   failed: "执行失败",
   cancelled: "已停止",
   interrupted: "已中断",
+  deleting: "删除未完成",
 }
 export const turnStatusLabels: Record<TurnStatus, string> = {
   pending: "待执行",

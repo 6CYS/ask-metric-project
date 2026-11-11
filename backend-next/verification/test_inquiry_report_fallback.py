@@ -69,6 +69,24 @@ def test_inquiry_fallback_delivers_all_ranked_facts_without_reusing_rejected_cla
     assert source == original
 
 
+@pytest.mark.parametrize("position", ["top", "bottom"])
+def test_ranked_fallback_binds_table_evidence_to_its_actual_paragraph(position):
+    source = ranked_inquiry(position)
+
+    result = report("", source=source, fallback=True)
+
+    paragraphs = result["report"]["summary"].split("\n\n")
+    assert len(paragraphs) == 3
+    assert paragraphs[0].startswith("**各项存款余额当日数**")
+    assert paragraphs[1].startswith("**按已确认排序列示")
+    assert paragraphs[2].startswith("| 机构 | 指标值 |\n|---|---|\n")
+    assert result["report"]["body_evidence"] == [
+        {"paragraph": 1, "evidence_refs": []},
+        {"paragraph": 2, "evidence_refs": []},
+        {"paragraph": 3, "evidence_refs": sorted(atom["ref"] for atom in source["evidence_items"])},
+    ]
+
+
 def test_inquiry_factual_fallback_preserves_existing_nonranking_delivery():
     source = evidence()
     expected = report("", source=source, fallback=True)["report"]["summary"]

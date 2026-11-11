@@ -49,7 +49,7 @@ import {
   type QuestionState,
 } from "@/lib/agentApi"
 import { getBackendTaskResult } from "@/lib/api"
-import type { BackendNextClarification, ChatResponse, TimeVariant } from "@/types/api"
+import type { BackendNextClarification, BusinessReportChart, ChatResponse, TimeVariant } from "@/types/api"
 import { useAuth } from "@/composables/useAuth"
 import { useQueryReadiness } from "@/composables/useQueryReadiness"
 import { copyText } from "@/lib/clipboard"
@@ -93,6 +93,7 @@ type DisplayMessage = {
   /** 仅实时展示，不参与正式回答、复制、导出或存档。 */
   provisionalContent?: string
   provisionalCallSeq?: number
+  provisionalCharts?: BusinessReportChart[]
   /** 本轮已展示的失败说明，快照和收尾事件不得重复追加。 */
   failureNotice?: string
   response?: ChatResponse
@@ -1470,7 +1471,7 @@ function pendingAnswer(chatMessage: DisplayMessage): string | undefined {
                   <ChatResultContent :response="{ ...chatMessage.response, answer: '', answer_blocks: undefined }" :question="questionForMessage(chatMessage)" />
                 </div>
                 <CalculationResult v-for="(calculation, index) in chatMessage.calculations" :key="calculation.calculation_id ?? index" :calculation="calculation" />
-                <ChatResultContent :response="chatMessage.response" :pending="chatMessage.status === 'pending'" :provisional-text="pendingAnswer(chatMessage)" :fallback-text="chatMessage.content" :show-data-details="!(chatMessage.queryResults && chatMessage.queryResults.length > 1) && !chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)">
+                <ChatResultContent :response="chatMessage.response" :pending="chatMessage.status === 'pending'" :provisional-text="pendingAnswer(chatMessage)" :provisional-charts="chatMessage.provisionalCharts" :fallback-text="chatMessage.content" :show-data-details="!(chatMessage.queryResults && chatMessage.queryResults.length > 1) && !chatMessage.calculations?.some(item => item.status === 'succeeded')" :clarification-resolved="!chatMessage.clarification" :question="questionForMessage(chatMessage)">
                   <template v-if="chatMessage.status !== 'pending' && chatMessage.querySqlReferences?.length" #actions>
                     <QuerySqlButton :references="chatMessage.querySqlReferences" />
                   </template>

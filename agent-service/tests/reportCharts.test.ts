@@ -39,7 +39,7 @@ function metricComparisonSource(valueBasis = "当日数") {
 describe("报告图表从已核验原子取数", () => {
   it.each(["当日数", "较年初"])("同机构同日同单位的多指标%s柱图不依赖主题配置", valueBasis => {
     const result = buildReportChart([metricComparisonSource(valueBasis)], {type: "bar", evidence_refs: ["e1.v1", "e1.v2"]});
-    expect(result.charts).toEqual([{type: "bar", title: "指标比较", unit: "元", dates: ["2026-08-27"],
+    expect(result.charts).toEqual([{type: "bar", category_kind: "metric", title: "指标比较", unit: "元", dates: ["2026-08-27"],
       source_refs: ["r.f1", "r.f2"], points: [
         {name: "测试M1", value: "-5", display: "-5元"},
         {name: "测试M2", value: "5", display: "5元"},
@@ -81,10 +81,10 @@ describe("报告图表从已核验原子取数", () => {
   });
   it("同指标同日跨机构自动柱图保留负值与精确展示值", () => {
     const result = buildReportChart([source()]);
-    expect(result.charts[0]).toMatchObject({type: "bar", title: "测试存款", unit: "元", dates: ["2026-08-27"],
+    expect(result.charts[0]).toMatchObject({type: "bar", category_kind: "organization", title: "测试存款", unit: "元", dates: ["2026-08-27"],
       points: [{name: "甲行", value: "-5", display: "-5元"}, {name: "乙行", value: "5", display: "5元"}, {name: "丙行", value: "15", display: "15元"}]});
   });
-  it("360条混合事实只按正文顺序选择首组足够的同类引用，不截取全部来源", () => {
+  it("360条混合事实只按正文引用生成足够的可比组，不截取全部来源", () => {
     const input = mixedSource();
     const result = buildReportChart([input], undefined, "分析业务表现", ["e1.v61", "e1.v3", "e1.v1", "e1.v5", "e1.v121"]);
     expect(result.charts).toHaveLength(1);
@@ -93,9 +93,10 @@ describe("报告图表从已核验原子取数", () => {
         {name: "测试机构2", value: "-8.123400"}, {name: "测试机构0", value: "-10.123400"}, {name: "测试机构4", value: "-6.123400"},
       ]});
   });
-  it("正文多组均可成图时按首个引用顺序选组，显式选图仍优先", () => {
+  it("正文多组均可成图时按首个引用顺序保留全部组，显式选图仍优先", () => {
     const input = mixedSource(), refs = ["e1.v61", "e1.v1", "e1.v2", "e1.v3", "e1.v63", "e1.v65"];
     expect(buildReportChart([input], undefined, "", refs).charts[0]?.source_refs).toEqual(["r.m1.f0", "r.m1.f2", "r.m1.f4"]);
+    expect(buildReportChart([input], undefined, "", refs).charts[1]?.source_refs).toEqual(["r.m0.f0", "r.m0.f1", "r.m0.f2"]);
     expect(buildReportChart([input], {type: "bar", evidence_refs: ["e1.v1", "e1.v2"]}, "", refs)
       .charts[0]?.source_refs).toEqual(["r.m0.f0", "r.m0.f1"]);
   });
@@ -116,7 +117,8 @@ describe("报告图表从已核验原子取数", () => {
     expect(buildReportChart([{...input, evidence}], undefined, "", refs).charts[0]?.source_refs).toEqual(["r.f1", "r.f2", "r.f3"]);
     expect(buildReportChart([{...input, evidence}], {type: "bar", evidence_refs: refs}).charts).toEqual([]);
     input.evidence.evidence_items[1]!.value = "";
-    expect(buildReportChart([{...input, evidence}], undefined, "", refs).charts).toEqual([]);
+    expect(buildReportChart([{...input, evidence}], undefined, "", refs).charts)
+      .toMatchObject([{type: "bar", source_refs: ["r.f1", "r.f3"]}]);
   });
   it("正文重复引用同一事实或相同坐标同值时只保留第一次的精度", () => {
     const input = source();
@@ -138,7 +140,8 @@ describe("报告图表从已核验原子取数", () => {
   it("重复来源的同一引用值冲突后，旧短引用也不能保留原值绘图", () => {
     const conflicting = source(); conflicting.ref = "e2"; conflicting.evidence.evidence_items[0]!.value = "-6";
     const refs = ["e1.v1", "e1.v2", "e1.v3"];
-    expect(buildReportChart([source(), conflicting], undefined, "", refs).charts).toEqual([]);
+    expect(buildReportChart([source(), conflicting], undefined, "", refs).charts)
+      .toMatchObject([{type: "bar", source_refs: ["r.f2", "r.f3"]}]);
     expect(buildReportChart([source(), conflicting], {type: "bar", evidence_refs: refs}).charts).toEqual([]);
   });
   it("同一引用跨来源数值写法不同但等值时仍复用首份事实", () => {
@@ -152,16 +155,17 @@ describe("报告图表从已核验原子取数", () => {
       comparison: ["mom", "yoy", "ytd"][i]}))};
     expect(buildReportChart([{...input, evidence}], undefined, "", ["e1.v1", "e1.v2", "e1.v3"]).charts).toEqual([]);
   });
-  it("正文引用同机构真实时序可生成折线，多机构多日期混合不生成", () => {
+  it("正文引用按机构生成真实时序，剩余两期可成图且不混入另一机构", () => {
     const input = mixedSource();
     input.evidence.evidence_items.slice(0, 3).forEach((atom, i) => {
       atom.org_code = "O0"; atom.org_name = "测试机构0"; atom.date = ["2026-08-27", "2026-06-27", "2026-07-27"][i]!;
     });
     const refs = ["e1.v1", "e1.v2", "e1.v3"];
-    expect(buildReportChart([input], undefined, "", refs).charts[0]).toMatchObject({type: "line", title: "测试指标1",
+    expect(buildReportChart([input], undefined, "", refs).charts[0]).toMatchObject({type: "line", category_kind: "time", title: "测试指标1",
       dates: ["2026-06-27", "2026-07-27", "2026-08-27"], source_refs: ["r.m0.f1", "r.m0.f2", "r.m0.f0"]});
     input.evidence.evidence_items[1]!.org_code = "O1";
-    expect(buildReportChart([input], undefined, "", refs).charts).toEqual([]);
+    expect(buildReportChart([input], undefined, "", refs).charts)
+      .toMatchObject([{type: "line", source_refs: ["r.m0.f2", "r.m0.f0"]}]);
   });
   it("跨回执的同机构同指标实际日期仍可形成趋势", () => {
     const sources = ["2026-08-27", "2026-06-27", "2026-07-27"].map((date, i) => {
@@ -197,26 +201,24 @@ describe("报告图表从已核验原子取数", () => {
         points: [{name: "甲行", value: "-5", display: "-5元"}, {name: "乙行", value: "5", display: "5元"}]});
     expect(buildReportChart([input], {type: "bar", evidence_refs: ["e1.v1", "e1.v2"]}).charts).toHaveLength(1);
   });
-  it("两机构的多指标正文自动选一个可比组，不混画全部指标或替换无效显式选择", () => {
+  it("两机构的多指标正文与显式选择均按指标独立成图", () => {
     const input = mixedSource(), refs = ["e1.v121", "e1.v122", "e1.v61", "e1.v62", "e1.v1", "e1.v2"];
     expect(buildReportChart([input], undefined, "对比经营情况", refs).charts[0])
       .toMatchObject({type: "bar", source_refs: ["r.m2.f0", "r.m2.f1"]});
-    expect(buildReportChart([input], {type: "bar", evidence_refs: refs}, "对比经营情况", refs))
-      .toMatchObject({charts: [], notice: expect.any(String)});
+    expect(buildReportChart([input], {type: "bar", evidence_refs: refs}, "对比经营情况", refs).charts
+      .map(chart => chart.source_refs)).toEqual([["r.m2.f0", "r.m2.f1"], ["r.m1.f0", "r.m1.f1"], ["r.m0.f0", "r.m0.f1"]]);
   });
-  it("多机构多指标选点只提示可比指标名称，不暴露内部引用或参数", () => {
+  it("多机构多指标选点拆为正式指标小图，不再要求模型重新选择", () => {
     const input = mixedSource(), refs = ["e1.v1", "e1.v61", "e1.v2", "e1.v62"];
     const result = buildReportChart([input], {type: "bar", evidence_refs: refs});
-    expect(result.charts).toEqual([]);
-    expect(result.notice).toBe("不同机构可以比较；当前同时选择了多个指标和多个机构，跨机构柱图每次只选一个指标。可选择：测试指标1、测试指标2。");
-    for (const [name, evidence_refs] of [["测试指标1", ["r.m0.f0", "r.m0.f1"]],
-      ["测试指标2", ["r.m1.f0", "r.m1.f1"]]] as const) {
-      expect(result.notice).toContain(name);
-      expect(buildReportChart([input], {type: "bar", evidence_refs: [...evidence_refs]}).charts).toHaveLength(1);
-    }
+    expect(result.charts.map(chart => ({title: chart.title, refs: chart.source_refs}))).toEqual([
+      {title: "测试指标1", refs: ["r.m0.f0", "r.m0.f1"]},
+      {title: "测试指标2", refs: ["r.m1.f0", "r.m1.f1"]},
+    ]);
+    expect(result.notice).toBeUndefined();
   });
   it.each(["date", "unit", "period", "missing", "unknown", "incomplete_group"])(
-    "多机构多指标的%s错误不能被误报为可重选的单系列限制", mode => {
+    "多机构多指标的%s错误不能通过拆图绕过", mode => {
       const input = mixedSource(), refs = ["e1.v1", "e1.v61", "e1.v2", "e1.v62"];
       if (mode === "date") input.evidence.evidence_items[60]!.date = "2026-07-31";
       if (mode === "unit") input.evidence.evidence_items[60]!.unit = "万元";
@@ -226,13 +228,14 @@ describe("报告图表从已核验原子取数", () => {
       if (mode === "incomplete_group") refs.pop();
       const result = buildReportChart([input], {type: "bar", evidence_refs: refs});
       expect(result.charts).toEqual([]);
-      expect(result.notice).not.toContain("跨机构柱图每次只选一个指标");
+      expect(result.notice).toBeTruthy();
     });
-  it("两期趋势仍需显式选图，不因双机构自动柱图放开而默认配线图", () => {
+  it("同机构同指标的两个真实日期可自动或显式绘制趋势", () => {
     const input = source(); input.evidence.evidence_items.pop();
     input.evidence.evidence_items[1] = {...input.evidence.evidence_items[1]!, org_code: "O0", org_name: "甲行", date: "2026-07-31"};
     const refs = ["e1.v1", "e1.v2"];
-    expect(buildReportChart([input], undefined, "查看变化", refs).charts).toEqual([]);
+    expect(buildReportChart([input], undefined, "查看变化", refs).charts[0])
+      .toMatchObject({type: "line", dates: ["2026-07-31", "2026-08-27"]});
     expect(buildReportChart([input], {type: "line", evidence_refs: refs}).charts[0])
       .toMatchObject({type: "line", dates: ["2026-07-31", "2026-08-27"]});
   });
@@ -247,7 +250,7 @@ describe("报告图表从已核验原子取数", () => {
       org_code: "O1", org_name: "甲行", date: ["2026-08-27", "2026-06-27", "2026-07-27"][i]!}));
     const chart = buildReportChart([input]).charts[0];
     expect(chart).toMatchObject({type: "line", dates: ["2026-06-27", "2026-07-27", "2026-08-27"]});
-    expect(chart?.points.map(point => point.value)).toEqual(["5", "15", "-5"]);
+    expect(chart?.type === "line" ? chart.points.map(point => point.value) : undefined).toEqual(["5", "15", "-5"]);
   });
   it.each(["mixed_date", "mixed_unit", "missing", "unknown_ratio", "duplicate", "failed"])("%s 不生成误导图表", mode => {
     const input = source();
@@ -257,7 +260,9 @@ describe("报告图表从已核验原子取数", () => {
     if (mode === "unknown_ratio") input.evidence.evidence_items.forEach(atom => {atom.unit = "%";});
     if (mode === "duplicate") input.evidence.evidence_items[1]!.org_code = "O0";
     if (mode === "failed") input.evidence.status = "failed";
-    expect(buildReportChart([input]).charts).toEqual([]);
+    if (mode === "mixed_date" || mode === "mixed_unit" || mode === "missing")
+      expect(buildReportChart([input]).charts).toMatchObject([{source_refs: ["r.f1", "r.f3"], dates: ["2026-08-27"], unit: "元"}]);
+    else expect(buildReportChart([input]).charts).toEqual([]);
     expect(buildReportChart([input], {type: "bar", evidence_refs: ["e1.v1", "e1.v2", "e1.v3"]}).charts).toEqual([]);
   });
   it("专项可选个人/对公同基期差额，不把余额或不同基期混入比较", () => {
@@ -282,7 +287,8 @@ describe("报告图表从已核验原子取数", () => {
     expect(buildReportChart([input]).charts).toEqual([]);
     const encoded = {...input, evidence: {...input.evidence,
       metric_descriptors: input.evidence.metric_descriptors.map(metric => ({...metric, value_encoding: "ratio"}))}};
-    expect(buildReportChart([encoded]).charts[0]?.points).toEqual([
+    const chart = buildReportChart([encoded]).charts[0];
+    expect(chart?.type === "bar" ? chart.points : undefined).toEqual([
       {name: "甲行", value: "12.3400", display: "12.34%"},
       {name: "乙行", value: "12.3400", display: "12.34%"},
       {name: "丙行", value: "12.3400", display: "12.34%"},

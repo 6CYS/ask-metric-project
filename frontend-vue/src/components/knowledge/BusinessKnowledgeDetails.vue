@@ -42,6 +42,19 @@ const metricByCode = computed(
           item.enabled ? "已启用" : "已停用"
         }}</BaseBadge>
       </div>
+      <div v-if="isPlan && item.report_layout" class="space-y-2">
+        <h4 class="text-sm font-medium">报告输出结构</h4>
+        <p class="break-words text-sm leading-6">报告标题：{{ item.report_layout.title }}</p>
+        <ol class="space-y-1 text-sm leading-6">
+          <li>经营摘要</li>
+          <li v-for="section in item.report_layout.sections" :key="section.id" class="break-words">
+            {{ section.title }}（{{ section.table ? "包含事实对照表" : "不含事实对照表" }}）
+          </li>
+        </ol>
+        <p class="text-xs leading-5 text-muted-foreground">
+          章节顺序与数据表由输出配置生成；说明文字提供分析指导。数据表只展示本次已取得的可用数据。
+        </p>
+      </div>
       <div class="space-y-2">
         <h4 class="text-sm font-medium">{{ isPlan ? "适用场景与查询说明" : "知识内容" }}</h4>
         <p class="whitespace-pre-wrap break-words text-sm leading-6">{{ item.text }}</p>

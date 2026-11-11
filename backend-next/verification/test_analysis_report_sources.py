@@ -112,6 +112,87 @@ def test_context_source_capacity_matches_report_capacity(mode):
         assert result["row_count"] == len(sources)
 
 
+@pytest.mark.parametrize("count", [81, 85, 288])
+def test_report_focus_refs_accepts_multiple_chart_selections(count):
+    refs = [f"run-1.fact-{index}" for index in range(count)]
+
+    request = AnalysisReportRequest.model_validate({
+        "run_refs": ["run-1"], "context_run_refs": ["run-1"], "focus_refs": refs,
+    })
+
+    assert request.focus_refs == refs
+
+
+def multi_chart_report_sources(*, historical, fallback):
+    sources, service, payload = setup_report_sources(
+        5, "fallback" if fallback else "final", historical=historical,
+    )
+    paragraphs, focus_refs = [], []
+    for source in sources.values():
+        original = deepcopy(source)
+        source.update(org_codes=[], org_names=[], evidence_items=[], rows=[], row_count=17)
+        for index in range(1, 18):
+            code = f"{original['org_codes'][0]}-{index}"
+            name = f"{original['org_names'][0]}-{index}"
+            atom = {
+                **original["evidence_items"][0],
+                "ref": f"{original['run_ref']}.fact-{index}",
+                "org_code": code, "org_name": name, "value": str(index), "display": f"{index}元",
+            }
+            source["org_codes"].append(code)
+            source["org_names"].append(name)
+            source["evidence_items"].append(atom)
+            source["rows"].append({
+                **original["rows"][0], "org_name": name, "metric_value": atom["display"],
+            })
+            focus_refs.append(atom["ref"])
+            paragraphs.append(f"{name}存款余额为{{{{{atom['ref']}}}}}。")
+    payload.update(focus_refs=focus_refs, summary="" if fallback else "\n\n".join(paragraphs))
+    return sources, service, payload
+
+
+@pytest.mark.parametrize("historical,fallback", [(True, False), (True, True), (False, True)])
+def test_authorized_report_keeps_all_multi_chart_focus_refs(historical, fallback):
+    sources, service, payload = multi_chart_report_sources(historical=historical, fallback=fallback)
+    original = deepcopy(sources)
+    actor = object()
+
+    result = compose_analysis_report(service, actor, AnalysisReportRequest.model_validate(payload))
+
+    assert result["status"] == "succeeded"
+    assert service.authorized_evidence.call_args_list == [call(actor, ref) for ref in sources]
+    assert result["row_count"] == 85
+    assert result["run_refs"] == list(sources)
+    assert {atom["ref"] for atom in result["evidence_items"]} == set(payload["focus_refs"])
+    assert {row["org_name"]: row["metric_value"] for row in result["rows"]} == {
+        atom["org_name"]: atom["display"]
+        for source in sources.values() for atom in source["evidence_items"]
+    }
+    body_refs = {
+        ref for paragraph in result["report"]["body_evidence"] for ref in paragraph["evidence_refs"]
+    }
+    assert body_refs and body_refs <= set(payload["focus_refs"])
+    if not fallback:
+        assert body_refs == set(payload["focus_refs"])
+    for source in sources.values():
+        for atom in source["evidence_items"]:
+            if atom["ref"] in body_refs:
+                assert atom["org_name"] in result["report"]["summary"]
+                assert atom["display"] in result["report"]["summary"]
+    assert sources == original
+
+
+@pytest.mark.parametrize("historical,fallback", [(True, False), (True, True), (False, True)])
+def test_report_rejects_foreign_focus_ref_with_multi_chart_selection(historical, fallback):
+    _, service, payload = multi_chart_report_sources(historical=historical, fallback=fallback)
+    payload["focus_refs"][-1] = "foreign.fact"
+
+    with pytest.raises(ApplicationError) as caught:
+        compose_analysis_report(service, object(), AnalysisReportRequest.model_validate(payload))
+
+    assert caught.value.code == "ANALYSIS_REPORT_REFERENCE"
+
+
 @pytest.mark.parametrize("field", ["run_refs", "context_run_refs"])
 def test_source_capacity_rejects_65_entries(field):
     _, _, payload = setup_report_sources(1, "final")

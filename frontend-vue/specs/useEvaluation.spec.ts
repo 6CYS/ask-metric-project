@@ -20,6 +20,133 @@ const baseApi = () => ({
 afterEach(() => vi.useRealTimers())
 
 describe("测评页面请求生命周期", () => {
+  it.each([false, true])(
+    "删除回执丢失后刷新失败=%s，不再展示旧的完整结果",
+    async (refreshFails) => {
+      const run = runFixture()
+      let attempted = false
+      const api = {
+        ...baseApi(),
+        listRuns: () =>
+          attempted
+            ? refreshFails
+              ? Promise.reject(new Error("刷新失败"))
+              : Promise.resolve([])
+            : Promise.resolve([run]),
+        getRun: () => Promise.resolve(run),
+        getTurn: () =>
+          Promise.resolve({
+            turn: run.turns[0]!,
+            messages: [{ role: "assistant", text: "原正文", timestamp: null }],
+          }),
+        deleteRun: () => {
+          attempted = true
+          return Promise.reject(new Error("删除回执未收到"))
+        },
+      }
+      const scope = effectScope()
+      const state = scope.run(() => useEvaluation(api))!
+      try {
+        await state.activate()
+        await state.selectRun(run.id)
+        await state.selectTurn(run.id, "turn-a")
+        expect(await state.deleteRun(run)).toBe(false)
+        expect(state.detail.value).toBeNull()
+        expect(state.actionError.value).toBe("删除回执未收到")
+        if (refreshFails) {
+          expect(state.selectedRun.value?.status).toBe("deleting")
+          expect(state.runs.value[0]?.status).toBe("deleting")
+        } else {
+          expect(state.selectedRun.value).toBeNull()
+          expect(state.selectedRunId.value).toBe("")
+          expect(state.runs.value).toEqual([])
+        }
+      } finally {
+        scope.stop()
+      }
+    },
+  )
+  it("删除题集后更新列表，历史批次仍可查看", async () => {
+    const run = runFixture()
+    const api = {
+      ...baseApi(),
+      listDatasets: () => Promise.resolve([run.dataset]),
+      listRuns: () => Promise.resolve([run]),
+      deleteDataset: () => Promise.resolve(),
+    }
+    const scope = effectScope()
+    const state = scope.run(() => useEvaluation(api))!
+    try {
+      await state.activate()
+      expect(await state.deleteDataset(run.dataset)).toBe(true)
+      expect(state.datasets.value).toEqual([])
+      expect(state.runs.value).toEqual([run])
+    } finally {
+      scope.stop()
+    }
+  })
+
+  it("删除所选批次清除详情，迟到的列表、批次和正文都不能恢复已删内容", async () => {
+    const run = runFixture()
+    const lateList = deferred<EvaluationRun[]>()
+    const lateRun = deferred<EvaluationRun>()
+    const lateDetail = deferred<EvaluationTurnDetail>()
+    let lists = 0
+    const api = {
+      ...baseApi(),
+      listRuns: () => (++lists === 1 ? Promise.resolve([run]) : lateList.promise),
+      getRun: () => lateRun.promise,
+      getTurn: () => lateDetail.promise,
+      deleteRun: () => Promise.resolve(),
+    }
+    const scope = effectScope()
+    const state = scope.run(() => useEvaluation(api))!
+    try {
+      await state.activate()
+      const readingRun = state.selectRun(run.id)
+      const readingDetail = state.selectTurn(run.id, "turn-a")
+      const refreshing = state.refresh()
+      expect(await state.deleteRun(run)).toBe(true)
+      lateList.resolve([run])
+      lateRun.resolve(run)
+      lateDetail.resolve({ turn: run.turns[0]!, messages: [] })
+      await Promise.all([readingRun, readingDetail, refreshing])
+      expect(state.runs.value).toEqual([])
+      expect(state.selectedRunId.value).toBe("")
+      expect(state.selectedRun.value).toBeNull()
+      expect(state.detail.value).toBeNull()
+    } finally {
+      scope.stop()
+    }
+  })
+
+  it("删除失败保留批次并刷新服务端状态，不把部分清理当作删除成功", async () => {
+    const run = runFixture()
+    const deleting = runFixture({ status: "deleting" })
+    let current = run
+    const api = {
+      ...baseApi(),
+      listRuns: () => Promise.resolve([current]),
+      getRun: () => Promise.resolve(current),
+      deleteRun: () => {
+        current = deleting
+        return Promise.reject(new Error("会话清理未完成"))
+      },
+    }
+    const scope = effectScope()
+    const state = scope.run(() => useEvaluation(api))!
+    try {
+      await state.activate()
+      await state.selectRun(run.id)
+      expect(await state.deleteRun(run)).toBe(false)
+      expect(state.runs.value[0]?.status).toBe("deleting")
+      expect(state.selectedRun.value?.status).toBe("deleting")
+      expect(state.actionError.value).toBe("会话清理未完成")
+    } finally {
+      scope.stop()
+    }
+  })
+
   it("快速切换批次时，较早请求晚到不能覆盖新批次", async () => {
     const earlier = deferred<EvaluationRun>()
     const api = {

@@ -47,7 +47,10 @@ export const inquiryTargetChangeSchema = Type.Object(
   {
     mode: Type.Union([Type.Literal("new"), Type.Literal("update"), Type.Literal("continue")]),
     base_ref: Type.Optional(Type.String({ minLength: 1 })),
-    topic: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
+    topic: Type.Optional(Type.String({
+      minLength: 1, maxLength: 500,
+      description: "所问指标和分析目标。机构和统计期由各自字段保存，只换机构或日期时不改写topic。",
+    })),
     organizations: Type.Optional(
       Type.Object(
         {
@@ -86,7 +89,7 @@ export const inquiryTargetChangeSchema = Type.Object(
   {
     additionalProperties: false,
     description:
-      "本轮首次取数明确声明业务目标：new新主题须给topic、organizations(replace)、time；先保留用户期间原表达与可选calendar，未指定期间才time:null并selection:latest；update带base_ref，只填本轮改变的字段，机构替换用replace、追加对比用add；continue带base_ref沿用全部条件。未改变的字段由宿主继承，不重填历史机构。后续同目标取数省略此项；独立补查不得填写。",
+      "本轮首次取数明确声明业务目标：new仅用于新业务主题，须给topic、organizations(replace)、time；同一分析只换机构或期间用update，带base_ref且只填改动字段。先保留用户期间原表达与可选calendar，未指定期间才time:null并selection:latest。机构替换用replace、追加对比用add；continue带base_ref沿用全部条件。未改变的字段由宿主继承。后续同目标取数省略此项；独立补查不得填写。",
   },
 );
 export type InquiryTargetChange = Static<typeof inquiryTargetChangeSchema>;
@@ -97,6 +100,7 @@ export interface InquiryTargetSnapshot {
   ref: string;
   operationId: string;
   sourceQuestion: string;
+  analysisQuestion?: string;
   topic: string;
   organizations: ResolvedOrganizations;
   time: QueryDate;
@@ -125,6 +129,7 @@ const snapshotSchema = Type.Object(
     ref: Type.String({ minLength: 1 }),
     operationId: Type.String({ minLength: 1 }),
     sourceQuestion: Type.String(),
+    analysisQuestion: Type.Optional(Type.String()),
     topic: Type.String({ minLength: 1 }),
     parentRef: Type.Optional(Type.String({ minLength: 1 })),
     organizations: Type.Object({
@@ -456,11 +461,15 @@ export async function resolveInquiryTarget(
           ...(change.date_calendar ? { calendar: change.date_calendar } : {}),
         }
       : base?.time_request;
+  const analysisQuestion = base && (!change.topic || change.topic === base.topic)
+    ? base.analysisQuestion ?? base.sourceQuestion
+    : undefined;
   return {
     version: 1,
     ref: `target:${context.operationId}`,
     operationId: context.operationId,
     sourceQuestion: context.sourceQuestion,
+    ...(analysisQuestion ? { analysisQuestion } : {}),
     topic: change.topic ?? base!.topic,
     organizations,
     time,

@@ -35,6 +35,24 @@ const input = () => ({
 });
 
 describe("测评会话协议适配", () => {
+  it.each([204, 404])("删除会话的 %s 响应可安全完成，包括上次已清理的会话", async (status) => {
+    const request = vi.fn<EvaluationRequest>().mockResolvedValue(new Response(null, { status }));
+    await createSessionEvaluationClient(request).deleteSession("current-token", "session/1");
+    expect(request).toHaveBeenCalledTimes(1);
+    const [path, init] = request.mock.calls[0]!;
+    expect(path).toBe("/sessions/session%2F1");
+    expect(init?.method).toBe("DELETE");
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer current-token");
+  });
+
+  it.each([401, 403, 409, 503])("删除会话保留 %s 失败且不自动重试", async (status) => {
+    const request = vi.fn<EvaluationRequest>().mockResolvedValue(new Response(null, { status }));
+    await expect(
+      createSessionEvaluationClient(request).deleteSession("token", "s1"),
+    ).rejects.toMatchObject({ status });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["completed", "aborted"])("识别 %s 终态中的现有 403 权限回执", async (runStatus) => {
     const request = vi.fn<EvaluationRequest>().mockResolvedValue(
       stream(

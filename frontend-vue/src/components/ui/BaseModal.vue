@@ -17,13 +17,16 @@ const props = withDefaults(
     title: string
     description?: string
     busy?: boolean
-    size?: "sm" | "md" | "lg"
+    size?: "sm" | "md" | "lg" | "xl"
   }>(),
   { description: "", busy: false, size: "md" },
 )
 
-const emit = defineEmits<{ "update:open": [value: boolean] }>()
-const widthClasses = { sm: "max-w-xs", md: "max-w-xl", lg: "max-w-2xl" }
+const emit = defineEmits<{
+  "update:open": [value: boolean]
+  "close-auto-focus": [event: Event]
+}>()
+const widthClasses = { sm: "max-w-xs", md: "max-w-xl", lg: "max-w-2xl", xl: "max-w-6xl" }
 
 /** 保存进行中禁止遮罩、Esc 和关闭按钮关窗，避免用户误以为请求已取消。 */
 function updateOpen(nextOpen: boolean) {
@@ -41,6 +44,7 @@ function updateOpen(nextOpen: boolean) {
       <DialogContent
         class="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-hidden rounded-lg border bg-popover p-5 text-popover-foreground shadow-xl outline-none data-[state=open]:animate-[dialog-in_140ms_ease-out]"
         :class="widthClasses[size]"
+        @close-auto-focus="emit('close-auto-focus', $event)"
       >
         <div class="shrink-0 space-y-1.5 pr-8">
           <DialogTitle class="text-base font-semibold">{{ title }}</DialogTitle>

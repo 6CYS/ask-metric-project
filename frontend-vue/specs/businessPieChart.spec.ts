@@ -14,6 +14,8 @@ const chart: BusinessPieChart = {
 describe("饼图展示配置", () => {
   it("面积采用原始值，标签和提示保留服务端显示金额与占比", () => {
     const option = businessPieOption(chart)
+    const series = option?.series as Array<{ radius: unknown }>
+    expect(Array.isArray(series[0]?.radius)).toBe(true)
     expect(option?.series).toMatchObject([{ type: "pie", data: [
       { name: "个人存款", value: 6000000000.12 },
       { name: "对公存款", value: 4000000000.08 },

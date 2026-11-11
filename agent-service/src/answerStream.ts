@@ -3,11 +3,13 @@ import { BackendApiError } from "./backendClient.js";
 import type { AskMetricRequestContext } from "./requestContext.js";
 import { normalizeReportParagraphs } from "./analysis/narrative.js";
 import { completeSentenceBoundary } from "./answerSentenceBoundary.js";
+import type { BusinessReportChart } from "./analysis/reportCharts.js";
 
 export type AnswerStreamMode = NonNullable<AskMetricRequestContext["answerStream"]>;
 export type AnswerResetReason = "tool_call" | "retry" | "error" | "superseded";
+export type AnswerStreamPreview = string | { text: string; charts?: BusinessReportChart[] };
 export type AnswerStreamData =
-  | { call_seq: number; mode: "text" | "reply"; text: string }
+  | { call_seq: number; mode: "text" | "reply"; text: string; charts?: BusinessReportChart[] }
   | { call_seq: number; reason: AnswerResetReason };
 
 /** 普通正文可按完整句子交付；Markdown 块仍等待空行或同级列表下一项。 */
@@ -65,9 +67,11 @@ export class AnswerStreamProjector {
   private pending = "";
   private processed = "";
   private sent = "";
+  private sentCharts: string | undefined;
   private rejectedPrefix = "";
   private transientFailures = 0;
   private generation = 0;
+  private draftRevision = 0;
   private controller: AbortController | undefined;
   private inFlight = false;
   private blocked = false;
@@ -78,7 +82,11 @@ export class AnswerStreamProjector {
     private readonly render: (
       body: string,
       signal: AbortSignal,
-    ) => Promise<string | null | undefined>,
+    ) => Promise<AnswerStreamPreview | null | undefined>,
+    private readonly compileDraft?: (
+      arguments_: Record<string, unknown>,
+      ended: boolean,
+    ) => Promise<string | undefined>,
   ) {}
 
   onWatchEvent(event: HarnessEvent | LaneWatchEvent, stream: AnswerStreamMode | undefined): void {
@@ -128,7 +136,32 @@ export class AnswerStreamProjector {
       return;
     }
     const body = typeof call.arguments.body === "string" ? call.arguments.body : "";
-    const prefix = completeAnswerPrefix(body, event.type === "message_end");
+    const ended = event.type === "message_end";
+    const revision = ++this.draftRevision,
+      generation = this.generation;
+    if (call.arguments.report !== undefined && this.compileDraft) {
+      void this.compileDraft(structuredClone(call.arguments), ended)
+        .then((compiled) => {
+          if (
+            this.closed ||
+            this.blocked ||
+            this.generation !== generation ||
+            this.draftRevision !== revision ||
+            compiled === undefined
+          )
+            return;
+          this.acceptBody(compiled, ended);
+        })
+        .catch(() => {
+          // 不完整结构等待下一片段；正式调用仍返回具体格式错误，不绕过校验。
+        });
+      return;
+    }
+    this.acceptBody(body, ended);
+  }
+
+  private acceptBody(body: string, ended: boolean): void {
+    const prefix = completeAnswerPrefix(body, ended);
     if (
       this.pending &&
       !prefix.startsWith(this.pending) &&
@@ -169,6 +202,7 @@ export class AnswerStreamProjector {
     if (this.stream && this.sent)
       this.send("answer_reset", { call_seq: this.stream.callSeq, reason });
     this.sent = "";
+    this.sentCharts = undefined;
     this.rejectedPrefix = "";
     this.transientFailures = 0;
   }
@@ -202,19 +236,28 @@ export class AnswerStreamProjector {
     this.inFlight = true;
     this.processed = body;
     try {
-      const text = await this.render(body, controller.signal);
+      const preview = await this.render(body, controller.signal);
       if (this.closed || generation !== this.generation || controller.signal.aborted) return;
       this.transientFailures = 0;
       // 历史回答的标题可能先于引用到达；等待依据，不把未完整的前缀永久判错。
-      if (text === null) return;
+      if (preview === null) return;
+      const text = typeof preview === "string" ? preview : preview?.text;
+      const charts = typeof preview === "object" ? preview.charts : undefined;
+      const chartIdentity = charts === undefined ? this.sentCharts : JSON.stringify(charts);
       if (!text?.trim()) {
         // 后续段落不能修复已拒绝的段落；同段补齐依据后仍需核验累计正文。
         this.rejectedPrefix = body;
         if (this.pending === body || this.pending.startsWith(body + "\n\n"))
           this.processed = this.pending;
-      } else if (text !== this.sent) {
-        this.send("answer_delta", { call_seq: stream.callSeq, mode, text });
+      } else if (text !== this.sent || chartIdentity !== this.sentCharts) {
+        this.send("answer_delta", {
+          call_seq: stream.callSeq,
+          mode,
+          text,
+          ...(charts === undefined ? {} : { charts }),
+        });
         this.sent = text;
+        this.sentCharts = chartIdentity;
       }
     } catch (error) {
       if (!this.closed && generation === this.generation && !controller.signal.aborted) {

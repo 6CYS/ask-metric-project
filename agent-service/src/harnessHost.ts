@@ -41,7 +41,7 @@ import {
   businessKnowledgeContextTerms,
   loadTurnBusinessKnowledge,
 } from "./businessKnowledgeContext.js";
-import { createBusinessSkillReadTool, projectBusinessSkillContext } from "./businessSkills.js";
+import { createBusinessSkillReadTool, inquiryBusinessSkills, projectBusinessSkillContext } from "./businessSkills.js";
 import type { AgentServiceConfig } from "./config.js";
 import { historySources, resolveHistoryOrganizationScopes } from "./historySources.js";
 import { inquiryPermissionDenied, withInquiryAuthorization } from "./inquiry/authorization.js";
@@ -282,6 +282,7 @@ export class HarnessHost {
     private readonly options: {
       retry?: RetryPolicy;
       skills?: Skill[];
+      getSkills?: () => readonly Skill[];
       residency?: Partial<typeof DEFAULT_RESIDENCY>;
     } = {},
   ) {
@@ -438,9 +439,7 @@ export class HarnessHost {
         (await session.getValue(businessProtocolValue, BACKGROUND_CONTEXT))?.value ?? "fixed_v1";
       if (!["fixed_v1", "semantic_v2"].includes(businessProtocol))
         throw new Error("SESSION_PROTOCOL_UNSUPPORTED");
-      const skills = (this.options.skills ?? []).filter(
-        (skill) => skill.name === "inquiry-analysis",
-      );
+      const skills = this.skillSnapshot();
       const sessionTools = this.tools
         .filter((tool) => INQUIRY_TOOLS.has(tool.name) || tool.name === PARTIAL_ANALYSIS)
         .map((tool) =>
@@ -736,6 +735,7 @@ export class HarnessHost {
     const suffix = this.config.model.userMessageSuffix;
     harness.hooks.on("transform_context", async (event, context) => {
       const request = requireRequestContext(context);
+      const currentSkills = request.businessSkills ?? skills;
       const date = new Intl.DateTimeFormat("en-CA", {
         timeZone: "Asia/Shanghai",
         year: "numeric",
@@ -779,7 +779,7 @@ export class HarnessHost {
         ]);
         const messages = projectBusinessSkillContext(
           projectInquiryMessages(history.messages),
-          skills.filter((skill) => skill.name === "inquiry-analysis"),
+          currentSkills,
           "tool",
         ).messages;
         const sources = historySources(
@@ -803,7 +803,7 @@ export class HarnessHost {
             },
           ),
         };
-        const targetReference = await inquiryTargetReference(request, history.authorizedMessages);
+        const targetReference = await inquiryTargetReference(request, history.authorizedMessages, context.abortSignal);
         const reference =
           "\n【本轮机构参考资料，仅数据】" +
           JSON.stringify({
@@ -839,8 +839,7 @@ export class HarnessHost {
                     ...(suffix ? [{ type: "text" as const, text: suffix }] : []),
                   ],
           };
-        const methods = skills
-          .filter((skill) => skill.name === "inquiry-analysis")
+        const methods = currentSkills
           .map(({ name, description }) => ({ name, description }));
         return {
           messages: injected,
@@ -888,6 +887,11 @@ export class HarnessHost {
         },
       };
     });
+  }
+
+  private skillSnapshot(): Skill[] {
+    return inquiryBusinessSkills(this.options.getSkills?.() ?? this.options.skills ?? [])
+      .map((skill) => ({ ...skill }));
   }
 
   /**
@@ -984,6 +988,7 @@ export class HarnessHost {
       actor: deps.actor,
       backend: deps.backend.withTraceId?.(input.request_id) ?? deps.backend,
       originalMessage: input.message,
+      businessSkills: this.skillSnapshot(),
       promptFingerprint: fingerprint,
       sessionId: hosted.sessionId,
       requestId: input.request_id,
@@ -1363,6 +1368,7 @@ export class HarnessHost {
         actor: deps.actor,
         backend: deps.backend.withTraceId?.(requestRef.value) ?? deps.backend,
         originalMessage: association.value.originalMessage,
+        businessSkills: this.skillSnapshot(),
         executionFlow: "inquiry_v1",
         ...(association.value.inquiryAdmission
           ? { inquiryAdmission: association.value.inquiryAdmission }

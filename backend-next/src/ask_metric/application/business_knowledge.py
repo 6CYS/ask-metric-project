@@ -25,6 +25,7 @@ from pydantic import (
     TypeAdapter,
     ValidationError,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -32,6 +33,37 @@ from ask_metric.core.errors import ApplicationError
 
 _LOCK = RLock()
 _HTTP_URL = TypeAdapter(AnyHttpUrl)
+
+
+class ReportLayoutSection(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    id: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=100)
+    metric_codes: list[Annotated[str, Field(min_length=1, max_length=150)]] = Field(
+        default_factory=list, max_length=100,
+    )
+    table: StrictBool
+
+    @field_validator("metric_codes")
+    @classmethod
+    def distinct_metric_codes(cls, values: list[str]) -> list[str]:
+        return list(dict.fromkeys(values))
+
+
+class ReportLayout(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    title: str = Field(min_length=1, max_length=200)
+    sections: list[ReportLayoutSection] = Field(min_length=1, max_length=12)
+
+    @model_validator(mode="after")
+    def bounded_layout(self):
+        if len({section.id for section in self.sections}) != len(self.sections):
+            raise ValueError("报告章节 ID 不能重复。")
+        if len({code for section in self.sections for code in section.metric_codes}) > 100:
+            raise ValueError("报告布局最多关联 100 个不同的正式指标。")
+        return self
 
 
 class KnowledgeFields(BaseModel):
@@ -49,6 +81,7 @@ class KnowledgeFields(BaseModel):
     metric_codes: list[Annotated[str, Field(min_length=1, max_length=150)]] = Field(
         default_factory=list, max_length=100,
     )
+    report_layout: ReportLayout | None = None
 
     @field_validator("metric_codes")
     @classmethod
@@ -91,6 +124,20 @@ class KnowledgeFields(BaseModel):
 class KnowledgeEntry(KnowledgeFields):
     id: str = Field(min_length=1, max_length=128)
     updated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def report_layout_requires_batch_plan(self):
+        # 在合并后的条目校验，兼容旧表单只修改正文或布局而省略批量取数字段。
+        if self.report_layout is not None and not self.batch_query_enabled:
+            raise ValueError("报告布局仅适用于已开启批量取数的方案。")
+        return self
+
+    @model_serializer(mode="wrap")
+    def serialize_entry(self, handler):
+        data = handler(self)
+        if self.report_layout is None:
+            data.pop("report_layout", None)
+        return data
 
 
 class KnowledgeDocument(BaseModel):
@@ -193,10 +240,13 @@ class BusinessKnowledgeStore:
             # 多主题问题仍可按子目标继续检索，不限制默认工具或其他方案的执行。
             if entry["batch_query_enabled"] and batch_selected:
                 continue
-            entries.append({key: entry[key] for key in (
+            selected = {key: entry[key] for key in (
                 "id", "title", "text", "role", "metric_codes",
                 "batch_query_enabled",
-            )})
+            )}
+            if "report_layout" in entry:
+                selected["report_layout"] = entry["report_layout"]
+            entries.append(selected)
             remaining -= len(entry["text"])
             batch_selected = batch_selected or entry["batch_query_enabled"]
             if len(entries) == 3:
@@ -257,9 +307,16 @@ class BusinessKnowledgeStore:
 
     def create(self, fields: KnowledgeFields, revision: str) -> dict:
         def add(entries):
-            item = KnowledgeEntry(
-                **fields.model_dump(), id=str(uuid4()), updated_at=datetime.now(UTC),
-            )
+            try:
+                item = KnowledgeEntry(
+                    **fields.model_dump(), id=str(uuid4()), updated_at=datetime.now(UTC),
+                )
+            except ValidationError as error:
+                raise ApplicationError(
+                    "BUSINESS_KNOWLEDGE_PLAN_INVALID",
+                    "报告布局仅适用于已开启批量取数且关联 1 至 24 个正式指标的方案。",
+                    status_code=422,
+                ) from error
             entries.append(item)
             return item
         return self._change(revision, add)
@@ -276,7 +333,7 @@ class BusinessKnowledgeStore:
             except ValidationError as error:
                 raise ApplicationError(
                     "BUSINESS_KNOWLEDGE_PLAN_INVALID",
-                    "支持批量取数时，须关联 1 至 24 个正式指标；清空前请先关闭该选项。",
+                    "批量取数须关联 1 至 24 个正式指标；关闭批量取数前须清除报告布局。",
                     status_code=422,
                 ) from error
             entries[index] = item

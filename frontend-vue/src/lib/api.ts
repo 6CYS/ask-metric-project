@@ -20,6 +20,7 @@ import type {
   BusinessKnowledgeList,
   BusinessKnowledgePayload,
   BusinessKnowledgeWriteResult,
+  BusinessSkillItem,
 } from "@/types/api"
 import { encryptLoginPassword } from "@/lib/gm"
 import type { QuerySqlDetail, QuerySqlReference } from "@/types/querySql"
@@ -217,6 +218,24 @@ export function getQuerySqlDetail(reference: QuerySqlReference, offset = 0, limi
 
 export function getSmartConfig() {
   return request<SmartConfigResponse>(apiUrl(backendNextBase, "/api/v1/model-config"))
+}
+
+export function listBusinessSkills(signal?: AbortSignal) {
+  return request<{ items: BusinessSkillItem[] }>("/agent-api/skills", { cache: "no-store", ...(signal ? { signal } : {}) })
+}
+
+export function updateBusinessSkill(skill: BusinessSkillItem, content: string, adminToken: string) {
+  return request<BusinessSkillItem>(`/agent-api/skills/${encodeURIComponent(skill.name)}`, {
+    method: "PUT", headers: configAdminHeaders(adminToken),
+    body: JSON.stringify({ content, revision: skill.revision }),
+  })
+}
+
+export function restoreBusinessSkill(skill: BusinessSkillItem, adminToken: string) {
+  return request<BusinessSkillItem>(`/agent-api/skills/${encodeURIComponent(skill.name)}/restore`, {
+    method: "POST", headers: configAdminHeaders(adminToken),
+    body: JSON.stringify({ revision: skill.revision }),
+  })
 }
 
 function configAdminHeaders(adminToken: string) {

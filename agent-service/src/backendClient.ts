@@ -334,6 +334,13 @@ export class BackendClient {
     return this.request<BackendUser>("/api/v1/auth/me", {}, options);
   }
 
+  authorizeConfigWrite(adminToken?: string): Promise<{ authorized: true }> {
+    return this.request("/api/v1/model-config/authorize-write", {
+      method: "POST",
+      ...(adminToken ? { headers: { "X-Model-Admin-Token": adminToken } } : {}),
+    });
+  }
+
   businessTopic(topic: string, knowledge = false, options?: CallOptions): Promise<Record<string, unknown>> {
     return this.request(`/api/v1/business-topics/${encodeURIComponent(topic)}${knowledge ? "/knowledge" : ""}`, {}, options);
   }
@@ -358,9 +365,10 @@ export class BackendClient {
   analysisMethods(options?: CallOptions): Promise<Record<string, unknown>> {
     return this.request("/api/v1/analysis/methods", {}, options);
   }
-  analysisBindMetrics(metricCodes: readonly string[], options?: CallOptions): Promise<Record<string, unknown>> {
+  analysisBindMetrics(metricCodes: readonly string[], options?: CallOptions & { includeComparisons?: boolean }): Promise<Record<string, unknown>> {
     return this.request("/api/v1/analysis/catalog/bind", {
-      method: "POST", body: JSON.stringify({metric_codes: metricCodes}),
+      method: "POST", body: JSON.stringify({metric_codes: metricCodes,
+        ...(options?.includeComparisons ? {include_comparisons: true} : {})}),
     }, options);
   }
   analysisValidate(plan: import("./analysis/contracts.js").AnalysisPlan, question: string, options?: CallOptions): Promise<Record<string, unknown>> {

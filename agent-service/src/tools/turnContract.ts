@@ -39,7 +39,7 @@ export function createConversationReplyTool(): AgentHarnessTool<AskMetricRequest
   };
 }
 
-export function currentTurnMessages(messages: AgentMessage[]): AgentMessage[] {
+export function currentTurnMessages(messages: readonly AgentMessage[]): AgentMessage[] {
   let start = messages.length - 1;
   while (start >= 0 && messages[start]?.role !== "user") start -= 1;
   return messages.slice(start + 1);

@@ -56,6 +56,23 @@ export async function availableReferences(request: AskMetricRequestContext, rows
   return rows.filter((_, index) => decisions[index]);
 }
 
+function checkedTaskResult(request: AskMetricRequestContext, taskId: string): Promise<string | undefined> {
+  const checks = request.historyTaskChecks ??= new Map();
+  const existing = checks.get(taskId);
+  if (existing) return existing;
+  const check = request.backend.getTask(taskId).then(task => {
+    if (task.task_id !== taskId || !["SUCCEEDED", "succeeded"].includes(task.status)) {
+      throw new Error("HISTORY_SCOPE_UNAVAILABLE");
+    }
+    return task.result?.result_id;
+  }).catch(error => {
+    checks.delete(taskId);
+    throw error;
+  });
+  checks.set(taskId, check);
+  return check;
+}
+
 /** 历史投影先查当前权限；未选用的失权旧结果只屏蔽该回合，不阻断无关新问题。 */
 export async function safeWorkingHistory(request: AskMetricRequestContext, messages: AgentMessage[]) {
   const turns: AgentMessage[][] = [];
@@ -68,9 +85,9 @@ export async function safeWorkingHistory(request: AskMetricRequestContext, messa
     try {
       const sources = historySources(turn.flatMap(message => message.role === "toolResult" ? [message.details] : []), () => {throw new Error("HISTORY_SCOPE_UNAVAILABLE");});
       for (const [taskId, resultId] of sources.tasks) {
-        const task = await request.backend.getTask(taskId);
-        if (task.task_id !== taskId || !["SUCCEEDED","succeeded"].includes(task.status)
-          || resultId && task.result?.result_id !== resultId) throw new Error("HISTORY_SCOPE_UNAVAILABLE");
+        const checkedResultId = await checkedTaskResult(request, taskId);
+        // 复用查询结果，仍核对每份历史回执自己的结果身份。
+        if (resultId && checkedResultId !== resultId) throw new Error("HISTORY_SCOPE_UNAVAILABLE");
       }
       const scopes = await resolveHistoryOrganizationScopes(sources, request.semanticTasks, () => {throw new Error("HISTORY_SCOPE_UNAVAILABLE");});
       for (const codes of scopes) if (!await scopeAvailable(request, codes)) throw new Error("HISTORY_SCOPE_UNAVAILABLE");

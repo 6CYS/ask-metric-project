@@ -32,7 +32,7 @@ export const navigationItems: NavigationItem[] = [
   { routeName: "orgs", href: "/orgs", label: "机构别名", description: "标准名与别名", icon: Building2 },
   { routeName: "datasets", href: "/datasets", label: "数据集", description: "事实表与来源", icon: Database },
   { routeName: "query-runs", href: "/query-runs", label: "问数日志", description: "运行轨迹", icon: Activity },
-  { routeName: "llm", href: "/llm", label: "智能配置", description: "模型、提示词与 SQL", icon: SlidersHorizontal, adminOnly: true },
+  { routeName: "llm", href: "/llm", label: "智能配置", description: "模型、提示词与 Skill", icon: SlidersHorizontal, adminOnly: true },
   { routeName: "knowledge", href: "/knowledge", label: "业务知识", description: "业务知识维护", icon: Library, adminOnly: true },
   { routeName: "evaluations", href: "/evaluations", label: "测评中心", description: "问题集与质量复核", icon: ClipboardCheck },
 ]

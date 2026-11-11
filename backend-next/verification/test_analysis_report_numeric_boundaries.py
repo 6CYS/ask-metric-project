@@ -1,7 +1,7 @@
 """说明中的数字不代表业务量值；明确量值及表格仍绑定真实证据。"""
 
 import pytest
-from test_analysis_report_claims import report
+from test_analysis_report_claims import evidence, report
 
 from ask_metric.core.errors import ApplicationError
 
@@ -30,3 +30,36 @@ def test_numeric_table_cells_require_their_own_evidence(value):
     with pytest.raises(ApplicationError) as caught:
         report("| 机构 | 数值 |\n|---|---|\n| 测试机构 | " + value + " |")
     assert caught.value.code == "ANALYSIS_REPORT_NUMBER"
+
+
+@pytest.mark.parametrize("table", [
+    "| 指标 | 数值 |\n|---|---|\n| 余额 | 100元 |\n| 个人存款 | 60元 |",
+    "指标 | 数值\n--- | ---\n余额 | 999元",
+])
+def test_unbound_supplementary_table_does_not_replace_grounded_inquiry_prose(table):
+    source = {**evidence(), "execution_mode": "inquiry"}
+    result = report(
+        "余额为{{total}}。\n\n" + table + "\n\n个人存款余额为{{personal}}。",
+        source=source,
+    )
+    assert "余额为100元。" in result["public_answer"]
+    assert "个人存款余额为60元。" in result["public_answer"]
+    assert table not in result["public_answer"]
+    assert "见数据明细" in result["public_answer"]
+    assert result["partial_analysis"]
+    assert [item["evidence_refs"] for item in result["report"]["body_evidence"]] == [
+        ["total"], [], ["personal"],
+    ]
+
+
+@pytest.mark.parametrize("body, code", [
+    ("| 指标 | 数值 |\n|---|---|\n| 余额 | 100元 |", "ANALYSIS_REPORT_NUMBER"),
+    ("余额为{{total}}。\n\n| 指标 | 数值 |\n|---|---|\n| 余额 | 100元{{personal|cite}} |",
+     "ANALYSIS_REPORT_NUMBER"),
+    ("余额为{{unknown}}。\n\n| 指标 | 数值 |\n|---|---|\n| 余额 | 100元 |",
+     "ANALYSIS_REPORT_REFERENCE"),
+])
+def test_inquiry_keeps_table_only_and_invalid_references_on_the_validation_path(body, code):
+    with pytest.raises(ApplicationError) as caught:
+        report(body, source={**evidence(), "execution_mode": "inquiry"})
+    assert caught.value.code == code

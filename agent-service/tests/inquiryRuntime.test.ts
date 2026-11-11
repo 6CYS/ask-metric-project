@@ -28,7 +28,7 @@ describe("正文交付通道提示", () => {
     (targetContext) => {
       const prompt = inquirySystemPrompt("2026-10-28", targetContext, true);
       expect(prompt).toContain("直接调用analysis_answer，将最终业务正文放入body");
-      expect(prompt).toContain("chart结构");
+      expect(prompt).toContain("charts");
       expect(prompt).not.toContain("不把全文封装成工具参数");
       expect(prompt.includes("普通问数参考资料中的current_target")).toBe(targetContext);
       expect(prompt).toContain("问候、口径澄清和通用解释可用respond_without_business_action");
