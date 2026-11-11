@@ -97,11 +97,10 @@ const queryParameters = Type.Object(
     ),
     org_names: Type.Optional(
       Type.Array(Type.String({ minLength: 1, maxLength: 200 }), {
-        minItems: 1,
         maxItems: 100,
         uniqueItems: true,
         description:
-          "scope=named时必填名称、目录别名或正式编码。结合本轮问题与已授权历史选择；首次未指定机构时用参考资料中的账号机构，真正延续原对象时沿用历史机构，已有信息无需用户重复说明。比较多家时保留全部目标。",
+          "scope=named时须填写非空的名称、目录别名或正式编码；all_banks省略或传空数组，不携带具体名单。结合本轮问题与已授权历史选择；首次未指定机构时用参考资料中的账号机构，真正延续原对象时沿用历史机构，已有信息无需用户重复说明。比较多家时保留全部目标。",
       }),
     ),
     date: Type.Optional(
@@ -226,6 +225,8 @@ function error(
       kind: "inquiry_query_error",
       status: "error",
       code,
+      ...(resolution ? { resolution } : {}),
+      ...(record(resolution).status ? { resolution_status: record(resolution).status } : {}),
       ...(correctionFields ? { correction_fields: correctionFields } : {}),
       ...validation,
     },
@@ -946,6 +947,8 @@ async function executeWithInquiryTarget(
           throw new InquiryTargetError(
             resolved.details.code,
             "目标机构未能唯一解析或当前不可访问，请核对目录候选。",
+            undefined,
+            resolved.details.resolution,
           );
         return resolved;
       },

@@ -61,10 +61,10 @@ def focused_sources(sources: list[dict], references: list[str]) -> list[dict]:
     for ref in references:
         visit(ref)
     codes = {atoms[ref]["metric_code"] for ref in selected if atoms[ref].get("metric_code")}
-    if not codes:
+    if not codes and not any(atoms[ref].get("type") == "gap" for ref in selected):
         raise ApplicationError(
             "ANALYSIS_REPORT_REFERENCE",
-            "追问需引用具体指标事实或具有完整依据的判断。",
+            "追问需引用具体指标事实、已确认缺数或具有完整依据的判断。",
             status_code=422,
         )
     views = []
@@ -74,6 +74,13 @@ def focused_sources(sources: list[dict], references: list[str]) -> list[dict]:
             atom["metric_code"] for atom in source["evidence_items"]
             if atom["ref"] in selected and atom.get("metric_code")
         }
+        # 旧缺数原子只有运行级身份；沿用该运行已鉴权的指标与期间，不解析说明文字。
+        selected_gap = any(
+            atom["ref"] in selected and atom.get("type") == "gap"
+            for atom in source["evidence_items"]
+        )
+        if selected_gap:
+            source_codes.update(metric["code"] for metric in source["metric_descriptors"])
         metrics = [
             metric for metric in source["metric_descriptors"] if metric["code"] in source_codes
         ]
@@ -125,10 +132,11 @@ def focused_sources(sources: list[dict], references: list[str]) -> list[dict]:
             if (row["metric_name"], row["org_name"], row["stat_date"]) in fact_keys
         ]
         source["row_count"] = len(source["rows"])
-        source["actual_dates"] = sorted(
-            {row["stat_date"] for row in source["rows"] if row["value_role"] == "分析时点"}
-        )
-        source["analysis_date"] = max(source["actual_dates"], default=None)
+        if not selected_gap:
+            source["actual_dates"] = sorted(
+                {row["stat_date"] for row in source["rows"] if row["value_role"] == "分析时点"}
+            )
+            source["analysis_date"] = max(source["actual_dates"], default=None)
         source["metric_descriptors"], source["evidence_items"], source["observations"] = (
             metrics,
             projected_atoms,

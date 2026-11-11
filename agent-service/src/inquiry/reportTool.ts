@@ -236,9 +236,20 @@ async function prepareInquiryReport(
       "ANALYSIS_REPORT_REFERENCE",
     );
   // 无效选图只影响自身；有效图独有的来源仍必须进入最终后端鉴权。
+  // 全部已读取来源只有缺数原子时，可直接说明缺数；不能因此自动带入旧金额。
+  const gapRefs =
+    !refs.length &&
+    available.every(
+      ({ evidence }) =>
+        evidence.evidence_items?.length &&
+        evidence.evidence_items.every((atom) => atom.type === "gap"),
+    )
+      ? available.flatMap(({ evidence }) => evidence.evidence_items?.map((atom) => atom.ref) ?? [])
+      : [];
   const focusRefs = [
     ...new Set([
       ...refs,
+      ...gapRefs,
       ...selections
         .filter((choice) => choice.available)
         .flatMap((choice) => choice.selection.evidence_refs),
@@ -260,7 +271,7 @@ async function prepareInquiryReport(
   } = selectReportSources(available, request.operationId, referenced);
   const historical = usable.filter((item) => contextRefs.includes(item.evidence.run_ref));
   const reuseOnly = historical.length === usable.length;
-  if (reuseOnly && !refs.length)
+  if (reuseOnly && !refs.length && !gapRefs.length)
     throw new BackendApiError(
       422,
       "请用正文中的真实引用明确本次追问关注的指标；数字使用{{e1.v1}}，已写数值紧随{{e1.v1|cite}}关联依据。",

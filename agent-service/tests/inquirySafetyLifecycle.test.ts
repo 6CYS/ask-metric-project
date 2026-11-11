@@ -26,7 +26,7 @@ const invalidReply = "<analysis>这段内部规划不能作为回答交付。</a
 type Scenario = "forbidden" | "delivered" | "batched-delivery" | "clarification" | "cancelled"
   | "clarification-invalid" | "clarification-schema-invalid" | "clarification-corrected" | "report-fallback"
   | "clarification-schema-corrected" | "query-schema-invalid" | "query-schema-corrected"
-  | "schema-evidence-progress" | "schema-batched-corrected"
+  | "schema-evidence-progress" | "schema-batched-corrected" | "query-schema-late-corrected"
   | "query-schema-varying" | "query-schema-stalled-evidence"
   | "calculation-stalled-answer" | "calculation-stalled-query";
 
@@ -44,7 +44,8 @@ async function runScenario(scenario: Scenario) {
   const stream: ProviderStreams["streamSimple"] = () => {
     modelCalls++;
     const maxCalls = scenario === "forbidden" ? 1 : scenario === "schema-evidence-progress" ? 5
-      : scenario === "query-schema-varying" ? 18 : scenario === "query-schema-stalled-evidence" ? 4
+      : ["query-schema-varying", "query-schema-invalid", "query-schema-stalled-evidence"].includes(scenario) ? 17
+      : scenario === "query-schema-late-corrected" ? 5
       : scenario === "calculation-stalled-query" ? 5
       : scenario.startsWith("calculation-stalled-") ? 4
       : ["clarification-schema-invalid", "report-fallback", "query-schema-invalid", "query-schema-corrected", "schema-batched-corrected"].includes(scenario) ? 3 : 2;
@@ -71,7 +72,12 @@ async function runScenario(scenario: Scenario) {
       : scenario === "query-schema-stalled-evidence"
       ? [call("metric_query", `invalid-query-${modelCalls}`, modelCalls === 1 ? {phase: "initial"} : {})]
       : scenario === "query-schema-invalid"
-      ? [call("metric_query", `invalid-query-${modelCalls}`, {})]
+      ? modelCalls <= 16 ? [call("metric_query", `invalid-query-${modelCalls}`, {})]
+        : [call(CONVERSATION_REPLY, "pending-promise", { answer: "请稍等，我将为您执行查询。" })]
+      : scenario === "query-schema-late-corrected"
+      ? modelCalls <= 3 ? [call("metric_query", `invalid-query-${modelCalls}`, {})]
+        : modelCalls === 4 ? [call("metric_query", "initial-query", { phase: "initial" })]
+        : [call("analysis_answer", "answer", { body: "本期存款余额为{{e1.v1}}。" })]
       : ["query-schema-corrected", "schema-batched-corrected", "schema-evidence-progress"].includes(scenario)
       ? modelCalls === 1
         ? Array.from({length: scenario === "schema-batched-corrected" ? 3 : 1}, (_, index) =>
@@ -237,11 +243,19 @@ describe("普通调查终态与无证据回答的实际链路", () => {
     expect(result.receipts.at(-1)?.details).toMatchObject({kind: "conversation_reply", status: "answered"});
   });
 
-  it("空查询参数连续失败后及时结束，不耗尽全部调查预算", async () => {
+  it("空查询参数用完调查预算后明确未完成，不把查询承诺当成功", async () => {
     const result = await runScenario("query-schema-invalid");
-    expect(result).toMatchObject({operationStatus: "completed", modelCalls: 3, reportCalls: 0, queryPhases: []});
+    expect(result).toMatchObject({operationStatus: "completed", modelCalls: 17, reportCalls: 0, queryPhases: []});
     expect(result.receipts.at(-1)?.details).toMatchObject({kind: "runtime_delivery", outcome: "incomplete"});
     expect(result.answers).toContain("本次未能完成回答，请稍后重试。");
+  });
+
+  it("三次SDK参数失败后仍可修正查询并交付核验答案", async () => {
+    const result = await runScenario("query-schema-late-corrected");
+    expect(result).toMatchObject({ operationStatus: "completed", modelCalls: 5, reportCalls: 1, queryPhases: ["initial"] });
+    expect(result.receipts.filter(item => item.toolName === "metric_query" && item.isError)).toHaveLength(3);
+    expect(result.answers).toContain(confirmed);
+    expect(result.receipts.at(-1)?.details).toMatchObject({ kind: "business_report", status: "succeeded" });
   });
 
   it("不断变换无效查询参数仍受调查预算约束，不依赖执行前钩子", async () => {
@@ -251,9 +265,9 @@ describe("普通调查终态与无证据回答的实际链路", () => {
     expect(result.receipts.at(-1)?.details).toMatchObject({kind: "runtime_delivery", outcome: "incomplete"});
   });
 
-  it("重复无效参数停滞后仅交付重新核验的当前事实并明确未完成", async () => {
+  it("无效参数耗尽调查预算后仅交付重新核验的当前事实并明确未完成", async () => {
     const result = await runScenario("query-schema-stalled-evidence");
-    expect(result).toMatchObject({operationStatus: "completed", modelCalls: 4, reportCalls: 1, queryPhases: ["initial"]});
+    expect(result).toMatchObject({operationStatus: "completed", modelCalls: 17, reportCalls: 1, queryPhases: ["initial"]});
     const partial = result.receipts.find(item => item.toolName === PARTIAL_ANALYSIS);
     expect(partial?.details).toMatchObject({kind: "business_report", partial_analysis: true,
       fallback_reason: "action_incomplete"});

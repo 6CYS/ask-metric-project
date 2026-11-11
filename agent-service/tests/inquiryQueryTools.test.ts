@@ -17,7 +17,8 @@ import type { FieldResolution } from "../src/business-context/types.js";
 import { createInquiryQueryTools } from "../src/inquiry/queryTools.js";
 import { createTopicQueryTool } from "../src/inquiry/topics/tool.js";
 import { loadTopicRegistry } from "../src/inquiry/topics/registry.js";
-import { inquiryPayload, inquiryToolAdmission } from "../src/inquiry/runtime.js";
+import { inquiryPayload, inquiryResponse, inquiryToolAdmission } from "../src/inquiry/runtime.js";
+import { CONVERSATION_REPLY } from "../src/tools/turnContract.js";
 import { projectInquiryMessages } from "../src/inquiry/view.js";
 import type { InquiryAcceptedTarget } from "../src/inquiry/admission.js";
 import { readInquiryTargetSnapshot } from "../src/inquiry/target.js";
@@ -176,6 +177,91 @@ const query = {
 const secondDescriptor = { ...descriptor, code: "M2", name: "测试收入", binding_ref: "signed:M2" };
 
 describe("失败回执按实际纠正条件保留调查", () => {
+  it.each(["metric_query", "metric_availability"])("%s允许全机构空名单，实际请求仍覆盖授权集合", async (name) => {
+    const f = fixture();
+    f.request.inquiryTargetContext = { version: 1, time_contract: 2 };
+    await f.call("metric_search", { keywords: ["余额"] });
+    const args = {
+      ...(name === "metric_query" ? { purpose: "查询全机构余额", method: "observe" } : {}),
+      metric_refs: ["k1"], scope: "all_banks", org_names: [],
+      target_change: {
+        mode: "new", topic: "存款余额", time: { expression: "2026-07-31" },
+        organizations: { mode: "replace", scope: "all_banks", names: [] },
+      },
+    };
+    const tool = createInquiryQueryTools().find((item) => item.name === name)!;
+    expect(() => {
+      validateToolArguments(tool, { type: "toolCall", id: "all-banks", name, arguments: args });
+    }).not.toThrow();
+    const result = await f.call(name, args);
+    expect(result.isError).not.toBe(true);
+    expect(result.details).toMatchObject({ inquiry_target_snapshot: {
+      organizations: { codes: ["3200", "3201"], scope: { kind: "authorized_cohort" } },
+    } });
+    expect(f.backend.resolveOrganizationScope).toHaveBeenCalled();
+    const payload = name === "metric_query"
+      ? f.backend.analysisExecute.mock.calls[0]?.[0]
+      : f.backend.dataAvailability.mock.calls[0]?.[0];
+    expect(payload).toMatchObject(name === "metric_query" ? {
+      organization_scope: { kind: "authorized_cohort", cohort: "rural_commercial_banks" },
+      scope_fingerprint: "scope-token", org_codes: [],
+    } : { org_codes: ["3200", "3201"] });
+  });
+
+  it("机构待确认状态透传给运行层，保留真实澄清出口", async () => {
+    const f = fixture();
+    f.resolveOrganizations.mockResolvedValue({ status: "ambiguous", candidates: [] });
+    await f.call("metric_search", { keywords: ["余额"] });
+    const result = await f.call("metric_query", query);
+    expect(result.details).toMatchObject({ code: "ANALYSIS_SCOPE_UNRESOLVED", resolution_status: "ambiguous" });
+    expect(f.backend.analysisExecute).not.toHaveBeenCalled();
+  });
+
+  it.each(["metric_query", "metric_availability"])("%s目标解析的候选穿过包装层，预算末尾仍可澄清", async (name) => {
+    const f = fixture(Array.from({ length: 15 }, (_, index) => ({
+      role: "toolResult", toolName: "metric_query", toolCallId: `invalid-${index}`,
+      isError: true, content: [], timestamp: 0,
+    })));
+    f.request.inquiryTargetContext = { version: 1, time_contract: 2 };
+    const resolution: FieldResolution = {
+      status: "ambiguous",
+      candidates: [{ value: { codes: ["A"], names: ["甲机构"] } }, { value: { codes: ["B"], names: ["乙机构"] } }],
+    };
+    f.resolveOrganizations.mockResolvedValue(resolution);
+    const result = await f.call(name, {
+      ...(name === "metric_query" ? { purpose: "查询余额", method: "observe" } : {}),
+      metric_refs: ["k1"],
+      target_change: {
+        mode: "new", topic: "存款余额", time: { expression: "2026-07-31" },
+        organizations: { mode: "replace", scope: "named", names: ["待确认机构"] },
+      },
+    });
+    expect(f.messages).toHaveLength(16);
+    expect(result.details).toMatchObject({ code: "ANALYSIS_SCOPE_UNRESOLVED", resolution_status: "ambiguous" });
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ resolution });
+    expect(f.backend.analysisExecute).not.toHaveBeenCalled();
+    expect(f.backend.dataAvailability).not.toHaveBeenCalled();
+    const next: Parameters<typeof inquiryResponse>[0] = {
+      role: "assistant", content: [{ type: "toolCall", id: "clarify", name: CONVERSATION_REPLY,
+        arguments: { answer: "请确认需要甲机构还是乙机构。" } }],
+      api: "openai-completions", provider: "isolated", model: "isolated", stopReason: "toolUse", timestamp: 0,
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    };
+    expect(inquiryResponse(next, f.request, f.messages)).toBe(next);
+  });
+
+  it.each([
+    { scope: "named", org_names: [] },
+    { scope: "all_banks", org_names: ["3200"] },
+  ])("查询机构不一致拒绝执行：$scope", async (organizations) => {
+    const f = fixture();
+    await f.call("metric_search", { keywords: ["余额"] });
+    const result = await f.call("metric_query", { ...query, ...organizations });
+    expect(result.details).toMatchObject({ code: "ANALYSIS_SCOPE_INVALID" });
+    expect(f.backend.analysisExecute).not.toHaveBeenCalled();
+  });
+
   async function attempt(f: ReturnType<typeof fixture>, args: Record<string, unknown>, name = "metric_query") {
     f.messages.push({
       role: "assistant", content: [{type: "toolCall", id: `call-${f.messages.length + 1}`, name, arguments: args}],

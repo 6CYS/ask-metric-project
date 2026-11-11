@@ -25,6 +25,7 @@ from ask_metric.application.ports import PermissionDeniedError
 from ask_metric.application.report_quantities import (
     QUANTITY_PATTERN,
     matches_quantity,
+    parse_quantity,
 )
 from ask_metric.application.verified_findings import analysis_comparison
 from ask_metric.core.errors import ApplicationError
@@ -724,8 +725,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
                 return display[1:]
             return display
 
-        # 引用是一个值片段，括号内同值仅是它的重复展示；在展开前按真实原子核对。
-        # 不按整段文字去重，不移除其他事实、解释或冲突数值。
+        # 仅整理同量纲的重复展示；名次、户数等与金额相邻不代表同一个值。
         inline_value = (
             rf"(?:\*\*|__|\*|_)?(?:\{{\{{[^{{}}]+\}}\}}|{QUANTITY_PATTERN})"
             r"(?:\*\*|__|\*|_)?"
@@ -742,6 +742,11 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
                 ref, value = right_ref[1], left
             else:
                 return match[0]
+            literal, actual = parse_quantity(value), parse_quantity(atoms[ref]["display"])
+            if literal and actual and literal.unit != actual.unit:
+                money_units = {"元", "万元", "亿元"}
+                if not {literal.unit, actual.unit} <= money_units:
+                    return match[0]
             if not matches_quantity(value, atoms[ref]["display"]):
                 reject_number(value)
             return first if left_ref else first + "{{" + ref + "|cite}}"
@@ -782,6 +787,12 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             repaired = {"missing_count": 1, "replaced_gaps": [], "coverage": []}
         else:
             repaired = fact_narrative(sources, exact_run_refs=context_refs)
+            if coverage_sources is not sources:
+                # 展示投影不代表缺数；覆盖说明复用完整执行来源的同一计算规则。
+                complete_coverage = fact_narrative(coverage_sources, exact_run_refs=context_refs)
+                repaired["coverage"] = complete_coverage["coverage"]
+                repaired["replaced_gaps"] = complete_coverage["replaced_gaps"]
+                repaired["missing_count"] = complete_coverage["missing_count"]
             paragraphs = []
             for recovered_paragraph in repaired["paragraphs"]:
                 validate_references(

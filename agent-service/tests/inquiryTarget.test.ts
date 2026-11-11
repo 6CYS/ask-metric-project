@@ -123,6 +123,26 @@ describe("普通问数目标变更", () => {
     await expect(inquiryTargetReference(request(denied), [])).rejects.toBe(denied);
   });
 
+  it("全机构的空名单规范化为授权集合，不缩成空目标", async () => {
+    const { context, resolveOrganizations } = fixture();
+    const target = await resolveInquiryTarget({
+      mode: "new", topic: "存款余额", time: { expression: "2026-07-31" },
+      organizations: { mode: "replace", scope: "all_banks", names: [] },
+    }, context);
+    expect(resolveOrganizations).toHaveBeenCalledWith("all_banks", undefined);
+    expect(target.organizations).toMatchObject({ codes: ["A", "B"] });
+  });
+  it.each([
+    { scope: "named" as const, names: [] },
+    { scope: "all_banks" as const, names: ["A"] },
+  ])("机构范围与名单不一致仍拒绝：$scope", async (organizations) => {
+    const { context, resolveOrganizations } = fixture();
+    await expect(resolveInquiryTarget({
+      mode: "new", topic: "存款余额", time: { expression: "2026-07-31" },
+      organizations: { mode: "replace", ...organizations },
+    }, context)).rejects.toMatchObject({ code: "INQUIRY_TARGET_INVALID" });
+    expect(resolveOrganizations).not.toHaveBeenCalled();
+  });
   it("新期间契约保留原表达并允许区间内最新，继承时不重新解释", async () => {
     const { context, resolveTime } = fixture();
     const calendar = { start: "2026-01-01", end: "2026-06-30" };

@@ -14,7 +14,10 @@ export const inquiryDateCalendarSchema = Type.Object(
     start: Type.String({ minLength: 1, maxLength: 64 }),
     end: Type.String({ minLength: 1, maxLength: 64 }),
     dates: Type.Optional(
-      Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { maxItems: 100 }),
+      Type.Array(Type.String({ minLength: 1, maxLength: 64 }), {
+        maxItems: 100,
+        description: "各月末或多个明确日期须逐一列出YYYY-MM-DD；月内最后有数据的日期不能替代自然月末。",
+      }),
     ),
   },
   {
@@ -30,7 +33,7 @@ const timeRequestSchema = Type.Union([
       expression: Type.String({
         minLength: 1,
         maxLength: 200,
-        description: "用户或已确认上下文中的期间原表达；保留完整期间，不换成数据可得日期。",
+        description: "用户或已确认上下文中的期间原表达；保留各月末等完整限定，多日期在calendar.dates逐一列出，不换成数据可得日期。",
       }),
       calendar: Type.Optional(inquiryDateCalendarSchema),
     },
@@ -57,7 +60,10 @@ export const inquiryTargetChangeSchema = Type.Object(
         {
           mode: Type.Union([Type.Literal("replace"), Type.Literal("add")]),
           scope: Type.Union([Type.Literal("named"), Type.Literal("all_banks")]),
-          names: Type.Optional(names),
+          names: Type.Optional({
+            ...names, minItems: 0,
+            description: "named须填写具体机构；all_banks省略名单或传空数组，由服务端展开有权机构集合。",
+          }),
         },
         { additionalProperties: false },
       ),
@@ -74,7 +80,7 @@ export const inquiryTargetChangeSchema = Type.Object(
         ],
         {
           description:
-            "取数策略，不改变time的原期间；latest仅用于无指定期间或原文最新，限定期间内取最新使用latest_in_range。未填时采用期间解析结果。",
+            "仅放在target_change.selection，不放在工具顶层。取数策略不改变time的原期间；latest仅用于无指定期间或原文最新，限定期间内取最新使用latest_in_range。未填时采用期间解析结果。",
         },
       ),
     ),
@@ -438,7 +444,7 @@ export async function resolveInquiryTarget(
   if (
     selection &&
     ((selection.scope === "named" && !selection.names?.length) ||
-      (selection.scope === "all_banks" && selection.names))
+      (selection.scope === "all_banks" && selection.names?.length))
   )
     return invalid(
       "named须明确机构；all_banks不混入手写机构清单。",
@@ -454,7 +460,9 @@ export async function resolveInquiryTarget(
     );
   const prior = base?.organizations;
   const selected = selection
-    ? await context.resolveOrganizations(selection.scope, selection.names)
+    ? await context.resolveOrganizations(
+        selection.scope, selection.scope === "all_banks" ? undefined : selection.names,
+      )
     : prior
       ? await context.resolveOrganizations(
           prior.scope?.kind === "authorized_cohort" ? "all_banks" : "named",

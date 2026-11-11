@@ -724,6 +724,51 @@ describe("连续无进展的原生工具批次", () => {
     ).toEqual(next);
   });
 
+  it("第三次原输入失败不结束整轮，预算内仍能换工具和修正参数", () => {
+    const messages = [...batch("first", [{}]), ...batch("second", [{}])];
+    const next = batch("third", [{}])[0];
+    if (next?.role !== "assistant") throw new Error("缺少下一次调用");
+    const request = testRequestContext({} as BackendClient, new MemoryCommandBridge());
+    expect(inquiryResponse({ ...next, stopReason: "toolUse" }, request, messages)).toEqual(next);
+    expect(inquiryToolAdmission(messages, "metric_query", {})).toMatchObject({ block: { terminate: false } });
+    expect(inquiryToolAdmission(messages, "metric_search", { keywords: ["余额"] })).toBeUndefined();
+    expect(inquiryToolAdmission(messages, "metric_query", { metric_refs: ["k1"] })).toBeUndefined();
+  });
+
+  it("SDK参数失败计入总预算，失败耗尽后不能用操作承诺标记回答成功", () => {
+    const messages = Array.from({ length: 16 }, (_, index) => batch(`schema-${index}`, [{}])).flat();
+    const next = batch("reply", [{ name: CONVERSATION_REPLY, args: { answer: "请稍等，我将为您执行查询。" } }])[0];
+    if (next?.role !== "assistant") throw new Error("缺少下一次调用");
+    const request = testRequestContext({} as BackendClient, new MemoryCommandBridge());
+    expect(inquiryResponse({ ...next, stopReason: "toolUse" }, request, messages).content).toEqual([{
+      type: "toolCall", id: `inquiry-recovery-${request.operationId}`,
+      name: CONVERSATION_REPLY, arguments: { answer: "本次未能完成回答，请稍后重试。" },
+    }]);
+  });
+
+  it.each(["ambiguous", "missing", "not_found", "needs_confirmation"])("预算结束时%s仍允许依据真实候选澄清", (resolution_status) => {
+    const messages = Array.from({ length: 15 }, (_, index) => batch(`schema-${index}`, [{}])).flat();
+    messages.push(...batch("resolve", [{ details: {
+      kind: "inquiry_query_error", status: "error", code: "ANALYSIS_SCOPE_UNRESOLVED", resolution_status,
+    } }]));
+    const next = batch("reply", [{ name: CONVERSATION_REPLY, args: { answer: "请确认需要哪家机构。" } }])[0];
+    if (next?.role !== "assistant") throw new Error("缺少下一次调用");
+    const request = testRequestContext({} as BackendClient, new MemoryCommandBridge());
+    expect(inquiryResponse({ ...next, stopReason: "toolUse" }, request, messages)).toEqual(next);
+  });
+
+  it("预算内格式失败仍可澄清，成功目录检索后仍能解释口径", () => {
+    const next = batch("reply", [{ name: CONVERSATION_REPLY, args: { answer: "请确认需要期末余额还是日均余额。" } }])[0];
+    if (next?.role !== "assistant") throw new Error("缺少下一次调用");
+    const request = testRequestContext({} as BackendClient, new MemoryCommandBridge());
+    const failed = batch("schema", [{}]);
+    expect(inquiryResponse({ ...next, stopReason: "toolUse" }, request, failed)).toEqual(next);
+    const catalog = Array.from({ length: 15 }, (_, index) => batch(`catalog-${index}`, [{
+      name: "metric_search", failed: false, details: { kind: "analysis_catalog", status: "succeeded" },
+    }])).flat();
+    expect(inquiryResponse({ ...next, stopReason: "toolUse" }, request, [...failed, ...catalog])).toEqual(next);
+  });
+
   it.each([false, true])("重复参数失败后保留修正输入，混合批=%s", (mixed) => {
     const messages = [...batch("first", [{}]), ...batch("second", [{}])];
     const next = batch("next", [...(mixed ? [{}] : []), { args: { metric_refs: ["k1"] } }])[0];

@@ -217,7 +217,11 @@ class MetricSemantics:
             value["limitations"].append(
                 "统计频率未审核，历史取值比较不等于单月发生额或完整月度增速。"
             )
-        value["metadata_version"] = digest(
+        value["metadata_version"] = self._metadata_version(value)
+        return value
+
+    def _metadata_version(self, value: dict) -> str:
+        return digest(
             {
                 "metric": value,
                 "method": METHOD_VERSION,
@@ -225,11 +229,45 @@ class MetricSemantics:
                     relation
                     for relation in self.extensions["relations"]
                     if relation["status"] == "approved"
-                    and (code == relation["parent"] or code in relation["children"])
+                    and (value["code"] == relation["parent"]
+                         or value["code"] in relation["children"])
                 ],
             }
         )[:24]
-        return value
+
+    def refresh_snapshot_descriptor(self, previous: dict) -> dict:
+        """仅为已授权原始快照刷新展示编码；执行引用仍严格校验当前版本。"""
+        try:
+            return self.resolve(previous["binding_ref"])
+        except ApplicationError as exc:
+            if exc.code != "ANALYSIS_METADATA_CHANGED":
+                raise
+            details = exc.details if isinstance(exc.details, dict) else {}
+            if (details.get("metric_code") != previous.get("code")
+                    or details.get("metadata_version") != previous.get("metadata_version")):
+                raise ApplicationError(
+                    "ANALYSIS_BINDING_INVALID", "历史指标描述与签发引用不一致，请重新查询。",
+                    status_code=422,
+                ) from exc
+        current = self.descriptor(previous["code"])
+        historical = {key: value for key, value in previous.items()
+                      if key not in {"binding_ref", "metadata_version", "discovery_keyword"}}
+        presentation = {"value_encoding", "source_value_encoding", "limitations"}
+        definition = {key: value for key, value in current.items()
+                      if key != "metadata_version" and key not in presentation}
+        # 旧版本必须能由旧描述及当前关系重现；不把关系、公式或来源变更当作展示修正。
+        if (self._metadata_version(historical) != previous["metadata_version"]
+                or {key: value for key, value in historical.items()
+                    if key not in presentation} != definition
+                or previous.get("value_encoding") == current.get("value_encoding")
+                and previous.get("source_value_encoding") == current.get("source_value_encoding")):
+            raise ApplicationError(
+                "ANALYSIS_METADATA_CHANGED",
+                f"{current['name']}的指标口径已更新，请按原机构和日期重新查询该指标。",
+                status_code=409, details={"metric_codes": [current["code"]]},
+            )
+        return {**current, "binding_ref": self.binding(current, "历史快照"),
+                "discovery_keyword": previous.get("discovery_keyword", "")}
 
     def _signature(self, body: str) -> str:
         return hmac.new(
@@ -304,6 +342,7 @@ class MetricSemantics:
                 "ANALYSIS_METADATA_CHANGED",
                 "指标定义或规则已更新，请重新读取目录后规划。",
                 status_code=409,
+                details={"metric_code": payload["c"], "metadata_version": payload.get("v")},
             )
         return {**descriptor, "binding_ref": reference, "discovery_keyword": payload.get("q", "")}
 

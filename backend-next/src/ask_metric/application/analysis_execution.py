@@ -5,10 +5,11 @@ import json
 import re
 import time
 from collections.abc import Collection
+from copy import deepcopy
 from datetime import UTC, date, datetime
 from decimal import Decimal, localcontext
 from pathlib import Path
-from typing import Literal
+from typing import Literal, NoReturn
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -1076,6 +1077,160 @@ class GeneralAnalysisService:
             ),
         }
 
+    def _refresh_evidence(self, actor, state, semantics, bindings):
+        """复核原始查询快照后复用原证据生成器；不改写旧运行或重放历史计算。"""
+        state = deepcopy(state)
+        evidence = state["result"]
+        changed = {metric["code"] for metric in evidence["metric_descriptors"]
+                   if bindings[metric["binding_ref"]]["metadata_version"]
+                   != metric["metadata_version"]}
+
+        def requery() -> NoReturn:
+            raise ApplicationError(
+                "ANALYSIS_METADATA_CHANGED",
+                "历史指标编码已更新，原始事实或计算无法安全复用，"
+                "请按原机构和日期重新查询这些指标。",
+                status_code=409, details={"metric_codes": sorted(changed)},
+            )
+
+        # 旧长签名含检索词，同一指标可在不同步骤使用不同合法引用。
+        # result 的目录按编码去重，补齐计划引用时仍逐一复核签名及原始版本。
+        descriptors = {metric["code"]: metric for metric in evidence["metric_descriptors"]}
+        plan_refs = {ref for step in state["request"]["plan"]["steps"]
+                     for ref in step["metric_refs"]}
+        for reference in plan_refs - bindings.keys():
+            try:
+                resolved = semantics.resolve(reference)
+                code, version = resolved["code"], resolved["metadata_version"]
+            except ApplicationError as exc:
+                if exc.code != "ANALYSIS_METADATA_CHANGED":
+                    raise
+                details = exc.details if isinstance(exc.details, dict) else {}
+                code, version = details.get("metric_code"), details.get("metadata_version")
+            previous = descriptors.get(code)
+            if not previous or previous["metadata_version"] != version:
+                requery()
+            semantics.refresh_snapshot_descriptor({**previous, "binding_ref": reference})
+            bindings[reference] = bindings[previous["binding_ref"]]
+
+        pages = {}
+        task_ids = {task["task_id"] for task in evidence["tasks"]}
+        for step in state["completed_steps"].values():
+            if any(calculation["metric_descriptor"]["code"] in changed
+                   or any(fact["metric_code"] in changed
+                          for fact in calculation["inputs"].values())
+                   for calculation in step["calculations"]):
+                requery()
+            facts = {}
+            for fact in step["facts"]:
+                if (fact["binding_ref"] not in plan_refs
+                        or bindings[fact["binding_ref"]]["code"] != fact["metric_code"]):
+                    requery()
+                if fact["metric_code"] not in changed:
+                    continue
+                parts = fact["fact_id"].split(":")
+                if (len(parts) != 4 or parts[0] != "fact" or parts[1] not in task_ids
+                        or not parts[2].isdigit()):
+                    requery()
+                task_id, offset = parts[1], int(parts[2])
+                page_key = (task_id, offset // 100 * 100)
+                if page_key not in pages:
+                    try:
+                        pages[page_key] = self.tasks.get_task_result(
+                            task_id, actor=actor, offset=page_key[1], limit=100,
+                        )
+                    except ApplicationError as exc:
+                        if exc.code == "RESULT_SNAPSHOT_MISSING":
+                            requery()
+                        raise
+                page = pages[page_key]
+                original = next((item for item in page.facts
+                                 if item["fact_id"] == fact["fact_id"]), None)
+                if (page.status != "succeeded" or page.truncated or not original
+                        or any(original.get(key) != fact.get(key)
+                               for key in ("metric_code", "org_code", "org_name", "date",
+                                           "value", "unit", "value_policy"))):
+                    requery()
+                fact.update(original)
+                facts[fact["fact_id"]] = fact
+            for observation in step["observations"]:
+                if observation.get("metric") not in changed:
+                    continue
+                refs = observation.get("fact_refs", [])
+                if observation["type"] != "value" or len(refs) != 1 or refs[0] not in facts:
+                    requery()
+                fact = facts[refs[0]]
+                metric = bindings[fact["binding_ref"]]
+                observation["text"] = (
+                    f"{fact['org_name']}，{fact['date']}，{metric['name']}为"
+                    f"{display_number(fact['value'], metric)}。"
+                )
+        payload = AnalysisRequest.model_validate(state["request"])
+        for step in payload.plan.steps:
+            step.metric_refs = list(dict.fromkeys(
+                bindings[ref]["binding_ref"] for ref in step.metric_refs
+            ))
+        result = self._finish({
+            "state": state, "payload": payload, "run_id": evidence["run_ref"],
+            "org_codes": evidence["org_codes"],
+            "org_names": dict(zip(evidence["org_codes"], evidence["org_names"], strict=True)),
+            "bindings": bindings, "semantics": semantics,
+            "today": date.fromisoformat(evidence["checked_on"]),
+        })
+        def indexed_atoms(source):
+            observations = {item["ref"]: item for item in source["observations"]}
+            indexed = {}
+            refs = [atom["ref"] for atom in source["evidence_items"]]
+            if len(refs) != len(set(refs)):
+                requery()
+            for atom in source["evidence_items"]:
+                identity: tuple[object, ...]
+                kind = atom["type"]
+                owners = tuple(sorted(atom.get("step_ids", [])))
+                if kind == "fact":
+                    identity = (kind, atom["fact_id"], owners)
+                elif kind == "calculation" and atom.get("calculation_id"):
+                    identity = (kind, atom["calculation_id"], atom["name"], owners)
+                elif kind == "observation" and atom["ref"] in observations:
+                    identity = (kind, digest({
+                        key: value for key, value in observations[atom["ref"]].items()
+                        if key not in {"ref", "text"}
+                    }))
+                elif kind in {"gap", "scope"}:
+                    identity = (kind, atom["display"])
+                elif atom.get("compiler_version"):
+                    # 编译判断在原子引用恢复后重新生成，不能继承临时编号生成的依赖。
+                    continue
+                else:
+                    requery()
+                if identity in indexed:
+                    requery()
+                indexed[identity] = atom
+            return indexed
+
+        # JSON 对象可能重排步骤，原 result 中已发布的引用才是身份依据。
+        old_atoms, new_atoms = indexed_atoms(evidence), indexed_atoms(result)
+        if old_atoms.keys() != new_atoms.keys():
+            requery()
+        references = {atom["ref"]: old_atoms[key]["ref"] for key, atom in new_atoms.items()}
+        for key, atom in new_atoms.items():
+            atom["ref"] = references[atom["ref"]]
+            if "step_ids" in atom:
+                atom["step_ids"] = old_atoms[key]["step_ids"]
+            if "input_refs" in atom:
+                if any(ref not in references for ref in atom["input_refs"]):
+                    requery()
+                atom["input_refs"] = [references[ref] for ref in atom["input_refs"]]
+        for observation in result["observations"]:
+            observation["ref"] = references[observation["ref"]]
+        order = {atom["ref"]: index for index, atom in enumerate(evidence["evidence_items"])}
+        result["evidence_items"].sort(key=lambda atom: order[atom["ref"]])
+        result["observations"].sort(key=lambda item: order[item["ref"]])
+        from ask_metric.application.verified_findings import attach_analysis_findings
+
+        attach_analysis_findings(result)
+        return result
+
     def authorized_evidence(self, actor, run_ref):
         state = self._read_run(actor, run_ref)
         if state["status"] != "completed":
@@ -1085,6 +1240,13 @@ class GeneralAnalysisService:
         evidence = state["result"]
         for task in evidence["tasks"]:
             self.tasks.get_task(task["task_id"], actor=actor)
+        semantics = self.semantics(actor, metric_codes={
+            metric["code"] for metric in evidence["metric_descriptors"]
+        })
+        bindings = {metric["binding_ref"]: semantics.refresh_snapshot_descriptor(metric)
+                    for metric in evidence["metric_descriptors"]}
+        if any(ref != metric["binding_ref"] for ref, metric in bindings.items()):
+            return self._refresh_evidence(actor, state, semantics, bindings)
         return evidence
 
     def run_status(self, actor, key, conversation_id):

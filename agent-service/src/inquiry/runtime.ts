@@ -467,17 +467,17 @@ export function inquiryResponse(
       errorMessage: "MODEL_OUTPUT_TRUNCATED: 本次模型回答未完整生成，请稍后重试。",
     };
   if (["error", "aborted"].includes(message.stopReason)) return message;
-  const attempts = inquiryAttempts(messages);
-  // SDK 参数失败先于准入钩子；在响应边界按原输入收敛，修正参数和混合批仍可继续。
-  const actionIncomplete =
-    investigationOnly &&
-    (investigationClosed ||
-      calls.every((call) => {
-        const key = inquiryCallKey(call.name, call.arguments, attempts.bindings);
-        return key !== undefined && (attempts.requests.get(key) ?? 0) >= MAX_ANSWER_ATTEMPTS;
-      }));
   const last = saved.at(-1);
   const failure = inputRecord(last?.details);
+  // SDK 参数失败同样计入持久回执预算；预算内只拒绝原请求，仍允许换工具或修正条件。
+  // 预算用完且取数仍失败时如实结束；已取得澄清依据或解析要求确认时保留普通回复。
+  const failedInvestigation =
+    !hasInquiryEvidence(messages) &&
+    last !== undefined &&
+    ["metric_query", "topic_query", "metric_availability"].includes(last.toolName) &&
+    (last.isError || ["error", "failed", "ARGUMENT_ERROR"].includes(String(failure.status))) &&
+    !["ambiguous", "missing", "not_found", "needs_confirmation"].includes(String(failure.resolution_status));
+  const actionIncomplete = investigationClosed && (investigationOnly || failedInvestigation);
   // 调查已关闭时无法再补齐目标，交付已核验的部分事实，不重复提交必然失败的正文。
   const targetIncomplete =
     investigationClosed &&
