@@ -4,7 +4,8 @@
 
 基于 pi AgentHarness 原生运行时（`@earendil-works/pi-ai` + `@earendil-works/pi-agent-core`）的问数代理服务。
 pi 是唯一的 Agent 运行与对话控制核心：会话、模型上下文、压缩、执行状态与恢复全部使用原生能力
-（`JsonlSessionRepo` + `main` lane）；本服务承载鉴权、可信输入绑定、原生接线、Schema 驱动的业务 Frame 及页面投影。
+（本机 `JsonlSessionRepo` / 共享库 `StorageBackedSession` + `main` lane）；本服务承载鉴权、可信输入绑定、原生接线、Schema 驱动的业务 Frame 及页面投影。
+三实例的配置、数据库迁移、兼容边界与其他待改造模块见[三实例共享会话配置说明](../docs/三实例共享会话配置说明.md)。默认本机模式保持不变。
 
 新会话统一使用 `semantic_v2` 业务协议，已贯通精确查询、条件准备、确认、历史重显、复合目标、比较排名、覆盖发现、正式结果计算及结果驱动规划。
 `fixed_v1` 协议及 `AGENT_BUSINESS_PROTOCOL`、`AGENT_COMPACT_TURN_ARGS` 配置已退役，不再是配置回退选项；
@@ -12,7 +13,7 @@ pi 是唯一的 Agent 运行与对话控制核心：会话、模型上下文、�
 问数与多轮上下文的当前实现见[实现说明](../docs/pi-semantic-task/implementation-multiturn-context.md)，对话验收契约见[研发说明](../docs/问数与多轮上下文重构研发说明.md)。
 实现、检查及回退见[阶段4说明](../docs/pi-semantic-task/implementation-phase4.md)，可复制问法见[手工验收案例](../docs/pi-semantic-task/manual-acceptance-phase4.md)。
 Agent 的业务取数只调用 FastAPI 后端受治理接口并透传用户 Bearer，目录校验、权限裁剪、
-SQL builder 生成和执行与受控计算全部保留在后端；本服务不生成或执行 SQL；Frame 仅保留字段、结果引用和摘要，结果快照按需读取。
+SQL builder 生成和执行与受控计算全部保留在后端；Agent 仅在共享会话模式下执行自身持久化 SQL，不执行业务取数 SQL；Frame 仅保留字段、结果引用和摘要，结果快照按需读取。
 
 `develop-ws` 的普通文本问数使用直接工具循环：`metric_search` 找正式指标，`metric_query` 查询，
 模型根据真实差异决定是否补查，用 `analysis_calculate` 比较已取到的同指标事实，
@@ -141,7 +142,7 @@ Skill 全文留在首次可见的读取回执，动态业务状态仅放在发�
 - 批量删除沿用逐条接口及账号归属、活动状态校验；同一用户文件仓库的目录扫描与删除按序执行，避免并发删除使扫描遇到已移除文件。不同用户独立排队，不改变问数执行方式；部分失败仍由前端保留失败项供重试。
 - `POST /sessions/{id}/prompt`：提问，SSE 事件流。请求体为 `{protocol_version: 3, request_id, message, answers?, clarification_target?, selected_answers?, time_override?}`；`request_id` 由浏览器每次确认发送生成，重试不变。旧协议请求返回 `CLIENT_UPGRADE_REQUIRED`。
 - `GET /sessions/{id}/stream`：只读观察流（断线重连：快照 + 实时事件），不接纳新输入。
-- `POST /sessions/{id}/cancel`：传operation_id停止指定操作，或传request_id取消尚未收到accepted的请求；两者恰好一个。
+- `POST /sessions/{id}/cancel`：传operation_id停止指定操作，或传request_id取消尚未收到accepted的请求；两者恰好一个。本机模式返回 204；共享库模式返回 202 表示停止信号已接收，持有写租约的实例随后执行。
 
 `answers` 是前端点选已发布字段问题的结构化输入，元素仅含 `question_id`、`version` 和 `choice`，不得携带模型证据、channel 或正式编码。纯点选允许 `message=""`，但必须有非空 `answers`；空文本且无回答仍拒收。实时工具回执携带 `pending_questions` / `answer_receipts`，会话详情及 accepted/snapshot 快照携带当前 `question_states`。
 
@@ -206,15 +207,16 @@ AGENT_ANSWER_STREAMING=true node --env-file=.env --import tsx scripts/check-quer
 对照脚本默认各测 10 轮普通对话与 10 轮业务请求，两侧相邻交替；`--samples greeting-1,original`
 可用于小范围复测。延迟统计排除未通过语义或完成检查的轮次，原始失败与撤回仍保留在报告中。
 
-刷新或传输中断后，前端通过 GET 观察原会话，不重新 POST 问题。已认证 GET 会接管原生未完成
-operation；是否存在 `current` 不能用来判断当前进程是否已有执行器。恢复仍使用原 request 和
+刷新或传输中断后，前端通过 GET 观察原会话，不重新 POST 问题。本机模式的已认证 GET 会恢复原生未完成
+operation；共享库模式在其他实例租约有效时只读观察，租约过期后才可接管。是否存在 `current` 不能用来判断当前进程是否已有执行器。恢复仍使用原 request 和
 各业务阶段的幂等键。新 Frame 澄清通过现有输入框补充，由 Pi 输出结构化变化；`clarification_target` 和 `selected_answers` 仅保留旧卡片协议兼容。输入框不新增模式开关。
 
 除 `/health` 外均需 `Authorization: Bearer <后端访问令牌>`，身份每次请求经后端
-`/api/v1/auth/me` 校验，不使用短期缓存。会话以原生 JSONL 持久化在
+`/api/v1/auth/me` 校验，不使用短期缓存。本机模式会话以原生 JSONL 持久化在
 `AGENT_DATA_DIR/native-v1/u_<身份哈希>/`（默认 `./data`，生产为 `/var/lib/ask-metric/agent`），
 重启后恢复；同一数据根只允许一个写实例（启动时 PID 锁保护）。用户令牌只保存在内存。
-旧格式 JSON 会话（`AGENT_DATA_DIR` 根目录的 `*.json`）保留只读展示，不可续跑、不再写入。
+本机模式下，旧格式 JSON 会话（`AGENT_DATA_DIR` 根目录的 `*.json`）保留只读展示，不可续跑、不再写入。
+共享库模式的历史、名称和执行状态保存在应用库；启用前必须执行增量迁移并核对旧历史导入，不把本机历史自动合入共享列表。配置及回退边界见[三实例共享会话配置说明](../docs/三实例共享会话配置说明.md)。
 
 ## 通用多轮业务上下文
 

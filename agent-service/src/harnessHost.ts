@@ -60,6 +60,7 @@ import { modelPayloadDiagnostics } from "./modelPayloadDiagnostics.js";
 import type { ModelBundle } from "./models.js";
 import { modelUsage } from "./modelUsage.js";
 import { NativeSessionStore } from "./nativeSessions.js";
+import { SessionCoordinationError } from "./databaseSessionStorage.js";
 import {
   requireRequestContext,
   withRequestContext,
@@ -165,6 +166,8 @@ export interface HostedSession {
   /** 仅供在途观察读取本轮证据与调用序号，不持久化，也不参与会话业务决策。 */
   activeRequest?: AskMetricRequestContext;
   readOnlyReason?: "LEGACY_QUERY_REQUIRES_NEW_TURN";
+  /** 共享库只读观察句柄不能接纳、续跑或修改原生状态。 */
+  observer?: boolean;
 }
 
 /** 浏览器一次确认发送的完整输入（协议 V3）；标识与授权由宿主绑定，模型不可见 */
@@ -270,6 +273,7 @@ export class HarnessHost {
   private readonly lastUsed = new Map<string, number>();
   /** 列表读取标题时的临时打开；正式打开须等其释放，避免复用即将被关闭的 Session */
   private readonly peeks = new Map<string, Promise<unknown>>();
+  private readonly readers = new Map<string, number>();
   private readonly titles = new Map<string, string | undefined>();
   private readonly residency: typeof DEFAULT_RESIDENCY;
   private readonly sweeper: ReturnType<typeof setInterval>;
@@ -286,7 +290,15 @@ export class HarnessHost {
       residency?: Partial<typeof DEFAULT_RESIDENCY>;
     } = {},
   ) {
-    this.residency = { ...DEFAULT_RESIDENCY, ...options.residency };
+    this.residency = { ...DEFAULT_RESIDENCY,
+      ...(store.cluster ? { idleMs: 1_000, sweepIntervalMs: 1_000 } : {}), ...options.residency };
+    store.cluster?.onCancellation(async (id, kind, target) => {
+      const hosted = await this.live.get(id)?.catch(() => undefined);
+      if (!hosted || !store.cluster?.isWriter(id)) return false;
+      if (kind === "request") await this.cancelRequest(hosted, target);
+      else await this.abort(hosted, target);
+      return true;
+    });
     this.sweeper = setInterval(() => {
       void this.evictIdle().catch((error: unknown) =>
         console.error(
@@ -311,9 +323,15 @@ export class HarnessHost {
   }
 
   /** 打开当前身份名下的会话；不存在或不属于该用户都表现为不存在 */
-  async openSession(actor: BackendUser, sessionId: string): Promise<HostedSession | undefined> {
+  async openSession(actor: BackendUser, sessionId: string, allowRecovery = false): Promise<HostedSession | undefined> {
+    if (this.store.cluster && this.live.has(sessionId) && !this.store.cluster.isWriter(sessionId))
+      await this.closeSession(sessionId);
     const known = await this.liveFor(actor, sessionId);
     if (known !== null) return known;
+    if (this.store.cluster && !allowRecovery) {
+      const row = await this.store.cluster.state(actor.id, sessionId);
+      if (row?.current_operation_id) throw new SessionCoordinationError("SESSION_BUSY", "会话存在未完成的提问，请重新打开会话查看或恢复执行");
+    }
     const metadata = await this.store.findMetadata(actor.id, sessionId);
     if (!metadata) return undefined;
     await this.peeks.get(sessionId)?.catch(() => undefined);
@@ -338,6 +356,70 @@ export class HarnessHost {
       if (error instanceof Error && error.message === "SESSION_OWNER_MISMATCH") return undefined;
       throw error;
     }
+  }
+
+  /** 已在别的实例执行时只读打开；租约过期后的恢复仍走原有重新授权链路。 */
+  async viewSession(actor: BackendUser, sessionId: string, allowRecovery = true): Promise<HostedSession | undefined> {
+    const shared = this.store.cluster;
+    if (!shared) return this.openSession(actor, sessionId);
+    const row = await shared.state(actor.id, sessionId);
+    if (!row) return undefined;
+    if (shared.isWriter(sessionId)) return this.openSession(actor, sessionId);
+    if (allowRecovery && row.current_operation_id && Number(row.lease_until_ms) <= await shared.database.now()) {
+      try { return await this.openSession(actor, sessionId, true); }
+      catch (error) {
+        // 多个浏览器同时恢复时只有一个获得执行权，其余继续只读观察。
+        if (!(error instanceof Error && "code" in error && error.code === "SESSION_BUSY")) throw error;
+      }
+    }
+    const session = await shared.observe(actor.id, sessionId);
+    return session ? this.attach(actor, session, true) : undefined;
+  }
+
+  async releaseView(hosted: HostedSession): Promise<void> {
+    if (hosted.observer) await hosted.harness.close(BACKGROUND_CONTEXT);
+  }
+
+  async releaseIdle(sessionId: string): Promise<void> {
+    if (!this.store.cluster) return;
+    await this.exclusiveAdmission(sessionId, async () => {
+      if (this.readers.has(sessionId)) return;
+      const hosted = await this.live.get(sessionId)?.catch(() => undefined);
+      if (hosted && !(await hosted.lane.inspectExecution(BACKGROUND_CONTEXT)).current)
+        await this.closeSession(sessionId);
+    });
+  }
+
+  retain(sessionId: string): () => void {
+    this.readers.set(sessionId, (this.readers.get(sessionId) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const count = (this.readers.get(sessionId) ?? 1) - 1;
+      if (count) this.readers.set(sessionId, count); else this.readers.delete(sessionId);
+    };
+  }
+
+  /** 删除与本机接纳共用入口锁；共享库还会在同一事务检查 operation 与写入墓碑。 */
+  async deleteSession(actor: BackendUser, sessionId: string): Promise<"deleted" | "missing" | "busy"> {
+    return this.exclusiveAdmission(sessionId, async () => {
+      if (this.store.cluster) {
+        const metadata = await this.store.findMetadata(actor.id, sessionId);
+        if (!metadata) return "missing";
+        // 删除不接管失联节点的运行租约，否则拒绝删除后会留下无人驱动的活动操作。
+        await this.store.delete(actor.id, metadata);
+        await this.closeSession(sessionId);
+        return "deleted";
+      }
+      const hosted = await this.openSession(actor, sessionId);
+      if (!hosted) return "missing";
+      if ((await hosted.lane.inspectExecution(BACKGROUND_CONTEXT)).current) return "busy";
+      const metadata = await this.store.findMetadata(actor.id, sessionId);
+      await this.closeSession(sessionId);
+      if (metadata) await this.store.delete(actor.id, metadata);
+      return "deleted";
+    });
   }
 
   /** 已在打开或已打开：返回归属校验后的结果；null 表示尚未打开 */
@@ -367,10 +449,16 @@ export class HarnessHost {
     const evicted: string[] = [];
     for (const [sessionId, usedAt] of byAge) {
       if (now - usedAt <= this.residency.idleMs && resident <= this.residency.maxResident) break;
-      if (this.admissions.has(sessionId)) continue;
+      if (this.admissions.has(sessionId) || this.readers.has(sessionId)) continue;
       const hosted = await this.live.get(sessionId)?.catch(() => undefined);
       if (!hosted) {
         this.lastUsed.delete(sessionId);
+        continue;
+      }
+      if (this.store.cluster && !this.store.cluster.isWriter(sessionId)) {
+        await this.closeSession(sessionId);
+        resident -= 1;
+        evicted.push(sessionId);
         continue;
       }
       const execution = await hosted.lane.inspectExecution(BACKGROUND_CONTEXT);
@@ -395,6 +483,7 @@ export class HarnessHost {
     ownerUserId: string,
     metadata: JsonlSessionMetadata,
   ): Promise<string | undefined> {
+    if (this.store.cluster) return this.store.cluster.title(ownerUserId, metadata.id);
     const cacheKey = `${metadata.id}:${metadata.modifiedAt}`;
     if (this.titles.has(cacheKey)) return this.titles.get(cacheKey);
     const pending = this.live.get(metadata.id);
@@ -427,13 +516,15 @@ export class HarnessHost {
   private async attach(
     actor: BackendUser,
     session: Session<JsonlSessionMetadata>,
+    observer = false,
   ): Promise<HostedSession> {
     const sessionId = session.metadata.id;
     const opening = (async (): Promise<HostedSession> => {
       // 授权状态对象按会话共享引用，撤权即刻对该会话全部后续模型请求生效
       const authorization = { authorized: true };
-      this.authorization.set(sessionId, authorization);
-      const bundle = this.createModels(() => authorization.authorized);
+      if (!observer) this.authorization.set(sessionId, authorization);
+      const bundle = this.createModels(() => authorization.authorized && !observer &&
+        (!this.store.cluster || this.store.cluster.isWriter(sessionId)));
       // 协议只读判定：无标记或 fixed_v1 的历史会话一律只读，不再按其协议恢复执行。
       const businessProtocol =
         (await session.getValue(businessProtocolValue, BACKGROUND_CONTEXT))?.value ?? "fixed_v1";
@@ -486,7 +577,7 @@ export class HarnessHost {
       // 仅在空闲时更新，不改变正在恢复的操作的工具配置。
       const execution = await lane.inspectExecution(BACKGROUND_CONTEXT);
       const retired = businessProtocol !== "semantic_v2";
-      if (!execution.current && !retired)
+      if (!observer && !execution.current && !retired)
         await lane.setActiveTools(
           sessionTools.map((tool) => tool.name),
           BACKGROUND_CONTEXT,
@@ -501,11 +592,14 @@ export class HarnessHost {
         lane,
         open,
         createdAt: session.metadata.createdAt,
+        ...(observer ? { observer: true } : {}),
         ...(retired ? { readOnlyReason: "LEGACY_QUERY_REQUIRES_NEW_TURN" as const } : {}),
       };
     })();
-    this.live.set(sessionId, opening);
-    opening.catch(() => this.live.delete(sessionId));
+    if (!observer) {
+      this.live.set(sessionId, opening);
+      opening.catch(() => this.live.delete(sessionId));
+    }
     return opening;
   }
 
@@ -936,6 +1030,9 @@ export class HarnessHost {
     input: PromptInput,
     deps: { actor: BackendUser; backend: BackendClient },
   ): Promise<AdmitOutcome> {
+    if (hosted.observer || !this.live.has(hosted.sessionId) ||
+      (this.store.cluster && !this.store.cluster.isWriter(hosted.sessionId)))
+      return { ok: false, code: "SESSION_CLOSED", message: "会话执行权已变更，请重新打开会话。" };
     if (
       (await hosted.session.getValue(cancelledRequestValue(input.request_id), BACKGROUND_CONTEXT))
         ?.value
@@ -1183,6 +1280,7 @@ export class HarnessHost {
     hosted: HostedSession,
     admitted: Extract<AdmitOutcome, { ok: true }>,
   ): Promise<DriveOutcomeResult> {
+    await this.store.cluster?.drainCancellations(hosted.sessionId);
     if (admitted.completed) {
       return {
         ok: true,
@@ -1313,10 +1411,14 @@ export class HarnessHost {
     hosted: HostedSession,
     deps: { actor: BackendUser; backend: BackendClient },
   ): Promise<number> {
+    if (hosted.observer) return Promise.resolve(0);
     const current = this.recoveries.get(hosted.sessionId);
     if (current) return current;
     if (!hosted.open.length && !hosted.readOnlyReason) return Promise.resolve(0);
-    const recovery = this.resumePendingOperations(hosted, deps).finally(() => {
+    const release = this.retain(hosted.sessionId);
+    const recovery = Promise.resolve().then(() => this.store.cluster?.drainCancellations(hosted.sessionId))
+      .then(() => this.resumePendingOperations(hosted, deps)).finally(() => {
+      release();
       if (this.recoveries.get(hosted.sessionId) === recovery)
         this.recoveries.delete(hosted.sessionId);
     });
@@ -1486,6 +1588,8 @@ export class HarnessHost {
 
   /** 显式停止：原生取消指定 operation；不删除任何历史 */
   async abort(hosted: HostedSession, operationId: string): Promise<void> {
+    // 共享信箱可能稍晚送达；旧操作的停止请求不能落到下一轮，也无需让原生 lane 报错。
+    if ((await hosted.lane.inspectExecution(BACKGROUND_CONTEXT)).current?.id !== operationId) return;
     if (hosted.activeRequest?.operationId === operationId)
       invalidateAnswerStream(hosted.activeRequest);
     await hosted.lane.requestAbort(operationId, BACKGROUND_CONTEXT);

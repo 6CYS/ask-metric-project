@@ -23,6 +23,7 @@ import { createEvaluationRoutes } from "./evaluation/routes.js";
 import type { EvaluationService } from "./evaluation/service.js";
 import { createBusinessSkillRoutes } from "./businessSkillRoutes.js";
 import type { BusinessSkillStore } from "./businessSkillStore.js";
+import { SessionCoordinationError } from "./databaseSessionStorage.js";
 
 type Variables = { user: BackendUser; token: string; startedAt: number; authMs: number };
 
@@ -44,6 +45,8 @@ export function createApp(
 
   app.onError((error, c) => {
     if (error instanceof HistoryAuthorizationError) return c.json({code: error.code, detail: error.message}, error.status);
+    if (error instanceof SessionCoordinationError) return c.json({ code: error.code, detail: error.message },
+      error.code === "SESSION_NOT_FOUND" ? 404 : error.code === "SESSION_BUSY" ? 409 : 503);
     return c.json({detail: "会话服务暂时不可用"}, 500);
   });
 
@@ -73,6 +76,14 @@ export function createApp(
   });
 
   if (skills) app.route("/skills", createBusinessSkillRoutes(skills, config));
+  app.use("/sessions/*", async (c, next) => {
+    const id = c.req.path.split("/")[2];
+    if (!id) return next();
+    const release = host.retain(id);
+    try { await next(); }
+    finally { release(); await host.releaseIdle(id); }
+  });
+
   if (evaluations) app.route("/evaluations", createEvaluationRoutes(evaluations));
   else app.all("/evaluations/*", c => c.json({code: "EVALUATION_UNAVAILABLE", detail: "测评存储暂不可用，请联系管理员检查"}, 503));
 
@@ -80,6 +91,7 @@ export function createApp(
     const user = c.get("user");
     const hosted = await host.createSession(user);
     await hosted.harness.setName("问数会话", BACKGROUND_CONTEXT);
+    await host.releaseIdle(hosted.sessionId);
     return c.json({ session_id: hosted.sessionId, title: "问数会话", created_at: hosted.createdAt }, 201);
   });
 
@@ -97,18 +109,19 @@ export function createApp(
       if (evaluationSessions.has(metadata.id)) continue;
       // 标题存在原生会话 name 里；未打开的会话临时读取后即释放，不因浏览列表常驻内存。
       // 运行状态只可能来自本宿主已打开的会话
-      const title = await host.sessionTitle(user.id, metadata).catch(() => undefined);
+      const title = store.cluster ? await host.sessionTitle(user.id, metadata)
+        : await host.sessionTitle(user.id, metadata).catch(() => undefined);
       items.push({
         session_id: metadata.id,
         title: title ?? "问数会话",
         created_at: metadata.createdAt,
         last_active_at: metadata.modifiedAt,
-        running: await host.isRunning(metadata.id),
+        running: store.cluster ? await store.cluster.running(user.id, metadata.id) : await host.isRunning(metadata.id),
         ...(await host.readOnlyReason(metadata.id) ? {legacy: true, read_only_reason: await host.readOnlyReason(metadata.id)} : {}),
       });
     }
     // 旧 JSON 会话以只读形式并入列表，标记 legacy 供前端区分
-    for (const legacy of listLegacySessions(config.dataDir, user.id)) {
+    for (const legacy of store.cluster ? [] : listLegacySessions(config.dataDir, user.id)) {
       items.push({
         session_id: legacy.id,
         title: legacy.title,
@@ -124,10 +137,10 @@ export function createApp(
 
   app.get("/sessions/:id", async (c) => {
     const user = c.get("user");
-    const hosted = await host.openSession(user, c.req.param("id"));
+    const hosted = await host.viewSession(user, c.req.param("id"), c.req.query("resume") !== "false");
     if (!hosted) {
       // 旧会话只读回退：不续跑、不可提问
-      const legacy = getLegacySession(config.dataDir, user.id, c.req.param("id"));
+      const legacy = store.cluster ? undefined : getLegacySession(config.dataDir, user.id, c.req.param("id"));
       if (!legacy) return c.json({ detail: "会话不存在" }, 404);
       const messages = await redactInaccessibleHistory(legacyMessagesWithVerifiableAnswers(projectLegacyMessages(legacy)), createHistoryAuthorizer(new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs)));
       return c.json({
@@ -141,6 +154,7 @@ export function createApp(
         question_states: [],
       });
     }
+    try {
     const entries = await hosted.lane.findEntries({ order: "oldestFirst" }, BACKGROUND_CONTEXT);
     const messages = await redactInaccessibleHistory(projectEntries(entries, await storedOperationResults(hosted)), createHistoryAuthorizer(
       new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs), new NativeSemanticTaskStore(hosted.session)));
@@ -164,6 +178,7 @@ export function createApp(
       messages,
       question_states: await projectQuestionStates(messages, new NativeSemanticTaskStore(hosted.session)),
     });
+    } finally { await host.releaseView(hosted); }
   });
 
   app.patch("/sessions/:id", async (c) => {
@@ -182,28 +197,36 @@ export function createApp(
   });
 
   app.delete("/sessions/:id", async (c) => {
-    const user = c.get("user");
-    const hosted = await host.openSession(user, c.req.param("id"));
-    if (!hosted) return c.json({ detail: "会话不存在" }, 404);
-    const info = await hosted.lane.inspectExecution(BACKGROUND_CONTEXT);
-    if (info.current) {
+    const deleted = await host.deleteSession(c.get("user"), c.req.param("id"));
+    if (deleted === "missing") return c.json({ detail: "会话不存在" }, 404);
+    if (deleted === "busy") {
       return c.json({ detail: "会话正在处理提问，请先停止后再删除" }, 409);
     }
-    const metadata = await store.findMetadata(user.id, hosted.sessionId);
-    await host.closeSession(hosted.sessionId);
-    if (metadata) await store.delete(user.id, metadata, BACKGROUND_CONTEXT);
     return c.body(null, 204);
   });
 
   /** 显式停止：原生取消指定 operation；业务任务取消由工具层按 created/mutated 处理 */
   app.post("/sessions/:id/cancel", async (c) => {
     const user = c.get("user");
-    const hosted = await host.openSession(user, c.req.param("id"));
-    if (!hosted) return c.json({ detail: "会话不存在" }, 404);
     const body: Record<string, unknown> = await c.req.json<Record<string, unknown>>().catch(() => ({}));
     const operationId = typeof body.operation_id === "string" ? body.operation_id : "";
     const requestId = typeof body.request_id === "string" ? body.request_id.trim() : "";
-    if (!!operationId === !!requestId || requestId.length > 128) return c.json({detail: "请指定唯一的 operation_id 或 request_id"}, 400);
+    if (!!operationId === !!requestId || requestId.length > 128 || operationId.length > 128) return c.json({detail: "请指定唯一的 operation_id 或 request_id"}, 400);
+    if (store.cluster) {
+      if (!await store.cluster.cancel(user.id, c.req.param("id"), requestId ? "request" : "operation", requestId || operationId))
+        return c.json({ detail: "会话不存在" }, 404);
+      await store.cluster.drainCancellations(c.req.param("id"));
+      const state = await store.cluster.state(user.id, c.req.param("id"));
+      if (state?.current_operation_id && Number(state.lease_until_ms) <= await store.cluster.database.now()) {
+        const recovering = await host.viewSession(user, c.req.param("id"));
+        if (recovering) void host.resumeOpenOperations(recovering, {
+          actor: user, backend: new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs),
+        }).catch(() => { console.warn("停止请求已保留，等待会话恢复后处理"); });
+      }
+      return c.body(null, 202);
+    }
+    const hosted = await host.openSession(user, c.req.param("id"));
+    if (!hosted) return c.json({ detail: "会话不存在" }, 404);
     if (requestId) await host.cancelRequest(hosted, requestId);
     else await host.abort(hosted, operationId);
     return c.body(null, 204);
@@ -212,17 +235,100 @@ export function createApp(
   /** 断线重连的只读观察流：快照 + 实时事件直至活动操作结束；不接纳新输入 */
   app.get("/sessions/:id/stream", async (c) => {
     const user = c.get("user");
-    const hosted = await host.openSession(user, c.req.param("id"));
+    const hosted = await host.viewSession(user, c.req.param("id"));
     if (!hosted) return c.json({ detail: "会话不存在" }, 404);
     const sessionId = hosted.sessionId;
     const backend = new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs);
-    const authorize = createHistoryAuthorizer(backend, new NativeSemanticTaskStore(hosted.session));
+    let historyView = hosted;
+    // 跨节点观察是不可变快照；后续事件的题目绑定必须从同批最新快照读取。
+    const questionReader: HistoryQuestionReader = {
+      question: (id, version) => new NativeSemanticTaskStore(historyView.session).question(id, version),
+    };
+    const authorize = createHistoryAuthorizer(backend, questionReader);
     const answerStreaming = config.answerStreaming && c.req.header("X-Agent-Answer-Streaming") === "v1";
     return streamSSE(c, async (stream) => {
+      const release = host.retain(sessionId);
+      try {
       const send = authorizedSender(authorize, async (type, data) => stream.writeSSE({
         event: type,
         data: JSON.stringify({protocol_version: 3, session_id: sessionId, ...data}),
-      }), messages => projectQuestionStates(messages, new NativeSemanticTaskStore(hosted.session)));
+      }), messages => projectQuestionStates(messages, new NativeSemanticTaskStore(historyView.session)));
+      if (store.cluster) {
+        try {
+          if (!hosted.observer && hosted.open.length) void host.resumeOpenOperations(hosted, {actor: user, backend})
+            .catch(() => { console.warn("共享会话恢复未完成，请重新打开会话重试"); });
+          // 重连从本轮完整日志重放；正式历史快照和原有权限投影仍是最终依据。
+          const info = await hosted.lane.inspectExecution(BACKGROUND_CONTEXT);
+          const operation = info.current?.id;
+          const messages = projectEntries(await hosted.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT), await storedOperationResults(hosted));
+          await send("snapshot", { messages, running: Boolean(operation), operation_id: operation ?? null, answer_stream: null });
+          if (!operation) {
+            await send("run_terminal", { run_status: "idle", answer_status: "idle", business_tasks: projectBusinessTasks(messages) });
+            return;
+          }
+          let cursor = 0, terminal = false, lastHeartbeat = performance.now();
+          while (!stream.aborted && !terminal) {
+            const events = await store.cluster.events(user.id, sessionId, operation, cursor);
+            const current = events.length ? await host.viewSession(user, sessionId, false) : undefined;
+            if (events.length && !current) throw new SessionCoordinationError("SESSION_NOT_FOUND", "会话不存在");
+            if (current) historyView = current;
+            let evidence: ProjectedMessage[] | undefined;
+            try {
+            for (const event of events) {
+              cursor = event.seq;
+              if (event.type === "accepted") continue;
+              if (["answer_delta", "answer_reset"].includes(event.type) && !answerStreaming) continue;
+              if (["answer_delta", "message_done"].includes(event.type)) {
+                // 渲染文本在原节点发布时合法，不代表当前重连身份仍有权查看其依据。
+                // 一批事件共用原子读视图，避免每个文字片段都重新加载整份历史。
+                evidence ??= projectEntries(await historyView.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT), await storedOperationResults(historyView));
+                // 旧回合由快照逐轮脱敏；本轮及其明确引用单独核验，避免旧失权记录误拦新问题。
+                let turnStart = evidence.length - 1;
+                while (turnStart > 0 && evidence[turnStart]?.role !== "user") turnStart--;
+                await authorize(evidence.slice(Math.max(0, turnStart)));
+              }
+              await send(event.type, event.data);
+              if (event.type === "run_terminal") { terminal = true; break; }
+            }
+            } finally {
+              historyView = hosted;
+              if (current) await host.releaseView(current);
+            }
+            if (terminal) break;
+            const state = await store.cluster.state(user.id, sessionId);
+            if (!state) throw new SessionCoordinationError("SESSION_NOT_FOUND", "会话不存在");
+            if (state.current_operation_id && state.current_operation_id !== operation) {
+              await send("error", {code: "SESSION_OPERATION_CHANGED", message: "会话已开始新的提问，请重新打开以查看最新进度。"});
+              break;
+            }
+            if (!state.current_operation_id || Number(state.lease_until_ms) <= await store.cluster.database.now()) {
+              // 日志终态可能尚未来得及发送；重新读取持久化结果，不能永久等待死节点。
+              if (!state.current_operation_id) {
+                const latest = await host.viewSession(user, sessionId);
+                if (!latest) throw new SessionCoordinationError("SESSION_NOT_FOUND", "会话不存在");
+                try {
+                historyView = latest;
+                const finalMessages = projectEntries(await latest.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT), await storedOperationResults(latest));
+                const result = await latest.session.getValue(operationResult(operation), BACKGROUND_CONTEXT);
+                await send("snapshot", {messages: finalMessages, running: false, operation_id: null, answer_stream: null});
+                await send("run_terminal", {run_status: result?.value.status ?? "idle", answer_status: result?.value.status === "completed" ? "ok" : "idle", business_tasks: projectBusinessTasks(finalMessages)});
+                } finally { historyView = hosted; await host.releaseView(latest); }
+              } else await send("error", {code: "SESSION_RECOVERY_REQUIRED", message: "执行节点已离线，请重新打开会话以恢复未完成操作。"});
+              break;
+            }
+            if (performance.now() - lastHeartbeat > 15_000) {
+              await send("progress", {elapsed_ms: Math.round(performance.now() - c.get("startedAt"))});
+              lastHeartbeat = performance.now();
+            }
+            await new Promise(resolve => setTimeout(resolve, 250));
+          }
+        } catch (error) {
+          const code = error instanceof HistoryAuthorizationError || error instanceof SessionCoordinationError ? error.code : "SESSION_STREAM_UNAVAILABLE";
+          const message = error instanceof HistoryAuthorizationError ? error.message : "共享会话进度暂时无法读取，请重新打开会话。";
+          await stream.writeSSE({event: "error", data: JSON.stringify({protocol_version: 3, session_id: sessionId, code, message})});
+        } finally { await host.releaseView(hosted); }
+        return;
+      }
       if (hosted.readOnlyReason) {
         const messages = projectEntries(await hosted.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT), await storedOperationResults(hosted));
         await send("snapshot", {messages, running: false, operation_id: null, answer_stream: null, legacy: true, read_only_reason: hosted.readOnlyReason});
@@ -325,6 +431,7 @@ export function createApp(
       } finally {
         closeObservation();
       }
+      } finally { release(); await host.releaseIdle(sessionId); }
     });
   });
 
@@ -363,6 +470,8 @@ export function createApp(
     }
 
     return streamSSE(c, async (stream) => {
+      const release = host.retain(sessionId);
+      try {
       const timings = admitted.request.timings;
       if (timings) {
         timings.receivedAt = c.get("startedAt");
@@ -371,6 +480,9 @@ export function createApp(
       const streamedCalls = new Set<number>();
       const send = authorizedSender(authorize, async (type, data) =>
       {
+        if (store.cluster) await store.cluster.publish(user.id, sessionId, operationId, type,
+          { operation_id: operationId, request_id: input.request_id, ...data });
+        if (stream.aborted) return;
         await stream.writeSSE({
           event: type,
           data: JSON.stringify({
@@ -393,7 +505,7 @@ export function createApp(
       }, messages => projectQuestionStates(messages, new NativeSemanticTaskStore(hosted.session)));
       const previewReport = createInquiryReportPreview();
       const projector = new AnswerStreamProjector((type, data) => {
-        if (!stream.aborted) void send(type, data).catch(() => {});
+        if (store.cluster || !stream.aborted) void send(type, data).catch(() => {});
       }, (body, signal) => previewReport(body, admitted.request, signal),
       (args, ended) => compileInquiryReportDraft(args, admitted.request, ended));
 
@@ -405,13 +517,13 @@ export function createApp(
         clearInterval(heartbeat);
         watch.unsubscribe();
       };
-      stream.onAbort(closeObservation);
+      stream.onAbort(() => { if (store.cluster) clearInterval(heartbeat); else closeObservation(); });
       // 先投影原子快照，再订阅增量事件（原生 watch 的顺序约定）
       await send("accepted", { snapshot: { ...projectSnapshot(watch.snapshot, await storedOperationResults(hosted)),
         answer_stream: answerStreamIdentity(hosted, watch.snapshot.operation?.id, answerStreaming) } }).catch(() => {});
-      if (stream.aborted) closeObservation();
+      if (stream.aborted && !store.cluster) closeObservation();
       else watch.start((event) => {
-        if (stream.aborted) return;
+        if (stream.aborted && !store.cluster) return;
         if (event.type === "run_end") projector.close();
         const projected = projectWatchEvent(event);
         if (projected) {
@@ -431,7 +543,7 @@ export function createApp(
       }, 15_000);
       // “理解问题”阶段没有原生事件：宿主在准备模型上下文时播报读取的话题与指标识别结果。
       const reportActivity: NonNullable<typeof admitted.request.reportActivity> = (activity) => {
-        if (!stream.aborted) void send("activity", activity as unknown as Record<string, unknown>).catch(() => {});
+        if (store.cluster || !stream.aborted) void send("activity", activity as unknown as Record<string, unknown>).catch(() => {});
       };
       admitted.request.reportActivity = reportActivity;
       try {
@@ -461,6 +573,7 @@ export function createApp(
         closeObservation();
         if (admitted.request.reportActivity === reportActivity) delete admitted.request.reportActivity;
       }
+      } finally { release(); await host.releaseIdle(sessionId); }
     });
   });
 

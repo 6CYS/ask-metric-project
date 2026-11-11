@@ -8,6 +8,8 @@ import { loadRuntimeConfig } from "./nacosConfig.js";
 import { createAskMetricModels } from "./models.js";
 import { HarnessHost } from "./harnessHost.js";
 import { acquireWriterLock, NativeSessionStore } from "./nativeSessions.js";
+import { DatabaseSessionStore } from "./databaseSessions.js";
+import { mysqlSessionDatabase } from "./sessionDatabase.js";
 import { createAskMetricTools } from "./tools/index.js";
 import { createApp } from "./routes.js";
 import { createSessionEvaluationClient } from "./evaluation/sessionClient.js";
@@ -18,8 +20,19 @@ import { BusinessSkillStore } from "./businessSkillStore.js";
 async function main(): Promise<void> {
   const config = await loadRuntimeConfig();
   // 单数据根单写实例：多副本共写 JSONL 会破坏原生存储，直接拒绝启动
-  const releaseLock = acquireWriterLock(config.dataDir);
-  const store = new NativeSessionStore(config.dataDir);
+  const sharedSessions = config.sessionStorage?.mode === "database";
+  const releaseLock = sharedSessions ? () => {} : acquireWriterLock(config.dataDir);
+  const store = sharedSessions
+    ? new DatabaseSessionStore(config.dataDir, mysqlSessionDatabase(config.sessionStorage!.databaseUrl))
+    : new NativeSessionStore(config.dataDir);
+  if (store.cluster) {
+    try { await store.cluster.ready(); }
+    catch (error) {
+      await store.close();
+      if (error instanceof Error && error.message.startsWith("检测到本机会话历史")) throw error;
+      throw new Error("共享会话数据库不可用或尚未完成迁移，拒绝启动", {cause: error});
+    }
+  }
   const skills = await loadBusinessSkills();
   const skillStore = new BusinessSkillStore(config.dataDir, skills);
   const host = new HarnessHost(

@@ -12,6 +12,7 @@ const runtimeKeys = new Set([
   "AGENT_MODEL_RETRY_ENABLED", "AGENT_MODEL_MAX_RETRIES", "AGENT_MODEL_RETRY_BASE_DELAY_MS",
   "AGENT_ANSWER_STREAMING", "AGENT_TOPIC_QUERY_ENABLED", "AGENT_COMPACTION_ENABLED", "AGENT_COMPACTION_RESERVE_TOKENS",
   "AGENT_COMPACTION_KEEP_RECENT_TOKENS",
+  "AGENT_SESSION_STORAGE", "AGENT_DEPLOYMENT_REPLICAS",
 ]);
 const nodeKeys = ["AGENT_SERVICE_HOST", "AGENT_SERVICE_PORT", "AGENT_DATA_DIR",
   "BACKEND_BASE_URL", "ASK_METRIC_CONFIG_SM4_KEY_FILE", "ASK_METRIC_CONFIG_SM4_KEY"];
@@ -95,7 +96,7 @@ export async function loadRuntimeConfig(
       const name = rawName.toUpperCase();
       if (normalized.has(name)) throw new Error(`Nacos 配置字段重复：${name}`);
       normalized.add(name);
-      const allowed = dataId === securityId ? name === "AGENT_MODEL_API_KEY" : runtimeKeys.has(name);
+      const allowed = dataId === securityId ? ["AGENT_MODEL_API_KEY", "AGENT_SESSION_DATABASE_URL"].includes(name) : runtimeKeys.has(name);
       if (!allowed) throw new Error(`Nacos 配置字段不支持：${name}`);
       if (name === "AGENT_MODEL_EXTRA_BODY" && value && typeof value === "object" && !Array.isArray(value)) {
         selected[name] = JSON.stringify(value);

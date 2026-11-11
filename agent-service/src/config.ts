@@ -40,6 +40,7 @@ export interface AgentServiceConfig {
   };
   /** 会话持久化目录（原生 JSONL 存储，重启后恢复；生产指向持久状态目录） */
   dataDir: string;
+  sessionStorage?: { mode: "jsonl" | "database"; databaseUrl: string };
   /** 原生压缩配置：仅映射 pi 原生 CompactionSettings 字段，不实现第二套阈值算法 */
   compaction: {
     enabled: boolean;
@@ -80,13 +81,21 @@ function parseBoolean(raw: string | undefined, fallback: boolean, name: string):
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceConfig {
   // 存在任一密文时必须先加载主密钥；密钥缺失或密文被篡改时拒绝启动
-  const sensitiveNames = ["AGENT_MODEL_API_KEY"] as const;
+  const sensitiveNames = ["AGENT_MODEL_API_KEY", "AGENT_SESSION_DATABASE_URL"] as const;
   const needsKey = sensitiveNames.some((name) => isEncryptedConfigValue(env[name]));
   const masterKey = needsKey ? loadConfigSm4Key(env) : undefined;
   const resolve = (value: string): string =>
     isEncryptedConfigValue(value) ? decryptConfigValue(value, masterKey) : value;
 
   const apiKey = resolve(env.AGENT_MODEL_API_KEY?.trim() ?? "");
+  const sessionMode = env.AGENT_SESSION_STORAGE?.trim() || "jsonl";
+  if (sessionMode !== "jsonl" && sessionMode !== "database")
+    throw new Error("AGENT_SESSION_STORAGE 必须是 jsonl/database");
+  const sessionDatabaseUrl = resolve(env.AGENT_SESSION_DATABASE_URL?.trim() ?? "");
+  if (sessionMode === "database" && !sessionDatabaseUrl)
+    throw new Error("数据库会话模式必须配置 AGENT_SESSION_DATABASE_URL");
+  if (parsePositiveInt(env.AGENT_DEPLOYMENT_REPLICAS, 1, "AGENT_DEPLOYMENT_REPLICAS") > 1 && sessionMode !== "database")
+    throw new Error("多实例必须使用 database 会话存储，不能使用各节点本地 JSONL");
   const contextWindow = parsePositiveInt(env.AGENT_MODEL_CONTEXT_WINDOW, 128_000, "AGENT_MODEL_CONTEXT_WINDOW");
   const maxTokens = parsePositiveInt(env.AGENT_MODEL_MAX_TOKENS, 8_192, "AGENT_MODEL_MAX_TOKENS");
   // 收紧原生 SDK 的重试次数，避免未响应时多次重试拉长无反馈等待。
@@ -134,6 +143,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceCo
       maxTokens,
     },
     dataDir: (env.AGENT_DATA_DIR ?? "./data").trim() || "./data",
+    sessionStorage: { mode: sessionMode, databaseUrl: sessionDatabaseUrl },
     compaction,
   };
 }
