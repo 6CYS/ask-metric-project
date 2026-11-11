@@ -163,7 +163,12 @@ class MetricSemantics:
                                         candidate,
                                         {
                                             "source": "既有领域比较映射；专业口径仍需业务审核",
-                                            "value_encoding": definition.get("value_encoding"),
+                                            # 正式增幅沿用主题的小数比值契约，差额保留基础指标编码。
+                                            "value_encoding": (
+                                                "ratio"
+                                                if role == "rate"
+                                                else definition.get("value_encoding")
+                                            ),
                                             "analysis_hint": {
                                                 "topic": topic_id,
                                                 "topic_name": topic["name"],

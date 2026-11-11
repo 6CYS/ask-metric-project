@@ -22,6 +22,7 @@ def scoped_service(tmp_path, monkeypatch):
         "name": "测试主题", "default_sections": ["scale"], "relationships": [],
         "comparison_suffixes": {"mom": {
             "difference": {"suffix": "_mom", "value_basis": "较上月"},
+            "rate": {"suffix": "_mom_rate", "value_basis": "较上月增幅"},
         }},
         "metrics": [
             {"id": "total", "code": "balance", "names": ["余额"], "units": ["元"],
@@ -46,6 +47,7 @@ def scoped_service(tmp_path, monkeypatch):
             for code, name, unit, basis in [
                 ("balance", "余额当日数", "元", "当日数"),
                 ("balance_mom", "余额较上月", "元", "较上月"),
+                ("balance_mom_rate", "余额较上月增幅", "%", "较上月增幅"),
                 ("special_comparison", "余额较上月", "元", "较上月"),
                 ("rate", "正式收益率", "%", "当日数"),
                 ("noise", "无关指标", "元", "当日数"),
@@ -67,7 +69,7 @@ def scoped_service(tmp_path, monkeypatch):
     engine.dispose()
 
 
-@pytest.mark.parametrize("comparison", ["balance_mom", "special_comparison"])
+@pytest.mark.parametrize("comparison", ["balance_mom", "special_comparison", "balance_mom_rate"])
 def test_scoped_descriptors_equal_full_catalog_without_loading_unrelated_metrics(
     scoped_service, comparison,
 ):
@@ -88,6 +90,9 @@ def test_scoped_descriptors_equal_full_catalog_without_loading_unrelated_metrics
         assert scoped.resolve(binding) == full.resolve(binding)
     assert scoped.descriptor("rate")["value_encoding"] == "ratio"
     assert scoped.descriptor(comparison)["analysis_hint"]["comparison"] == "mom"
+    assert scoped.descriptor(comparison)["value_encoding"] == (
+        "ratio" if comparison == "balance_mom_rate" else None
+    )
 
 
 @pytest.mark.parametrize("change", ["definition", "alias_conflict", "disabled", "configuration"])
