@@ -125,11 +125,40 @@ describe("模型输出截断的交付边界", () => {
       name: "analysis_answer",
       arguments: { body: "草稿" },
     });
-    const messages = Array.from({ length: 18 }, () =>
+    const messages: AgentMessage[] = [
+      ...Array.from({ length: 16 }, () =>
+        evidence(current ? request.operationId : "old-operation"),
+      ),
+      ...Array.from({ length: 2 }, (_, index): AgentMessage => ({
+        role: "toolResult",
+        toolName: "analysis_answer",
+        toolCallId: `invalid-${index}`,
+        timestamp: 0,
+        content: [],
+        isError: true,
+      })),
+    ];
+    const result = inquiryResponse(message, request, messages);
+    expect(JSON.stringify(result.content)).not.toContain("草稿");
+    if (current)
+      expect(result.content).toEqual([
+        {
+          type: "toolCall",
+          id: `inquiry-recovery-${request.operationId}`,
+          name: PARTIAL_ANALYSIS,
+          arguments: { reason: "model_failure" },
+        },
+      ]);
+    else expect(result).toMatchObject({ stopReason: "error", content: [] });
+  });
+
+  it.each([true, false])("调查预算关闭后不再执行截断调查；存在当前来源=%s", (current) => {
+    const message = truncated();
+    message.content = [{ type: "toolCall", id: "cut-query", name: "metric_query", arguments: {} }];
+    const messages = Array.from({ length: 16 }, () =>
       evidence(current ? request.operationId : "old-operation"),
     );
     const result = inquiryResponse(message, request, messages);
-    expect(JSON.stringify(result.content)).not.toContain("草稿");
     if (current)
       expect(result.content).toEqual([
         {

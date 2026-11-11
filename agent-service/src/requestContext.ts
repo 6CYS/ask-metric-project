@@ -47,7 +47,13 @@ export interface HistoryBridge {
   /** 仅定位当前分支中已成功的分析来源并复核原回合权限，不返回旧数值。 */
   analysisSource?(
     runRef: string,
-  ): Promise<{ run_ref: string; scope_id: string; execution_turn_id?: string } | null>;
+  ): Promise<({ run_ref: string; scope_id: string; execution_turn_id?: string } &
+    import("./inquiry/target.js").InquirySourceContext) | null>;
+  /** 按当前分支的已授权原生目标链证明延续，不受模型历史窗口限制。 */
+  inquiryTargetAncestor?(
+    target: import("./inquiry/target.js").InquiryTargetSnapshot,
+    ancestorRef: string,
+  ): Promise<boolean>;
   list(
     beforeSeq?: number,
     limit?: number,

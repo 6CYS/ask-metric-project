@@ -7,6 +7,7 @@ import { isCalendarDate } from "../tools/shared.js";
 import { businessEvidences } from "../answerEvidence.js";
 import type { AnalysisEvidence } from "../analysis/tools.js";
 import type { DateModelValue } from "../business-context/types.js";
+import { currentTurnMessages } from "../tools/turnContract.js";
 
 export const inquiryDateCalendarSchema = Type.Object(
   {
@@ -180,6 +181,46 @@ export function readInquiryTargetSnapshot(value: unknown): InquiryTargetSnapshot
   return structuredClone(value);
 }
 
+export interface InquirySourceContext {
+  inquiry_target_snapshot?: InquiryTargetSnapshot;
+  inquiry_scope_role?: "reference";
+  inquiry_date?: QueryDate;
+  inquiry_scope?: ResolvedOrganizations;
+}
+
+/** 来源身份取自原生回执；同一操作内的独立补查不能借用主目标声明。 */
+export function inquirySourceContext(value: unknown, container?: unknown): InquirySourceContext {
+  const source = value as AnalysisEvidence & InquirySourceContext;
+  const envelope = container as InquirySourceContext | undefined;
+  const target = readInquiryTargetSnapshot(source.inquiry_target_snapshot ?? envelope?.inquiry_target_snapshot);
+  const identityMatches = target &&
+    (source.execution_turn_id ?? source.scope_id) === target.operationId &&
+    (!source.scope_id || source.scope_id === target.operationId);
+  return {
+    ...(identityMatches ? {inquiry_target_snapshot: target} : {}),
+    ...(source.inquiry_scope_role === "reference" ? {inquiry_scope_role: "reference" as const} : {}),
+    ...(source.inquiry_date ? {inquiry_date: structuredClone(source.inquiry_date)} : {}),
+    ...(source.inquiry_scope ? {inquiry_scope: structuredClone(source.inquiry_scope)} : {}),
+  };
+}
+
+/** 只接受同主题、真实父引用相连的目标；缺失链条交由历史桥按当前分支查证。 */
+export function inquiryTargetHasAncestor(
+  target: InquiryTargetSnapshot,
+  ancestorRef: string,
+  snapshots: readonly InquiryTargetSnapshot[],
+): boolean {
+  const targets = new Map(snapshots.map(item => [item.ref, item]));
+  const visited = new Set<string>();
+  let current: InquiryTargetSnapshot | undefined = target;
+  while (current && current.topic === target.topic && !visited.has(current.ref)) {
+    if (current.ref === ancestorRef) return true;
+    visited.add(current.ref);
+    current = current.parentRef ? targets.get(current.parentRef) : undefined;
+  }
+  return false;
+}
+
 export function currentInquiryTarget(messages: readonly AgentMessage[], operationId: string) {
   for (const message of [...messages].reverse()) {
     if (message.role === "user") break;
@@ -216,23 +257,38 @@ export function inquiryTargetCoverage(
       ? [...new Set(target.time.dates)].sort()
       : undefined;
   const coveredDates = new Map<string, Set<string>>();
-  for (const message of messages) {
+  for (const message of currentTurnMessages([...messages])) {
     if (
       message.role !== "toolResult" ||
-      !["metric_query", "topic_query"].includes(message.toolName)
+      message.isError ||
+      !["metric_query", "topic_query", "analysis_read"].includes(message.toolName)
     )
       continue;
+    // 本轮回读已核验来源归属与权限；覆盖沿用原查询期间，不伪造新的执行身份。
+    const reread = message.toolName === "analysis_read";
     const details = message.details as { inquiry_target_snapshot?: unknown } | undefined;
-    if (readInquiryTargetSnapshot(details?.inquiry_target_snapshot)?.ref !== target.ref) continue;
+    if (!reread && readInquiryTargetSnapshot(details?.inquiry_target_snapshot)?.ref !== target.ref)
+      continue;
     for (const evidence of businessEvidences(message.details)) {
       if (evidence.kind !== "analysis_evidence" || evidence.status !== "succeeded") continue;
       const receipt = evidence as AnalysisEvidence & {
         inquiry_date?: QueryDate;
         inquiry_scope?: ResolvedOrganizations;
+        inquiry_target_snapshot?: InquiryTargetSnapshot;
+        inquiry_reuse_target_ref?: string;
       };
+      const origin = readInquiryTargetSnapshot(receipt.inquiry_target_snapshot);
       if (
         !receipt.run_ref ||
-        (receipt.execution_turn_id ?? receipt.scope_id) !== target.operationId
+        (reread
+          ? receipt.result_reused !== true ||
+            receipt.inquiry_scope_role === "reference" ||
+            !origin || origin.topic !== target.topic ||
+            (receipt.execution_turn_id ?? receipt.scope_id) !== origin.operationId ||
+            (receipt.scope_id && receipt.scope_id !== origin.operationId) ||
+            !receipt.inquiry_reuse_target_ref ||
+            ![target.ref, target.parentRef].includes(receipt.inquiry_reuse_target_ref)
+          : (receipt.execution_turn_id ?? receipt.scope_id) !== target.operationId)
       )
         continue;
       const time: Partial<QueryDate> = receipt.inquiry_date ?? {

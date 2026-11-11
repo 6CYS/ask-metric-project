@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentMessage, AgentToolResult } from "@earendil-works/pi-agent-core";
-import { BackendClient } from "../src/backendClient.js";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { BackendApiError, BackendClient } from "../src/backendClient.js";
 import { createInquiryQueryTools } from "../src/inquiry/queryTools.js";
 import { createTopicQueryTool } from "../src/inquiry/topics/tool.js";
 import { loadTopicRegistry } from "../src/inquiry/topics/registry.js";
@@ -14,6 +15,7 @@ import {
   inquiryToolAdmission,
 } from "../src/inquiry/runtime.js";
 import { CONVERSATION_REPLY } from "../src/tools/turnContract.js";
+import { createPartialAnalysisTool, PARTIAL_ANALYSIS } from "../src/tools/partialAnalysis.js";
 import { MemoryCommandBridge, runTool, testRequestContext } from "../src/tools/testUtils.js";
 
 describe("正文交付通道提示", () => {
@@ -722,6 +724,19 @@ describe("连续无进展的原生工具批次", () => {
     ).toEqual(next);
   });
 
+  it.each([false, true])("重复参数失败后保留修正输入，混合批=%s", (mixed) => {
+    const messages = [...batch("first", [{}]), ...batch("second", [{}])];
+    const next = batch("next", [...(mixed ? [{}] : []), { args: { metric_refs: ["k1"] } }])[0];
+    if (next?.role !== "assistant") throw new Error("缺少下一次调用");
+    expect(
+      inquiryResponse(
+        { ...next, stopReason: "toolUse" },
+        testRequestContext({} as BackendClient, new MemoryCommandBridge()),
+        messages,
+      ),
+    ).toEqual(next);
+  });
+
   it.each([
     { name: "metric_search", args: { keywords: ["理财"], page: 1 }, kind: "analysis_catalog" },
     {
@@ -1204,5 +1219,236 @@ describe("连续无进展的原生工具批次", () => {
     expect(inquiryToolAdmission(messages, "analysis_answer")).toMatchObject({
       block: { terminate: true },
     });
+  });
+});
+
+describe("调查预算关闭后的目标缺口恢复", () => {
+  const source = {
+    kind: "analysis_evidence",
+    status: "succeeded",
+    execution_turn_id: "op-1",
+    run_ref: "run-current",
+    org_codes: ["A"],
+    tasks: [],
+    evidence_items: [],
+  };
+  const receipt = (toolName: string, details: unknown, isError = false): AgentMessage => ({
+    role: "toolResult",
+    toolName,
+    toolCallId: `${toolName}-receipt`,
+    content: [],
+    timestamp: 0,
+    details,
+    isError,
+  });
+  const missing = receipt(
+    "analysis_answer",
+    {
+      kind: "analysis_answer",
+      status: "ARGUMENT_ERROR",
+      retryable: true,
+      validation_stage: "prerequisite",
+      error_code: "INQUIRY_TARGET_INCOMPLETE",
+      target_coverage: { complete: false, covered_org_codes: ["A"], missing_org_codes: ["B"] },
+    },
+    true,
+  );
+  const queried = (count = 16): AgentMessage[] =>
+    Array.from({ length: count }, (_, index) => ({
+      ...receipt("metric_query", source),
+      toolCallId: `query-${index}`,
+    }));
+  const answer: AssistantMessage & { stopReason: "toolUse" } = {
+    role: "assistant",
+    api: "openai-completions",
+    provider: "isolated",
+    model: "isolated",
+    content: [
+      {
+        type: "toolCall",
+        id: "next-answer",
+        name: "analysis_answer",
+        arguments: { body: "未经核验的归因。" },
+      },
+    ],
+    timestamp: 0,
+    stopReason: "toolUse",
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+  };
+  const backend = () => new BackendClient("https://backend.test.invalid", "test-token", 100);
+  const requestFor = (messages: AgentMessage[]) =>
+    testRequestContext(backend(), new MemoryCommandBridge(), {
+      executionFlow: "inquiry_v1",
+      turnMessages: () => Promise.resolve(messages),
+      answerEvidence: () => Promise.resolve([{ ref: "e1", evidence: source }]),
+    });
+
+  it("首次目标覆盖失败后转既有部分交付，不再重交必然失败的正文", async () => {
+    const messages = [...queried(), missing];
+    const request = requestFor(messages);
+    const response = inquiryResponse(answer, request, messages);
+    expect(response.content).toEqual([
+      {
+        type: "toolCall",
+        id: "inquiry-recovery-op-1",
+        name: PARTIAL_ANALYSIS,
+        arguments: { reason: "action_incomplete" },
+      },
+    ]);
+    const call = response.content[0];
+    if (call?.type !== "toolCall") throw new Error("缺少部分交付调用");
+    expect(
+      inquiryToolAdmission(messages, call.name, call.arguments, {
+        operationId: request.operationId,
+        toolCallId: call.id,
+      }),
+    ).toBeUndefined();
+    expect(
+      inquiryToolAdmission(messages, call.name, call.arguments, {
+        operationId: request.operationId,
+        toolCallId: "untrusted-call",
+      }),
+    ).toHaveProperty("block");
+    const report = vi.spyOn(request.backend, "analysisReport").mockResolvedValue({
+      kind: "business_report",
+      status: "succeeded",
+      public_answer: "甲机构余额为 100 元。",
+      report: { summary: "甲机构余额为 100 元。", sections: [] },
+      gaps: ["乙机构该日暂无数据。"],
+    });
+    try {
+      const result = (await runTool(
+        createPartialAnalysisTool(),
+        call.arguments,
+        request,
+      )) as AgentToolResult<Record<string, unknown>>;
+      expect(report).toHaveBeenCalledWith(
+        { run_refs: ["run-current"], summary: "", sections: [], fallback: true },
+        { signal: undefined },
+      );
+      expect(result).toMatchObject({
+        terminate: true,
+        details: {
+          status: "succeeded",
+          partial_analysis: true,
+          fallback_reason: "action_incomplete",
+        },
+      });
+      expect(result.details.public_answer).toContain("100 元");
+      expect(result.details.public_answer).toContain("乙机构该日暂无数据");
+      expect(result.details.public_answer).toContain("原问题尚未完整分析");
+      expect(result.details.public_answer).not.toContain("未经核验的归因");
+      const delivered = [...messages, receipt(PARTIAL_ANALYSIS, result.details)];
+      expect(inquiryRecoveryAvailable(delivered, request.operationId)).toBe(false);
+    } finally {
+      report.mockRestore();
+    }
+  });
+
+  it("预算内的目标缺口仍允许定向补查", () => {
+    const messages = [...queried(2), missing];
+    const request = requestFor(messages);
+    const query = {
+      ...answer,
+      content: [
+        {
+          type: "toolCall" as const,
+          id: "fill-gap",
+          name: "metric_query",
+          arguments: { org_names: ["乙机构"], metric_refs: ["k1"] },
+        },
+      ],
+    };
+    expect(inquiryResponse(query, request, messages)).toEqual(query);
+    expect(
+      inquiryToolAdmission(messages, "metric_query", query.content[0]?.arguments),
+    ).toBeUndefined();
+  });
+
+  it.each(["ANALYSIS_REPORT_REFERENCE", "ANALYSIS_REPORT_SCOPE", "ANALYSIS_FORBIDDEN"])(
+    "已有%s未解决时不得借目标缺口恢复",
+    (code) => {
+      const messages = [
+        ...queried(),
+        receipt(
+          "analysis_answer",
+          {
+            kind: "analysis_answer",
+            status: "ARGUMENT_ERROR",
+            error_code: code,
+          },
+          true,
+        ),
+        missing,
+      ];
+      const request = requestFor(messages);
+      expect(inquiryResponse(answer, request, messages).content).not.toEqual([
+        expect.objectContaining({ name: PARTIAL_ANALYSIS }),
+      ]);
+      expect(
+        inquiryToolAdmission(
+          messages,
+          PARTIAL_ANALYSIS,
+          { reason: "action_incomplete" },
+          {
+            operationId: request.operationId,
+            toolCallId: "inquiry-recovery-op-1",
+          },
+        ),
+      ).toHaveProperty("block");
+    },
+  );
+
+  it("只有历史读取结果时不铺开旧分析；正文错误仍走原纠错通道", () => {
+    const history = Array.from({ length: 16 }, () =>
+      receipt("analysis_read", {
+        ...source,
+        execution_turn_id: "old-op",
+        result_reused: true,
+      }),
+    );
+    expect(inquiryResponse(answer, requestFor(history), [...history, missing])).toEqual(answer);
+    const invalid = [
+      ...queried(),
+      receipt(
+        "analysis_answer",
+        {
+          kind: "analysis_answer",
+          status: "ARGUMENT_ERROR",
+          error_code: "ANALYSIS_REPORT_NUMBER",
+        },
+        true,
+      ),
+    ];
+    expect(inquiryResponse(answer, requestFor(invalid), invalid)).toEqual(answer);
+  });
+
+  it.each([401, 403])("部分交付仍重新鉴权，后端%s拒绝不会输出已有数值", async (status) => {
+    const messages = [...queried(), missing];
+    const request = requestFor(messages);
+    const response = inquiryResponse(answer, request, messages);
+    const call = response.content[0];
+    expect(call).toMatchObject({ type: "toolCall", name: PARTIAL_ANALYSIS });
+    if (call?.type !== "toolCall") throw new Error("缺少部分交付调用");
+    const report = vi
+      .spyOn(request.backend, "analysisReport")
+      .mockRejectedValue(new BackendApiError(status, "无权读取该结果", "ANALYSIS_FORBIDDEN"));
+    try {
+      await expect(
+        runTool(createPartialAnalysisTool(), call.arguments, request),
+      ).rejects.toMatchObject({
+        status,
+        code: "ANALYSIS_FORBIDDEN",
+      });
+    } finally {
+      report.mockRestore();
+    }
   });
 });

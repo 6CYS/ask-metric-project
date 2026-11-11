@@ -282,7 +282,9 @@ export function inquiryToolAdmission(
   const exhausted = inquiryBudgetExhausted(messages);
   const attempts = inquiryAttempts(messages);
   if (
-    (exhausted || attempts.deliveryStalled) &&
+    (exhausted ||
+      attempts.deliveryStalled ||
+      (recovery && recovery.toolCallId === `inquiry-recovery-${recovery.operationId}`)) &&
     tool === CONVERSATION_REPLY &&
     (args as { answer?: unknown } | undefined)?.answer === INCOMPLETE
   )
@@ -385,7 +387,10 @@ export function inquiryAfterTool(
   // after_tool 在回执持久化前调用；此前次数与本次失败共同占用回答预算。
   if (
     delivery &&
-    (inquiryBudgetExhausted(messages) ||
+    ((event.toolName === CONVERSATION_REPLY &&
+      event.toolCallId === `inquiry-recovery-${request.operationId}` &&
+      details?.answer === INCOMPLETE) ||
+      inquiryBudgetExhausted(messages) ||
       (inquiryAttempts(messages).deliveryStalled &&
         event.toolName === CONVERSATION_REPLY &&
         details?.answer === INCOMPLETE) ||
@@ -428,8 +433,14 @@ export function inquiryResponse(
 ): SettledMessage {
   const truncated = message.stopReason === "length";
   const exhausted = inquiryBudgetExhausted(messages);
+  const calls = message.content.filter((block) => block.type === "toolCall");
+  const saved = receipts(messages);
+  const investigationClosed = saved.length >= MAX_INVESTIGATION_CALLS;
+  const investigationOnly =
+    calls.length > 0 &&
+    calls.every((call) => !["analysis_answer", CONVERSATION_REPLY].includes(call.name));
   // 预算内的截断工具参数交给 Pi 拒绝执行；耗尽后统一结束，避免原生失败回执反复续跑。
-  if (truncated && !exhausted && message.content.some((block) => block.type === "toolCall"))
+  if (truncated && !exhausted && calls.length && !(investigationClosed && investigationOnly))
     return message;
   if (
     (terminalModelFailure || truncated) &&
@@ -456,15 +467,32 @@ export function inquiryResponse(
       errorMessage: "MODEL_OUTPUT_TRUNCATED: 本次模型回答未完整生成，请稍后重试。",
     };
   if (["error", "aborted"].includes(message.stopReason)) return message;
-  const calls = message.content.filter((block) => block.type === "toolCall");
-  // 只收敛已返回无新证据的整批重复动作；任何未知条件或新调查仍交给正式工具处理。
+  const attempts = inquiryAttempts(messages);
+  // SDK 参数失败先于准入钩子；在响应边界按原输入收敛，修正参数和混合批仍可继续。
+  const actionIncomplete =
+    investigationOnly &&
+    (investigationClosed ||
+      calls.every((call) => {
+        const key = inquiryCallKey(call.name, call.arguments, attempts.bindings);
+        return key !== undefined && (attempts.requests.get(key) ?? 0) >= MAX_ANSWER_ATTEMPTS;
+      }));
+  const last = saved.at(-1);
+  const failure = inputRecord(last?.details);
+  // 调查已关闭时无法再补齐目标，交付已核验的部分事实，不重复提交必然失败的正文。
+  const targetIncomplete =
+    investigationClosed &&
+    last?.toolName === "analysis_answer" &&
+    failure.validation_stage === "prerequisite" &&
+    failure.error_code === "INQUIRY_TARGET_INCOMPLETE";
   if (
-    !exhausted &&
-    calls.length &&
     inquiryRecoveryAvailable(messages, request.operationId) &&
-    calls.every((call) =>
-      inquiryRepeatedInvestigation(call.name, call.arguments, request, messages),
-    )
+    (targetIncomplete ||
+      actionIncomplete ||
+      (!exhausted &&
+        calls.length &&
+        calls.every((call) =>
+          inquiryRepeatedInvestigation(call.name, call.arguments, request, messages),
+        )))
   )
     return {
       ...message,
@@ -478,8 +506,8 @@ export function inquiryResponse(
       ],
       stopReason: "toolUse",
     };
-  if (!exhausted && calls.length) return message;
-  const incomplete = exhausted;
+  if (!exhausted && !actionIncomplete && calls.length) return message;
+  const incomplete = exhausted || actionIncomplete;
   const body = incomplete
     ? INCOMPLETE
     : message.content
@@ -495,7 +523,9 @@ export function inquiryResponse(
     content: [
       {
         type: "toolCall",
-        id: `inquiry-answer-${request.operationId}-${inquiryAnswerAttempts(messages)}`,
+        id: incomplete
+          ? `inquiry-recovery-${request.operationId}`
+          : `inquiry-answer-${request.operationId}-${inquiryAnswerAttempts(messages)}`,
         name: report ? "analysis_answer" : CONVERSATION_REPLY,
         arguments: report ? { body } : { answer: body || "本次未取得可用结果，请稍后重试。" },
       },

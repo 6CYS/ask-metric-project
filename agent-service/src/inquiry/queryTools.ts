@@ -35,6 +35,9 @@ import {
   inquiryDateCalendarSchema,
   currentInquiryTarget,
   inquiryTargetCoverage,
+  inquirySourceContext,
+  inquiryTargetHasAncestor,
+  readInquiryTargetSnapshot,
   resolveInquiryTarget,
   InquiryTargetError,
   type InquiryTargetSnapshot,
@@ -1889,8 +1892,9 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
       "读取当前会话分支中真实出现过的run_ref，重新核验权限并返回本轮e引用。只讨论或画已有结果时使用，无需重新查询；不能读取另一会话或猜测run_ref。本轮主题省略的明细可用focus指定机构编码和指标编码分页读取，已展示事实直接复用。",
     execute: async (_id, input, _update, request, _invocation, context) => {
       const runRef = String(input.run_ref);
+      const messages = (await request.turnMessages?.()) ?? [];
       const source =
-        (await laneEvidence(request)).find((item) => item.run_ref === runRef) ??
+        (await laneEvidence(request, messages)).find((item) => item.run_ref === runRef) ??
         (await request.history.analysisSource?.(runRef));
       const conversation = await request.commands.getConversationId();
       if (!source || !conversation)
@@ -1959,12 +1963,30 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
       if (existing) return reused(existing);
       catalogBindingView(request, result.metric_descriptors);
       catalogBindingView(request, result.followup_metrics);
+      const original = messages.find(message => message.role === "toolResult" &&
+        businessEvidences(message.details).some(evidence => evidence === source));
+      const provenance = inquirySourceContext(source, original?.role === "toolResult" ? original.details : undefined);
+      const origin = provenance.inquiry_target_snapshot;
+      const target = currentInquiryTarget(messages, request.operationId) ?? request.inquiryTargetContext?.baseline;
+      const snapshots = messages.flatMap(message => {
+        if (message.role !== "toolResult") return [];
+        const snapshot = readInquiryTargetSnapshot(record(message.details).inquiry_target_snapshot);
+        return snapshot ? [snapshot] : [];
+      });
+      const continues = origin && target && provenance.inquiry_scope_role !== "reference" &&
+        origin.topic === target.topic &&
+        (inquiryTargetHasAncestor(target, origin.ref, snapshots) ||
+          await request.history.inquiryTargetAncestor?.(target, origin.ref));
       const details: InquiryEvidence = {
         ...result,
         execution_turn_id: source.execution_turn_id ?? source.scope_id,
         result_reused: true,
         ...bindingSnapshot(request),
       };
+      // 后端只提供事实，目标关联只由宿主原回执及本轮父链证明；旧回读证明不跨轮继承。
+      for (const key of ["inquiry_target_snapshot", "inquiry_reuse_target_ref", "inquiry_scope_role", "inquiry_date", "inquiry_scope"])
+        delete (details as unknown as Record<string, unknown>)[key];
+      Object.assign(details, provenance, continues ? {inquiry_reuse_target_ref: target.ref} : {});
       return {
         content: [
           {

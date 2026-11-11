@@ -306,6 +306,94 @@ describe("普通问数目标变更", () => {
   });
 });
 
+describe("追问复用本轮已鉴权读取的期间证据", () => {
+  const latest = { date_selection: "latest_snapshot", anchor_date: "2026-11-11" };
+  const previous = { ...baseline, time: latest };
+  const target: InquiryTargetSnapshot = {
+    ...baseline, ref: "target:current", operationId: "current", time: latest, parentRef: previous.ref,
+  };
+  const history: AgentMessage = {
+    role: "toolResult", toolName: "metric_query", toolCallId: "previous-query", timestamp: 0,
+    isError: false, content: [], details: { inquiry_target_snapshot: previous },
+  };
+  const question: AgentMessage = { role: "user", content: "上升还是下降了", timestamp: 1 };
+  function read(time = latest, codes = ["A"]): Extract<AgentMessage, { role: "toolResult" }> {
+    return {
+      role: "toolResult", toolName: "analysis_read", toolCallId: "read", timestamp: 2,
+      isError: false, content: [],
+      details: {
+        kind: "analysis_evidence", status: "succeeded", run_ref: "run:previous",
+        execution_turn_id: "previous", scope_id: "previous", result_reused: true,
+        inquiry_target_snapshot: previous, inquiry_reuse_target_ref: previous.ref,
+        date_selection: time.date_selection, checked_on: time.anchor_date,
+        analysis_date: "2026-08-27", org_codes: codes,
+      },
+    };
+  }
+  it("已重新读取的最新查询与本轮精确日期补查可共同交付，不改写原来源身份", () => {
+    const historical = read();
+    const exact: AgentMessage = {
+      role: "toolResult", toolName: "metric_query", toolCallId: "compare", timestamp: 3,
+      isError: false, content: [],
+      details: {
+        kind: "analysis_evidence", status: "succeeded", run_ref: "run:comparison",
+        execution_turn_id: "current", inquiry_target_snapshot: target,
+        inquiry_scope: target.organizations,
+        inquiry_date: { date_selection: "exact", start: "2026-08-27", end: "2026-08-27" },
+      },
+    };
+    expect(inquiryTargetCoverage([history, question, historical, exact], target)).toMatchObject({
+      complete: true, covered_org_codes: ["A"], missing_queries: [],
+    });
+    expect(historical.details).toMatchObject({ execution_turn_id: "previous", result_reused: true });
+    expect(inquiryTargetCoverage([history, question, exact], target).complete).toBe(false);
+  });
+  it("上一轮读过的证据不能代替本轮重新鉴权", () => {
+    expect(inquiryTargetCoverage([history, read(), question], target).complete).toBe(false);
+  });
+  it("来源缺少真实目标身份、操作身份不一致或旧证明均不能覆盖", () => {
+    for (const changes of [
+      {inquiry_target_snapshot: undefined}, {execution_turn_id: "unrelated"},
+      {scope_id: "unrelated"}, {inquiry_reuse_target_ref: "target:older"},
+      {inquiry_scope_role: "reference"},
+    ]) {
+      const source = read();
+      source.details = {...source.details as object, ...changes};
+      expect(inquiryTargetCoverage([history, question, source], target).complete).toBe(false);
+    }
+  });
+  it("读取失败、其他最新截止日或精确日期均不能证明当前最新目标", () => {
+    const failed = { ...read(), isError: true };
+    const oldAnchor = read({ ...latest, anchor_date: "2026-11-10" });
+    const exact = read({ date_selection: "exact", anchor_date: "2026-11-11" });
+    expect(inquiryTargetCoverage([history, question, failed, oldAnchor, exact], target).complete).toBe(false);
+  });
+  it("已读取的机构不能覆盖追加的比较机构", () => {
+    expect(inquiryTargetCoverage([history, question, read()], {
+      ...target, organizations: { codes: ["A", "B"], names: ["甲行", "乙行"] },
+    })).toMatchObject({ covered_org_codes: ["A"], missing_org_codes: ["B"], complete: false });
+  });
+  it("同机构同期间的其他主题回读不能补足新目标或已变更主题", () => {
+    const fresh = { ...target };
+    delete fresh.parentRef;
+    expect(inquiryTargetCoverage([history, question, read()], fresh).complete).toBe(false);
+    expect(inquiryTargetCoverage([history, question, read()], {
+      ...target, topic: "不良贷款余额",
+    }).complete).toBe(false);
+  });
+  it("连续追问沿已有父目标关系复用来源，不依赖只支持一次追问的特例", () => {
+    const intermediate = { ...target, ref: "target:middle", operationId: "middle" };
+    const middle: AgentMessage = {
+      ...history, details: { inquiry_target_snapshot: intermediate },
+    };
+    const source = read();
+    source.details = {...source.details as object, inquiry_reuse_target_ref: intermediate.ref};
+    expect(inquiryTargetCoverage([history, middle, question, source], {
+      ...target, parentRef: intermediate.ref,
+    }).complete).toBe(true);
+  });
+});
+
 describe("明确日期集合按机构累计查询覆盖", () => {
   const dates = ["2026-06-30", "2026-07-31"];
   const target: InquiryTargetSnapshot = {

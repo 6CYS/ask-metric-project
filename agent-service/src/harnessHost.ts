@@ -47,6 +47,7 @@ import { historySources, resolveHistoryOrganizationScopes } from "./historySourc
 import { inquiryPermissionDenied, withInquiryAuthorization } from "./inquiry/authorization.js";
 import { prepareInquiryHistory } from "./inquiry/history.js";
 import { freezeInquiryTargetContext, inquiryTargetReference } from "./inquiry/targetContext.js";
+import { inquirySourceContext, readInquiryTargetSnapshot } from "./inquiry/target.js";
 import {
   INQUIRY_TOOLS,
   inquiryAfterTool,
@@ -1922,12 +1923,37 @@ export function createHistoryBridge(
           run_ref: runRef,
           scope_id: source.scope_id,
           ...(source.execution_turn_id ? { execution_turn_id: source.execution_turn_id } : {}),
+          ...inquirySourceContext(source, entry.message.details),
         };
       }
     }
     return undefined;
   };
   return {
+    async inquiryTargetAncestor(target, ancestorRef) {
+      const snapshot = await view();
+      const visited = new Set<string>();
+      let current = target;
+      while (current.topic === target.topic && !visited.has(current.ref)) {
+        if (current.ref === ancestorRef) return true;
+        visited.add(current.ref);
+        const parentRef = current.parentRef;
+        if (!parentRef) return false;
+        const entry = [...snapshot.entries].reverse().find(item =>
+          item.type === "message" && item.message.role === "toolResult" &&
+          ["metric_query", "metric_availability", "topic_query"].includes(item.message.toolName) &&
+          readInquiryTargetSnapshot((item.message.details as {inquiry_target_snapshot?: unknown} | undefined)?.inquiry_target_snapshot)?.ref === parentRef);
+        if (!entry) return false;
+        const permitted = await authorized([entry], snapshot.turns);
+        const checked = permitted.entries[0];
+        const parent = checked?.type === "message" && checked.message.role === "toolResult"
+          ? readInquiryTargetSnapshot((checked.message.details as {inquiry_target_snapshot?: unknown} | undefined)?.inquiry_target_snapshot)
+          : undefined;
+        if (!parent) return false;
+        current = parent;
+      }
+      return false;
+    },
     async analysisSource(runRef) {
       const snapshot = await view();
       const entry = snapshot.entries.find((entry) => analysisSource(entry, runRef));

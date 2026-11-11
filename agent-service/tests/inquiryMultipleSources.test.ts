@@ -86,7 +86,7 @@ async function replayMultipleSources(scenario: Scenario) {
                       scope: "named",
                       names: [TEST_ACTOR.org_code],
                     },
-                    date: "2026-08-27",
+                    time: { expression: "2026-08-27" },
                   },
                 }
               : {}),

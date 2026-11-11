@@ -41,6 +41,8 @@ import {
 import { CONVERSATION_REPLY } from "../src/tools/turnContract.js";
 import { withInquiryAuthorization } from "../src/inquiry/authorization.js";
 import { withBackendAuthentication } from "../src/runtime/authentication.js";
+import { createInquiryQueryTools } from "../src/inquiry/queryTools.js";
+import { inquiryTargetCoverage } from "../src/inquiry/target.js";
 
 const model: Model<"openai-completions"> = {
   id: "isolated",
@@ -298,6 +300,80 @@ describe("普通问数目标的原生分支与恢复", () => {
     if (!result.ok) throw new Error(result.message);
     return result;
   }
+
+  it.each([
+    {independent: false, distant: false}, {independent: true, distant: false},
+    {independent: false, distant: true}, {independent: true, distant: true},
+  ])("真实回读不把独立来源升级为主目标（独立=$independent，历史桥=$distant）", async ({independent, distant}) => {
+    const previous = target("previous");
+    const current = {...target("current", ["O2"], "current-op"), parentRef: previous.ref};
+    await appendTurn(previous);
+    const source = {
+      kind: "analysis_evidence", status: "succeeded", run_ref: "run-original",
+      scope_id: previous.operationId, execution_turn_id: previous.operationId,
+      conversation_id: "conv-history", org_codes: ["O2"], org_names: ["机构O2"],
+      date_selection: "exact", requested_start: "2026-07-31", requested_end: "2026-07-31",
+      tasks: [], metric_descriptors: [], evidence_items: [], rows: [], observations: [], gaps: [], limitations: [],
+    };
+    await session.lane.appendMessage({role: "toolResult", toolName: "metric_query", toolCallId: "original",
+      content: [], timestamp: 0, isError: false,
+      details: {...source, ...(independent ? {inquiry_scope_role: "reference"} : {inquiry_target_snapshot: previous})},
+    }, BACKGROUND_CONTEXT);
+    if (distant) {
+      for (let index = 1; index <= 4; index++)
+        await appendTurn({...target(`gap-${index}`), parentRef: index === 1 ? previous.ref : `gap-${index - 1}`} as ReturnType<typeof target>);
+      current.parentRef = "gap-4";
+    }
+    const readBackend = {...backend, analysisEvidence: vi.fn(() => Promise.resolve({...source,
+      inquiry_target_snapshot: previous, inquiry_reuse_target_ref: current.parentRef,
+    }))} as unknown as BackendClient;
+    const admitted = await host.admitPrompt(session, input(), {actor: TEST_ACTOR, backend: readBackend});
+    if (!admitted.ok) throw new Error(admitted.message);
+    await admitted.request.commands.setConversationId("conv-history");
+    await session.lane.appendMessage({role: "user", content: "继续分析", timestamp: 1}, BACKGROUND_CONTEXT);
+    const result = await runTool(createInquiryQueryTools().find(tool => tool.name === "analysis_read")!,
+      {run_ref: "run-original"}, admitted.request) as AgentToolResult<unknown>;
+    const read: AgentMessage = {role: "toolResult", toolName: "analysis_read", toolCallId: "read",
+      content: result.content, details: result.details, timestamp: 2, isError: false};
+    expect(inquiryTargetCoverage([...(await admitted.request.turnMessages!()), read], current).complete).toBe(!independent);
+  });
+
+  it("五轮之外的来源通过完整原生历史桥证明延续，新轮仍必须重新鉴权", async () => {
+    const first = target("ancestor-0");
+    await appendTurn(first);
+    const source = {
+      kind: "analysis_evidence", status: "succeeded", run_ref: "run-first",
+      scope_id: first.operationId, execution_turn_id: first.operationId,
+      conversation_id: "conv-history", org_codes: ["O2"], org_names: ["机构O2"],
+      date_selection: "exact", requested_start: "2026-07-31", requested_end: "2026-07-31",
+      tasks: [], metric_descriptors: [], evidence_items: [], rows: [], observations: [], gaps: [], limitations: [],
+    };
+    await session.lane.appendMessage({role: "toolResult", toolName: "metric_query", toolCallId: "first",
+      content: [], timestamp: 0, isError: false, details: {...source, inquiry_target_snapshot: first},
+    }, BACKGROUND_CONTEXT);
+    for (let index = 1; index <= 5; index++)
+      await appendTurn({...target(`ancestor-${index}`), parentRef: `ancestor-${index - 1}`} as ReturnType<typeof target>);
+    const readBackend = {...backend, analysisEvidence: vi.fn(() => Promise.resolve(source))} as unknown as BackendClient;
+    const admitted = await host.admitPrompt(session, input(), {actor: TEST_ACTOR, backend: readBackend});
+    if (!admitted.ok) throw new Error(admitted.message);
+    await admitted.request.commands.setConversationId("conv-history");
+    await session.lane.appendMessage({role: "user", content: "继续分析最初结果", timestamp: 1}, BACKGROUND_CONTEXT);
+    const current = {...target("current", ["O2"], admitted.request.operationId), parentRef: "ancestor-5"};
+    const before = await admitted.request.turnMessages!();
+    expect(JSON.stringify(before)).not.toContain("run-first");
+    const result = await runTool(createInquiryQueryTools().find(tool => tool.name === "analysis_read")!,
+      {run_ref: "run-first"}, admitted.request) as AgentToolResult<unknown>;
+    const read: AgentMessage = {role: "toolResult", toolName: "analysis_read", toolCallId: "read",
+      content: result.content, details: result.details, timestamp: 2, isError: false};
+    expect(inquiryTargetCoverage([...before, read], current).complete).toBe(true);
+    expect(inquiryTargetCoverage([...before, read, {role: "user", content: "再继续", timestamp: 3}], current).complete).toBe(false);
+    expect(inquiryTargetCoverage([...before, read], {...current, topic: "贷款余额"}).complete).toBe(false);
+    expect(inquiryTargetCoverage([...before, read], {...current, organizations: {codes: ["O3"], names: ["机构O3"]}}).complete).toBe(false);
+    expect(inquiryTargetCoverage([...before, read], {...current, time: {date_selection: "exact", start: "2026-08-31", end: "2026-08-31"}}).complete).toBe(false);
+    const fresh: import("../src/inquiry/target.js").InquiryTargetSnapshot = {...current};
+    delete fresh.parentRef;
+    expect(inquiryTargetCoverage([...before, read], fresh).complete).toBe(false);
+  });
 
   async function appendPermissionFailure(status: number) {
     const tool: AgentHarnessTool<AskMetricRequestContext> = {
