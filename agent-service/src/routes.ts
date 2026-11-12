@@ -272,8 +272,15 @@ export function createApp(
             const current = events.length ? await host.viewSession(user, sessionId, false) : undefined;
             if (events.length && !current) throw new SessionCoordinationError("SESSION_NOT_FOUND", "会话不存在");
             if (current) historyView = current;
-            let evidence: ProjectedMessage[] | undefined;
             try {
+            const hasBody = events.some(event => event.type === "message_done" || (answerStreaming && event.type === "answer_delta"));
+            const evidence = current && hasBody ? projectEntries(await current.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT), await storedOperationResults(current)) : [];
+            const execution = current ? await current.lane.inspectExecution(BACKGROUND_CONTEXT) : undefined;
+            // 先核对证据所属操作再发送；下一轮即使已经结束，也不能替旧事件提供授权依据。
+            if (execution && (execution.current?.id ?? execution.lastOperationId) !== operation) {
+              await send("error", {code: "SESSION_OPERATION_CHANGED", message: "会话已开始新的提问，请重新打开以查看最新进度。"});
+              break;
+            }
             for (const event of events) {
               cursor = event.seq;
               if (event.type === "accepted") continue;
@@ -281,7 +288,6 @@ export function createApp(
               if (["answer_delta", "message_done"].includes(event.type)) {
                 // 渲染文本在原节点发布时合法，不代表当前重连身份仍有权查看其依据。
                 // 一批事件共用原子读视图，避免每个文字片段都重新加载整份历史。
-                evidence ??= projectEntries(await historyView.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT), await storedOperationResults(historyView));
                 // 旧回合由快照逐轮脱敏；本轮及其明确引用单独核验，避免旧失权记录误拦新问题。
                 let turnStart = evidence.length - 1;
                 while (turnStart > 0 && evidence[turnStart]?.role !== "user") turnStart--;

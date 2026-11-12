@@ -203,6 +203,7 @@ watch(activeConversationId, () => {
   scrollFollow.reset()
 }, { flush: "sync" })
 const sendingConversationIds = ref(new Set<string>())
+const stoppingConversationIds = ref(new Set<string>())
 const abortControllers = new Map<string, AbortController>()
 const pendingPrompts = new Map<string, {requestId: string; cancelFailure?: Error}>()
 const isHistoryLoading = ref(true)
@@ -239,6 +240,7 @@ function formatMessageTime(value?: string) {
 
 const activeConversation = computed(() => conversations.value.find((item) => item.id === activeConversationId.value) ?? conversations.value[0])
 const activeConversationIsSending = computed(() => Boolean(activeConversation.value && sendingConversationIds.value.has(activeConversation.value.id)))
+const activeConversationIsStopping = computed(() => Boolean(activeConversation.value && stoppingConversationIds.value.has(activeConversation.value.id)))
 /** 只有会话中最新、已完成的答案消息可以切换口径。 */
 function isActiveTimeVariant(chatMessage: DisplayMessage): boolean {
   const conversation = activeConversation.value
@@ -383,6 +385,7 @@ function resetChatSessionState() {
   conversations.value = []
   activeConversationId.value = ""
   sendingConversationIds.value = new Set()
+  stoppingConversationIds.value.clear()
   for (const controller of abortControllers.values()) controller.abort()
   abortControllers.clear()
   isHistoryLoading.value = false
@@ -925,7 +928,10 @@ function updateAssistantMessage(conversationId: string, messageId: string, updat
 function markConversationSending(conversationId: string, sending: boolean) {
   const next = new Set(sendingConversationIds.value)
   if (sending) next.add(conversationId)
-  else next.delete(conversationId)
+  else {
+    next.delete(conversationId)
+    stoppingConversationIds.value.delete(conversationId)
+  }
   sendingConversationIds.value = next
 }
 
@@ -1068,6 +1074,9 @@ async function streamPrompt(conversationId: string, serverId: string, input: Age
 
 function handleStreamEvent(conversationId: string, assistantId: string, event: AgentStreamEvent) {
   if (presentationDisposed) return
+  if (event.type === "run_terminal" || event.type === "error" || event.type === "snapshot" && !event.running) {
+    stoppingConversationIds.value.delete(conversationId)
+  }
   if (event.type === "answer_delta") {
     answerFrames.enqueue(conversationId, assistantId, event)
     return
@@ -1343,24 +1352,31 @@ async function hydrateResultTables(conversationId: string) {
   }
 }
 
-/** 显式停止：先取消原生 operation（服务端停止执行），再断开本地观察。 */
+/** 停止信号入队后继续观察，只有服务端确认才按原有方式断开。 */
 async function stopActiveConversation() {
   const conversation = activeConversation.value
-  if (!conversation || !activeConversationIsSending.value) return
+  if (!conversation || !activeConversationIsSending.value || stoppingConversationIds.value.has(conversation.id)) return
   const operationId = conversation.activeOperationId
   const pending = pendingPrompts.get(conversation.id)
+  const controller = abortControllers.get(conversation.id)
   if (conversation.serverId && (pending || operationId)) {
+    stoppingConversationIds.value.add(conversation.id)
     try {
-      if (pending) await cancelAgentRequest(conversation.serverId, pending.requestId)
-      else await cancelAgentOperation(conversation.serverId, operationId!)
+      const result = pending
+        ? await cancelAgentRequest(conversation.serverId, pending.requestId)
+        : await cancelAgentOperation(conversation.serverId, operationId!)
+      if (abortControllers.get(conversation.id) !== controller) return
+      if (result === "queued") return
     } catch {
+      if (abortControllers.get(conversation.id) !== controller) return
       // 停止观察不代表后台已取消；保留未确认状态，不能交付“已停止”的成功说明。
       const notice = "停止请求尚未确认，后台任务可能仍在执行，请重新打开会话核对状态。"
-      if (pending) pending.cancelFailure = new Error(notice)
-      else historyError.value = notice
+      if (pending && pendingPrompts.get(conversation.id) === pending) pending.cancelFailure = new Error(notice)
+      else if (activeConversationId.value === conversation.id) historyError.value = notice
     }
+    stoppingConversationIds.value.delete(conversation.id)
   }
-  abortControllers.get(conversation.id)?.abort()
+  controller?.abort()
 }
 
 function scrollToBottom(force = true, conversationId = activeConversationId.value) {
@@ -1507,6 +1523,7 @@ function pendingAnswer(chatMessage: DisplayMessage): string | undefined {
           <span>{{ queryReadiness.message }}<span v-if="queryReadiness.total > 0">（{{ queryReadiness.completed }}/{{ queryReadiness.total }}）</span></span></div>
         <p v-else-if="activeConversation?.legacy" class="mb-3 text-sm text-muted-foreground">旧格式会话仅支持查看，请新建对话继续提问。</p>
         <p v-else-if="activeConversation?.running && !activeConversationIsSending" class="mb-3 text-sm text-muted-foreground">该会话正在其他窗口运行，请稍候或新建对话。</p>
+        <p v-if="activeConversationIsStopping" role="status" class="mb-3 text-sm text-muted-foreground">正在停止，请稍候。</p>
         <CatalogQuestionComposer :key="auth.user.value?.id" v-model="message" :context-key="`${activeConversationId}:${activeClarificationMessage?.clarification?.id ?? activeConversation?.messages.length ?? 0}`" :clarification="activeClarificationMessage?.clarification" :auto-open-clarification-id="autoOpenClarificationId" :is-submitting="activeConversationIsSending" :disabled="isDeletingConversation || !queryReady || Boolean(activeConversation?.legacy) || Boolean(activeConversation?.running && !activeConversationIsSending)" :placeholder="composerPlaceholder" @submit="handleSubmit" @stop="stopActiveConversation" />
       </div>
     </div>

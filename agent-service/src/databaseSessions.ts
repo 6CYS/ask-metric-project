@@ -166,19 +166,23 @@ export class DatabaseSessionStore extends NativeSessionStore {
     if (cached && cached.owner === owner && !cached.lease.lost) return cached.session;
     const pending = this.opening.get(metadata.id);
     if (pending) return pending;
-    const opening = this.database.transaction(async (sql) => {
-      const row = await this.state(owner, metadata.id, sql, true);
-      if (!row) throw new SessionCoordinationError("SESSION_NOT_FOUND", "会话不存在");
-      const now = await sql.now();
-      if (row.lease_owner && Number(row.lease_until_ms) > now)
-        throw new SessionCoordinationError("SESSION_BUSY", "会话由另一实例使用中，请稍后重试");
-      const token = Number(row.lease_token) + 1;
-      await sql.execute(
-        "UPDATE agent_sessions SET lease_owner = ?, lease_token = ?, lease_until_ms = ? WHERE session_id = ?",
-        [this.instance, token, now + LEASE_MS, metadata.id],
+    const opening = this.database
+      .transaction(async (sql) => {
+        const row = await this.state(owner, metadata.id, sql, true);
+        if (!row) throw new SessionCoordinationError("SESSION_NOT_FOUND", "会话不存在");
+        const now = await sql.now();
+        if (row.lease_owner && Number(row.lease_until_ms) > now)
+          throw new SessionCoordinationError("SESSION_BUSY", "会话由另一实例使用中，请稍后重试");
+        const token = Number(row.lease_token) + 1;
+        await sql.execute(
+          "UPDATE agent_sessions SET lease_owner = ?, lease_token = ?, lease_until_ms = ? WHERE session_id = ?",
+          [this.instance, token, now + LEASE_MS, metadata.id],
+        );
+        return { row, token };
+      })
+      .then(({ row, token }) =>
+        this.remember(owner, row, { instance: this.instance, token, lost: false }),
       );
-      return this.remember(owner, row, { instance: this.instance, token, lost: false });
-    });
     this.opening.set(metadata.id, opening);
     try {
       return await opening;

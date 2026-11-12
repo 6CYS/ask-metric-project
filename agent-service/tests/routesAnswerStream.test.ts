@@ -136,6 +136,10 @@ function fixture(snapshotAnswer = false) {
   const abort = vi.fn(() => Promise.resolve());
   const host = {
     openSession: () => Promise.resolve(hosted),
+    viewSession: () => Promise.resolve(hosted),
+    releaseView: () => Promise.resolve(),
+    retain: () => () => {},
+    releaseIdle: () => Promise.resolve(),
     watch: () => Promise.resolve(watch),
     admitPrompt,
     drivePrompt,

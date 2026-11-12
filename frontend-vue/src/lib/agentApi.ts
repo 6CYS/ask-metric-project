@@ -262,7 +262,7 @@ async function getRequestErrorMessage(response: Response): Promise<string> {
   return text.trim() || fallback
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function requestResponse(path: string, init?: RequestInit): Promise<Response> {
   const token = getAccessToken()
   let response: Response
   try {
@@ -287,6 +287,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if (response.status === 404) throw new AgentSessionNotFoundError(message)
     throw new AgentApiError(message, response.status)
   }
+  return response
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await requestResponse(path, init)
   if (response.status === 204 || response.headers.get("content-length") === "0") return undefined as T
   return response.json() as Promise<T>
 }
@@ -314,19 +319,23 @@ export function renameAgentSession(sessionId: string, title: string) {
   })
 }
 
-/** 显式停止：原生取消指定 operation；只停止观察不等于取消执行 */
-export function cancelAgentOperation(sessionId: string, operationId: string) {
-  return request<void>(`/sessions/${encodeURIComponent(sessionId)}/cancel`, {
-    method: "POST",
-    body: JSON.stringify({ operation_id: operationId }),
+async function cancelAgentSession(sessionId: string, target: { operation_id: string } | { request_id: string }) {
+  const response = await requestResponse(`/sessions/${encodeURIComponent(sessionId)}/cancel`, {
+    method: "POST", body: JSON.stringify(target),
   })
+  if (response.status === 202) return "queued" as const
+  if (response.status === 204) return "confirmed" as const
+  throw new AgentApiError("停止请求未返回可确认的状态，请重新打开会话核对。", response.status)
+}
+
+/** 显式停止：共享模式的 202 仅表示接收请求，实际停止由后续会话终态确认。 */
+export function cancelAgentOperation(sessionId: string, operationId: string) {
+  return cancelAgentSession(sessionId, { operation_id: operationId })
 }
 
 /** accepted之前按浏览器已生成的请求身份停止；服务端持久化取消，迟到的同一请求不能开始执行。 */
 export function cancelAgentRequest(sessionId: string, requestId: string) {
-  return request<void>(`/sessions/${encodeURIComponent(sessionId)}/cancel`, {
-    method: "POST", body: JSON.stringify({request_id: requestId}),
-  })
+  return cancelAgentSession(sessionId, { request_id: requestId })
 }
 
 export interface AgentPromptOptions {

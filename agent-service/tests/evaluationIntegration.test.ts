@@ -59,6 +59,10 @@ describe("测评与原会话路由的集成边界", () => {
     );
     const host = {
       openSession: () => Promise.resolve(hosted),
+      viewSession: () => Promise.resolve(hosted),
+      releaseView: () => Promise.resolve(),
+      retain: () => () => {},
+      releaseIdle: () => Promise.resolve(),
       resumeOpenOperations,
       sessionTitle,
       isRunning: () => Promise.resolve(false),
