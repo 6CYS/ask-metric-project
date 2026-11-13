@@ -15,7 +15,7 @@ import { join, resolve } from "node:path";
 import type { DatasetInput, EvaluationDataset, EvaluationRun, EvaluationTurn } from "./types.js";
 
 // 运行记录同时冻结问题集与逐轮状态，并允许补充复核；读写必须遵守同一容量契约。
-const MAX_STORED_JSON_BYTES = 8 * 1024 * 1024;
+export const MAX_STORED_JSON_BYTES = 8 * 1024 * 1024;
 
 export class EvaluationError extends Error {
   constructor(
@@ -144,7 +144,7 @@ function readJson(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf8")) as unknown;
 }
 
-function storedDataset(value: unknown): EvaluationDataset {
+export function storedDataset(value: unknown): EvaluationDataset {
   const row = evaluationRecord(value);
   return {
     ...parseDatasetInput(row),
@@ -201,14 +201,14 @@ function isStoredRun(value: unknown): value is EvaluationRun {
   );
 }
 
-function storedRun(value: unknown): EvaluationRun {
+export function storedRun(value: unknown): EvaluationRun {
   if (!isStoredRun(value)) throw storageError();
   storedDataset(value.dataset);
   evaluationIdentity(value.id);
   return value;
 }
 
-function frozenRun(run: EvaluationRun): string {
+export function frozenRun(run: EvaluationRun): string {
   return JSON.stringify({
     id: run.id,
     name: run.name,
@@ -218,6 +218,7 @@ function frozenRun(run: EvaluationRun): string {
     data_label: run.data_label,
     model: run.model,
     config_hash: run.config_hash,
+    ...(run.configuration_versions ? { configuration_versions: run.configuration_versions } : {}),
     actor: run.actor,
     created_at: run.created_at,
   });

@@ -3,6 +3,7 @@ import { authenticationFailure } from "../runtime/authentication.js";
 import { inquiryPermissionDenied } from "../inquiry/authorization.js";
 import type { ProjectedMessage } from "../sessionProjection.js";
 import type { EvaluationRequest, ExecutionIdentity, SessionEvaluationClient } from "./types.js";
+import type { ConfigurationVersions } from "../configurationVersions.js";
 
 interface ClientOptions {
   turnTimeoutMs?: number;
@@ -104,7 +105,7 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 async function consumeEvents(
   response: Response,
   signal: AbortSignal,
-  receive: (type: string, value: JsonObject) => void,
+  receive: (type: string, value: JsonObject) => void | Promise<void>,
 ): Promise<void> {
   if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) {
     throw new BackendApiError(502, "问数服务未返回事件流", "EVALUATION_PROTOCOL_INVALID");
@@ -137,7 +138,7 @@ async function consumeEvents(
         const record = object(value);
         if (!record)
           throw new BackendApiError(502, "事件数据格式不完整", "EVALUATION_PROTOCOL_INVALID");
-        receive(type, record);
+        await receive(type, record);
       }
       if (chunk.done) break;
     }
@@ -160,11 +161,12 @@ export function createSessionEvaluationClient(
     path: string,
     init: RequestInit = {},
     signal = AbortSignal.timeout(cancelTimeoutMs),
+    versions?: ConfigurationVersions,
   ): Promise<Response> {
     const headers = new Headers(init.headers);
     headers.set("Authorization", `Bearer ${token}`);
     if (init.body) headers.set("Content-Type", "application/json");
-    const response = await abortable(request(path, { ...init, headers, signal }), signal);
+    const response = await abortable(request(path, { ...init, headers, signal }, versions), signal);
     if (!response.ok) {
       await response.body?.cancel();
       throw new BackendApiError(
@@ -282,8 +284,9 @@ export function createSessionEvaluationClient(
             }),
           },
           signal,
+          input.configurationVersions,
         );
-        await consumeEvents(response, signal, (type, value) => {
+        await consumeEvents(response, signal, async (type, value) => {
           if (value.session_id !== input.sessionId || value.request_id !== input.requestId) {
             throw new BackendApiError(
               502,
@@ -319,7 +322,7 @@ export function createSessionEvaluationClient(
               reportedIdentity.user_entry_id !== userEntryId)
           ) {
             try {
-              input.onIdentity?.({ operation_id: operationId, user_entry_id: userEntryId });
+              await input.onIdentity?.({ operation_id: operationId, user_entry_id: userEntryId });
               reportedIdentity = { operation_id: operationId, user_entry_id: userEntryId };
             } catch (error) {
               identityFailure = { error };

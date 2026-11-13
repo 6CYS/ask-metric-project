@@ -9,6 +9,9 @@ from ask_metric.infrastructure.db import (  # noqa: F401
     agent_sessions,
     business_knowledge,
     configuration,
+    evaluation,
+    evaluation_execution,
+    legacy_sessions,
 )
 from ask_metric.infrastructure.db.base import Base
 from ask_metric.infrastructure.db.models import (  # noqa: F401

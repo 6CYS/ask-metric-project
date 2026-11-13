@@ -156,7 +156,7 @@ export class DatabaseSessionStorage implements Storage {
             write.op === "set"
               ? (write.value as { currentOperationId: string | null }).currentOperationId
               : null;
-        await this.apply(sql, write);
+        await applySessionRecord(sql, this.id, write);
       }
       await sql.execute(
         "UPDATE agent_sessions SET next_seq = ?, modified_ms = ?, stats_json = ?, title = ?, current_operation_id = ? WHERE session_id = ?",
@@ -171,37 +171,6 @@ export class DatabaseSessionStorage implements Storage {
       );
       return { ...prepared.result, stats };
     });
-  }
-  private async apply(sql: SessionSql, write: CommittedWrite): Promise<void> {
-    const addressed = write.kind === "value" || write.kind === "list";
-    const hash = addressed ? addressHash(write.namespace, write.key) : null;
-    if (addressed && (write.kind === "value" || write.op === "delete"))
-      await sql.execute(
-        "DELETE FROM agent_session_records WHERE session_id = ? AND kind = ? AND address_hash = ?",
-        [this.id, write.kind, hash],
-      );
-    if (addressed && write.op === "delete") return;
-    const recordId =
-      write.kind === "entry"
-        ? `e:${write.id}`
-        : write.kind === "usage"
-          ? `u:${write.id}`
-          : write.kind === "value"
-            ? `v:${hash}`
-            : `l:${write.seq}`;
-    await sql.execute(
-      "INSERT INTO agent_session_records (session_id, record_id, kind, seq, address_hash, namespace_name, address_key, data_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      [
-        this.id,
-        recordId,
-        write.kind,
-        write.seq,
-        hash,
-        addressed ? write.namespace : null,
-        addressed ? write.key : null,
-        JSON.stringify(write),
-      ],
-    );
   }
   private async records(
     kind: string,
@@ -380,3 +349,35 @@ export class DatabaseSessionStorage implements Storage {
     await this.writes;
   }
 }
+
+export async function applySessionRecord(sql: SessionSql, id: string, write: CommittedWrite): Promise<void> {
+    const addressed = write.kind === "value" || write.kind === "list";
+    const hash = addressed ? addressHash(write.namespace, write.key) : null;
+    if (addressed && (write.kind === "value" || write.op === "delete"))
+      await sql.execute(
+        "DELETE FROM agent_session_records WHERE session_id = ? AND kind = ? AND address_hash = ?",
+        [id, write.kind, hash],
+      );
+    if (addressed && write.op === "delete") return;
+    const recordId =
+      write.kind === "entry"
+        ? `e:${write.id}`
+        : write.kind === "usage"
+          ? `u:${write.id}`
+          : write.kind === "value"
+            ? `v:${hash}`
+            : `l:${write.seq}`;
+    await sql.execute(
+      "INSERT INTO agent_session_records (session_id, record_id, kind, seq, address_hash, namespace_name, address_key, data_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        id,
+        recordId,
+        write.kind,
+        write.seq,
+        hash,
+        addressed ? write.namespace : null,
+        addressed ? write.key : null,
+        JSON.stringify(write),
+      ],
+    );
+  }

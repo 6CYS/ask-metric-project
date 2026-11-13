@@ -13,12 +13,14 @@ import { mysqlSessionDatabase } from "./sessionDatabase.js";
 import { createAskMetricTools } from "./tools/index.js";
 import { createApp } from "./routes.js";
 import { createSessionEvaluationClient } from "./evaluation/sessionClient.js";
+import { DatabaseEvaluationStore } from "./evaluation/databaseStore.js";
 import { EvaluationStore } from "./evaluation/store.js";
 import { EvaluationService } from "./evaluation/service.js";
 import { BusinessSkillStore } from "./businessSkillStore.js";
 import { databaseBusinessSkillSnapshot } from "./databaseBusinessSkills.js";
 import { databaseInquiryTopicSnapshot } from "./databaseInquiryTopics.js";
-import { databaseAgentRuntimeSnapshot } from "./databaseAgentRuntime.js";
+import { databaseAgentRuntimeSnapshot, materializeAgentRuntime } from "./databaseAgentRuntime.js";
+import { BackendClient } from "./backendClient.js";
 
 async function main(): Promise<void> {
   const config = await loadRuntimeConfig();
@@ -50,15 +52,41 @@ async function main(): Promise<void> {
       : { getSkills: () => skillStore!.snapshot() },
   );
   // 复用同一组会话路由和鉴权；内部请求不绕开当前账号权限，也不另建 Agent。
-  const evaluationClient = createSessionEvaluationClient((path, init) => Promise.resolve(app.request(path, init)));
+  const evaluationClient = createSessionEvaluationClient((path, init, versions) => Promise.resolve(
+    app.fetch(new Request(new URL(path, "http://evaluation.internal"), init), versions ? { evaluationConfigurationVersions: versions } : {}),
+  ));
   let evaluations: EvaluationService | undefined;
+  let databaseEvaluations: DatabaseEvaluationStore | undefined;
   try {
-    evaluations = new EvaluationService(new EvaluationStore(config.dataDir), evaluationClient, config);
+    const evaluationStore = store.cluster ? new DatabaseEvaluationStore(store.cluster.database) : new EvaluationStore(config.dataDir);
+    if (evaluationStore instanceof DatabaseEvaluationStore) {
+      await evaluationStore.ready();
+      databaseEvaluations = evaluationStore;
+    }
+    evaluations = new EvaluationService(evaluationStore, evaluationClient, config, databaseSkills ? {
+      configuration: async (token) => {
+        const backend = new BackendClient(config.backendBaseUrl, token, config.backendTimeoutMs);
+        const [runtime, skills] = await Promise.all([databaseAgentRuntimeSnapshot(backend), databaseBusinessSkillSnapshot(backend)]);
+        const topic = runtime.document.topicQueryEnabled ? await databaseInquiryTopicSnapshot(backend) : undefined;
+        return { config: materializeAgentRuntime(config, runtime.document), versions: {
+          agentRuntimeVersion: runtime.version_id, businessSkillVersion: skills.version_id,
+          ...(topic ? { inquiryTopicVersion: topic.version_id } : {}),
+        } };
+      },
+    } : {});
   } catch {
     // 独立维护模块不可用时保留现有问数服务，测评接口明确返回不可用。
     console.error("测评存储初始化失败，测评接口暂不可用");
   }
-  const app = createApp(config, host, store, evaluations, skillStore);
+  const app = createApp(config, host, store, evaluations, skillStore, async () => {
+    await store.cluster?.ready();
+    if (sharedSessions && (!evaluations || !databaseEvaluations)) return false;
+    await databaseEvaluations?.ready();
+    const response = await fetch(`${config.backendBaseUrl.replace(/\/+$/, "")}/health/ready`, {
+      signal: AbortSignal.timeout(config.backendTimeoutMs),
+    });
+    return response.ok;
+  });
 
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
     console.log(`ask-metric-agent-service listening on ${info.address}:${info.port}`);
@@ -66,7 +94,7 @@ async function main(): Promise<void> {
 
   const shutdown = () => {
     const evaluationShutdown = evaluations?.shutdown().catch(() => {
-      console.warn("测评任务未能在停机前完全结束，下次启动将标记为中断");
+      console.warn(sharedSessions ? "测评任务未能在停机前完全结束，需确认停止，不会自动重跑" : "测评任务未能在停机前完全结束，下次启动将标记为中断");
     });
     server.close(async () => {
       await evaluationShutdown;

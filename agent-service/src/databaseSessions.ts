@@ -18,6 +18,7 @@ import {
   type SessionLease,
 } from "./databaseSessionStorage.js";
 import type { SessionDatabase, SessionSql, SqlRow } from "./sessionDatabase.js";
+import { parseLegacySession } from "./sessionImport.js";
 
 const LEASE_MS = 45_000;
 interface OpenSession {
@@ -94,6 +95,7 @@ export class DatabaseSessionStore extends NativeSessionStore {
       "agent_session_records",
       "agent_session_events",
       "agent_session_cancellations",
+      "agent_legacy_sessions",
     ])
       await this.database.query(`SELECT 1 FROM ${table} WHERE 1 = 0`);
   }
@@ -104,6 +106,28 @@ export class DatabaseSessionStore extends NativeSessionStore {
         [owner],
       )
     ).map(sessionMetadata);
+  }
+  async listLegacy(owner: string) {
+    return (await this.database.query(
+      "SELECT content_json FROM agent_legacy_sessions WHERE owner_user_id = ? AND deleted = 0", [owner],
+    )).map((row) => parseLegacySession(String(row.content_json), owner));
+  }
+  async getLegacy(owner: string, id: string) {
+    const [row] = await this.database.query(
+      "SELECT content_json FROM agent_legacy_sessions WHERE session_id = ? AND owner_user_id = ? AND deleted = 0", [id, owner],
+    );
+    return row ? parseLegacySession(String(row.content_json), owner) : undefined;
+  }
+  async deleteLegacy(owner: string, id: string): Promise<boolean> {
+    return this.database.transaction(async (sql) => {
+      const [row] = await sql.query(
+        "SELECT session_id FROM agent_legacy_sessions WHERE session_id = ? AND owner_user_id = ? AND deleted = 0 FOR UPDATE", [id, owner],
+      );
+      if (!row) return false;
+      // 清空正文并保留归属墓碑，避免离线导入重试复活已删除记录。
+      await sql.execute("UPDATE agent_legacy_sessions SET deleted = 1, content_json = '' WHERE session_id = ?", [id]);
+      return true;
+    });
   }
   async state(
     owner: string,
@@ -164,7 +188,9 @@ export class DatabaseSessionStore extends NativeSessionStore {
   ): Promise<Session<JsonlSessionMetadata>> {
     const cached = this.opened.get(metadata.id);
     if (cached && cached.owner === owner && !cached.lease.lost) return cached.session;
-    const pending = this.opening.get(metadata.id);
+    // 相同会话 ID 的异身份请求不能共享打开结果；数据库仍逐次核验归属。
+    const openingKey = JSON.stringify([owner, metadata.id]);
+    const pending = this.opening.get(openingKey);
     if (pending) return pending;
     const opening = this.database
       .transaction(async (sql) => {
@@ -183,11 +209,11 @@ export class DatabaseSessionStore extends NativeSessionStore {
       .then(({ row, token }) =>
         this.remember(owner, row, { instance: this.instance, token, lost: false }),
       );
-    this.opening.set(metadata.id, opening);
+    this.opening.set(openingKey, opening);
     try {
       return await opening;
     } finally {
-      this.opening.delete(metadata.id);
+      this.opening.delete(openingKey);
     }
   }
   private remember(owner: string, row: SqlRow, lease: SessionLease) {

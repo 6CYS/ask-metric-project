@@ -48,19 +48,19 @@ export function createEvaluationRoutes(
       return context.json({ detail: "需要当前登录身份" }, 401);
     await next();
   });
-  router.get("/datasets", (context) =>
-    context.json({ items: service.listDatasets(context.get("user").id) }),
+  router.get("/datasets", async (context) =>
+    context.json({ items: await service.listDatasets(context.get("user").id) }),
   );
   router.post("/datasets", async (context) =>
     context.json(
-      service.createDataset(context.get("user").id, await readBody(context.req.raw)),
+      await service.createDataset(context.get("user").id, await readBody(context.req.raw)),
       201,
     ),
   );
   router.put("/datasets/:id", async (context) => {
     const body = evaluationRecord(await readBody(context.req.raw));
     return context.json(
-      service.updateDataset(
+      await service.updateDataset(
         context.get("user").id,
         context.req.param("id"),
         evaluationVersion(body.version),
@@ -68,12 +68,12 @@ export function createEvaluationRoutes(
       ),
     );
   });
-  router.get("/runs", (context) =>
-    context.json({ items: service.listRuns(context.get("user").id) }),
+  router.get("/runs", async (context) =>
+    context.json({ items: await service.listRuns(context.get("user").id) }),
   );
   router.delete("/datasets/:id", async (context) => {
     const body = evaluationRecord(await readBody(context.req.raw));
-    service.deleteDataset(
+    await service.deleteDataset(
       context.get("user").id,
       context.req.param("id"),
       evaluationVersion(body.version),
@@ -86,12 +86,16 @@ export function createEvaluationRoutes(
   });
   router.post("/runs", async (context) =>
     context.json(
-      service.startRun(context.get("user"), context.get("token"), await readBody(context.req.raw)),
+      await service.startRun(
+        context.get("user"),
+        context.get("token"),
+        await readBody(context.req.raw),
+      ),
       201,
     ),
   );
-  router.get("/runs/:id", (context) =>
-    context.json(service.getRun(context.get("user").id, context.req.param("id"))),
+  router.get("/runs/:id", async (context) =>
+    context.json(await service.getRun(context.get("user").id, context.req.param("id"))),
   );
   router.post("/runs/:id/cancel", async (context) =>
     context.json(
@@ -114,7 +118,7 @@ export function createEvaluationRoutes(
   );
   router.put("/runs/:id/turns/:turnId/review", async (context) =>
     context.json(
-      service.reviewTurn(
+      await service.reviewTurn(
         context.get("user"),
         context.req.param("id"),
         context.req.param("turnId"),

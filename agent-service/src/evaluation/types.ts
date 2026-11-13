@@ -1,4 +1,5 @@
 import type { ProjectedMessage } from "../sessionProjection.js";
+import type { ConfigurationVersions } from "../configurationVersions.js";
 
 export interface EvaluationQuestion {
   id: string;
@@ -72,6 +73,7 @@ export interface EvaluationRun {
   data_label: string;
   model: string;
   config_hash: string;
+  configuration_versions?: ConfigurationVersions;
   actor: { id: string; name: string; org_code: string; role_code: string };
   created_at: string;
   finished_at: string | null;
@@ -88,7 +90,11 @@ export interface EvaluationTurnDetail {
   turn: EvaluationTurn;
   messages: ProjectedMessage[];
 }
-export type EvaluationRequest = (path: string, init?: RequestInit) => Promise<Response>;
+export type EvaluationRequest = (
+  path: string,
+  init?: RequestInit,
+  versions?: ConfigurationVersions,
+) => Promise<Response>;
 export interface SessionEvaluationClient {
   createSession(token: string): Promise<string>;
   deleteSession(token: string, sessionId: string, signal?: AbortSignal): Promise<void>;
@@ -97,8 +103,9 @@ export interface SessionEvaluationClient {
     sessionId: string;
     requestId: string;
     question: string;
+    configurationVersions?: ConfigurationVersions;
     signal: AbortSignal;
-    onIdentity?: (identity: ExecutionIdentity) => void;
+    onIdentity?: (identity: ExecutionIdentity) => void | Promise<void>;
     cancel?: () => Promise<void>;
   }): Promise<ExecutionResult>;
   readTurn(token: string, sessionId: string, userEntryId: string): Promise<ProjectedMessage[]>;

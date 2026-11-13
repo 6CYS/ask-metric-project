@@ -24,6 +24,7 @@ import type { EvaluationService } from "./evaluation/service.js";
 import { createBusinessSkillRoutes } from "./businessSkillRoutes.js";
 import type { BusinessSkillStore } from "./businessSkillStore.js";
 import { SessionCoordinationError } from "./databaseSessionStorage.js";
+import type { ConfigurationVersions } from "./configurationVersions.js";
 
 type Variables = { user: BackendUser; token: string; startedAt: number; authMs: number };
 
@@ -40,8 +41,9 @@ export function createApp(
   store: NativeSessionStore,
   evaluations?: EvaluationService,
   skills?: BusinessSkillStore,
-): Hono<{ Variables: Variables }> {
-  const app = new Hono<{ Variables: Variables }>();
+  readiness: () => Promise<boolean> = () => Promise.resolve(true),
+): Hono<{ Variables: Variables; Bindings: { evaluationConfigurationVersions?: ConfigurationVersions } }> {
+  const app = new Hono<{ Variables: Variables; Bindings: { evaluationConfigurationVersions?: ConfigurationVersions } }>();
 
   app.onError((error, c) => {
     if (error instanceof HistoryAuthorizationError) return c.json({code: error.code, detail: error.message}, error.status);
@@ -51,6 +53,12 @@ export function createApp(
   });
 
   app.get("/health", (c) => c.json({ status: "ok" }));
+  app.get("/health/ready", async (c) => {
+    try {
+      if (await readiness()) return c.json({ status: "ready" });
+    } catch { /* 探针不输出连接错误和敏感内部信息。 */ }
+    return c.json({ status: "unavailable" }, 503);
+  });
 
   // 除健康检查外均要求有效 Bearer；身份以后端当次校验为准，不使用短期缓存
   app.use("*", async (c, next) => {
@@ -101,7 +109,7 @@ export function createApp(
     const items: Array<Record<string, unknown>> = [];
     let evaluationSessions = new Set<string>();
     try {
-      evaluationSessions = new Set(evaluations?.listSessionIds(user.id) ?? []);
+      evaluationSessions = new Set(await evaluations?.listSessionIds(user.id) ?? []);
     } catch {
       // 测评索引异常不能阻断原会话；列表仍由原生仓库和当前账号权限控制。
       console.warn("测评会话索引不可读取，暂按原生会话列表展示");
@@ -122,7 +130,7 @@ export function createApp(
       });
     }
     // 旧 JSON 会话以只读形式并入列表，标记 legacy 供前端区分
-    for (const legacy of store.cluster ? [] : listLegacySessions(config.dataDir, user.id)) {
+    for (const legacy of store.cluster ? await store.cluster.listLegacy(user.id) : listLegacySessions(config.dataDir, user.id)) {
       items.push({
         session_id: legacy.id,
         title: legacy.title,
@@ -141,7 +149,7 @@ export function createApp(
     const hosted = await host.viewSession(user, c.req.param("id"), c.req.query("resume") !== "false");
     if (!hosted) {
       // 旧会话只读回退：不续跑、不可提问
-      const legacy = store.cluster ? undefined : getLegacySession(config.dataDir, user.id, c.req.param("id"));
+      const legacy = store.cluster ? await store.cluster.getLegacy(user.id, c.req.param("id")) : getLegacySession(config.dataDir, user.id, c.req.param("id"));
       if (!legacy) return c.json({ detail: "会话不存在" }, 404);
       const messages = await redactInaccessibleHistory(legacyMessagesWithVerifiableAnswers(projectLegacyMessages(legacy)), createHistoryAuthorizer(new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs)));
       return c.json({
@@ -199,7 +207,10 @@ export function createApp(
 
   app.delete("/sessions/:id", async (c) => {
     const deleted = await host.deleteSession(c.get("user"), c.req.param("id"));
-    if (deleted === "missing") return c.json({ detail: "会话不存在" }, 404);
+    if (deleted === "missing") {
+      if (store.cluster && await store.cluster.deleteLegacy(c.get("user").id, c.req.param("id"))) return c.body(null, 204);
+      return c.json({ detail: "会话不存在" }, 404);
+    }
     if (deleted === "busy") {
       return c.json({ detail: "会话正在处理提问，请先停止后再删除" }, 409);
     }
@@ -457,6 +468,8 @@ export function createApp(
     if (!input) {
       return c.json({ detail: "请求参数不完整或 message 为空/过长" }, 400);
     }
+    // 仅同进程测评客户端通过 fetch bindings 指定版本；浏览器请求体和请求头均不能覆盖。
+    if (c.env?.evaluationConfigurationVersions) input.configurationVersions = c.env.evaluationConfigurationVersions;
     const token = c.get("token");
     const backend = new BackendClient(config.backendBaseUrl, token, config.backendTimeoutMs);
     const authorize = createHistoryAuthorizer(backend, new NativeSemanticTaskStore(hosted.session));
