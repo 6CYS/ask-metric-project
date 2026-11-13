@@ -75,7 +75,8 @@ export function createApp(
     }
   });
 
-  if (skills) app.route("/skills", createBusinessSkillRoutes(skills, config));
+  if (skills || config.businessConfigurationStorage === "database")
+    app.route("/skills", createBusinessSkillRoutes(skills, config));
   app.use("/sessions/*", async (c, next) => {
     const id = c.req.path.split("/")[2];
     if (!id) return next();

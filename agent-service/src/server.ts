@@ -16,6 +16,9 @@ import { createSessionEvaluationClient } from "./evaluation/sessionClient.js";
 import { EvaluationStore } from "./evaluation/store.js";
 import { EvaluationService } from "./evaluation/service.js";
 import { BusinessSkillStore } from "./businessSkillStore.js";
+import { databaseBusinessSkillSnapshot } from "./databaseBusinessSkills.js";
+import { databaseInquiryTopicSnapshot } from "./databaseInquiryTopics.js";
+import { databaseAgentRuntimeSnapshot } from "./databaseAgentRuntime.js";
 
 async function main(): Promise<void> {
   const config = await loadRuntimeConfig();
@@ -33,14 +36,18 @@ async function main(): Promise<void> {
       throw new Error("共享会话数据库不可用或尚未完成迁移，拒绝启动", {cause: error});
     }
   }
-  const skills = await loadBusinessSkills();
-  const skillStore = new BusinessSkillStore(config.dataDir, skills);
+  const databaseSkills = config.businessConfigurationStorage === "database";
+  const skills = databaseSkills ? [] : await loadBusinessSkills();
+  const skillStore = databaseSkills ? undefined : new BusinessSkillStore(config.dataDir, skills);
   const host = new HarnessHost(
     config,
-    (authorize) => createAskMetricModels(config, authorize),
+    (authorize, runtime = config) => createAskMetricModels(runtime, authorize),
     store,
-    [...createAskMetricTools({ topicsEnabled: config.topicQueryEnabled ?? false }), createBusinessSkillReadTool(skills)],
-    { getSkills: () => skillStore.snapshot() },
+    [...createAskMetricTools({ topicsEnabled: databaseSkills || (config.topicQueryEnabled ?? false),
+      databaseConfiguration: databaseSkills }), createBusinessSkillReadTool(skills)],
+    databaseSkills ? { getSkillSnapshot: databaseBusinessSkillSnapshot,
+      getTopicSnapshot: databaseInquiryTopicSnapshot, getRuntimeSnapshot: databaseAgentRuntimeSnapshot }
+      : { getSkills: () => skillStore!.snapshot() },
   );
   // 复用同一组会话路由和鉴权；内部请求不绕开当前账号权限，也不另建 Agent。
   const evaluationClient = createSessionEvaluationClient((path, init) => Promise.resolve(app.request(path, init)));

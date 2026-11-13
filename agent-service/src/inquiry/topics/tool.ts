@@ -69,8 +69,9 @@ async function latestCommonDate(
 export function createTopicQueryTool(
   query: AgentHarnessTool<AskMetricRequestContext>,
   configuredRegistry?: TopicRegistry,
+  databaseConfiguration = false,
 ): AgentHarnessTool<AskMetricRequestContext> {
-  const templates = configuredRegistry ?? loadTopicRegistry();
+  const localTemplates = configuredRegistry ?? (databaseConfiguration ? undefined : loadTopicRegistry());
   const parameters = Type.Object(
     {
       topic_id: configuredRegistry
@@ -108,6 +109,8 @@ export function createTopicQueryTool(
         : "以本轮业务知识中batch_query_enabled=true的条目为可执行方案，topic_id填写其id。根据标题、内容及关联指标判断是否适用；资料不足先business_knowledge_search。未开启的知识仅供参考，不能借内置主题绕过管理员开关。") +
       "。主题不替换原问题确定的具体分析范围、机构和期间。输出正式引用、同日排名、完整范围分布、实际日期、缺口及执行完成标记；正常缺数不重试。完成仅表示批量取数结束，不证明解释成立；依据已有事实回答，不因缺少理想指标重新跑整题。",
     execute: async (id, raw, update, request, invocation, context) => {
+      if (request.agentRuntime && !request.agentRuntime.topicQueryEnabled)
+        return declined("TOPIC_QUERY_DISABLED", "本轮主题批量查询未启用，请使用正式指标查询。");
       const input = raw as {
         topic_id: string;
         scope: "named" | "all_banks";
@@ -123,6 +126,8 @@ export function createTopicQueryTool(
       if (input.scope === "named" ? !input.org_names.length : input.org_names.length > 0)
         return declined("TOPIC_SCOPE_REQUIRED", "named须给全部机构；all_banks不混入手写机构列表。");
       let registry = configuredRegistry;
+      const templates = request.inquiryTopics ?? localTemplates;
+      if (!templates) throw new BackendApiError(503, "主题数据库配置尚未绑定到本轮", "TOPIC_CONFIG_UNAVAILABLE");
       let binding: Record<string, unknown> | undefined;
       let managedMissing: string[] = [];
       let planVersion: string | undefined;

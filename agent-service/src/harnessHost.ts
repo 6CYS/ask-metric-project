@@ -42,6 +42,8 @@ import {
   loadTurnBusinessKnowledge,
 } from "./businessKnowledgeContext.js";
 import { createBusinessSkillReadTool, inquiryBusinessSkills, projectBusinessSkillContext } from "./businessSkills.js";
+import type { BusinessSkillSnapshot } from "./databaseBusinessSkills.js";
+import type { InquiryTopicSnapshot } from "./databaseInquiryTopics.js";
 import type { AgentServiceConfig } from "./config.js";
 import { historySources, resolveHistoryOrganizationScopes } from "./historySources.js";
 import { inquiryPermissionDenied, withInquiryAuthorization } from "./inquiry/authorization.js";
@@ -59,6 +61,8 @@ import {
 import { projectInquiryMessages } from "./inquiry/view.js";
 import { modelPayloadDiagnostics } from "./modelPayloadDiagnostics.js";
 import type { ModelBundle } from "./models.js";
+import { materializeAgentRuntime, type AgentRuntimeSnapshot } from "./databaseAgentRuntime.js";
+import type { ConfigurationVersions } from "./configurationVersions.js";
 import { modelUsage } from "./modelUsage.js";
 import { NativeSessionStore } from "./nativeSessions.js";
 import { SessionCoordinationError } from "./databaseSessionStorage.js";
@@ -124,6 +128,10 @@ export interface RequestAssociation {
   write?: WriteCommandRecord;
   input?: PromptInput;
   timings_ms?: { model: number[]; tools: number[]; drive_total: number };
+  /** 已接纳操作的不可变 Skill 版本，跨节点恢复也复用它。 */
+  businessSkillVersion?: string;
+  inquiryTopicVersion?: string;
+  agentRuntimeVersion?: string;
 }
 
 const requestValue = (requestId: string) => value<RequestAssociation>(NS, `request/${requestId}`);
@@ -155,6 +163,8 @@ function canonicalJson(input: unknown): string {
 }
 
 export interface HostedSession {
+  configureRuntime?: (config: AgentServiceConfig, context: Context) => Promise<void>;
+  runtimeVersion?: string;
   businessProtocol: "fixed_v1" | "semantic_v2";
   sessionId: string;
   ownerUserId: string;
@@ -173,6 +183,8 @@ export interface HostedSession {
 
 /** 浏览器一次确认发送的完整输入（协议 V3）；标识与授权由宿主绑定，模型不可见 */
 export interface PromptInput {
+  /** 内部测评入口指定；HTTP 正文解析器不接纳此字段。 */
+  configurationVersions?: ConfigurationVersions;
   protocol_version: 3;
   request_id: string;
   message: string;
@@ -281,16 +293,22 @@ export class HarnessHost {
 
   constructor(
     private readonly config: AgentServiceConfig,
-    private readonly createModels: (authorize: () => boolean) => ModelBundle,
+    private readonly createModels: (authorize: () => boolean, runtime?: AgentServiceConfig) => ModelBundle,
     private readonly store: NativeSessionStore,
     private readonly tools: AgentHarnessTool<AskMetricRequestContext>[],
     private readonly options: {
       retry?: RetryPolicy;
       skills?: Skill[];
       getSkills?: () => readonly Skill[];
+      getSkillSnapshot?: (backend: BackendClient, versionId?: string) => Promise<BusinessSkillSnapshot>;
+      getTopicSnapshot?: (backend: BackendClient, versionId?: string) => Promise<InquiryTopicSnapshot>;
+      getRuntimeSnapshot?: (backend: BackendClient, versionId?: string) => Promise<AgentRuntimeSnapshot>;
       residency?: Partial<typeof DEFAULT_RESIDENCY>;
     } = {},
   ) {
+    if (config.businessConfigurationStorage === "database" &&
+      (!options.getRuntimeSnapshot || !options.getSkillSnapshot || !options.getTopicSnapshot))
+      throw new Error("数据库模式缺少运行配置、Skill 或主题读取入口");
     this.residency = { ...DEFAULT_RESIDENCY,
       ...(store.cluster ? { idleMs: 1_000, sweepIntervalMs: 1_000 } : {}), ...options.residency };
     store.cluster?.onCancellation(async (id, kind, target) => {
@@ -524,8 +542,9 @@ export class HarnessHost {
       // 授权状态对象按会话共享引用，撤权即刻对该会话全部后续模型请求生效
       const authorization = { authorized: true };
       if (!observer) this.authorization.set(sessionId, authorization);
-      const bundle = this.createModels(() => authorization.authorized && !observer &&
-        (!this.store.cluster || this.store.cluster.isWriter(sessionId)));
+      const authorize = () => authorization.authorized && !observer &&
+        (!this.store.cluster || this.store.cluster.isWriter(sessionId));
+      const bundle = this.createModels(authorize);
       // 协议只读判定：无标记或 fixed_v1 的历史会话一律只读，不再按其协议恢复执行。
       const businessProtocol =
         (await session.getValue(businessProtocolValue, BACKGROUND_CONTEXT))?.value ?? "fixed_v1";
@@ -593,6 +612,15 @@ export class HarnessHost {
         lane,
         open,
         createdAt: session.metadata.createdAt,
+        configureRuntime: async (runtime, context) => {
+          const current = this.createModels(authorize, runtime);
+          for (const provider of current.models.getProviders()) bundle.models.setProvider(provider);
+          await lane.setModel({ provider: current.model.provider, modelId: current.model.id }, context);
+          await harness.setRetryPolicy(this.options.retry ?? runtime.modelRetry, context);
+          await harness.setCompactionSettings(runtime.compaction, context);
+          await lane.setActiveTools(sessionTools.filter(tool =>
+            runtime.topicQueryEnabled || tool.name !== "topic_query").map(tool => tool.name), context);
+        },
         ...(observer ? { observer: true } : {}),
         ...(retired ? { readOnlyReason: "LEGACY_QUERY_REQUIRES_NEW_TURN" as const } : {}),
       };
@@ -712,14 +740,16 @@ export class HarnessHost {
         request.modelCall?.step === "compaction" || request.modelCall?.step === "branch_summary";
       request.answerStream = {
         callSeq,
-        mode: this.config.answerStreaming && !summary ? "text" : "none",
+        mode: this.runtimeConfig(request).answerStreaming && !summary ? "text" : "none",
       };
       const payload = summary
         ? raw
         : inquiryPayload(
             raw,
             await currentLaneMessages(lane, context),
-            this.config.answerStreaming,
+            this.runtimeConfig(request).answerStreaming,
+            // 兼容仅支持 auto 的行内网关；参数随本轮数据库模型快照生效。
+            this.runtimeConfig(request).model.extraBody.tool_choice === "auto" ? "auto" : "native",
           );
       const diagnostics = modelPayloadDiagnostics(payload);
       if (request.modelCall) request.modelCall.finalPayloadBytes = diagnostics.final_payload_bytes;
@@ -798,7 +828,7 @@ export class HarnessHost {
           })),
         }),
       );
-      const retry = this.options.retry ?? this.config.modelRetry;
+      const retry = this.options.retry ?? this.runtimeConfig(request).modelRetry;
       const terminalModelFailure =
         event.message.stopReason === "error" &&
         !isContextOverflow(event.message) &&
@@ -827,9 +857,9 @@ export class HarnessHost {
         ),
       };
     });
-    const suffix = this.config.model.userMessageSuffix;
     harness.hooks.on("transform_context", async (event, context) => {
       const request = requireRequestContext(context);
+      const suffix = this.runtimeConfig(request).model.userMessageSuffix;
       const currentSkills = request.businessSkills ?? skills;
       const date = new Intl.DateTimeFormat("en-CA", {
         timeZone: "Asia/Shanghai",
@@ -942,8 +972,8 @@ export class HarnessHost {
             inquirySystemPrompt(
               date,
               Boolean(request.inquiryTargetContext),
-              this.config.answerStreaming,
-              this.config.topicQueryEnabled,
+              this.runtimeConfig(request).answerStreaming,
+              this.runtimeConfig(request).topicQueryEnabled,
             ) +
             (methods.length
               ? "\n可用业务方法（business_skill_read按name读取）：" + JSON.stringify(methods)
@@ -964,8 +994,8 @@ export class HarnessHost {
           systemPrompt: inquirySystemPrompt(
             date,
             Boolean(request.inquiryTargetContext),
-            this.config.answerStreaming,
-            this.config.topicQueryEnabled,
+            this.runtimeConfig(request).answerStreaming,
+            this.runtimeConfig(request).topicQueryEnabled,
           ),
         };
       }
@@ -987,6 +1017,45 @@ export class HarnessHost {
   private skillSnapshot(): Skill[] {
     return inquiryBusinessSkills(this.options.getSkills?.() ?? this.options.skills ?? [])
       .map((skill) => ({ ...skill }));
+  }
+
+  private async requestSkillSnapshot(backend: BackendClient, versionId?: string) {
+    if (this.options.getSkillSnapshot) {
+      const snapshot = await this.options.getSkillSnapshot(backend, versionId);
+      return { businessSkillVersion: snapshot.version_id,
+        businessSkills: inquiryBusinessSkills(snapshot.skills).map(skill => ({ ...skill })) };
+    }
+    return { businessSkills: this.skillSnapshot() };
+  }
+
+  private async requestTopicSnapshot(backend: BackendClient, versionId?: string) {
+    if (!this.options.getTopicSnapshot) return {};
+    const snapshot = await this.options.getTopicSnapshot(backend, versionId);
+    return { inquiryTopicVersion: snapshot.version_id, inquiryTopics: structuredClone(snapshot.registry) };
+  }
+
+  private async requestConfigurationSnapshot(backend: BackendClient, association?: Pick<RequestAssociation, "agentRuntimeVersion" | "businessSkillVersion" | "inquiryTopicVersion">) {
+    if (this.options.getRuntimeSnapshot && association && !association.agentRuntimeVersion)
+      throw new Error("AGENT_RUNTIME_VERSION_MISSING: 原操作未记录配置版本，请停止后重新提问。");
+    const [skills, runtime] = await Promise.all([
+      this.requestSkillSnapshot(backend, association?.businessSkillVersion),
+      this.options.getRuntimeSnapshot?.(backend, association?.agentRuntimeVersion),
+    ]);
+    const topics = !runtime || runtime.document.topicQueryEnabled
+      ? await this.requestTopicSnapshot(backend, association?.inquiryTopicVersion) : {};
+    return { ...skills, ...topics, ...(runtime ? { agentRuntime: runtime.document,
+      agentRuntimeVersion: runtime.version_id } : {}) };
+  }
+
+  private runtimeConfig(request: AskMetricRequestContext): AgentServiceConfig {
+    return request.agentRuntime ? materializeAgentRuntime(this.config, request.agentRuntime) : this.config;
+  }
+
+  private async applyRuntime(hosted: HostedSession, request: AskMetricRequestContext, context: Context) {
+    if (request.agentRuntimeVersion && request.agentRuntimeVersion !== hosted.runtimeVersion) {
+      await hosted.configureRuntime?.(this.runtimeConfig(request), context);
+      hosted.runtimeVersion = request.agentRuntimeVersion;
+    }
   }
 
   /**
@@ -1086,7 +1155,7 @@ export class HarnessHost {
       actor: deps.actor,
       backend: deps.backend.withTraceId?.(input.request_id) ?? deps.backend,
       originalMessage: input.message,
-      businessSkills: this.skillSnapshot(),
+      ...await this.requestConfigurationSnapshot(deps.backend, existing?.value ?? input.configurationVersions),
       promptFingerprint: fingerprint,
       sessionId: hosted.sessionId,
       requestId: input.request_id,
@@ -1125,6 +1194,7 @@ export class HarnessHost {
     const active = await hosted.lane.inspectExecution(context);
     if (active.current && active.current.id !== operationId)
       return { ok: false, code: "SESSION_BUSY", message: "该会话正在处理上一个提问，请等待完成" };
+    await this.applyRuntime(hosted, requestContext, context);
     if (existing && existing.value.executionFlow !== "inquiry_v1") {
       if (active.current?.id === operationId) {
         const completed = await this.interruptLegacyOperation(hosted, operationId, context);
@@ -1205,6 +1275,12 @@ export class HarnessHost {
       createdAt: Date.now(),
       toolProtocol: hosted.businessProtocol,
       executionFlow,
+      ...(requestContext.businessSkillVersion
+        ? { businessSkillVersion: requestContext.businessSkillVersion } : {}),
+      ...(requestContext.inquiryTopicVersion
+        ? { inquiryTopicVersion: requestContext.inquiryTopicVersion } : {}),
+      ...(requestContext.agentRuntimeVersion
+        ? { agentRuntimeVersion: requestContext.agentRuntimeVersion } : {}),
       ...(requestContext.inquiryAdmission
         ? { inquiryAdmission: requestContext.inquiryAdmission }
         : {}),
@@ -1438,14 +1514,14 @@ export class HarnessHost {
     let resumed = 0;
     // 同步取走本次待恢复列表，多个 GET 不会重复推进；失败项保留供下次认证重试。
     const pending = hosted.open.splice(0);
-    for (const operation of pending) {
+    for (const [index, operation] of pending.entries()) {
       if (operation.lane !== "main" || operation.kind !== "run") continue;
       const requestRef = await hosted.session.getValue(
         operationRequestValue(operation.operationId),
         BACKGROUND_CONTEXT,
       );
       if (!requestRef) {
-        hosted.open.push(operation);
+        hosted.open.push(...pending.slice(index));
         throw new Error("OPERATION_REQUEST_MISSING");
       }
       const association = await hosted.session.getValue(
@@ -1453,25 +1529,31 @@ export class HarnessHost {
         BACKGROUND_CONTEXT,
       );
       if (!association) {
-        hosted.open.push(operation);
+        hosted.open.push(...pending.slice(index));
         throw new Error("OPERATION_ASSOCIATION_MISSING");
       }
       if (
         association.value.operationId !== operation.operationId ||
         association.value.lane !== operation.lane
       ) {
-        hosted.open.push(operation);
+        hosted.open.push(...pending.slice(index));
         throw new Error("OPERATION_ASSOCIATION_CONFLICT");
       }
       if ((association.value.toolProtocol ?? "fixed_v1") !== hosted.businessProtocol) {
-        hosted.open.push(operation);
+        hosted.open.push(...pending.slice(index));
         throw new Error("OPERATION_PROTOCOL_CONFLICT");
+      }
+      let configuration;
+      try { configuration = await this.requestConfigurationSnapshot(deps.backend, association.value); }
+      catch (error) {
+        hosted.open.push(...pending.slice(index));
+        throw error;
       }
       const requestContext: AskMetricRequestContext = {
         actor: deps.actor,
         backend: deps.backend.withTraceId?.(requestRef.value) ?? deps.backend,
         originalMessage: association.value.originalMessage,
-        businessSkills: this.skillSnapshot(),
+        ...configuration,
         executionFlow: "inquiry_v1",
         ...(association.value.inquiryAdmission
           ? { inquiryAdmission: association.value.inquiryAdmission }
@@ -1516,6 +1598,7 @@ export class HarnessHost {
         timings: { startedAt: performance.now(), modelFirstTokenMs: [], model_ms: [], tool_ms: [] },
       };
       try {
+        await this.applyRuntime(hosted, requestContext, withRequestContext(requestContext, BACKGROUND_CONTEXT));
         if (association.value.executionFlow !== "inquiry_v1") {
           await this.exclusiveAdmission(hosted.sessionId, () =>
             this.interruptLegacyOperation(
@@ -1546,7 +1629,7 @@ export class HarnessHost {
         if (!result.ok) throw new Error("原生操作恢复暂时失败");
         resumed += 1;
       } catch (error) {
-        hosted.open.push(operation);
+        hosted.open.push(...pending.slice(index));
         throw error;
       }
     }

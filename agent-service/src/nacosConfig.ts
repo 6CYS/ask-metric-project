@@ -15,7 +15,8 @@ const runtimeKeys = new Set([
   "AGENT_SESSION_STORAGE", "AGENT_DEPLOYMENT_REPLICAS",
 ]);
 const nodeKeys = ["AGENT_SERVICE_HOST", "AGENT_SERVICE_PORT", "AGENT_DATA_DIR",
-  "BACKEND_BASE_URL", "ASK_METRIC_CONFIG_SM4_KEY_FILE", "ASK_METRIC_CONFIG_SM4_KEY"];
+  "BACKEND_BASE_URL", "BUSINESS_CONFIGURATION_STORAGE",
+  "ASK_METRIC_CONFIG_SM4_KEY_FILE", "ASK_METRIC_CONFIG_SM4_KEY"];
 
 export async function loadRuntimeConfig(
   env: NodeJS.ProcessEnv = process.env, request: typeof fetch = fetch,
@@ -59,7 +60,7 @@ export async function loadRuntimeConfig(
         }
         const params = new URLSearchParams({ dataId, groupName: group!, namespaceId: namespace });
         if (token) params.set("accessToken", token);
-        let response = await request(`${server}/v3/client/cs/config?${params}`, { signal: AbortSignal.timeout(timeout) });
+        let response = await request(`${server}/v3/client/cs/config?${params.toString()}`, { signal: AbortSignal.timeout(timeout) });
         let text = await response.text();
         let envelope: { code?: number; data?: { content?: string } } = {};
         try { envelope = JSON.parse(text) as typeof envelope; } catch { /* 2.x 路由可能返回 HTML */ }
@@ -69,7 +70,7 @@ export async function loadRuntimeConfig(
           const legacy = new URLSearchParams({ dataId, group: group! });
           if (namespace !== "public") legacy.set("tenant", namespace);
           if (token) legacy.set("accessToken", token);
-          response = await request(`${server}/v1/cs/configs?${legacy}`, { signal: AbortSignal.timeout(timeout) });
+          response = await request(`${server}/v1/cs/configs?${legacy.toString()}`, { signal: AbortSignal.timeout(timeout) });
           text = await response.text();
           if (!response.ok) throw new Error("配置读取失败");
           content = text;

@@ -20,7 +20,8 @@ async function readBody(request: Request): Promise<Record<string, unknown>> {
   return body as Record<string, unknown>;
 }
 
-export function createBusinessSkillRoutes(store: BusinessSkillStore, config: AgentServiceConfig) {
+export function createBusinessSkillRoutes(store: BusinessSkillStore | undefined, config: AgentServiceConfig) {
+  const database = config.businessConfigurationStorage === "database";
   const router = new Hono<{ Variables: SkillVariables }>();
   router.onError((error, c) => {
     if (error instanceof SkillConfigError)
@@ -32,6 +33,9 @@ export function createBusinessSkillRoutes(store: BusinessSkillStore, config: Age
         { code: error.code ?? "CONFIG_WRITE_DENIED", detail: error.message },
         error.status,
       );
+    if (error instanceof BackendApiError && [400, 404, 409, 422].includes(error.status))
+      return c.json({ code: error.code ?? "SKILL_INPUT_INVALID", detail: error.message },
+        error.status as 400 | 404 | 409 | 422);
     return c.json({ code: "SKILL_CONFIG_UNAVAILABLE", detail: "Skill 配置服务暂不可用" }, 503);
   });
   router.use("*", async (c, next) => {
@@ -40,7 +44,14 @@ export function createBusinessSkillRoutes(store: BusinessSkillStore, config: Age
       return c.json({ code: "CONFIG_ADMIN_REQUIRED", detail: "需要系统管理员权限" }, 403);
     await next();
   });
-  router.get("/", (c) => c.json({ items: store.list() }));
+  router.get("/", async (c) => {
+    if (database) {
+      const backend = new BackendClient(config.backendBaseUrl, c.get("token"), config.backendTimeoutMs);
+      return c.json(await backend.businessSkillList());
+    }
+    if (!store) throw new SkillConfigError(503, "SKILL_CONFIG_UNAVAILABLE", "Skill 配置服务暂不可用");
+    return c.json({ items: store.list() });
+  });
   for (const action of ["save", "restore"] as const) {
     router.on(
       action === "save" ? "PUT" : "POST",
@@ -52,6 +63,10 @@ export function createBusinessSkillRoutes(store: BusinessSkillStore, config: Age
           c.get("token"),
           config.backendTimeoutMs,
         );
+        if (database)
+          return c.json(await backend.businessSkillChange(c.req.param("name"), body,
+            action === "restore", c.req.header("X-Model-Admin-Token")));
+        if (!store) throw new SkillConfigError(503, "SKILL_CONFIG_UNAVAILABLE", "Skill 配置服务暂不可用");
         // 复用后端配置写入开关与管理令牌规则，Agent 不另存一份权限配置。
         const authorization = await backend.authorizeConfigWrite(
           c.req.header("X-Model-Admin-Token"),

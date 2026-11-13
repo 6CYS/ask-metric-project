@@ -334,6 +334,29 @@ export class BackendClient {
     return this.request<BackendUser>("/api/v1/auth/me", {}, options);
   }
 
+  businessSkillSnapshot(versionId?: string): Promise<unknown> {
+    return this.request(`/api/v1/business-skills/runtime${versionId ? `/${encodeURIComponent(versionId)}` : ""}`);
+  }
+
+  inquiryTopicSnapshot(versionId?: string): Promise<unknown> {
+    return this.request(`/api/v1/runtime-config/inquiry-topics${versionId ? `/${encodeURIComponent(versionId)}` : ""}`);
+  }
+
+  agentRuntimeSnapshot(versionId?: string): Promise<unknown> {
+    return this.request(`/api/v1/runtime-config/agent-runtime${versionId ? `/${encodeURIComponent(versionId)}` : ""}`);
+  }
+
+  businessSkillList(): Promise<unknown> {
+    return this.request("/api/v1/business-skills");
+  }
+
+  businessSkillChange(name: string, body: Record<string, unknown>, restore: boolean, adminToken?: string): Promise<unknown> {
+    return this.request(`/api/v1/business-skills/${encodeURIComponent(name)}${restore ? "/restore" : ""}`, {
+      method: restore ? "POST" : "PUT", body: JSON.stringify(body),
+      ...(adminToken ? { headers: { "X-Model-Admin-Token": adminToken } } : {}),
+    });
+  }
+
   authorizeConfigWrite(adminToken?: string): Promise<{ authorized: true }> {
     return this.request("/api/v1/model-config/authorize-write", {
       method: "POST",

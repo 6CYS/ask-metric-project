@@ -236,6 +236,7 @@ export function inquiryPayload(
   payload: Record<string, unknown>,
   messages: AgentMessage[],
   answerStreaming = false,
+  toolChoicePolicy: "native" | "auto" = "native",
 ): Record<string, unknown> {
   const closing =
     receipts(messages).length >= MAX_INVESTIGATION_CALLS ||
@@ -257,7 +258,8 @@ export function inquiryPayload(
     ...payload,
     tools,
     // 流式正文使用工具 body 协议；模型仍自行选择查询、计算或交付动作。
-    tool_choice: answerStreaming && tools.length ? "required" : "auto",
+    tool_choice:
+      answerStreaming && tools.length && toolChoicePolicy !== "auto" ? "required" : "auto",
   };
 }
 

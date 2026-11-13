@@ -13,12 +13,13 @@ import { createInquiryCalculationTool } from "../inquiry/calculationTool.js";
 import { createTopicQueryTool } from "../inquiry/topics/tool.js";
 
 export function createAskMetricTools(
-  options: { topicsEnabled?: boolean } = {},
+  options: { topicsEnabled?: boolean; databaseConfiguration?: boolean } = {},
 ): AgentHarnessTool<AskMetricRequestContext>[] {
   const queries = createInquiryQueryTools();
   return [
     ...(options.topicsEnabled
-      ? [createTopicQueryTool(queries.find((tool) => tool.name === "metric_query")!)]
+      ? [createTopicQueryTool(queries.find((tool) => tool.name === "metric_query")!, undefined,
+          options.databaseConfiguration)]
       : []),
     ...queries,
     createSessionHistoryReadTool(),

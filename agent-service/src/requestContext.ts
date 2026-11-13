@@ -79,6 +79,8 @@ export interface HistoryBridge {
 
 /** 单次用户请求的可信绑定，由宿主在接纳前装配，模型与工具参数不得改写 */
 export interface AskMetricRequestContext {
+  agentRuntime?: import("./databaseAgentRuntime.js").AgentRuntimeDocument;
+  agentRuntimeVersion?: string;
   /** 当前认证用户（后端 /auth/me 校验结果） */
   actor: BackendUser;
   /** 按当次请求 Bearer 创建的后端客户端 */
@@ -87,6 +89,9 @@ export interface AskMetricRequestContext {
   originalMessage: string;
   /** 接纳本轮时固定的方法版本；配置发布只影响后续轮次。 */
   businessSkills?: readonly Skill[];
+  businessSkillVersion?: string;
+  inquiryTopics?: import("./inquiry/topics/registry.js").TopicRegistry;
+  inquiryTopicVersion?: string;
   /** 当前请求的有权机构清单；临时失败不缓存，本轮降级为原文名称解析。 */
   orgCatalog?: Promise<import("./business-context/orgCatalog.js").OrgCatalog>;
   /** 仅本轮复用权限检查，下一轮必须重新校验，不能成为会话授权票。 */
