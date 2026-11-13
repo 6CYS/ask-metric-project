@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Request
 
+from ask_metric.api.configuration import business_topics_document, metric_semantics_document
 from ask_metric.api.dependencies import (
     get_query_execution_service,
     get_query_task_service,
@@ -36,7 +37,8 @@ def get_overview_service(
     execution: Annotated[QueryExecutionApplicationService, Depends(get_query_execution_service)],
 ) -> BusinessOverviewService:
     return BusinessOverviewService(tasks, execution, CalculationApplicationService(execution),
-                                   knowledge_path=knowledge_store(request).path)
+                                   knowledge_store=knowledge_store(request),
+                                   topics=business_topics_document(request))
 
 
 @router.get("/business-topics/{topic}")
@@ -79,6 +81,8 @@ def search_knowledge(
         semantics_path=resolve_config_path(
             PROJECT_DIR, request.app.state.settings.analysis_semantics_path,
         ),
+        extensions_document=metric_semantics_document(request),
+        topics_document=business_topics_document(request),
     )
     items = []
     for code in codes:

@@ -61,10 +61,12 @@ class _RelationshipIssue(TypedDict):
 
 def topic_relationships(
     path: Path, catalog: Sequence[MetricCatalogItem],
+    document: dict | None = None,
 ) -> tuple[list[dict], list[_RelationshipIssue]]:
     """主题内 ID 只有通过正式目录唯一绑定，才投影为可展示的指标编码。"""
     try:
-        topics = _Topics.model_validate_json(path.read_bytes())
+        topics = (_Topics.model_validate(document) if document is not None
+                  else _Topics.model_validate_json(path.read_bytes()))
     except (OSError, ValueError, ValidationError) as error:
         raise ApplicationError(
             "METRIC_RELATION_UNAVAILABLE", "预置指标关系配置不可用，请联系管理员核对。",
@@ -172,7 +174,9 @@ class MetricRelationshipStore:
     def read(self, catalog: Sequence[MetricCatalogItem]) -> dict:
         with _LOCK:
             _, relations, revision = self._load()
-            presets, issues = topic_relationships(self.topics_path, catalog)
+            presets, issues = topic_relationships(
+                self.topics_path, catalog, getattr(self, "topics_document", None),
+            )
             metrics = {item.code: item for item in catalog}
             for relation in relations:
                 members = [relation.parent, *relation.children]
@@ -245,7 +249,7 @@ class MetricRelationshipStore:
                     visited.add(child)
                     pending.extend(edges.get(child, set()))
 
-    def _persist(self, document: dict) -> str:
+    def _persist(self, document: dict, *, expected_revision: str | None = None) -> str:
         data = (json.dumps(document, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
         temporary = None
         try:
@@ -305,7 +309,9 @@ class MetricRelationshipStore:
                 else:
                     raw_relations[index] = candidate.model_dump()
             document["relations"] = raw_relations
-            result: dict[str, object] = {"revision": self._persist(document)}
+            result: dict[str, object] = {
+                "revision": self._persist(document, expected_revision=current_revision),
+            }
             if candidate is not None:
                 result["item"] = self._item(candidate)
             return result

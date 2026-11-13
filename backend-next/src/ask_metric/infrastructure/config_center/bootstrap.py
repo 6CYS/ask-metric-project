@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -36,6 +37,7 @@ NODE_FIELDS = {
     "config_history_dir",
     "backend_next_allow_schema_changes",
     "backend_next_allow_non_test_database",
+    "business_configuration_storage",
 }
 FILE_FIELDS = {
     "model_config_path",
@@ -73,7 +75,7 @@ class CenterSettings(Settings):
         return (init_settings,)
 
 
-def load_settings() -> Settings:
+def load_settings(*, validate_business_configuration: bool = True) -> Settings:
     bootstrap = BootstrapSettings()
     if not bootstrap.nacos_config_enabled:
         return Settings()
@@ -84,22 +86,25 @@ def load_settings() -> Settings:
     )
     bootstrap.nacos_password = decrypt_config_value(bootstrap.nacos_password, key)
     store = NacosConfigStore(bootstrap)
-    from ask_metric.infrastructure.model.configuration import ModelConfigRepository
-
-    try:
-        repository = ModelConfigRepository(Path("unused"), store=store)
-        model = repository.read_document()
-        repository.load()
-    except ValueError:
-        raise ConfigCenterError("Nacos 模型配置校验失败") from None
-    merged = merge_business_documents(store, model)
-    validate_sensitive_fields(merged, model, key)
     local = {
         k.lower(): v
         for k, v in dotenv_values(PROJECT_DIR / ".env", interpolate=False).items()
         if v is not None
     }
     local.update({k.lower(): v for k, v in os.environ.items()})
+    database = local.get("business_configuration_storage") == "database"
+    from ask_metric.infrastructure.model.configuration import ModelConfigRepository
+
+    try:
+        model = {}
+        if not database:
+            repository = ModelConfigRepository(Path("unused"), store=store)
+            model = repository.read_document()
+            repository.load()
+    except ValueError:
+        raise ConfigCenterError("Nacos 模型配置校验失败") from None
+    merged = merge_business_documents(store, model, database_configuration=database)
+    validate_sensitive_fields(merged, model, key)
     for name in Settings.model_fields:
         if name.startswith("nacos_") or name in NODE_FIELDS:
             if name in local:
@@ -119,7 +124,8 @@ def load_settings() -> Settings:
         raise ConfigCenterError("Nacos 运行配置校验失败：" + ", ".join(fields)) from None
     store.settings = result
     result._config_center = store
-    validate_resources(result)
+    if validate_business_configuration:
+        validate_resources(result)
     return result
 
 
@@ -135,7 +141,7 @@ def _model_references(model, *, keys_only: bool = False) -> set[str]:
     }
 
 
-def merge_business_documents(store, model) -> dict:
+def merge_business_documents(store, model, *, database_configuration: bool = False) -> dict:
     """启动和离线加密共用字段校验，阻止拼写错误及节点参数混入。"""
     model_reference_fields = {value.lower() for value in _model_references(model)}
     model_reference_fields.update(
@@ -153,7 +159,10 @@ def merge_business_documents(store, model) -> dict:
                 raise ConfigCenterError(f"配置中心不接受文件路径或主密钥：{name}")
             if name.startswith("nacos_") or name in NODE_FIELDS:
                 raise ConfigCenterError(f"节点引导参数不能在配置中心设置：{name}")
-            if name not in Settings.model_fields and name not in model_reference_fields:
+            database_secret = (database_configuration and data_id == SECURITY_DATA_ID
+                               and re.fullmatch(r"model_[a-z0-9_]+", name))
+            if (name not in Settings.model_fields and name not in model_reference_fields
+                    and not database_secret):
                 raise ConfigCenterError(f"未知配置字段：{name}")
             merged[name] = value
     # 数据库连接必须明确给出，不允许连接本地开发默认库。
@@ -170,21 +179,42 @@ def validate_resources(settings: Settings) -> None:
     )
     from ask_metric.infrastructure.semantic.configuration import SemanticConfigRepository
 
+    if settings.business_configuration_storage == "database":
+        from sqlalchemy import create_engine
+
+        from ask_metric.application.database_model_configuration import (
+            DatabaseModelConfigRepository,
+            DatabasePromptConfigRepository,
+        )
+        from ask_metric.core.errors import ApplicationError
+        from ask_metric.infrastructure.configuration_repository import DatabaseConfigRepository
+
+        # 引导阶段不能调用缓存的 get_app_engine（它会递归加载 Settings），也不能自动建表。
+        engine = create_engine(settings.app_database_url, pool_pre_ping=True)
+        try:
+            repository = DatabaseConfigRepository(engine)
+            DatabaseModelConfigRepository(repository).load()
+            DatabasePromptConfigRepository(repository).load()
+        except (ApplicationError, ValueError, KeyError):
+            raise ConfigCenterError("数据库模型或提示词配置校验失败") from None
+        finally:
+            engine.dispose()
+        return
     remote = settings._config_center
+    data_ids: tuple[str, ...] = (MODEL_DATA_ID, PROMPTS_DATA_ID)
+    if settings.business_configuration_storage != "database":
+        data_ids += (SEMANTIC_DATA_ID,)
     store = DocumentSnapshot(
         {
             name: remote.read_json(name)
-            for name in (
-                MODEL_DATA_ID,
-                PROMPTS_DATA_ID,
-                SEMANTIC_DATA_ID,
-            )
+            for name in data_ids
         }
     )
     try:
         ModelConfigRepository(settings.model_config_path, store=store).load()
         PromptConfigRepository(settings.prompt_config_path, store=store).load()
-        SemanticConfigRepository(settings.semantic_config_path, store=store).load()
+        if settings.business_configuration_storage != "database":
+            SemanticConfigRepository(settings.semantic_config_path, store=store).load()
     except (ValueError, KeyError, OSError):
         raise ConfigCenterError("Nacos 模型、提示词或语义配置校验失败") from None
 
@@ -206,6 +236,10 @@ def validate_sensitive_fields(values: dict, model, key) -> None:
         "model_rerank_api_key",
     }
     sensitive.update(value.lower() for value in _model_references(model, keys_only=True))
+    # 数据库模式的模型引用启动后才可读取；安全文档中自定义 MODEL_* 引用同样必须为密文。
+    sensitive.update(name for name in values
+                     if name not in Settings.model_fields
+                     and re.fullmatch(r"model_[a-z0-9_]+", name))
     for name in sensitive:
         value = values.get(name)
         if value:

@@ -104,9 +104,13 @@ def month_ranges(start: date, end: date):
 
 def load_analysis_semantics(
     uow_factory, *, secret, actor_id, metric_codes=None, semantics_path: Path | None = None,
+    extensions_document: dict | None = None,
+    topics_document: dict | None = None,
 ):
     """目录发现、知识关联与执行复核共用同一份正式元数据绑定。"""
-    topics = load_business_topics() if metric_codes is not None else None
+    topics = topics_document
+    if topics is None and metric_codes is not None:
+        topics = load_business_topics()
     with uow_factory() as uow:
         # 签发和复核绑定必须读取真实元数据；秒级updated_at缓存键可能漏掉同秒修改。
         if metric_codes is None:
@@ -125,12 +129,14 @@ def load_analysis_semantics(
                         names.update(definition["names"])
             catalog = uow.metric_catalog.list_enabled_matching(codes=codes, names=names)
     return MetricSemantics(catalog, secret=secret, actor_id=actor_id, topics=topics,
-                           semantics_path=semantics_path)
+                           semantics_path=semantics_path, extensions_document=extensions_document)
 
 
 class GeneralAnalysisService:
     def __init__(
         self, tasks, execution, calculation, *, secret, semantics_path: Path | None = None,
+        extensions_document: dict | None = None,
+        topics_document: dict | None = None,
     ):
         self.tasks, self.execution, self.calculation, self.secret = (
             tasks,
@@ -139,12 +145,16 @@ class GeneralAnalysisService:
             secret,
         )
         self.semantics_path = semantics_path
+        self.extensions_document = extensions_document
+        self.topics_document = topics_document
 
     def semantics(self, actor, *, metric_codes: Collection[str] | None = None):
         return load_analysis_semantics(
             self.tasks.uow_factory, secret=self.secret,
             actor_id=actor.user_id or actor.subject, metric_codes=metric_codes,
             semantics_path=self.semantics_path,
+            extensions_document=self.extensions_document,
+            topics_document=self.topics_document,
         )
 
     def validate_plan(self, plan, actor, question="", *, require_all_explicit=True):

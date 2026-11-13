@@ -71,6 +71,7 @@ class MetricSemantics:
     def __init__(
         self, catalog, *, secret: str, actor_id: str, topics: dict | None = None,
         semantics_path: Path | None = None,
+        extensions_document: dict | None = None,
     ):
         if not secret:
             raise ApplicationError(
@@ -81,8 +82,11 @@ class MetricSemantics:
         self.actor_id = actor_id
         path = semantics_path or CONFIG_DIR / "analysis-semantics.json"
         try:
-            extensions = SemanticExtensions.model_validate_json(
-                path.read_text(encoding="utf-8") if path.exists() else "{}"
+            extensions = (
+                SemanticExtensions.model_validate(extensions_document)
+                if extensions_document is not None else SemanticExtensions.model_validate_json(
+                    path.read_text(encoding="utf-8") if path.exists() else "{}"
+                )
             )
             self.extensions = extensions.model_dump(mode="json")
             # 旧关系未声明类型时沿用分类含义，不因补默认字段使历史指标引用失效。

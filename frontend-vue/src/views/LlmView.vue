@@ -140,7 +140,7 @@ async function saveModel() {
     const changedKeys = Object.fromEntries(
       Object.entries(apiKeys.value).filter(([, value]) => value.trim()),
     ) as Partial<Record<ModelRole, string>>
-    configResponse.value = await updateSmartModel(modelDraft.value, adminToken.value, changedKeys)
+    configResponse.value = await updateSmartModel(modelDraft.value, adminToken.value, changedKeys, configResponse.value?.model_revision)
     setModelDraft(configResponse.value.config)
     apiKeys.value = { chat: "", embedding: "", reranker: "" }
     message.value = "模型配置已保存。"
@@ -174,11 +174,12 @@ async function savePrompt() {
   isSaving.value = true
   clearStatus()
   try {
-    const saved = await updatePromptConfig(selectedPromptName.value, promptDraft.value, adminToken.value)
+    const saved = await updatePromptConfig(selectedPromptName.value, promptDraft.value, adminToken.value, configResponse.value?.prompt_revisions?.[selectedPromptName.value])
     configResponse.value!.prompts.prompts[selectedPromptName.value] = saved
     promptDraft.value = clone(saved)
     message.value = "提示词已校验并发布，新版本已记录。"
     await loadPromptHistory()
+    await refreshPromptRevisions()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "提示词发布失败。"
   } finally {
@@ -191,16 +192,29 @@ async function loadPromptHistory() {
   versions.value = await listPromptVersions(selectedPromptName.value)
 }
 
+async function refreshPromptRevisions() {
+  const current = await getSmartConfig()
+  const name = selectedPromptName.value
+  if (!configResponse.value || !current.prompts.prompts[name]) return
+  configResponse.value.prompts.prompts[name] = current.prompts.prompts[name]
+  configResponse.value.prompt_revisions = {
+    ...configResponse.value.prompt_revisions,
+    [name]: current.prompt_revisions?.[name] ?? "",
+  }
+  promptDraft.value = clone(current.prompts.prompts[name])
+}
+
 async function rollbackPrompt(version: ConfigVersion) {
   if (!canWrite.value || isSaving.value) return
   isSaving.value = true
   clearStatus()
   try {
-    const restored = await rollbackPromptConfig(selectedPromptName.value, version.id, adminToken.value)
+    const restored = await rollbackPromptConfig(selectedPromptName.value, version.id, adminToken.value, configResponse.value?.prompt_revisions?.[selectedPromptName.value])
     configResponse.value!.prompts.prompts[selectedPromptName.value] = restored
     promptDraft.value = clone(restored)
     message.value = `已回滚到版本 v${version.version_number}，并生成新的回滚记录。`
     await loadPromptHistory()
+    await refreshPromptRevisions()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "提示词回滚失败。"
   } finally {

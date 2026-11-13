@@ -108,6 +108,8 @@ export type PromptTemplateConfig = {
 }
 
 export type SmartConfigResponse = {
+  model_revision?: string | null
+  prompt_revisions?: Record<string, string>
   config: ModelRuntimeConfig
   prompts: { schema_version: number; prompts: Record<string, PromptTemplateConfig> }
   api_key_configured: Record<ModelRole, boolean>

@@ -10,7 +10,13 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, Field
 
+from ask_metric.api.configuration import model_repositories, shared_configuration
 from ask_metric.api.dependencies import get_model_service, require_actor
+from ask_metric.application.database_model_configuration import (
+    DatabaseModelConfigRepository,
+    DatabasePromptConfigRepository,
+    DatabasePromptHistoryRepository,
+)
 from ask_metric.application.requests import ActorContext
 from ask_metric.core.config import PROJECT_DIR, Settings
 from ask_metric.core.config_crypto import (
@@ -50,11 +56,14 @@ class ModelConfigResponse(BaseModel):
     api_key_configured: dict[str, bool]
     write_enabled: bool
     write_token_required: bool
+    model_revision: str | None = None
+    prompt_revisions: dict[str, str] = Field(default_factory=dict)
 
 
 class ModelConfigUpdate(BaseModel):
     config: ModelRuntimeConfig
     prompts: PromptRuntimeConfig
+    config_revision: str | None = None
     api_keys: dict[Literal["chat", "embedding", "reranker"], str] = Field(
         default_factory=dict
     )
@@ -62,6 +71,7 @@ class ModelConfigUpdate(BaseModel):
 
 class ModelOnlyUpdate(BaseModel):
     config: ModelRuntimeConfig
+    config_revision: str | None = None
     api_keys: dict[Literal["chat", "embedding", "reranker"], str] = Field(
         default_factory=dict
     )
@@ -187,10 +197,7 @@ def _draft_model_service(
 
     return ConfigurableModelService(
         model_config_repository=_InlineModelConfigRepository(payload.config),  # type: ignore[arg-type]
-        prompt_config_repository=PromptConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.prompt_config_path),
-            store=settings._config_center,
-        ),
+        prompt_config_repository=model_repositories(request)[1],
         credential_resolver=resolve_credential,
         client=request.app.state.model_http_client,
         max_concurrency=settings.model_max_concurrency,
@@ -201,22 +208,15 @@ def _draft_model_service(
 
 def get_model_config_repositories(
     request: Request,
+    actor: Annotated[ActorContext, Depends(require_actor)],
 ) -> tuple[ModelConfigRepository, PromptConfigRepository]:
-    settings: Settings = request.app.state.settings
-    return (
-        ModelConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.model_config_path),
-            store=settings._config_center,
-        ),
-        PromptConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.prompt_config_path),
-            store=settings._config_center,
-        ),
-    )
+    return model_repositories(request, actor=_actor_name(actor))
 
 
 def get_config_management_repositories(request: Request) -> ConfigHistoryRepository:
     settings: Settings = request.app.state.settings
+    if settings.business_configuration_storage == "database":
+        return DatabasePromptHistoryRepository(shared_configuration(request))
     return ConfigHistoryRepository(
         resolve_config_path(PROJECT_DIR, settings.config_history_dir)
     )
@@ -264,6 +264,43 @@ def _actor_name(actor: ActorContext) -> str:
     return actor.user_id or actor.subject
 
 
+def _config_revisions(models: ModelConfigRepository, prompts: PromptConfigRepository) -> dict:
+    return {
+        "model_revision": models.revision
+        if isinstance(models, DatabaseModelConfigRepository) else None,
+        "prompt_revisions": prompts.revisions
+        if isinstance(prompts, DatabasePromptConfigRepository) else {},
+    }
+
+
+def _save_models(
+    repository: ModelConfigRepository,
+    payload: ModelOnlyUpdate | ModelConfigUpdate,
+    settings: Settings,
+) -> ModelRuntimeConfig:
+    config = payload.config
+    if isinstance(repository, DatabaseModelConfigRepository):
+        repository.expected_revision = payload.config_revision
+        # 先检查版本再处理凭据；过期编辑不能修改共享密钥。
+        if payload.config_revision and payload.config_revision != repository.revision:
+            raise ApplicationError("CONFIG_VERSION_CONFLICT", "配置已被更新，请刷新后重新编辑。",
+                                   status_code=409)
+        # 安全配置与应用库不能共用事务。先写新的独立凭据引用，成功后再条件发布模型配置；
+        # 失败最多留下未被引用的密文，不改变当前模型正在使用的凭据。
+        if any(secret.strip() for secret in payload.api_keys.values()):
+            config = config.model_copy(deep=True)
+            for role, secret in payload.api_keys.items():
+                endpoint = getattr(config.models, role)
+                if secret.strip() and endpoint.api_key_env:
+                    endpoint.api_key_env = f"MODEL_{role.upper()}_API_KEY_{uuid4().hex.upper()}"
+            _update_model_credentials(settings, config, payload.api_keys)
+        repository.save(config)
+    else:
+        repository.save(config)
+        _update_model_credentials(settings, config, payload.api_keys)
+    return config
+
+
 @router.post("/authorize-write")
 def authorize_config_write(
     request: Request,
@@ -293,6 +330,7 @@ def get_model_config(
         api_key_configured=_credential_status(settings, model_repository.load()),
         write_enabled=bool(settings.model_admin_write_enabled),
         write_token_required=bool(settings.model_admin_token_required),
+        **_config_revisions(model_repository, prompt_repository),
     )
 
 
@@ -318,14 +356,14 @@ def update_model_config(
             "Prompts must be published through the versioned prompt endpoint",
             status_code=409,
         )
-    model_repository.save(payload.config)
-    _update_model_credentials(settings, payload.config, payload.api_keys)
+    saved_config = _save_models(model_repository, payload, settings)
     return ModelConfigResponse(
-        config=payload.config,
+        config=saved_config,
         prompts=current_prompts,
-        api_key_configured=_credential_status(settings, payload.config),
+        api_key_configured=_credential_status(settings, saved_config),
         write_enabled=True,
         write_token_required=bool(settings.model_admin_token_required),
+        **_config_revisions(model_repository, prompt_repository),
     )
 
 
@@ -343,14 +381,14 @@ def update_model_only(
     settings: Settings = request.app.state.settings
     _require_config_write(settings, actor, admin_token)
     model_repository, prompt_repository = repositories
-    model_repository.save(payload.config)
-    _update_model_credentials(settings, payload.config, payload.api_keys)
+    saved_config = _save_models(model_repository, payload, settings)
     return ModelConfigResponse(
-        config=payload.config,
+        config=saved_config,
         prompts=prompt_repository.load(),
-        api_key_configured=_credential_status(settings, payload.config),
+        api_key_configured=_credential_status(settings, saved_config),
         write_enabled=True,
         write_token_required=bool(settings.model_admin_token_required),
+        **_config_revisions(model_repository, prompt_repository),
     )
 
 
@@ -455,10 +493,15 @@ def update_prompt(
     ],
     actor: Annotated[ActorContext, Depends(require_actor)],
     admin_token: Annotated[str | None, Header(alias="X-Model-Admin-Token")] = None,
+    expected_revision: Annotated[str | None, Header(alias="If-Match")] = None,
 ) -> PromptTemplate:
     settings: Settings = request.app.state.settings
     _require_config_write(settings, actor, admin_token)
     _, prompt_repository = repositories
+    if isinstance(prompt_repository, DatabasePromptConfigRepository):
+        return prompt_repository.publish_prompt(
+            prompt_name, payload, actor=_actor_name(actor), expected_revision=expected_revision,
+        )
     history = management
     config = prompt_repository.load()
     current = config.prompts.get(prompt_name)
@@ -510,6 +553,7 @@ def rollback_prompt(
     ],
     actor: Annotated[ActorContext, Depends(require_actor)],
     admin_token: Annotated[str | None, Header(alias="X-Model-Admin-Token")] = None,
+    expected_revision: Annotated[str | None, Header(alias="If-Match")] = None,
 ) -> PromptTemplate:
     settings: Settings = request.app.state.settings
     _require_config_write(settings, actor, admin_token)
@@ -522,6 +566,11 @@ def rollback_prompt(
     except KeyError as exc:
         raise ApplicationError("CONFIG_VERSION_NOT_FOUND", str(exc), status_code=404) from exc
     restored = PromptTemplate.model_validate(version.snapshot)
+    if isinstance(prompt_repository, DatabasePromptConfigRepository):
+        return prompt_repository.publish_prompt(
+            prompt_name, restored, actor=_actor_name(actor), expected_revision=expected_revision,
+            source_version_id=version_id,
+        )
     config = prompt_repository.load()
     if prompt_name not in config.prompts:
         raise ApplicationError("PROMPT_NOT_FOUND", "Prompt was not found", status_code=404)

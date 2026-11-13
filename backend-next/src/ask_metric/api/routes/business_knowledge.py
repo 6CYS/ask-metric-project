@@ -6,11 +6,13 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 
+from ask_metric.api.configuration import shared_configuration
 from ask_metric.api.dependencies import require_actor
 from ask_metric.application.business_knowledge import (
     BusinessKnowledgeStore,
     KnowledgeFields,
 )
+from ask_metric.application.database_business_knowledge import DatabaseBusinessKnowledgeStore
 from ask_metric.application.requests import ActorContext
 from ask_metric.core.config import PROJECT_DIR
 from ask_metric.core.errors import ApplicationError
@@ -40,7 +42,12 @@ class KnowledgeToggle(BaseModel):
     revision: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
-def knowledge_store(request: Request) -> BusinessKnowledgeStore:
+def knowledge_store(request: Request, actor: ActorContext | None = None) -> BusinessKnowledgeStore:
+    if getattr(request.app.state.settings, "business_configuration_storage", "file") == "database":
+        return DatabaseBusinessKnowledgeStore(
+            shared_configuration(request),
+            actor=(actor.user_id or actor.subject) if actor else "system",
+        )
     return BusinessKnowledgeStore(resolve_config_path(
         PROJECT_DIR, request.app.state.settings.business_knowledge_path,
     ))
@@ -75,23 +82,32 @@ def validate_metric_links(fields: KnowledgeFields) -> None:
 
 
 @router.post("", status_code=201)
-def create_knowledge(payload: KnowledgeWrite, request: Request) -> dict:
+def create_knowledge(
+    payload: KnowledgeWrite, request: Request,
+    actor: Annotated[ActorContext, Depends(require_actor)],
+) -> dict:
     fields = KnowledgeFields.model_validate(
         payload.model_dump(exclude={"revision"}, exclude_unset=True),
     )
     validate_metric_links(fields)
-    return knowledge_store(request).create(fields, payload.revision)
+    return knowledge_store(request, actor).create(fields, payload.revision)
 
 
 @router.put("/{entry_id}")
-def update_knowledge(entry_id: str, payload: KnowledgeWrite, request: Request) -> dict:
+def update_knowledge(
+    entry_id: str, payload: KnowledgeWrite, request: Request,
+    actor: Annotated[ActorContext, Depends(require_actor)],
+) -> dict:
     fields = KnowledgeFields.model_validate(
         payload.model_dump(exclude={"revision"}, exclude_unset=True),
     )
     validate_metric_links(fields)
-    return knowledge_store(request).update(entry_id, fields, payload.revision)
+    return knowledge_store(request, actor).update(entry_id, fields, payload.revision)
 
 
 @router.patch("/{entry_id}/enabled")
-def enable_knowledge(entry_id: str, payload: KnowledgeToggle, request: Request) -> dict:
-    return knowledge_store(request).set_enabled(entry_id, payload.enabled, payload.revision)
+def enable_knowledge(
+    entry_id: str, payload: KnowledgeToggle, request: Request,
+    actor: Annotated[ActorContext, Depends(require_actor)],
+) -> dict:
+    return knowledge_store(request, actor).set_enabled(entry_id, payload.enabled, payload.revision)

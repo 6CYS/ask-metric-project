@@ -1,12 +1,16 @@
 import sys
 from logging.config import fileConfig
 
+from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from alembic import context
 from ask_metric.core.config import get_settings
+from ask_metric.infrastructure.db import (  # noqa: F401
+    agent_sessions,
+    business_knowledge,
+    configuration,
+)
 from ask_metric.infrastructure.db.base import Base
-from ask_metric.infrastructure.db import agent_sessions  # noqa: F401
 from ask_metric.infrastructure.db.models import (  # noqa: F401
     AppUser,
     ChatConversation,

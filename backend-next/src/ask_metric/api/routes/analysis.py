@@ -5,6 +5,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from ask_metric.api.configuration import (
+    business_topics_document,
+    metric_semantics_document,
+    semantic_repository,
+)
 from ask_metric.api.dependencies import (
     get_model_service,
     get_query_execution_service,
@@ -29,7 +34,6 @@ from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.analysis_methods import METHODS, AnalysisPlan
 from ask_metric.infrastructure.model.configuration import resolve_config_path
 from ask_metric.infrastructure.model.provider import InvalidModelResponse, ModelServiceUnavailable
-from ask_metric.infrastructure.semantic.configuration import SemanticConfigRepository
 
 router = APIRouter(prefix="/api/v1/analysis", tags=["general-analysis"])
 
@@ -47,6 +51,8 @@ def get_analysis_service(
         semantics_path=resolve_config_path(
             PROJECT_DIR, request.app.state.settings.analysis_semantics_path,
         ),
+        extensions_document=metric_semantics_document(request),
+        topics_document=business_topics_document(request),
     )
 
 
@@ -63,11 +69,7 @@ def discover_metrics(
     result = semantics.search(keyword, page=page, page_size=page_size)
     if any(item["match_type"] == "exact" for item in result["items"]):
         return result
-    settings = request.app.state.settings
-    matching = SemanticConfigRepository(
-        resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
-        store=settings._config_center,
-    ).load().metric_matching
+    matching = semantic_repository(request).load().metric_matching
     model = get_model_service(request)
     enabled = model.is_enabled("embedding")
     try:

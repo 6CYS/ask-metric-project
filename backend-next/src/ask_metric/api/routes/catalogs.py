@@ -7,6 +7,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only
 
+from ask_metric.api.configuration import semantic_repository
 from ask_metric.api.dependencies import get_model_service, require_actor
 from ask_metric.application.catalog_search import (
     CatalogSearchHit,
@@ -22,7 +23,7 @@ from ask_metric.application.ports import (
 )
 from ask_metric.application.query_run_details import QueryRunSqlDetail, read_query_run_sql
 from ask_metric.application.requests import ActorContext
-from ask_metric.core.config import PROJECT_DIR, Settings
+from ask_metric.core.config import Settings
 from ask_metric.domain.organization_scope import (
     OrganizationHierarchyNode,
     OrganizationHierarchySnapshot,
@@ -40,8 +41,6 @@ from ask_metric.infrastructure.db.models import (
 )
 from ask_metric.infrastructure.db.organization_scope import SqlAlchemyOrganizationScopeProvider
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
-from ask_metric.infrastructure.model.configuration import resolve_config_path
-from ask_metric.infrastructure.semantic.configuration import SemanticConfigRepository
 
 router = APIRouter(
     prefix="/api/v1/catalog", tags=["catalog"], dependencies=[Depends(require_actor)]
@@ -249,12 +248,8 @@ def search_metric_catalog(
     目录与语义链路召回语料同源（启用指标），模型与向量缓存复用进程级装配；
     embedding 未启用时降级为纯词法结果。
     """
-    settings = request.app.state.settings
     matching = (
-        SemanticConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
-            store=settings._config_center,
-        )
+        semantic_repository(request)
         .load()
         .metric_matching
     )

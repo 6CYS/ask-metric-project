@@ -10,6 +10,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from ask_metric.api.configuration import semantic_repository
 from ask_metric.application.actor_provider import ActorProvider, ContextActorProvider
 from ask_metric.application.auth_service import AuthenticationService
 from ask_metric.application.metric_candidates import metric_candidate_index
@@ -31,8 +32,6 @@ from ask_metric.infrastructure.db.session import (
 )
 from ask_metric.infrastructure.db.unit_of_work import SqlAlchemyUnitOfWork
 from ask_metric.infrastructure.model.configuration import (
-    ModelConfigRepository,
-    PromptConfigRepository,
     resolve_config_path,
 )
 from ask_metric.infrastructure.model.provider import (
@@ -45,7 +44,6 @@ from ask_metric.infrastructure.query.organization_codes import (
     OrganizationMappedDataSource,
 )
 from ask_metric.infrastructure.query.sql_builder import sql_builder_from_settings
-from ask_metric.infrastructure.semantic.configuration import SemanticConfigRepository
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -127,10 +125,7 @@ def get_query_task_service(request: Request) -> QueryTaskApplicationService:
     settings: Settings = request.app.state.settings
     return QueryTaskApplicationService(
         running_stale_after=_running_stale_after(settings),
-        semantic_config_repository=SemanticConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.semantic_config_path),
-            store=settings._config_center,
-        ),
+        semantic_config_repository=semantic_repository(request),
         # 追问来源的权限复核与执行链使用同一机构边界
         permission_service=ScopedOrganizationPermissionService(
             organization_scope_provider=SqlAlchemyOrganizationScopeProvider(),
@@ -141,16 +136,13 @@ def get_query_task_service(request: Request) -> QueryTaskApplicationService:
 
 
 def get_model_service(request: Request) -> ConfigurableModelService:
+    from ask_metric.api.configuration import model_repositories
+
     settings: Settings = request.app.state.settings
+    models, prompts = model_repositories(request)
     return ConfigurableModelService(
-        model_config_repository=ModelConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.model_config_path),
-            store=settings._config_center,
-        ),
-        prompt_config_repository=PromptConfigRepository(
-            resolve_config_path(PROJECT_DIR, settings.prompt_config_path),
-            store=settings._config_center,
-        ),
+        model_config_repository=models,
+        prompt_config_repository=prompts,
         credential_resolver=credential_resolver_from_env_file(
             resolve_config_path(PROJECT_DIR, settings.model_secret_env_path),
             store=settings._config_center,

@@ -242,11 +242,11 @@ function configAdminHeaders(adminToken: string) {
   return { "X-Model-Admin-Token": adminToken }
 }
 
-export function updateSmartModel(config: ModelRuntimeConfig, adminToken: string, apiKeys: Partial<Record<"chat" | "embedding" | "reranker", string>> = {}) {
+export function updateSmartModel(config: ModelRuntimeConfig, adminToken: string, apiKeys: Partial<Record<"chat" | "embedding" | "reranker", string>> = {}, configRevision?: string | null) {
   return request<SmartConfigResponse>(apiUrl(backendNextBase, "/api/v1/model-config/model"), {
     method: "PUT",
     headers: configAdminHeaders(adminToken),
-    body: JSON.stringify({ config, api_keys: apiKeys }),
+    body: JSON.stringify({ config, api_keys: apiKeys, config_revision: configRevision }),
   })
 }
 
@@ -263,9 +263,9 @@ export function testSmartModel(
   })
 }
 
-export function updatePromptConfig(name: string, prompt: PromptTemplateConfig, adminToken: string) {
+export function updatePromptConfig(name: string, prompt: PromptTemplateConfig, adminToken: string, revision?: string) {
   return request<PromptTemplateConfig>(apiUrl(backendNextBase, `/api/v1/model-config/prompts/${encodeURIComponent(name)}`), {
-    method: "PUT", headers: configAdminHeaders(adminToken), body: JSON.stringify(prompt),
+    method: "PUT", headers: { ...configAdminHeaders(adminToken), ...(revision ? { "If-Match": revision } : {}) }, body: JSON.stringify(prompt),
   })
 }
 
@@ -273,9 +273,9 @@ export function listPromptVersions(name: string) {
   return request<ConfigVersion[]>(apiUrl(backendNextBase, `/api/v1/model-config/prompts/${encodeURIComponent(name)}/versions`))
 }
 
-export function rollbackPromptConfig(name: string, versionId: string, adminToken: string) {
+export function rollbackPromptConfig(name: string, versionId: string, adminToken: string, revision?: string) {
   return request<PromptTemplateConfig>(apiUrl(backendNextBase, `/api/v1/model-config/prompts/${encodeURIComponent(name)}/versions/${encodeURIComponent(versionId)}/rollback`), {
-    method: "POST", headers: configAdminHeaders(adminToken),
+    method: "POST", headers: { ...configAdminHeaders(adminToken), ...(revision ? { "If-Match": revision } : {}) },
   })
 }
 

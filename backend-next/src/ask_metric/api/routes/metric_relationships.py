@@ -4,7 +4,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
 
+from ask_metric.api.configuration import business_topics_document, shared_configuration
 from ask_metric.api.dependencies import require_actor
+from ask_metric.application.database_metric_semantics import DatabaseMetricRelationshipStore
 from ask_metric.application.metric_relationships import (
     CONFIG_DIR,
     MetricRelationshipStore,
@@ -36,7 +38,14 @@ class RelationshipWrite(MetricRelationFields):
     revision: Revision
 
 
-def relationship_store(request: Request) -> MetricRelationshipStore:
+def relationship_store(
+    request: Request, actor: Annotated[ActorContext, Depends(require_actor)],
+) -> MetricRelationshipStore:
+    if getattr(request.app.state.settings, "business_configuration_storage", "file") == "database":
+        return DatabaseMetricRelationshipStore(
+            shared_configuration(request), CONFIG_DIR / "business-topics.json", actor=actor.subject,
+            topics_document=business_topics_document(request),
+        )
     return MetricRelationshipStore(
         resolve_config_path(PROJECT_DIR, request.app.state.settings.analysis_semantics_path),
         CONFIG_DIR / "business-topics.json",

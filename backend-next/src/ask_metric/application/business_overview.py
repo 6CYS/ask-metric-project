@@ -69,9 +69,10 @@ class OverviewRequest(BaseModel):
     calculation_context: CalculationScope
 
 
-def load_topic(topic_id="loan") -> dict:
-    data = json.loads((CONFIG_DIR / "business-topics.json").read_text(encoding="utf-8"))
-    topic = data["topics"].get(topic_id)
+def load_topic(topic_id="loan", topics: dict | None = None) -> dict:
+    if topics is None:
+        topics = json.loads((CONFIG_DIR / "business-topics.json").read_text(encoding="utf-8"))["topics"]
+    topic = topics.get(topic_id)
     if topic is None:
         raise ApplicationError("TOPIC_NOT_FOUND", "业务主题尚未配置。", status_code=404)
     return topic
@@ -167,12 +168,16 @@ def _key(key: str, step: str) -> str:
 
 
 class BusinessOverviewService:
-    def __init__(self, tasks, execution, calculation, knowledge_path: Path | None = None):
+    def __init__(self, tasks, execution, calculation, knowledge_path: Path | None = None,
+                 knowledge_store: BusinessKnowledgeStore | None = None,
+                 topics: dict | None = None):
         self.tasks, self.execution, self.calculation = tasks, execution, calculation
         self.knowledge_path = knowledge_path
+        self.knowledge_store = knowledge_store
+        self.topics = topics
 
     def describe(self, topic_id="loan") -> dict:
-        topic = load_topic(topic_id)
+        topic = load_topic(topic_id, self.topics)
         with self.tasks.uow_factory() as uow:
             catalog = uow.metric_catalog.list_enabled()
         bound, gaps = bind_metrics(topic, catalog)
@@ -186,7 +191,7 @@ class BusinessOverviewService:
     def execute(
         self, payload: OverviewRequest, actor: ActorContext, key: str, *, today: date | None = None
     ) -> dict:
-        topic = load_topic(payload.topic)
+        topic = load_topic(payload.topic, self.topics)
         if payload.topic_version != topic["version"]:
             raise ApplicationError(
                 "TOPIC_VERSION_CHANGED", "主题版本已更新，请重新读取。", status_code=409
@@ -664,7 +669,10 @@ class BusinessOverviewService:
                 )
         if "structure" in payload.sections:
             self._calculate_structure(result, payload, actor, key, topic)
-        result["knowledge"] = read_knowledge(payload.topic, self.knowledge_path)
+        result["knowledge"] = (
+            self.knowledge_store.read(enabled_only=True)["items"] if self.knowledge_store
+            else read_knowledge(payload.topic, self.knowledge_path)
+        )
         result["complete"] = not gaps
         return self._finish(result)
 
@@ -1010,7 +1018,7 @@ class BusinessOverviewService:
                 continue
             label = next(
                 item["label"]
-                for item in load_topic(result["topic"])["metrics"]
+                for item in load_topic(result["topic"], self.topics)["metrics"]
                 if item["id"] == metric_id
             )
             sentence = f"{label}为{display_value(fact)}"
@@ -1021,7 +1029,7 @@ class BusinessOverviewService:
                     share = calculation["results"][0]
                     parent_label = next(
                         item["label"]
-                        for item in load_topic(result["topic"])["metrics"]
+                        for item in load_topic(result["topic"], self.topics)["metrics"]
                         if item["id"] == calculation["parent"]
                     )
                     sentence += (
@@ -1107,5 +1115,5 @@ class BusinessOverviewService:
         result["public_answer"] = "\n\n".join(lines)
         from ask_metric.application.overview_evidence import overview_evidence
 
-        result.update(overview_evidence(result, load_topic(result["topic"])))
+        result.update(overview_evidence(result, load_topic(result["topic"], self.topics)))
         return result

@@ -141,6 +141,8 @@ class Settings(BaseSettings):
     prompt_config_path: Path = runtime_config_dir() / "prompts.json"
     semantic_config_path: Path = runtime_config_dir() / "semantic-config.json"
     business_knowledge_path: Path = default_business_knowledge_path()
+    # 分阶段迁移开关；数据库模式不回退文件。全部资源切换后退出文件模式。
+    business_configuration_storage: Literal["file", "database"] = "file"
     analysis_semantics_path: Path = PROJECT_DIR / "config" / "analysis-semantics.json"
     config_history_dir: Path = PROJECT_DIR / ".runtime" / "config-history"
     query_result_limit: int = Field(default=1000, gt=0, le=10_000)

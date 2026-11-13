@@ -4,6 +4,9 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from ask_metric.api.configuration import shared_configuration
+from ask_metric.application.database_configuration_readiness import validate_database_configuration
+from ask_metric.core.errors import ApplicationError
 from ask_metric.infrastructure.db.readiness import DatabaseReadiness, get_database_readiness
 
 router = APIRouter(tags=["system"])
@@ -33,7 +36,14 @@ def readiness(
     request: Request,
     checker: Annotated[DatabaseReadiness, Depends(get_database_readiness)],
 ) -> HealthResponse | JSONResponse:
-    if not checker.is_ready():
+    ready = checker.is_ready()
+    if ready and request.app.state.settings.business_configuration_storage == "database":
+        try:
+            validate_database_configuration(shared_configuration(request))
+        except (ApplicationError, ValueError, KeyError, TypeError):
+            # 健康探针仅报告受控状态，不暴露配置正文或内部连接信息。
+            ready = False
+    if not ready:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content=HealthResponse(status="unavailable").model_dump(),
