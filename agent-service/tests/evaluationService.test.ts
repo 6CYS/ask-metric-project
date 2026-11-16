@@ -86,10 +86,10 @@ describe("EvaluationService", () => {
   it("runs group turns serially with a fresh session per group and freezes input", async () => {
     const service = new EvaluationService(store, boundary(), config());
     const request = input();
-    const run = service.startRun(user, "current-token", request);
+    const run = await service.startRun(user, "current-token", request);
     store.updateDataset(user.id, request.dataset_id, 1, { ...datasetInput, name: "已修改问题集" });
     await service.waitForIdle();
-    const saved = service.getRun(user.id, run.id);
+    const saved = await service.getRun(user.id, run.id);
     expect(saved.status).toBe("completed");
     expect(saved.turns.map((turn) => turn.session_id)).toEqual([
       "session-1",
@@ -102,7 +102,7 @@ describe("EvaluationService", () => {
     expect(saved.dataset.version).toBe(1);
     expect(saved.dataset_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(saved.config_hash).toMatch(/^[a-f0-9]{64}$/);
-    expect(service.listSessionIds(user.id)).toEqual(["session-1", "session-2"]);
+    expect(await service.listSessionIds(user.id)).toEqual(["session-1", "session-2"]);
     const owner = readdirSync(join(root, "evaluation-v1"))[0];
     const runsDir = join(root, "evaluation-v1", String(owner), "runs");
     const raw = readdirSync(runsDir)
@@ -115,12 +115,12 @@ describe("EvaluationService", () => {
   it("never reuses old answers for a new run with the same dataset", async () => {
     const service = new EvaluationService(store, boundary(), config());
     const request = input();
-    const first = service.startRun(user, "token", request);
+    const first = await service.startRun(user, "token", request);
     await service.waitForIdle();
-    const second = service.startRun(user, "token", request);
+    const second = await service.startRun(user, "token", request);
     await service.waitForIdle();
     expect(second.id).not.toBe(first.id);
-    expect(service.getRun(user.id, second.id).turns[0]?.session_id).toBe("session-3");
+    expect((await service.getRun(user.id, second.id)).turns[0]?.session_id).toBe("session-3");
   });
 
   it("keeps a maximum-size accepted dataset readable after freezing and manual review", async () => {
@@ -145,8 +145,8 @@ describe("EvaluationService", () => {
       boundary(() => Promise.resolve({ ...success, status: "failed" })),
       config(),
     );
-    const dataset = service.createDataset(user.id, largeInput);
-    const run = service.startRun(user, "token", {
+    const dataset = await service.createDataset(user.id, largeInput);
+    const run = await service.startRun(user, "token", {
       dataset_id: dataset.id,
       dataset_version: 1,
       name: "容量批次",
@@ -154,14 +154,14 @@ describe("EvaluationService", () => {
       data_label: "隔离协议样本",
     });
     await service.waitForIdle();
-    expect(Buffer.byteLength(JSON.stringify(service.getRun(user.id, run.id)))).toBeGreaterThan(
+    expect(Buffer.byteLength(JSON.stringify(await service.getRun(user.id, run.id)))).toBeGreaterThan(
       4 * 1024 * 1024,
     );
-    service.reviewTurn(user, run.id, "q0", { verdict: "needs_review", note: "查".repeat(4_000) });
+    await service.reviewTurn(user, run.id, "q0", { verdict: "needs_review", note: "查".repeat(4_000) });
     const reopened = new EvaluationStore(root).getRun(user.id, run.id);
     expect(reopened.turns).toHaveLength(100);
     expect(reopened.turns[0]?.review?.note).toHaveLength(4_000);
-    expect(service.listSessionIds(user.id)).toEqual(["session-1"]);
+    expect(await service.listSessionIds(user.id)).toEqual(["session-1"]);
     const first = reopened.turns[0];
     if (!first) throw new Error("缺少容量回归轮次");
     first.result = { ...success, error_message: "超".repeat(3_000_000) };
@@ -172,20 +172,20 @@ describe("EvaluationService", () => {
   it("loads historical session identities once per owner and tracks new sessions in memory", async () => {
     const service = new EvaluationService(store, boundary(), config());
     const request = input();
-    service.startRun(user, "token", request);
+    await service.startRun(user, "token", request);
     await service.waitForIdle();
     const reads = vi.spyOn(store, "listRuns");
-    expect(service.listSessionIds(user.id)).toEqual(["session-1", "session-2"]);
-    service.startRun(user, "token", request);
+    expect(await service.listSessionIds(user.id)).toEqual(["session-1", "session-2"]);
+    await service.startRun(user, "token", request);
     await service.waitForIdle();
-    expect(new Set(service.listSessionIds(user.id))).toEqual(
+    expect(new Set(await service.listSessionIds(user.id))).toEqual(
       new Set(["session-1", "session-2", "session-3", "session-4"]),
     );
-    expect(service.listSessionIds("other-user")).toEqual([]);
-    expect(service.listSessionIds(user.id)).toHaveLength(4);
+    expect(await service.listSessionIds("other-user")).toEqual([]);
+    expect(await service.listSessionIds(user.id)).toHaveLength(4);
     expect(reads.mock.calls.map(([owner]) => owner)).toEqual([user.id, "other-user"]);
     const restarted = new EvaluationService(new EvaluationStore(root), boundary(), config());
-    expect(new Set(restarted.listSessionIds(user.id))).toEqual(
+    expect(new Set(await restarted.listSessionIds(user.id))).toEqual(
       new Set(["session-1", "session-2", "session-3", "session-4"]),
     );
   });
@@ -203,14 +203,14 @@ describe("EvaluationService", () => {
       ),
       config(),
     );
-    const run = service.startRun(user, "token", input());
+    const run = await service.startRun(user, "token", input());
     await service.waitForIdle();
-    expect(service.getRun(user.id, run.id).turns.map((turn) => turn.status)).toEqual([
+    expect((await service.getRun(user.id, run.id)).turns.map((turn) => turn.status)).toEqual([
       "failed",
       "skipped",
       "completed",
     ]);
-    expect(service.getRun(user.id, run.id).status).toBe("completed");
+    expect((await service.getRun(user.id, run.id)).status).toBe("completed");
   });
 
   it("stops all groups when authentication fails", async () => {
@@ -221,9 +221,9 @@ describe("EvaluationService", () => {
       ),
       config(),
     );
-    const run = service.startRun(user, "token", input());
+    const run = await service.startRun(user, "token", input());
     await service.waitForIdle();
-    const saved = service.getRun(user.id, run.id);
+    const saved = await service.getRun(user.id, run.id);
     expect(saved.status).toBe("failed");
     expect(saved.turns.map((turn) => turn.status)).toEqual(["failed", "skipped", "skipped"]);
     expect(saved.turns[0]?.result?.error_code).toBe("AUTHENTICATION_FAILED");
@@ -242,14 +242,14 @@ describe("EvaluationService", () => {
       ),
       config(),
     );
-    const run = service.startRun(user, "token", input());
+    const run = await service.startRun(user, "token", input());
     await service.waitForIdle();
-    expect(service.getRun(user.id, run.id).turns.map((turn) => turn.status)).toEqual([
+    expect((await service.getRun(user.id, run.id)).turns.map((turn) => turn.status)).toEqual([
       "failed",
       "skipped",
       "skipped",
     ]);
-    expect(service.getRun(user.id, run.id).status).toBe("failed");
+    expect((await service.getRun(user.id, run.id)).status).toBe("failed");
   });
 
   it("preserves accepted identities and authorized detail after interruption", async () => {
@@ -270,7 +270,7 @@ describe("EvaluationService", () => {
         { role: "user", entry_id: entryId, text: `${token}:${sessionId}`, timestamp: 1 },
       ]);
     const service = new EvaluationService(store, client, config());
-    const run = service.startRun(user, "original-token", input());
+    const run = await service.startRun(user, "original-token", input());
     await ready;
     try {
       expect(store.getRun(user.id, run.id).turns[0]?.result?.status).toBe("running");
@@ -310,18 +310,18 @@ describe("EvaluationService", () => {
         : Promise.reject(new BackendApiError(503, "unconfirmed", "EVALUATION_CANCEL_UNCONFIRMED"));
     const service = new EvaluationService(store, client, config());
     const request = input();
-    const run = service.startRun(user, "initial-token", request);
+    const run = await service.startRun(user, "initial-token", request);
     await ready;
     try {
       await expect(service.cancelRun(user.id, "initial-token", run.id)).rejects.toMatchObject({
         status: 503,
       });
       await service.waitForIdle();
-      expect(service.getRun(user.id, run.id).status).toBe("cancelling");
-      expect(() => service.startRun(user, "fresh-token", request)).toThrow("测评批次");
+      expect((await service.getRun(user.id, run.id)).status).toBe("cancelling");
+      await expect(service.startRun(user, "fresh-token", request)).rejects.toThrow("测评批次");
       cancellationConfirmed = true;
       await service.cancelRun(user.id, "fresh-token", run.id);
-      const saved = service.getRun(user.id, run.id);
+      const saved = await service.getRun(user.id, run.id);
       expect(saved.status).toBe("cancelled");
       expect(saved.turns[0]).toMatchObject({
         status: "cancelled",
@@ -333,7 +333,7 @@ describe("EvaluationService", () => {
         },
       });
       client.executeTurn = () => Promise.resolve(success);
-      expect(service.startRun(user, "fresh-token", request).id).not.toBe(run.id);
+      expect((await service.startRun(user, "fresh-token", request)).id).not.toBe(run.id);
     } finally {
       cancellationConfirmed = true;
       await service.cancelRun(user.id, "fresh-token", run.id).catch(() => undefined);
@@ -385,9 +385,9 @@ describe("EvaluationService", () => {
     };
     const client = createSessionEvaluationClient(request);
     const service = new EvaluationService(store, client, config());
-    const run = service.startRun(user, "original-token", input());
-    await vi.waitFor(() =>
-      expect(service.getRun(user.id, run.id).turns[0]?.result?.operation_id).toBe(
+    const run = await service.startRun(user, "original-token", input());
+    await vi.waitFor(async () =>
+      expect((await service.getRun(user.id, run.id)).turns[0]?.result?.operation_id).toBe(
         "accepted-operation",
       ),
     );
@@ -397,7 +397,7 @@ describe("EvaluationService", () => {
     ]);
     await service.waitForIdle();
     expect(cancellationTokens).toEqual(["Bearer fresh-token"]);
-    expect(service.getRun(user.id, run.id)).toMatchObject({
+    expect(await service.getRun(user.id, run.id)).toMatchObject({
       status: "cancelled",
       turns: [
         {
@@ -429,7 +429,7 @@ describe("EvaluationService", () => {
       Promise.reject(new BackendApiError(503, "not stopped", "EVALUATION_CANCEL_UNCONFIRMED"));
     const service = new EvaluationService(store, client, config());
     const request = input();
-    const run = service.startRun(user, "original-token", request);
+    const run = await service.startRun(user, "original-token", request);
     await ready;
     await expect(service.cancelRun(user.id, "original-token", run.id)).rejects.toMatchObject({
       status: 503,
@@ -453,9 +453,9 @@ describe("EvaluationService", () => {
       expect(confirmedToken).toBe("fresh-token");
       read.mockRestore();
       write.mockRestore();
-      expect(() => service.getRun(user.id, run.id)).toThrow("持久化失败");
+      await expect(service.getRun(user.id, run.id)).rejects.toThrow("持久化失败");
       client.executeTurn = () => Promise.resolve(success);
-      expect(service.startRun(user, "fresh-token", request).id).not.toBe(run.id);
+      expect((await service.startRun(user, "fresh-token", request)).id).not.toBe(run.id);
     } finally {
       read.mockRestore();
       write.mockRestore();
@@ -486,20 +486,20 @@ describe("EvaluationService", () => {
     };
     const service = new EvaluationService(store, client, config());
     const request = input();
-    const run = service.startRun(user, "token", request);
+    const run = await service.startRun(user, "token", request);
     await ready;
-    expect(() =>
+    await expect(
       new EvaluationService(store, boundary(), config()).startRun(user, "token", request),
-    ).toThrow("测评批次");
+    ).rejects.toThrow("测评批次");
     await service.cancelRun(user.id, "token", run.id);
-    expect(service.getRun(user.id, run.id).status).toBe("cancelling");
+    expect((await service.getRun(user.id, run.id)).status).toBe("cancelling");
     expect(cancelled).toContain("token:session-1:");
     expect(cancelled).toContain("aborted");
-    expect(() => service.startRun(user, "token", request)).toThrow("测评批次");
+    await expect(service.startRun(user, "token", request)).rejects.toThrow("测评批次");
     finish?.({ ...success, status: "cancelled" });
     await service.waitForIdle();
-    expect(service.getRun(user.id, run.id).status).toBe("cancelled");
-    expect(service.getRun(user.id, run.id).turns.map((turn) => turn.status)).toEqual([
+    expect((await service.getRun(user.id, run.id)).status).toBe("cancelled");
+    expect((await service.getRun(user.id, run.id)).turns.map((turn) => turn.status)).toEqual([
       "cancelled",
       "skipped",
       "skipped",
@@ -525,7 +525,7 @@ describe("EvaluationService", () => {
       return Promise.resolve();
     };
     const service = new EvaluationService(store, client, config());
-    const run = service.startRun(user, "token", input());
+    const run = await service.startRun(user, "token", input());
     await ready;
     vi.spyOn(store, "saveRun").mockImplementationOnce(() => {
       throw new EvaluationError(503, "EVALUATION_STORAGE_UNAVAILABLE", "测评存储暂不可用");
@@ -539,8 +539,8 @@ describe("EvaluationService", () => {
     finish?.(success);
     await service.waitForIdle();
     expect(cancellationWasRequested).toBe(true);
-    expect(service.getRun(user.id, run.id).status).toBe("cancelled");
-    expect(service.getRun(user.id, run.id).turns.map((turn) => turn.status)).toEqual([
+    expect((await service.getRun(user.id, run.id)).status).toBe("cancelled");
+    expect((await service.getRun(user.id, run.id)).turns.map((turn) => turn.status)).toEqual([
       "cancelled",
       "skipped",
       "skipped",
@@ -549,9 +549,9 @@ describe("EvaluationService", () => {
 
   it("restores unfinished runs as interrupted without calling any session", async () => {
     const service = new EvaluationService(store, boundary(), config());
-    const run = service.startRun(user, "token", input());
+    const run = await service.startRun(user, "token", input());
     await service.waitForIdle();
-    const saved = service.getRun(user.id, run.id);
+    const saved = await service.getRun(user.id, run.id);
     store.saveRun(user.id, {
       ...saved,
       status: "running",
@@ -567,8 +567,8 @@ describe("EvaluationService", () => {
       boundary(() => Promise.reject(new Error("must not execute"))),
       config(),
     );
-    expect(restored.getRun(user.id, run.id).status).toBe("interrupted");
-    expect(restored.getRun(user.id, run.id).turns.map((turn) => turn.status)).toEqual([
+    expect((await restored.getRun(user.id, run.id)).status).toBe("interrupted");
+    expect((await restored.getRun(user.id, run.id)).turns.map((turn) => turn.status)).toEqual([
       "failed",
       "skipped",
       "skipped",
@@ -583,26 +583,28 @@ describe("EvaluationService", () => {
       return Promise.reject(new BackendApiError(403, "revoked"));
     };
     const service = new EvaluationService(store, client, config());
-    const run = service.startRun(user, "original-token", input());
-    expect(() => service.reviewTurn(user, run.id, "q1", { verdict: "passed", note: "" })).toThrow();
+    const run = await service.startRun(user, "original-token", input());
+    await expect(
+      service.reviewTurn(user, run.id, "q1", { verdict: "passed", note: "" }),
+    ).rejects.toThrow();
     await service.waitForIdle();
     await expect(service.turnDetail(user.id, "fresh-token", run.id, "q1")).rejects.toThrow(
       "revoked",
     );
     expect(detailIdentity).toBe("fresh-token:session-1:entry");
-    const reviewed = service.reviewTurn(user, run.id, "q1", {
+    const reviewed = await service.reviewTurn(user, run.id, "q1", {
       verdict: "needs_review",
       note: "核对来源",
     });
     expect(reviewed.review?.verdict).toBe("needs_review");
-    expect(service.getRun(user.id, run.id).status).toBe("completed");
-    expect(() => service.getRun("other-user", run.id)).toThrow();
-    expect(() =>
+    expect((await service.getRun(user.id, run.id)).status).toBe("completed");
+    await expect(service.getRun("other-user", run.id)).rejects.toThrow();
+    await expect(
       service.reviewTurn({ ...user, id: "other-user" }, run.id, "q1", {
         verdict: "passed",
         note: "",
       }),
-    ).toThrow();
+    ).rejects.toThrow();
   });
 
   it("does not send a question when cancellation arrives during session creation", async () => {
@@ -619,15 +621,15 @@ describe("EvaluationService", () => {
       });
     };
     const service = new EvaluationService(store, client, config());
-    const run = service.startRun(user, "token", input());
+    const run = await service.startRun(user, "token", input());
     await creating;
     await service.cancelRun(user.id, "token", run.id);
     release?.("created-before-stop");
     await service.waitForIdle();
-    const saved = service.getRun(user.id, run.id);
+    const saved = await service.getRun(user.id, run.id);
     expect(saved.status).toBe("cancelled");
     expect(saved.turns.every((turn) => turn.started_at === null)).toBe(true);
-    expect(service.listSessionIds(user.id)).toContain("created-before-stop");
+    expect(await service.listSessionIds(user.id)).toContain("created-before-stop");
   });
 
   it("shuts down its active batch using the in-memory token and waits for cancellation", async () => {
@@ -647,11 +649,11 @@ describe("EvaluationService", () => {
       return Promise.resolve();
     };
     const service = new EvaluationService(store, client, config());
-    const run = service.startRun(user, "in-memory-token", input());
+    const run = await service.startRun(user, "in-memory-token", input());
     await ready;
     await service.shutdown();
     expect(cancellationToken).toBe("in-memory-token");
-    expect(service.getRun(user.id, run.id).status).toBe("cancelled");
+    expect((await service.getRun(user.id, run.id)).status).toBe("cancelled");
     await service.shutdown();
   });
 
@@ -671,11 +673,11 @@ describe("EvaluationService", () => {
         new BackendApiError(503, "secret internal message", "EVALUATION_CANCEL_UNCONFIRMED"),
       );
     const service = new EvaluationService(store, client, config());
-    const run = service.startRun(user, "token", input());
+    const run = await service.startRun(user, "token", input());
     await ready;
     await expect(service.cancelRun(user.id, "token", run.id)).rejects.toThrow();
     await service.waitForIdle();
-    const saved = service.getRun(user.id, run.id);
+    const saved = await service.getRun(user.id, run.id);
     try {
       expect(saved.status).toBe("cancelling");
       expect(saved.turns.map((turn) => turn.status)).toEqual(["failed", "skipped", "skipped"]);
@@ -695,10 +697,10 @@ describe("EvaluationService", () => {
       ),
       config(),
     );
-    const run = service.startRun(user, "token", input());
+    const run = await service.startRun(user, "token", input());
     await service.waitForIdle();
-    expect(service.getRun(user.id, run.id).status).toBe("failed");
-    expect(service.getRun(user.id, run.id).turns.map((turn) => turn.status)).toEqual([
+    expect((await service.getRun(user.id, run.id)).status).toBe("failed");
+    expect((await service.getRun(user.id, run.id)).turns.map((turn) => turn.status)).toEqual([
       "failed",
       "skipped",
       "skipped",
@@ -715,9 +717,9 @@ describe("EvaluationService", () => {
       ),
       config(),
     );
-    const run = service.startRun(user, "token", input());
+    const run = await service.startRun(user, "token", input());
     await service.waitForIdle();
-    const saved = service.getRun(user.id, run.id);
+    const saved = await service.getRun(user.id, run.id);
     try {
       expect(saved.status).toBe("cancelling");
       expect(saved.turns.map((turn) => turn.status)).toEqual(["failed", "skipped", "skipped"]);
@@ -745,15 +747,15 @@ describe("EvaluationService", () => {
       }),
       config(),
     );
-    const run = service.startRun(user, "token", input());
+    const run = await service.startRun(user, "token", input());
     await ready;
     await expect(service.cancelRun(user.id, "token", run.id)).rejects.toMatchObject({
       code: "EVALUATION_CANCEL_UNCONFIRMED",
     });
     await service.waitForIdle();
     try {
-      expect(service.getRun(user.id, run.id).status).toBe("cancelling");
-      expect(service.getRun(user.id, run.id).turns[0]?.result?.error_code).toBe(
+      expect((await service.getRun(user.id, run.id)).status).toBe("cancelling");
+      expect((await service.getRun(user.id, run.id)).turns[0]?.result?.error_code).toBe(
         "EVALUATION_CANCEL_UNCONFIRMED",
       );
     } finally {
@@ -761,12 +763,12 @@ describe("EvaluationService", () => {
     }
   });
 
-  it("rejects stale run inputs without creating a batch", () => {
+  it("rejects stale run inputs without creating a batch", async () => {
     const service = new EvaluationService(store, boundary(), config());
     const request = input();
     store.updateDataset(user.id, request.dataset_id, 1, datasetInput);
-    expect(() => service.startRun(user, "token", request)).toThrow("版本已变化");
-    expect(service.listRuns(user.id)).toEqual([]);
+    await expect(service.startRun(user, "token", request)).rejects.toThrow("版本已变化");
+    expect(await service.listRuns(user.id)).toEqual([]);
   });
 
   it("keeps a review saved while later turns are still running", async () => {
@@ -786,12 +788,12 @@ describe("EvaluationService", () => {
       }),
       config(),
     );
-    const run = service.startRun(user, "token", input());
+    const run = await service.startRun(user, "token", input());
     await ready;
-    service.reviewTurn(user, run.id, "q1", { verdict: "failed", note: "条件不符" });
+    await service.reviewTurn(user, run.id, "q1", { verdict: "failed", note: "条件不符" });
     release?.(success);
     await service.waitForIdle();
-    expect(service.getRun(user.id, run.id).turns[0]?.review).toMatchObject({
+    expect((await service.getRun(user.id, run.id)).turns[0]?.review).toMatchObject({
       verdict: "failed",
       note: "条件不符",
     });
@@ -805,11 +807,11 @@ describe("EvaluationService", () => {
       return Promise.resolve(success);
     });
     const service = new EvaluationService(store, client, config());
-    const run = service.startRun(user, "token", input());
+    const run = await service.startRun(user, "token", input());
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     await service.waitForIdle();
-    expect(() => service.getRun(user.id, run.id)).toThrow("持久化失败");
-    expect(() => service.listRuns(user.id)).toThrow("持久化失败");
+    await expect(service.getRun(user.id, run.id)).rejects.toThrow("持久化失败");
+    await expect(service.listRuns(user.id)).rejects.toThrow("持久化失败");
     log.mockRestore();
   });
 });

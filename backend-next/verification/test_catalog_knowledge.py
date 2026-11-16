@@ -27,7 +27,7 @@ def search_catalog(items, *, keyword="测试余额", embedding_scores=None, limi
         embedding_top_k=5, embedding_batch_size=10, embedding_cache_wait_seconds=1,
     )
     with (
-        patch.object(catalogs, "SemanticConfigRepository") as repository,
+        patch.object(catalogs, "semantic_repository") as repository,
         patch.object(catalogs, "get_model_service") as model_service,
         patch.object(catalogs, "metric_embedding_scores", return_value=embedding_scores),
     ):
@@ -146,7 +146,7 @@ def test_analysis_retrieval_failure_keeps_lexical_results_and_reports_failure(fa
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
         settings=settings, catalog_vector_cache=None,
     )))
-    with (patch.object(analysis, "SemanticConfigRepository") as repository,
+    with (patch.object(analysis, "semantic_repository") as repository,
           patch.object(analysis, "get_model_service") as model,
           patch.object(analysis, "metric_embedding_scores", side_effect=failure)):
         repository.return_value.load.return_value.metric_matching = SimpleNamespace(

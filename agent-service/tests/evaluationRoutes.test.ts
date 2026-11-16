@@ -150,8 +150,8 @@ describe("evaluation routes", () => {
         })
       ).status,
     ).toBe(400);
-    const dataset = service.createDataset(actor.id, data);
-    const run = service.startRun(actor, "token", {
+    const dataset = await service.createDataset(actor.id, data);
+    const run = await service.startRun(actor, "token", {
       dataset_id: dataset.id,
       dataset_version: 1,
       name: "批次",

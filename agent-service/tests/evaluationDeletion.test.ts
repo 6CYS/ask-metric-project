@@ -114,8 +114,8 @@ describe("测评删除的归属、快照与会话清理", () => {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   }
-  function start() {
-    const dataset = service.createDataset(actor.id, datasetInput);
+  async function start() {
+    const dataset = await service.createDataset(actor.id, datasetInput);
     return service.startRun(actor, "current-token", {
       dataset_id: dataset.id,
       dataset_version: dataset.version,
@@ -126,71 +126,71 @@ describe("测评删除的归属、快照与会话清理", () => {
   }
 
   it("删除题集检查归属和版本，并保留已有批次的冻结题目", async () => {
-    const run = start();
+    const run = await start();
     await service.waitForIdle();
     const path = `/datasets/${run.dataset.id}`;
     expect((await request(path, "DELETE", { version: 1 }, "other")).status).toBe(404);
     store.updateDataset(actor.id, run.dataset.id, 1, { ...datasetInput, name: "新版本" });
     expect((await request(path, "DELETE", { version: 1 })).status).toBe(409);
     expect((await request(path, "DELETE", { version: 2 })).status).toBe(204);
-    expect(service.listDatasets(actor.id)).toEqual([]);
-    expect(service.getRun(actor.id, run.id).dataset).toEqual(run.dataset);
+    expect(await service.listDatasets(actor.id)).toEqual([]);
+    expect((await service.getRun(actor.id, run.id)).dataset).toEqual(run.dataset);
     expect(sessions.size).toBe(3);
   });
 
   it("删除批次只清理该批次独占的会话，保留题集、其他批次和普通聊天", async () => {
-    const run = start();
+    const run = await start();
     await service.waitForIdle();
-    const retained = start();
+    const retained = await start();
     await service.waitForIdle();
     expect((await request(`/runs/${run.id}`, "DELETE", undefined, "other")).status).toBe(404);
     expect(deleted).toEqual([]);
-    expect(service.listSessionIds(actor.id)).toHaveLength(4);
+    expect(await service.listSessionIds(actor.id)).toHaveLength(4);
     expect((await request(`/runs/${run.id}`)).status).toBe(204);
     expect(deleted).toEqual(["session-1", "session-2"]);
     expect(sessions).toEqual(new Set(["ordinary-chat", "session-3", "session-4"]));
-    expect(service.listRuns(actor.id).map((item) => item.id)).toEqual([retained.id]);
-    expect(service.listDatasets(actor.id)).toHaveLength(2);
-    expect(service.listSessionIds(actor.id)).toEqual(["session-3", "session-4"]);
+    expect((await service.listRuns(actor.id)).map((item) => item.id)).toEqual([retained.id]);
+    expect(await service.listDatasets(actor.id)).toHaveLength(2);
+    expect(await service.listSessionIds(actor.id)).toEqual(["session-3", "session-4"]);
     service = new EvaluationService(new EvaluationStore(root), client, config());
-    expect(service.listSessionIds(actor.id)).toEqual(["session-3", "session-4"]);
+    expect(await service.listSessionIds(actor.id)).toEqual(["session-3", "session-4"]);
   });
 
   it.each(["running", "cancelling"] as const)("%s 批次不能删除", async (status) => {
-    const run = start();
+    const run = await start();
     await service.waitForIdle();
-    const saved = service.getRun(actor.id, run.id);
+    const saved = await service.getRun(actor.id, run.id);
     saved.status = status;
     store.saveRun(actor.id, saved);
     expect((await request(`/runs/${run.id}`)).status).toBe(409);
-    expect(service.getRun(actor.id, run.id).status).toBe(status);
+    expect((await service.getRun(actor.id, run.id)).status).toBe(status);
     expect(deleted).toEqual([]);
   });
 
   it("部分清理失败保留删除状态与关联信息，重启后可继续且不重复删除已清理会话", async () => {
-    const run = start();
+    const run = await start();
     await service.waitForIdle();
     failSession = "session-2";
     expect((await request(`/runs/${run.id}`)).status).toBe(503);
     expect(deleted).toEqual(["session-1"]);
-    expect(service.getRun(actor.id, run.id).status).toBe("deleting");
+    expect((await service.getRun(actor.id, run.id)).status).toBe("deleting");
     expect((await request(`/runs/${run.id}/turns/q1`, "GET")).status).toBe(409);
     expect(
       (await request(`/runs/${run.id}/turns/q1/review`, "PUT", { verdict: "passed", note: "" }))
         .status,
     ).toBe(409);
     service = new EvaluationService(new EvaluationStore(root), client, config());
-    expect(service.listSessionIds(actor.id)).toEqual(["session-2"]);
+    expect(await service.listSessionIds(actor.id)).toEqual(["session-2"]);
     failSession = null;
     expect((await request(`/runs/${run.id}`)).status).toBe(204);
     expect(deleted).toEqual(["session-1", "session-2"]);
     expect(deleteRequests).toEqual(["session-1", "session-2", "session-2"]);
-    expect(service.listRuns(actor.id)).toEqual([]);
+    expect(await service.listRuns(actor.id)).toEqual([]);
     expect(sessions).toEqual(new Set(["ordinary-chat"]));
   });
 
   it("清理超出单次预算后保存进度，重启继续只处理剩余会话", async () => {
-    const run = start();
+    const run = await start();
     await service.waitForIdle();
     const deadline = new AbortController();
     const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal);
@@ -200,7 +200,7 @@ describe("测评删除的归属、快照与会话清理", () => {
       deadline.abort();
     };
     expect((await request(`/runs/${run.id}`)).status).toBe(503);
-    expect(service.getRun(actor.id, run.id).turns.map((turn) => turn.session_id)).toEqual([
+    expect((await service.getRun(actor.id, run.id)).turns.map((turn) => turn.session_id)).toEqual([
       null,
       null,
       "session-2",
@@ -214,23 +214,23 @@ describe("测评删除的归属、快照与会话清理", () => {
   });
 
   it("批次文件删除失败后继续删除仍能完成，不把已不存在的会话当作失败", async () => {
-    const run = start();
+    const run = await start();
     await service.waitForIdle();
     vi.spyOn(store, "deleteRun").mockImplementationOnce(() => {
       throw new EvaluationError(503, "EVALUATION_STORAGE_UNAVAILABLE", "隔离存储故障");
     });
     expect((await request(`/runs/${run.id}`)).status).toBe(503);
-    expect(service.getRun(actor.id, run.id).status).toBe("deleting");
+    expect((await service.getRun(actor.id, run.id)).status).toBe("deleting");
     expect((await request(`/runs/${run.id}`)).status).toBe(204);
-    expect(service.listRuns(actor.id)).toEqual([]);
+    expect(await service.listRuns(actor.id)).toEqual([]);
   });
 
   it("同批次重复点击不并行清理，其他批次引用的会话仍保留", async () => {
-    const run = start();
+    const run = await start();
     await service.waitForIdle();
-    const other = start();
+    const other = await start();
     await service.waitForIdle();
-    const shared = service.getRun(actor.id, other.id);
+    const shared = await service.getRun(actor.id, other.id);
     shared.turns[0]!.session_id = "session-1";
     store.saveRun(actor.id, shared);
     let release = () => {};
@@ -240,7 +240,9 @@ describe("测评删除的归属、快照与会话清理", () => {
     holdDelete = () => pending;
     const first = request(`/runs/${run.id}`);
     try {
-      await vi.waitFor(() => expect(service.getRun(actor.id, run.id).status).toBe("deleting"));
+      await vi.waitFor(async () => {
+        expect((await service.getRun(actor.id, run.id)).status).toBe("deleting");
+      });
       expect((await request(`/runs/${run.id}`)).status).toBe(409);
     } finally {
       release();
