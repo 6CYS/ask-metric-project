@@ -11,30 +11,48 @@ const searchStep = (id: string, candidateCount: number, options = {}) => ({
 })
 
 describe("工具回执进度摘要", () => {
+  it.each([true, false])("指标选择不符合要求时解释本次查询原因，保留失败事实（传输标记 %s）", (isError) => {
+    for (const validationStage of ["binding_resolution", "binding_duplicates"]) {
+      expect(toolCallSummary({ kind: "inquiry_query_error", status: "error",
+        code: "ANALYSIS_BINDING_INVALID", validation_stage: validationStage,
+        correction_fields: ["metric_refs"], message: "内部编码与查询参数" }, isError))
+        .toEqual({ note: "指标选择需调整，本次未执行", failed: true })
+    }
+  })
+
+  it("其他查询异常不误报指标问题，也不暴露内部错误内容", () => {
+    for (const code of ["INQUIRY_FORBIDDEN", "BACKEND_UNAVAILABLE", "UNKNOWN_ERROR", undefined]) {
+      expect(toolCallSummary({ kind: "inquiry_query_error", status: "error", code,
+        message: "内部 SQL 与连接信息" }, true))
+        .toEqual({ note: "本次查询未完成", failed: true })
+    }
+    expect(toolCallSummary(undefined, true)).toEqual({ note: "执行失败" })
+  })
+
   it("目录摘要区分本次候选、空匹配、分页、复用和耗尽", () => {
-    expect(toolCallSummary(catalogDetails(3))?.note).toBe("找到 3 条目录候选")
-    expect(toolCallSummary(catalogDetails(0))?.note).toBe("未找到匹配指标")
-    expect(toolCallSummary(catalogDetails(2, { has_more: true }))?.note).toBe("找到 2 条目录候选，还有后续结果")
-    expect(toolCallSummary(catalogDetails(0, { has_more: true }))?.note).toBe("本页未返回候选指标，还有后续结果")
-    expect(toolCallSummary(catalogDetails(3, { reused: true }))?.note).toBe("已复用检索结果，找到 3 条目录候选")
-    expect(toolCallSummary(catalogDetails(0, { reused: true }))?.note).toBe("已复用检索结果，未找到匹配指标")
-    expect(toolCallSummary(catalogDetails(0, { exhausted: true }))?.note).toBe("已无后续页，本次未继续检索")
-    expect(toolCallSummary({ ...catalogDetails(3), status: "failed" })).toMatchObject({ note: "目录检索未完成", failed: true })
-    expect(toolCallSummary(catalogDetails(3), true)).toMatchObject({ note: "目录检索未完成", failed: true })
+    expect(toolCallSummary(catalogDetails(3))?.note).toBe("找到 3 个可能相关的指标")
+    expect(toolCallSummary(catalogDetails(0))?.note).toBe("暂未找到符合问题的指标")
+    expect(toolCallSummary(catalogDetails(2, { has_more: true }))?.note).toBe("找到 2 个可能相关的指标，还有后续结果")
+    expect(toolCallSummary(catalogDetails(0, { has_more: true }))?.note).toBe("本页暂未找到相关指标，还有后续结果")
+    expect(toolCallSummary(catalogDetails(3, { reused: true }))?.note).toBe("已沿用已有指标查找结果，找到 3 个可能相关的指标")
+    expect(toolCallSummary(catalogDetails(0, { reused: true }))?.note).toBe("已沿用已有指标查找结果，暂未找到符合问题的指标")
+    expect(toolCallSummary(catalogDetails(0, { exhausted: true }))?.note).toBe("已无更多结果，本次未继续查找")
+    expect(toolCallSummary({ ...catalogDetails(3), status: "failed" })).toMatchObject({ note: "指标查找未完成", failed: true })
+    expect(toolCallSummary(catalogDetails(3), true)).toMatchObject({ note: "指标查找未完成", failed: true })
   })
 
   it("旧目录回执仅使用有效分页事实，不把累计快照或缺失字段猜成零匹配", () => {
     const details = { kind: "analysis_catalog", status: "succeeded" }
-    expect(toolCallSummary({ ...details, search_pages: [{ total: 0, has_more: false }] })?.note).toBe("未找到匹配指标")
+    expect(toolCallSummary({ ...details, search_pages: [{ total: 0, has_more: false }] })?.note).toBe("暂未找到符合问题的指标")
     expect(toolCallSummary({ ...details, search_pages: [{ total: 12, has_more: true }, { total: 0, has_more: false }] })?.note)
-      .toBe("找到目录候选，还有后续结果")
+      .toBe("找到可能相关的指标，还有后续结果")
     expect(toolCallSummary({ ...details, reused: true, search_pages: [{ total: 0, has_more: false }] })?.note)
-      .toBe("已复用检索结果，未找到匹配指标")
+      .toBe("已沿用已有指标查找结果，暂未找到符合问题的指标")
     for (const search_pages of [[], [{ total: 0 }], [{ total: 0, has_more: false }, {}], [{ total: -1, has_more: false }]]) {
-      expect(toolCallSummary({ ...details, search_pages })?.note).toBe("已完成目录检索")
+      expect(toolCallSummary({ ...details, search_pages })?.note).toBe("已完成指标查找")
     }
     expect(toolCallSummary({ ...details, search_summary: { candidate_count: -1 }, search_pages: [] })?.note)
-      .toBe("已完成目录检索")
+      .toBe("已完成指标查找")
   })
 
   it("连续完成的同类检索只派生一项，保留累计次数、已有命中和原始事件", () => {
@@ -42,10 +60,10 @@ describe("工具回执进度摘要", () => {
     const original = JSON.stringify(steps)
     const grouped = groupCatalogSteps(steps)
     expect(grouped).toHaveLength(1)
-    expect(grouped[0]).toMatchObject({ id: "one", count: 3, elapsedMs: 30, summary: { note: "找到目录候选" } })
+    expect(grouped[0]).toMatchObject({ id: "one", count: 3, elapsedMs: 30, summary: { note: "找到可能相关的指标" } })
     expect(groupCatalogSteps(steps.slice(0, 2))[0]?.id).toBe(grouped[0]?.id)
     expect(JSON.stringify(steps)).toBe(original)
-    expect(groupCatalogSteps([searchStep("one", 0), searchStep("two", 0)])[0]?.summary?.note).toBe("未找到匹配指标")
+    expect(groupCatalogSteps([searchStep("one", 0), searchStep("two", 0)])[0]?.summary?.note).toBe("暂未找到符合问题的指标")
   })
 
   it("失败、运行中、不同动作和查询阶段隔开目录归并，不隐藏失败", () => {
@@ -54,7 +72,7 @@ describe("工具回执进度摘要", () => {
       { tool: "metric_search", status: "running" },
       { tool: "metric_query", status: "done" },
       { tool: "analysis_catalog", status: "done" },
-      { tool: "metric_search", status: "done", summary: { failed: true, note: "目录检索未完成" } },
+      { tool: "metric_search", status: "done", summary: { failed: true, note: "指标查找未完成" } },
     ]) {
       const steps = [searchStep("one", 0), separator, searchStep("two", 0)]
       expect(groupCatalogSteps(steps)).toEqual(steps)
@@ -65,13 +83,13 @@ describe("工具回执进度摘要", () => {
     const grouped = groupCatalogSteps([
       searchStep("one", 1), searchStep("two", 1, { reused: true }), searchStep("three", 0, { exhausted: true }),
     ])
-    expect(grouped[0]?.summary?.note).toBe("找到目录候选；复用 1 次；无后续页 1 次")
+    expect(grouped[0]?.summary?.note).toBe("找到可能相关的指标；沿用已有指标查找结果 1 次；已无更多结果 1 次")
     expect(groupCatalogSteps([
-      { tool: "metric_search", status: "done", summary: { note: "已完成目录检索" } }, searchStep("two", 0),
-    ])[0]?.summary?.note).toBe("已完成目录检索")
+      { tool: "metric_search", status: "done", summary: { note: "已完成指标查找" } }, searchStep("two", 0),
+    ])[0]?.summary?.note).toBe("已完成指标查找")
     expect(groupCatalogSteps([
       { tool: "metric_search", status: "done", summary: { note: "找到匹配指标" } }, searchStep("two", 0),
-    ])[0]?.summary?.note).toBe("已完成目录检索")
+    ])[0]?.summary?.note).toBe("已完成指标查找")
   })
 
   it("分析查询按当前回执行数展示，不能将不存在的旧字段当成零条", () => {
@@ -110,12 +128,12 @@ describe("工具回执进度摘要", () => {
   })
 
   it("当前工具各自显示实际动作，读取已有结果不显示为重新查询", () => {
-    expect(toolCallLabel("metric_search")).toBe("检索指标目录")
+    expect(toolCallLabel("metric_search")).toBe("查找相关指标")
     expect(toolCallLabel("metric_query", { kind: "analysis_evidence" })).toBe("查询指标数据")
     expect(toolCallLabel("analysis_read", { kind: "analysis_evidence" })).toBe("读取已有查询结果")
     expect(toolCallLabel("metric_query", { kind: "analysis_evidence", result_reused: true })).toBe("读取已有查询结果")
     expect(toolCallLabel("analysis_answer", { kind: "business_report" })).toBe("生成回答")
-    expect(toolCallLabel("business_knowledge_search")).toBe("检索业务知识")
+    expect(toolCallLabel("business_knowledge_search")).toBe("查阅业务说明")
     expect(toolCallLabel("metric_availability")).toBe("查看数据可用范围")
     expect(toolCallLabel("analysis_chart")).toBe("准备图表展示")
   })
@@ -148,14 +166,14 @@ describe("工具回执进度摘要", () => {
   it("目录候选快照不当作已选指标或本次命中数量，知识只展示本次命中数量", () => {
     expect(toolCallSummary({ kind: "analysis_catalog", status: "succeeded",
       binding_map: { A: { name: "存款余额" } }, candidate_map: { B: { name: "贷款余额" } } }))
-      .toEqual({ note: "已完成目录检索" })
+      .toEqual({ note: "已完成指标查找" })
     expect(toolCallSummary({ kind: "business_skill_read", status: "ok", name: "inquiry-analysis" }))
       .toEqual({ note: "已读取业务分析方法" })
     expect(toolCallSummary({ kind: "business_knowledge_search", status: "ok",
       entries: [{ title: "口径说明", text: "不在进度中展示的内部资料" }] }))
-      .toEqual({ note: "找到 1 条相关知识" })
+      .toEqual({ note: "找到 1 条参考信息" })
     expect(toolCallSummary({ kind: "business_knowledge_search", status: "ok", entries: [] })?.note)
-      .toBe("未找到相关知识")
+      .toBe("暂未找到相关业务说明")
   })
 
   it("部分结果、读取复用和失败分别说明，不虚构正在核验或已完成", () => {

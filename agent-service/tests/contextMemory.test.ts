@@ -76,7 +76,7 @@ describe("历史任务权限复核", () => {
   const task = {task_id: "task-1", status: "SUCCEEDED", result: {result_id: "result-1"}};
 
   it("同轮并发与后续调用复用任务查询，仍分别核对各回执的结果身份", async () => {
-    const getTask = vi.fn(async () => task);
+    const getTask = vi.fn(() => Promise.resolve(task));
     const backend = {getTask} as unknown as BackendClient;
     const request = testRequestContext(backend, new MemoryCommandBridge());
     const correct = history("result-1");
@@ -98,7 +98,7 @@ describe("历史任务权限复核", () => {
 
   it("传播暂时性后端异常，并允许本轮下一次复核重新查询", async () => {
     const unavailable = new BackendApiError(503, "复核服务暂不可用");
-    const getTask = vi.fn(async () => task).mockRejectedValueOnce(unavailable);
+    const getTask = vi.fn(() => Promise.resolve(task)).mockRejectedValueOnce(unavailable);
     const request = testRequestContext({getTask} as unknown as BackendClient, new MemoryCommandBridge());
     const messages = history("result-1");
     await expect(safeWorkingHistory(request, messages)).rejects.toBe(unavailable);

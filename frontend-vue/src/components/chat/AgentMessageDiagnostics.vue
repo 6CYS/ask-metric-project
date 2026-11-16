@@ -23,8 +23,8 @@ const props = defineProps<{
   runTimings?: { auth_ms?: number; total_ms?: number; model_ms?: number[]; tool_ms?: number[];
     first_visible_ms?: number | null; model_first_token_ms?: number[] }
 }>()
-// 新提问和历史记录均默认收起；后续进度和完成状态不覆盖用户的选择。
-const expanded = ref(false)
+// 新提问和历史记录均默认展开；后续进度和完成状态不覆盖用户的选择。
+const expanded = ref(true)
 // 状态栏复用真实工具状态；没有运行中的工具时显示模型处理阶段。
 const currentStage = computed(() => {
   if (!props.pending) return "执行过程"
@@ -199,7 +199,7 @@ function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? n
           <div class="flex min-h-5 flex-wrap items-center gap-x-1.5 gap-y-0.5">
             <span>{{ call.label ?? toolCallLabel(call.tool) }}</span>
             <span v-if="call.count">（累计 {{ call.count }} 次）</span>
-            <span :class="call.status === 'done' || call.summary?.note ? 'sr-only' : ''">{{ statusLabels[call.status] ?? '状态未知' }}</span>
+            <span v-if="!call.summary?.note" :class="call.status === 'done' ? 'sr-only' : ''">{{ statusLabels[call.status] ?? '状态未知' }}</span>
             <span v-if="call.summary?.note">· {{ call.summary.note }}</span>
             <span v-if="call.elapsedMs !== undefined" class="text-muted-foreground/60 tabular-nums">· {{ call.count ? '累计耗时 ' : '' }}{{ call.elapsedMs >= 1000 ? (call.elapsedMs / 1000).toFixed(1) + ' 秒' : call.elapsedMs + ' 毫秒' }}</span>
           </div>

@@ -20,6 +20,10 @@ import {
 } from "./target.js";
 
 type MetricReference = { code: string; name: string; binding_ref: string };
+type ComparisonMetricReference = MetricReference & {
+  base_metric_code: string;
+  comparison_period: "yoy" | "mom" | "ytd";
+};
 type QuestionMetric = MetricReference & {
   text: string;
   comparisons?: Array<MetricReference & { period: "yoy" | "mom" | "ytd" }>;
@@ -47,10 +51,18 @@ function questionMetricReferences(request: AskMetricRequestContext, question: st
     if (!matches.size) return [];
     const bound = await request.backend.analysisBindMetrics([...matches.keys()], { signal, includeComparisons: true });
     if (!Array.isArray(bound.items)) return [];
-    const items = bound.items.filter(item => matches.has(item?.code));
+    const items = bound.items.filter((item: unknown) =>
+      !!item && typeof item === "object" && "code" in item
+        && typeof item.code === "string" && matches.has(item.code),
+    );
     const comparisons = (Array.isArray(bound.comparison_items) ? bound.comparison_items : []).filter(
-      item => matches.has(item?.base_metric_code) && ["yoy", "mom", "ytd"].includes(item?.comparison_period)
-        && typeof item?.code === "string" && typeof item?.name === "string" && typeof item?.binding_ref === "string",
+      (item: unknown): item is ComparisonMetricReference =>
+        !!item && typeof item === "object"
+          && "base_metric_code" in item && typeof item.base_metric_code === "string" && matches.has(item.base_metric_code)
+          && "comparison_period" in item && ["yoy", "mom", "ytd"].some(period => period === item.comparison_period)
+          && "code" in item && typeof item.code === "string"
+          && "name" in item && typeof item.name === "string"
+          && "binding_ref" in item && typeof item.binding_ref === "string",
     );
     const view = catalogBindingView(request, items) as Partial<MetricReference>[];
     catalogBindingView(request, comparisons);
@@ -151,9 +163,9 @@ export async function inquiryTargetReference(
   const previousQuestion = previous && (await scopeAvailable(request, previous.organizations.codes))
     ? previous.analysisQuestion ?? previous.sourceQuestion
     : "";
-  restoreAnalysisDiscovery(request, currentTurnMessages(messages).flatMap(message =>
+  restoreAnalysisDiscovery(request, currentTurnMessages(messages).flatMap((message): unknown[] =>
     message.role === "toolResult" && !message.isError
-      ? [message.details, ...businessEvidences(message.details)] : [],
+      ? [message.details as unknown, ...businessEvidences(message.details)] : [],
   ));
   const [currentMetrics, previousMetrics] = await Promise.all([
     questionMetricReferences(request, request.originalMessage, signal),

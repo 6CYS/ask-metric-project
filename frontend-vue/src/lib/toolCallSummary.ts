@@ -27,14 +27,14 @@ export type ToolCallStep = {
 }
 
 const toolLabels: Record<string, string> = {
-  metric_search: "检索指标目录",
+  metric_search: "查找相关指标",
   metric_query: "查询指标数据",
   metric_availability: "查看数据可用范围",
   analysis_read: "读取已有查询结果",
   analysis_answer: "生成回答",
   analysis_partial_present: "说明已取得的部分结果",
   analysis_chart: "准备图表展示",
-  business_knowledge_search: "检索业务知识",
+  business_knowledge_search: "查阅业务说明",
   respond_without_business_action: "说明或澄清问题",
   business_skill_read: "确认查询方法",
   business_topic_read: "读取业务主题与指标关系",
@@ -54,7 +54,7 @@ const toolLabels: Record<string, string> = {
   catalog_overview: "查看目录概览",
   catalog: "目录查询",
   read: "读取任务、结果与历史",
-  metric_catalog_search: "检索指标目录",
+  metric_catalog_search: "查找相关指标",
   metric_catalog_overview: "查看可查询指标",
   org_catalog_search: "检索机构目录",
   metric_ask: "解析问题并查询指标",
@@ -102,6 +102,7 @@ type Details = {
   entries?: unknown
   results?: unknown
   inputs?: unknown
+  code?: unknown
   error_code?: unknown
   retryable?: unknown
   repeated_failure?: unknown
@@ -152,14 +153,14 @@ function catalogSearchSummary(details: Details): CatalogSearchSummary | undefine
 }
 
 function catalogSearchNote(summary?: CatalogSearchSummary): string {
-  if (!summary) return "已完成目录检索"
-  if (summary.exhausted) return "已无后续页，本次未继续检索"
+  if (!summary) return "已完成指标查找"
+  if (summary.exhausted) return "已无更多结果，本次未继续查找"
   let note = summary.outcome === "matched"
-    ? summary.candidateCount === undefined ? "找到目录候选" : `找到 ${summary.candidateCount} 条目录候选`
-    : summary.outcome === "empty" ? "未找到匹配指标"
-    : summary.candidateCount === 0 ? "本页未返回候选指标" : "已完成目录检索"
+    ? summary.candidateCount === undefined ? "找到可能相关的指标" : `找到 ${summary.candidateCount} 个可能相关的指标`
+    : summary.outcome === "empty" ? "暂未找到符合问题的指标"
+    : summary.candidateCount === 0 ? "本页暂未找到相关指标" : "已完成指标查找"
   if (summary.reused) note = summary.outcome === "unknown" && summary.candidateCount === undefined
-    ? "已复用检索结果" : `已复用检索结果，${note}`
+    ? "已沿用已有指标查找结果" : `已沿用已有指标查找结果，${note}`
   return summary.hasMore ? `${note}，还有后续结果` : note
 }
 
@@ -178,9 +179,9 @@ export function groupCatalogSteps(steps: readonly ToolCallStep[]): ToolCallStep[
       const reused = summaries.filter(summary => summary?.reused).length
       const exhausted = summaries.filter(summary => summary?.exhausted).length
       // 多次检索可能返回同一候选，合并时只保留是否命中，不累加候选数。
-      const notes = [matched ? "找到目录候选" : empty ? "未找到匹配指标" : "已完成目录检索"]
-      if (reused) notes.push(`复用 ${reused} 次`)
-      if (exhausted) notes.push(`无后续页 ${exhausted} 次`)
+      const notes = [matched ? "找到可能相关的指标" : empty ? "暂未找到符合问题的指标" : "已完成指标查找"]
+      if (reused) notes.push(`沿用已有指标查找结果 ${reused} 次`)
+      if (exhausted) notes.push(`已无更多结果 ${exhausted} 次`)
       grouped.push({ ...first, count: searches.length, summary: { note: notes.join("；") },
         elapsedMs: searches.every(call => call.elapsedMs !== undefined)
           ? searches.reduce((total, call) => total + (call.elapsedMs ?? 0), 0) : undefined })
@@ -204,8 +205,8 @@ export function toolCallLabel(tool: string, details?: unknown) {
   if (tool === "topic_query") {
     const execution = value.topic_execution as { topic_name?: unknown } | undefined
     return typeof execution?.topic_name === "string"
-      ? `${value.kind === 'inquiry_query_reuse' ? '复用分析方案结果' : '执行分析方案'}：${execution.topic_name}`
-      : value.kind === "inquiry_query_reuse" ? "复用分析方案结果" : "按分析方案批量取数"
+      ? `${value.kind === 'inquiry_query_reuse' ? '沿用分析方案结果' : '执行分析方案'}：${execution.topic_name}`
+      : value.kind === "inquiry_query_reuse" ? "沿用分析方案结果" : "按分析方案批量取数"
   }
   if (tool === "metric_query" && (value.result_reused === true || value.reused === true || value.kind === "inquiry_query_reuse")) return "读取已有查询结果"
   if (value.kind === "analysis_evidence" && tool !== "metric_query" && tool !== "analysis_read") return "规划并执行分析步骤"
@@ -306,7 +307,7 @@ function batchResultNote(details: Details) {
 function businessContextNote(details: Details) {
   const status = typeof details.status === "string" ? details.status : ""
   if (status === "READY") return details.execution_mode === "execute" ? "条件已确定，开始查询" : "条件已保存，暂不查询"
-  if (status === "REUSE_RESULT") return "已有相同条件的查询结果，直接复用"
+  if (status === "REUSE_RESULT") return "已有相同条件的查询结果，本次沿用"
   if (status === "NEEDS_CLARIFICATION") {
     const fields = Array.isArray(details.issues)
       ? [...new Set(details.issues.map(issue => issueFieldLabels[String((issue as { field?: unknown })?.field)]).filter(Boolean))]
@@ -340,18 +341,20 @@ export function toolCallSummary(details: unknown, isError = false): ToolCallSumm
     }
   }
   else if (kind === "semantic_results") note = batchResultNote(value)
+  else if (kind === "inquiry_query_error") note = value.code === "ANALYSIS_BINDING_INVALID"
+    ? "指标选择需调整，本次未执行" : "本次查询未完成"
   else if (kind === "inquiry_query_reuse") note = value.status === "succeeded" ? "已读取已有查询结果" : "结果读取未完成"
   else if (kind === "analysis_catalog") {
     if (value.status === "succeeded" && !isError) {
       catalogSearch = catalogSearchSummary(value)
       note = catalogSearchNote(catalogSearch)
-    } else note = "目录检索未完成"
+    } else note = "指标查找未完成"
   }
   else if (kind === "business_skill_read") note = value.status === "ok" ? "已读取业务分析方法" : "分析方法读取未完成"
   else if (kind === "session_history_read") note = value.status === "ok" ? "已读取会话历史" : "会话历史读取未完成"
   else if (kind === "business_knowledge_search") note = value.status === "ok"
-    ? (Array.isArray(value.entries) ? (value.entries.length ? `找到 ${value.entries.length} 条相关知识` : "未找到相关知识") : "已完成知识检索")
-    : "业务知识暂不可用"
+    ? (Array.isArray(value.entries) ? (value.entries.length ? `找到 ${value.entries.length} 条参考信息` : "暂未找到相关业务说明") : "已完成业务说明查找")
+    : "业务说明暂不可用"
   else if (kind === "inquiry_chart") note = value.status === "succeeded" ? "已准备图表展示" : "图表准备未完成"
   else if (kind === "analysis_answer") note = "回答尚未生成"
   else if (kind === "conversation_reply") note = value.status === "answered" ? "已生成说明或澄清问题" : "说明或澄清未完成"
