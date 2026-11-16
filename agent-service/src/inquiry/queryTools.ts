@@ -289,6 +289,16 @@ interface CatalogSearchPage {
   total: number;
   has_more: boolean;
   exact_refs: string[];
+  pagination_reuse_safe: boolean;
+}
+
+/** 词法总量不覆盖语义推荐；故障恢复和可能截断的建议不能按零命中跨页复用。 */
+function catalogPaginationReusable(value: unknown): boolean {
+  const data = record(value);
+  if (typeof data.pagination_reuse_safe === "boolean") return data.pagination_reuse_safe;
+  return (data.semantic_retrieval === undefined || record(data.semantic_retrieval).status === "disabled") &&
+    !(Array.isArray(data.semantic_suggestions) && data.semantic_suggestions.length) &&
+    !records(data.items).some(item => item.match_type === "semantic");
 }
 
 function catalogSearchPage(value: unknown): CatalogSearchPage | undefined {
@@ -315,6 +325,7 @@ function catalogSearchPage(value: unknown): CatalogSearchPage | undefined {
     total,
     has_more: hasMore,
     exact_refs: strings(data.exact_refs),
+    pagination_reuse_safe: catalogPaginationReusable(data),
   };
 }
 
@@ -330,11 +341,21 @@ function catalogSearchPages(messages: AgentMessage[]): CatalogSearchPage[] {
       !Array.isArray(details.search_pages)
     )
       return [];
+    const originalResults = records(toolView(message)?.results);
     return details.search_pages.flatMap((value: unknown) => {
       const page = catalogSearchPage(value);
+      const original = page && originalResults.find(result => result.keyword === page.keyword &&
+        result.page === page.page && result.page_size === page.page_size);
+      if (page && original) page.pagination_reuse_safe = catalogPaginationReusable(original);
       return page ? [page] : [];
     });
   });
+}
+
+function exhaustedCatalogPage(pages: CatalogSearchPage[], keyword: string, page: number, pageSize: number) {
+  const previous = pages.filter(item => item.keyword === keyword), latest = previous.at(-1);
+  return latest?.pagination_reuse_safe && previous.some(item => !item.has_more && item.total === latest.total && item.pagination_reuse_safe) &&
+    (page > 1 || latest.total === 0) && (page - 1) * pageSize >= latest.total ? latest : undefined;
 }
 
 function toolView(message: AgentMessage): Record<string, unknown> | undefined {
@@ -357,9 +378,10 @@ function reusableCatalogPage(
     if (details.kind !== "analysis_catalog" || details.status !== "succeeded" ||
       details.execution_turn_id !== request.operationId) continue;
     const view = toolView(message);
-    const original = records(view?.results).find(result => result.keyword === keyword &&
-      result.page === page && result.page_size === pageSize && catalogSearchPage(result));
-    if (!original || original.pagination_status === "exhausted") continue;
+    const original = records(view?.results).find(result => result.keyword === keyword && catalogSearchPage(result) &&
+      (result.total === 0 && result.has_more === false && catalogPaginationReusable(result) || result.page === page && result.page_size === pageSize));
+    if (!original || original.pagination_status === "exhausted" && original.total !== 0) continue;
+    if (record(original.semantic_retrieval).status === "unavailable") return;
     const descriptors = records(view?.items);
     const items = Array.isArray(original.items) ? records(original.items) : records(original.matches).map(match => {
       const descriptor = descriptors.find(item => item.binding_ref === match.binding_ref);
@@ -371,8 +393,10 @@ function reusableCatalogPage(
       (savedBindings[item.binding_ref] !== savedBindings[`code:${String(item.code)}`] ||
         savedBindings[item.binding_ref] !== bindings[item.binding_ref] ||
         savedBindings[`code:${String(item.code)}`] !== bindings[`code:${String(item.code)}`]))) return;
-    return { ...original, items, reused: true, no_new_evidence: true,
-      reuse_notice: "该目录页已在本轮完整返回，本次复用原候选和分页信息，没有新增检索结果。已有适用候选可直接取数；缺失定义不会通过重读同页补齐。" };
+    // 仅完整词法结果可跨页复用；语义建议保持原页信息，不用空壳替代原回执。
+    return { ...original, page, page_size: pageSize, items, reused: true, no_new_evidence: true,
+      ...(original.total === 0 && catalogPaginationReusable(original) ? { pagination_status: page > 1 ? "exhausted" : undefined } : {}),
+      reuse_notice: "本次复用已返回的原候选、建议和分页信息，没有新增检索结果。已有适用候选可直接取数，缺失定义不会通过重读补齐。" };
   }
   return;
 }
@@ -1132,7 +1156,7 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
     label: "检索业务指标",
     parameters: searchParameters,
     description:
-      "按业务目标检索正式指标，返回名称、定义、单位、可用方法与k引用。已有符合业务目标与口径的正式候选即可metric_query，无需翻完目录；exact仅表示名称、编码或别名匹配，不代表口径适用。同一对象存在不同业务口径且用户条件不足以区分时，使用已有候选澄清，不必穷尽目录；重复检索不会补全候选中缺失的定义。仅候选不足且has_more=true时继续分页，has_more=false时该关键词没有下一页；缺少其他目标指标时可另行检索。分页未完不能断言不存在。semantic_suggestions只有推荐含义，须再按名称或编码检索取得正式引用。",
+      "按业务目标检索正式指标，返回名称、定义、单位、可用方法与k引用。已有符合业务目标与口径的正式候选即可metric_query，无需翻完目录；exact仅表示名称、编码或别名匹配，不代表口径适用。同一对象存在不同业务口径且用户条件不足以区分时，使用已有候选澄清，不必穷尽目录；重复检索不会补全候选中缺失的定义。仅候选不足且has_more=true时继续分页，has_more=false时该关键词没有下一页；缺少其他目标指标时可另行检索。合理的完整替代表达合并到一次检索，不把同义词拼成一个关键词反复组合。没有新增候选或可核验目录线索时，简短说明本次未找到可回答的指标，不穷举换词或扩大页大小；不能据此断言整个目录不存在该指标。semantic_suggestions只有推荐含义，须再按名称或编码检索取得正式引用；semantic_retrieval.status=disabled表示未启用推荐，不是需要重试的故障。",
     execute: async (_id, input, _update, request, _invocation, context) => {
       context.abortSignal?.throwIfAborted();
       const messages = (await request.turnMessages?.()) ?? [];
@@ -1151,25 +1175,24 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
       };
       const searchKeyword = async (keyword: string) => {
         const previous = previousPages.filter((item) => item.keyword === keyword);
-        const latest = previous.at(-1);
         previous.forEach((item) => item.exact_refs.forEach((ref) => existingRefs.add(ref)));
         const reused = reusableCatalogPage(request, messages, keyword, page, pageSize);
         if (reused) return reused;
-        const endKnown =
-          latest && previous.some((item) => !item.has_more && item.total === latest.total);
         // 总量与请求偏移量比较，允许换页大小后仍有数据的页；新回合重新检索。
-        if (page > 1 && latest && endKnown && (page - 1) * pageSize >= latest.total) {
+        const end = exhaustedCatalogPage(previousPages, keyword, page, pageSize);
+        if (page > 1 && end) {
           return {
             keyword,
             page,
             page_size: pageSize,
-            total: latest.total,
+            total: end.total,
             has_more: false,
             next_page: null,
             pagination_status: "exhausted",
+            no_new_evidence: true,
             items: [],
             notice:
-              "该关键词已无后续页，本次未重复访问目录。请核对已有候选的定义、单位和方法后取数；不适用时换关键词，不再增加该关键词页码。",
+              "该关键词已无后续页，本次未重复访问目录。已有适用候选可直接取数；没有新的候选或可核验目录线索时，说明本次未找到可回答的指标，不再反复翻页或换词。其他尚未检索的目标仍可查询。",
           };
         }
         return fetchPage(keyword);
@@ -1190,10 +1213,25 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
           boundResults[index] = record(catalogBindingView(request, await fetchPage(result.keyword)));
       }
       context.abortSignal?.throwIfAborted();
+      for (const result of boundResults) {
+        const semantic = record(result.semantic_retrieval);
+        if (semantic.status === "disabled") result.semantic_retrieval = { ...semantic,
+          notice: "名称和别名检索已完成；语义推荐未启用，不是需要重试的故障。按已有候选和目录线索决定取数或交付，不能据此断言整个目录不存在相关指标。" };
+        if (result.total === 0 && result.has_more === false && catalogPaginationReusable(result)) result.search_notice =
+          "该关键词的名称和别名检索已完成，未找到正式匹配。合理替代表达可合并检索；没有新候选或可核验目录线索时，简短说明本次未找到可回答的指标，不继续穷举换词。";
+      }
       const reused = boundResults.every(result => result.reused === true);
+      const noNewEvidence = boundResults.every(result => result.no_new_evidence === true);
+      const candidateCodes = new Set(boundResults.flatMap(result => records(result.items)
+        .filter(item => item.match_type !== "semantic" && typeof item.binding_ref === "string" && typeof item.code === "string")
+        .map(item => item.code)));
+      const searchSummary = { candidate_count: candidateCodes.size,
+        has_more: boundResults.some(result => result.has_more === true), reused,
+        exhausted: boundResults.every(result => result.pagination_status === "exhausted") };
       const view: Record<string, unknown> = {
         results: boundResults,
-        ...(reused ? { reused: true, no_new_evidence: true } : {}),
+        ...(reused ? { reused: true } : {}),
+        ...(noNewEvidence ? { no_new_evidence: true } : {}),
       };
       const searchPages = (Array.isArray(view.results) ? view.results : []).flatMap(
         (value: unknown) => {
@@ -1234,7 +1272,9 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
           kind: "analysis_catalog",
           status: "succeeded",
           execution_turn_id: request.operationId,
-          ...(reused ? { reused: true, no_new_evidence: true } : {}),
+          ...(reused ? { reused: true } : {}),
+          ...(noNewEvidence ? { no_new_evidence: true } : {}),
+          search_summary: searchSummary,
           search_pages: searchPages,
           ...bindingSnapshot(request),
         },

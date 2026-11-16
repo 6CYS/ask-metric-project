@@ -4,6 +4,26 @@ export type ToolCallSummary = {
   note?: string
   /** 部分历史回执未同步传输失败标记，按已知回执状态恢复展示。 */
   failed?: boolean
+  /** 目录状态用于合并进度，不从展示文案或累计候选快照反推结果。 */
+  catalogSearch?: CatalogSearchSummary
+}
+
+type CatalogSearchSummary = {
+  outcome: "matched" | "empty" | "unknown"
+  candidateCount?: number
+  hasMore?: boolean
+  reused: boolean
+  exhausted: boolean
+}
+
+export type ToolCallStep = {
+  id?: string
+  tool: string
+  status: string
+  elapsedMs?: number
+  summary?: ToolCallSummary
+  label?: string
+  count?: number
 }
 
 const toolLabels: Record<string, string> = {
@@ -87,10 +107,95 @@ type Details = {
   repeated_failure?: unknown
   gaps?: unknown
   topic_execution?: unknown
+  search_summary?: unknown
+  search_pages?: unknown
 }
 
 function asDetails(value: unknown): Details {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {}
+}
+
+function catalogSearchSummary(details: Details): CatalogSearchSummary | undefined {
+  const source = details.search_summary
+  if (source && typeof source === "object" && !Array.isArray(source)) {
+    const summary = source as Record<string, unknown>
+    if (typeof summary.candidate_count === "number" && Number.isInteger(summary.candidate_count)
+      && summary.candidate_count >= 0 && typeof summary.has_more === "boolean"
+      && typeof summary.reused === "boolean" && typeof summary.exhausted === "boolean") {
+      return {
+        outcome: summary.candidate_count > 0 ? "matched" : summary.exhausted || summary.has_more ? "unknown" : "empty",
+        candidateCount: summary.candidate_count,
+        hasMore: summary.has_more,
+        reused: summary.reused,
+        exhausted: summary.exhausted,
+      }
+    }
+  }
+  // 旧回执的 total 是关键词的总命中数，不能累加成当次返回的唯一候选数。
+  const pages: unknown[] = Array.isArray(details.search_pages) ? details.search_pages : []
+  const validPages = pages.filter((page): page is { total: number; has_more: boolean } => {
+    if (!page || typeof page !== "object" || Array.isArray(page)) return false
+    const value = page as Record<string, unknown>
+    return typeof value.total === "number" && Number.isInteger(value.total)
+      && value.total >= 0 && typeof value.has_more === "boolean"
+  })
+  const matched = validPages.some(page => page.total > 0)
+  const complete = pages.length > 0 && validPages.length === pages.length
+  if (!matched && !complete && details.reused !== true) return undefined
+  const hasMore = validPages.some(page => page.has_more)
+  return {
+    outcome: matched ? "matched" : complete && !hasMore ? "empty" : "unknown",
+    ...(complete ? { hasMore } : {}),
+    reused: details.reused === true,
+    exhausted: false,
+  }
+}
+
+function catalogSearchNote(summary?: CatalogSearchSummary): string {
+  if (!summary) return "已完成目录检索"
+  if (summary.exhausted) return "已无后续页，本次未继续检索"
+  let note = summary.outcome === "matched"
+    ? summary.candidateCount === undefined ? "找到目录候选" : `找到 ${summary.candidateCount} 条目录候选`
+    : summary.outcome === "empty" ? "未找到匹配指标"
+    : summary.candidateCount === 0 ? "本页未返回候选指标" : "已完成目录检索"
+  if (summary.reused) note = summary.outcome === "unknown" && summary.candidateCount === undefined
+    ? "已复用检索结果" : `已复用检索结果，${note}`
+  return summary.hasMore ? `${note}，还有后续结果` : note
+}
+
+/** 只归并相邻且已完成的同类目录动作，原始工具事件仍供历史与调试使用。 */
+export function groupCatalogSteps(steps: readonly ToolCallStep[]): ToolCallStep[] {
+  const grouped: ToolCallStep[] = []
+  let searches: ToolCallStep[] = []
+  const flush = () => {
+    const first = searches[0]
+    if (!first) return
+    if (searches.length === 1) grouped.push(first)
+    else {
+      const summaries = searches.map(call => call.summary?.catalogSearch)
+      const matched = summaries.some(summary => summary?.outcome === "matched")
+      const empty = summaries.every(summary => summary?.outcome === "empty")
+      const reused = summaries.filter(summary => summary?.reused).length
+      const exhausted = summaries.filter(summary => summary?.exhausted).length
+      // 多次检索可能返回同一候选，合并时只保留是否命中，不累加候选数。
+      const notes = [matched ? "找到目录候选" : empty ? "未找到匹配指标" : "已完成目录检索"]
+      if (reused) notes.push(`复用 ${reused} 次`)
+      if (exhausted) notes.push(`无后续页 ${exhausted} 次`)
+      grouped.push({ ...first, count: searches.length, summary: { note: notes.join("；") },
+        elapsedMs: searches.every(call => call.elapsedMs !== undefined)
+          ? searches.reduce((total, call) => total + (call.elapsedMs ?? 0), 0) : undefined })
+    }
+    searches = []
+  }
+  for (const step of steps) {
+    const mergeable = ["metric_search", "analysis_catalog", "metric_catalog_search"].includes(step.tool)
+      && step.status === "done" && !step.summary?.failed
+    if (!mergeable || (searches.length && searches[0]?.tool !== step.tool)) flush()
+    if (mergeable) searches.push(step)
+    else grouped.push(step)
+  }
+  flush()
+  return grouped
 }
 
 /** 解析条件后宿主会就地执行查询，此时同一步骤的回执已是查询结果。 */
@@ -223,6 +328,7 @@ export function toolCallSummary(details: unknown, isError = false): ToolCallSumm
   const kind = typeof value.kind === "string" ? value.kind : ""
   let conditions: ToolCallSummary["conditions"] = conditionsOf(value)
   let note: string | undefined
+  let catalogSearch: CatalogSearchSummary | undefined
   if (metricResultKinds.has(kind)) note = resultNote(value)
   else if (["business_overview", "business_report", "analysis_evidence"].includes(kind)) {
     conditions = queryConditions(value)
@@ -235,7 +341,12 @@ export function toolCallSummary(details: unknown, isError = false): ToolCallSumm
   }
   else if (kind === "semantic_results") note = batchResultNote(value)
   else if (kind === "inquiry_query_reuse") note = value.status === "succeeded" ? "已读取已有查询结果" : "结果读取未完成"
-  else if (kind === "analysis_catalog") note = value.status === "succeeded" ? "已完成目录检索" : "目录检索未完成"
+  else if (kind === "analysis_catalog") {
+    if (value.status === "succeeded" && !isError) {
+      catalogSearch = catalogSearchSummary(value)
+      note = catalogSearchNote(catalogSearch)
+    } else note = "目录检索未完成"
+  }
   else if (kind === "business_skill_read") note = value.status === "ok" ? "已读取业务分析方法" : "分析方法读取未完成"
   else if (kind === "session_history_read") note = value.status === "ok" ? "已读取会话历史" : "会话历史读取未完成"
   else if (kind === "business_knowledge_search") note = value.status === "ok"
@@ -257,7 +368,9 @@ export function toolCallSummary(details: unknown, isError = false): ToolCallSumm
   else if (kind === "answer_present" && value.status === "delivered") note = "回答已生成"
   else if (kind === "runtime_delivery" && value.status === "delivered") note = "已整理正式回执"
   if (isError && !note) note = "执行失败"
-  const failed = Boolean(note) && typeof value.status === "string" && ["error", "failed", "ARGUMENT_ERROR"].includes(value.status)
+  const failed = (kind === "analysis_catalog" && isError)
+    || (Boolean(note) && typeof value.status === "string" && ["error", "failed", "ARGUMENT_ERROR"].includes(value.status))
   return conditions || note ? { ...(conditions ? { conditions } : {}), ...(note ? { note } : {}),
+    ...(catalogSearch ? { catalogSearch } : {}),
     ...(failed ? { failed: true } : {}) } : undefined
 }

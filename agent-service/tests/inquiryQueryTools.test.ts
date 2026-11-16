@@ -452,6 +452,120 @@ describe("关联知识在取数前提供正式候选", () => {
 });
 
 describe("指标检索的分页边界与候选取数", () => {
+  it("语义推荐关闭时零命中跨页大小复用，并保留关联目录", async () => {
+    const f = fixture();
+    f.backend.analysisCatalog.mockResolvedValue({
+      items: [], total: 0, page: 1, page_size: 12, has_more: false,
+      semantic_suggestions: [],
+      related_metrics: [secondDescriptor],
+      relations: [{ id: "relation-1", parent: "M1", children: ["M2"] }],
+      semantic_retrieval: { status: "disabled", notice: "未完成语义推荐；不能据此断言没有相关指标。" },
+    });
+    const first = await f.call("metric_search", { keywords: ["分红"] });
+    expect(first.details.no_new_evidence).not.toBe(true);
+    const repeated = await f.call("metric_search", { keywords: [" 分红 "], page_size: 30 });
+    type EmptyCatalogView = { results: [{ relations: unknown; semantic_suggestions: unknown;
+      semantic_retrieval: { status: string; notice: string } }] };
+    const firstView = JSON.parse(first.content[0].text) as EmptyCatalogView;
+    const view = JSON.parse(repeated.content[0].text) as EmptyCatalogView;
+    expect(f.backend.analysisCatalog).toHaveBeenCalledTimes(1);
+    expect(view).toMatchObject({ no_new_evidence: true, reused: true,
+      results: [{ keyword: "分红", page: 1, page_size: 30, total: 0, has_more: false,
+        semantic_suggestions: [],
+        related_metrics: [{ code: "M2", binding_ref: "k1" }] }] });
+    expect(view.results[0].relations).toEqual(firstView.results[0].relations);
+    expect(view.results[0].semantic_retrieval).toMatchObject({ status: "disabled" });
+    expect(view.results[0].semantic_retrieval.notice).toContain("未启用");
+    expect(view.results[0].semantic_retrieval.notice).not.toContain("未完成语义推荐");
+    expect(repeated.details.search_summary).toEqual({ candidate_count: 0, has_more: false, reused: true, exhausted: false });
+    const outOfRange = await f.call("metric_search", { keywords: ["分红"], page: 2, page_size: 30 });
+    expect(outOfRange.details.search_summary).toEqual({ candidate_count: 0, has_more: false, reused: true, exhausted: true });
+    const backToFirst = await f.call("metric_search", { keywords: ["分红"], page_size: 6 });
+    expect(backToFirst.details.search_summary).toEqual({ candidate_count: 0, has_more: false, reused: true, exhausted: false });
+    const restoredView = JSON.parse(backToFirst.content[0].text) as EmptyCatalogView;
+    expect(restoredView.results[0].semantic_suggestions).toEqual(view.results[0].semantic_suggestions);
+    f.messages.push({ role: "user", content: "重新查询", timestamp: 1 });
+    await f.call("metric_search", { keywords: ["分红"], page_size: 30 });
+    expect(f.backend.analysisCatalog).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([12, 30])("语义服务暂不可用后允许恢复，不复用零命中故障页（page_size=%s）", async (pageSize) => {
+    const f = fixture();
+    f.backend.analysisCatalog.mockResolvedValueOnce({
+      items: [], total: 0, page: 1, page_size: 12, has_more: false, semantic_suggestions: [],
+      semantic_retrieval: { status: "unavailable", notice: "语义推荐暂不可用" },
+    }).mockResolvedValueOnce({
+      items: [], total: 0, page: 1, page_size: pageSize, has_more: false,
+      semantic_suggestions: [{ code: "S1", name: "恢复后的建议", match_type: "semantic" }],
+      semantic_retrieval: { status: "succeeded" },
+    });
+    const unavailable = await f.call("metric_search", { keywords: ["分红"] });
+    expect(JSON.parse(unavailable.content[0].text)).not.toHaveProperty("results.0.search_notice");
+    const recovered = await f.call("metric_search", { keywords: ["分红"], page_size: pageSize });
+    expect(f.backend.analysisCatalog).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(recovered.content[0].text)).toMatchObject({ results: [{
+      semantic_retrieval: { status: "succeeded" }, semantic_suggestions: [{ code: "S1" }],
+    }] });
+    expect(recovered.details.no_new_evidence).not.toBe(true);
+  });
+
+  it("词法零命中但语义建议满页时，扩大页大小仍返回新建议", async () => {
+    const f = fixture();
+    f.backend.analysisCatalog.mockResolvedValueOnce({
+      items: [], total: 0, page: 1, page_size: 1, has_more: false,
+      semantic_suggestions: [{ code: "S1", name: "建议一", match_type: "semantic" }],
+      semantic_retrieval: { status: "succeeded" },
+    }).mockResolvedValueOnce({
+      items: [], total: 0, page: 1, page_size: 30, has_more: false,
+      semantic_suggestions: [{ code: "S1", name: "建议一", match_type: "semantic" },
+        { code: "S2", name: "建议二", match_type: "semantic" }],
+      semantic_retrieval: { status: "succeeded" },
+    });
+    await f.call("metric_search", { keywords: ["分红"], page_size: 1 });
+    const expanded = await f.call("metric_search", { keywords: ["分红"], page_size: 30 });
+    expect(f.backend.analysisCatalog).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(expanded.content[0].text)).toMatchObject({ results: [{
+      page_size: 30, semantic_suggestions: [{ code: "S1" }, { code: "S2" }],
+    }] });
+    expect(expanded.details.no_new_evidence).not.toBe(true);
+  });
+
+  it("缓存与耗尽混合批没有新增证据，新关键词仍正常返回", async () => {
+    const f = fixture();
+    f.backend.analysisCatalog.mockImplementation((keyword, page, pageSize) => Promise.resolve({
+      items: [keyword === "利润" ? secondDescriptor : descriptor],
+      total: keyword === "收入" ? 20 : 13, page, page_size: pageSize, has_more: false,
+    }));
+    await f.call("metric_search", { keywords: ["余额", "收入"], page: 2 });
+    await f.call("metric_search", { keywords: ["收入"], page: 4, page_size: 6 });
+    const mixed = await f.call("metric_search", { keywords: ["余额", "收入"], page: 4, page_size: 6 });
+    expect(mixed.details).toMatchObject({ no_new_evidence: true,
+      search_summary: { candidate_count: 1, has_more: false, reused: false, exhausted: false } });
+    const mixedView = JSON.parse(mixed.content[0].text) as { results: unknown[] };
+    expect(mixedView.results).toMatchObject([
+      { keyword: "余额", pagination_status: "exhausted", no_new_evidence: true }, { keyword: "收入", reused: true },
+    ]);
+    const exhausted = await f.call("metric_search", { keywords: ["余额", "收入"], page: 5, page_size: 6 });
+    expect(exhausted.details).toMatchObject({ no_new_evidence: true,
+      search_summary: { candidate_count: 0, has_more: false, reused: false, exhausted: true } });
+    const fresh = await f.call("metric_search", { keywords: ["余额", "利润"], page: 5, page_size: 6 });
+    expect(fresh.details.no_new_evidence).not.toBe(true);
+    expect(fresh.details.search_summary).toEqual({ candidate_count: 1, has_more: false, reused: false, exhausted: false });
+  });
+
+  it("检索摘要按本次正式候选去重，不计语义建议或累计旧候选", async () => {
+    const f = fixture();
+    f.backend.analysisCatalog.mockImplementation((keyword, page, pageSize) => Promise.resolve({
+      items: [descriptor, ...(keyword === "收入" ? [secondDescriptor] : []),
+        { code: "S1", name: "建议", match_type: "semantic" }],
+      total: 30, page, page_size: pageSize, has_more: true,
+    }));
+    const result = await f.call("metric_search", { keywords: ["余额", "收入"] });
+    expect(result.details.search_summary).toEqual({ candidate_count: 2, has_more: true, reused: false, exhausted: false });
+    const repeated = await f.call("metric_search", { keywords: ["余额"] });
+    expect(repeated.details.search_summary).toEqual({ candidate_count: 1, has_more: true, reused: true, exhausted: false });
+  });
+
   it("同轮重复目录页复用原候选、关系和分页，仍允许直接取数", async () => {
     const f = fixture();
     f.backend.analysisCatalog.mockResolvedValue({

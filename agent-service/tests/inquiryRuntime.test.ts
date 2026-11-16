@@ -690,6 +690,74 @@ describe("连续无进展的原生工具批次", () => {
     ];
   }
 
+  it("首次空检索和不同请求的整批复用不关闭调查，仍可正常交付缺口", () => {
+    const tools = ["metric_search", "metric_query", "analysis_answer", CONVERSATION_REPLY].map(name => ({name}));
+    const catalog = (keyword: string, reused = false) => ({name: "metric_search", failed: false,
+      args: {keywords: [keyword]}, details: {kind: "analysis_catalog", status: "succeeded",
+        no_new_evidence: reused, search_summary: {candidate_count: 0, has_more: false, reused, exhausted: false}}});
+    const messages = ["股利", "现金分红", "利润分配"].flatMap((keyword, index) => batch(`new-${index}`, [catalog(keyword)]));
+    const openTools = [tools[0], tools[1], tools[3]];
+    expect(inquiryPayload({tools}, messages, true).tools).toEqual(openTools);
+    expect(inquiryToolAdmission(messages, "metric_query", {metric_refs: ["k1"]})).toBeUndefined();
+    messages.push(...batch("reuse-one", [catalog("股利", true)]));
+    expect(inquiryPayload({tools}, messages, true).tools).toEqual(openTools);
+    messages.push(...batch("reuse-two", [catalog("现金分红", true)]));
+    expect(inquiryPayload({tools}, messages, true).tools).toEqual(openTools);
+    expect(inquiryBudgetExhausted(messages)).toBe(false);
+    expect(inquiryToolAdmission(messages, "metric_search", {keywords: ["其他指标"]})).toBeUndefined();
+    const answer = "本次检索未找到适用指标，暂时无法给出金额。";
+    const reply = batch("reply", [{name: CONVERSATION_REPLY, args: {answer}}])[0];
+    if (reply?.role !== "assistant") throw new Error("缺少交付调用");
+    const request = testRequestContext({} as BackendClient, new MemoryCommandBridge());
+    expect(inquiryToolAdmission(messages, CONVERSATION_REPLY, {answer})).toBeUndefined();
+    expect(inquiryResponse({...reply, stopReason: "toolUse"}, request, messages)).toEqual(reply);
+    messages.push(...batch("invalid-reply", [{name: CONVERSATION_REPLY,
+      details: {kind: "conversation_reply", status: "ARGUMENT_ERROR", retryable: true}}]));
+    expect(inquiryBudgetExhausted(messages)).toBe(false);
+    expect(inquiryToolAdmission(messages, CONVERSATION_REPLY, {answer})).toBeUndefined();
+    expect(inquiryPayload({tools}, messages, true).tools).toEqual(openTools);
+  });
+
+  it("完全相同的重复检索仅局部拦截，新成功批次解除原请求计数", () => {
+    const args = {keywords: ["余额"], page: 1};
+    const reused = {name: "metric_search", failed: false, args,
+      details: {kind: "analysis_catalog", status: "succeeded", no_new_evidence: true}};
+    const tools = ["metric_search", "metric_query", CONVERSATION_REPLY].map(name => ({name}));
+    const messages = [...batch("reuse-one", [reused]), ...batch("reuse-two", [reused])];
+    expect(inquiryPayload({tools}, messages).tools).toEqual(tools);
+    expect(inquiryToolAdmission(messages, "metric_search", args)).toMatchObject({block: {terminate: false}});
+    expect(inquiryToolAdmission(messages, "metric_search", {keywords: ["利润"]})).toBeUndefined();
+    expect(inquiryToolAdmission(messages, "metric_search", {...args, page: 2})).toBeUndefined();
+    expect(inquiryToolAdmission(messages, "metric_query", {metric_refs: ["k1"]})).toBeUndefined();
+    messages.push(...batch("new", [reused, {name: "metric_search", failed: false,
+      args: {keywords: ["尚未检索的指标"]}, details: {kind: "analysis_catalog", status: "succeeded", no_new_evidence: false}}]));
+    expect(inquiryPayload({tools}, messages).tools).toEqual(tools);
+    expect(inquiryToolAdmission(messages, "metric_search", args)).toBeUndefined();
+    messages.push(...batch("reuse-three", [reused]));
+    expect(inquiryPayload({tools}, messages).tools).toEqual(tools);
+    expect(inquiryToolAdmission(messages, "metric_query", {metric_refs: ["k1"]})).toBeUndefined();
+  });
+
+  it.each([0, 1])("目录复用后已有正式查询结果（%s行）仍走核验交付，并保留必要补查", (row_count) => {
+    const source = {kind: "analysis_evidence", status: "succeeded", execution_turn_id: "op-1",
+      run_ref: "run-current", row_count, evidence_items: []};
+    const reused = {name: "metric_search", failed: false,
+      details: {kind: "analysis_catalog", status: "succeeded", no_new_evidence: true}};
+    const messages = [...batch("query", [{failed: false, details: source}]),
+      ...batch("reuse-one", [reused]), ...batch("reuse-two", [reused])];
+    const tools = ["metric_query", "analysis_answer", CONVERSATION_REPLY].map(name => ({name}));
+    expect(inquiryPayload({tools}, messages).tools).toEqual([tools[0], tools[1]]);
+    expect(inquiryBudgetExhausted(messages)).toBe(false);
+    expect(inquiryToolAdmission(messages, CONVERSATION_REPLY, {answer: "部分指标未找到。"}))
+      .toMatchObject({block: {terminate: false}});
+    expect(inquiryToolAdmission(messages, "analysis_answer", {body: "已有结果仍需正式校验。"})).toBeUndefined();
+    const next = batch("next", [{args: {metric_refs: ["k2"]}}])[0];
+    if (next?.role !== "assistant") throw new Error("缺少继续调查调用");
+    const request = testRequestContext({} as BackendClient, new MemoryCommandBridge());
+    expect(inquiryToolAdmission(messages, "metric_query", {metric_refs: ["k2"]})).toBeUndefined();
+    expect(inquiryResponse({...next, stopReason: "toolUse"}, request, messages)).toEqual(next);
+  });
+
   it("局部重复计算只拒绝原输入，正常取数及修正引用仍进入工具执行", () => {
     const args = { current_ref: "e1.v1", base_ref: "e1.v2" };
     const failure = {
@@ -783,7 +851,6 @@ describe("连续无进展的原生工具批次", () => {
   });
 
   it.each([
-    { name: "metric_search", args: { keywords: ["理财"], page: 1 }, kind: "analysis_catalog" },
     {
       name: "metric_availability",
       args: { metric_refs: ["k1"], start: "2026-01-01", end: "2026-06-30" },
@@ -802,6 +869,96 @@ describe("连续无进展的原生工具批次", () => {
     });
     expect(inquiryToolAdmission(messages, "metric_query", { metric_refs: ["k1"] })).toBeUndefined();
     expect(inquiryToolAdmission(messages, name, { ...args, page: 2 })).toBeUndefined();
+  });
+
+  it.each([0, 13])("分页耗尽total=%s后仅限制相同请求，仍允许有效分页与候选取数", (total) => {
+    const discovered = batch("catalog", [{ name: "metric_search", failed: false,
+      args: { keywords: ["余额"], page: total ? 2 : 1 },
+      details: { kind: "analysis_catalog", status: "succeeded", execution_turn_id: "op-1", search_pages: [
+        { keyword: "余额", page: total ? 2 : 1, page_size: 12, total, has_more: false, exact_refs: [] },
+      ] } }]);
+    const repeated = (id: string, page: number, page_size: number) => batch(id, [{
+      name: "metric_search", failed: false, args: { keywords: ["余额"], page, page_size },
+      details: { kind: "analysis_catalog", status: "succeeded", execution_turn_id: "op-1", no_new_evidence: true },
+    }]);
+    const receipt = discovered.find(message => message.role === "toolResult");
+    if (!receipt || receipt.role !== "toolResult") throw new Error("缺少目录回执");
+    receipt.content = [{type: "text", text: JSON.stringify({results: [{keyword: "余额", page: total ? 2 : 1,
+      page_size: 12, total, has_more: false, items: []}]})}];
+    const messages = [...discovered, ...repeated("first", total ? 4 : 1, 12),
+      ...repeated("second", total ? 4 : 1, 12)];
+    expect(inquiryToolAdmission(messages, "metric_search", { keywords: ["余额", "利润"], page: 20, page_size: 30 }))
+      .toBeUndefined();
+    expect(inquiryToolAdmission(messages, "metric_query", { metric_refs: ["k1"] })).toBeUndefined();
+    if (total) expect(inquiryToolAdmission(messages, "metric_search", { keywords: ["余额"], page: 3, page_size: 6 }))
+      .toBeUndefined();
+    expect(inquiryToolAdmission(messages, "metric_search", { keywords: ["余额"], page: total ? 4 : 1, page_size: 12 }))
+      .toMatchObject({ block: { terminate: false } });
+    expect(inquiryToolAdmission([...messages, { role: "user", content: "重新查询", timestamp: 1 }],
+      "metric_search", { keywords: ["余额"], page: 20, page_size: 30 })).toBeUndefined();
+  });
+
+  it.each([0, 1])("不同关键词全复用后仍可首次查询已有候选，新组合不共用重复预算（total=%s）", (total) => {
+    const pages = ["余额", "利润"].map((keyword, index) => ({ keyword, page: 1, page_size: 12,
+      total, has_more: false, exact_refs: [],
+      items: total ? [{code: `M${index + 1}`, name: keyword, binding_ref: `k${index + 1}`}] : [],
+      related_metrics: total ? [] : [{code: "M1", name: "关联指标", binding_ref: "k1"}],
+    }));
+    const binding_map = { k1: "signed:M1", "code:M1": "signed:M1", k2: "signed:M2", "code:M2": "signed:M2" };
+    const messages = batch("catalog", [{ name: "metric_search", failed: false,
+      args: { keywords: ["余额", "利润"] },
+      details: { kind: "analysis_catalog", status: "succeeded", execution_turn_id: "op-1", binding_map, search_pages: pages },
+    }]);
+    const receipt = messages.find(message => message.role === "toolResult");
+    if (!receipt || receipt.role !== "toolResult") throw new Error("缺少目录回执");
+    receipt.content = [{type: "text", text: JSON.stringify({results: pages})}];
+    const reused = {name: "metric_search", failed: false,
+      details: {kind: "analysis_catalog", status: "succeeded", execution_turn_id: "op-1", binding_map, no_new_evidence: true}};
+    messages.push(...batch("reuse-one", [{...reused, args: {keywords: ["余额"]}}]));
+    expect(inquiryToolAdmission(messages, "metric_search", {keywords: ["余额", "尚未检索的指标"]})).toBeUndefined();
+    expect(inquiryToolAdmission(messages, "metric_query", {metric_refs: ["k1"]})).toBeUndefined();
+    messages.push(...batch("reuse-two", [{...reused, args: {keywords: ["利润"]}}]));
+    expect(inquiryToolAdmission(messages, "metric_search", {keywords: ["利润", "余额"]})).toBeUndefined();
+    expect(inquiryToolAdmission(messages, "metric_search", {keywords: ["余额", "尚未检索的指标"]})).toBeUndefined();
+    expect(inquiryToolAdmission(messages, "metric_query", {metric_refs: ["k1"]})).toBeUndefined();
+    const next = batch("first-query", [{args: {metric_refs: ["k1"]}}])[0];
+    if (next?.role !== "assistant") throw new Error("缺少首次取数调用");
+    const request = testRequestContext({} as BackendClient, new MemoryCommandBridge());
+    expect(inquiryResponse({...next, stopReason: "toolUse"}, request, messages)).toEqual(next);
+    expect(inquiryToolAdmission(messages, CONVERSATION_REPLY, {answer: "未找到适用指标。"})).toBeUndefined();
+    messages.push(...batch("new-binding", [{...reused, details: {...reused.details, no_new_evidence: false,
+      binding_map: {...binding_map, k1: "signed:new-M1", "code:M1": "signed:new-M1"}}}]));
+    expect(inquiryToolAdmission(messages, "metric_search", {keywords: ["余额"]})).toBeUndefined();
+  });
+
+  it.each(["unavailable", "succeeded"])("语义推荐%s时，词法零命中不能合并不同页大小的恢复请求", (status) => {
+    const page = { keyword: "余额", page: 1, page_size: 1, total: 0, has_more: false, exact_refs: [] };
+    const messages = batch("catalog", [{ name: "metric_search", failed: false,
+      args: { keywords: ["余额"], page_size: 1 },
+      details: { kind: "analysis_catalog", status: "succeeded", search_pages: [page] } }]);
+    const receipt = messages.find(message => message.role === "toolResult");
+    if (!receipt || receipt.role !== "toolResult") throw new Error("缺少目录回执");
+    receipt.content = [{ type: "text", text: JSON.stringify({ results: [{ ...page,
+      items: [], semantic_retrieval: {status},
+      semantic_suggestions: status === "succeeded" ? [{code: "S1", name: "建议", match_type: "semantic"}] : [],
+    }] }) }];
+    for (const pageSize of [1, 2]) messages.push(...batch(`repeat-${pageSize}`, [{
+      name: "metric_search", failed: false, args: { keywords: ["余额"], page_size: pageSize },
+      details: { kind: "analysis_catalog", status: "succeeded", no_new_evidence: false },
+    }]));
+    expect(inquiryToolAdmission(messages, "metric_search", {keywords: ["余额"], page_size: 30})).toBeUndefined();
+  });
+
+  it("缺少分页证据时不推定越界，也不合并不同页码", () => {
+    const repeated = batch("first", [{ name: "metric_search", failed: false,
+      args: { keywords: ["余额"], page: 4 },
+      details: { kind: "analysis_catalog", status: "succeeded" },
+    }]);
+    const messages = [...repeated, ...batch("second", [{ name: "metric_search", failed: false,
+      args: { keywords: ["余额"], page: 9 },
+      details: { kind: "analysis_catalog", status: "succeeded" },
+    }])];
+    expect(inquiryToolAdmission(messages, "metric_search", { keywords: ["余额"], page: 20 })).toBeUndefined();
   });
 
   it("局部重复不能用旧校验阶段遮住新日期换算和目标修正", () => {

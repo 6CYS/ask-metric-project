@@ -6,7 +6,7 @@ import BackendNextDebugPanel from "@/components/chat/BackendNextDebugPanel.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import BaseSelect from "@/components/ui/BaseSelect.vue"
 import { getBackendNextTask } from "@/lib/api"
-import { toolCallLabel, type ToolCallSummary } from "@/lib/toolCallSummary"
+import { groupCatalogSteps, toolCallLabel, type ToolCallStep, type ToolCallSummary } from "@/lib/toolCallSummary"
 import type { BackendNextTaskResult } from "@/types/api"
 
 const props = defineProps<{
@@ -16,15 +16,15 @@ const props = defineProps<{
   hasAnswer?: boolean
   startedAt?: string
   elapsedMs?: number
-  tools: { id?: string; tool: string; status: string; elapsedMs?: number; summary?: ToolCallSummary; label?: string }[]
+  tools: ToolCallStep[]
   /** 理解问题阶段的非工具步骤（读取上下文、识别指标、模型分析），总在工具步骤之前 */
   activities?: { id: string; label: string; status: string; elapsedMs?: number; summary?: ToolCallSummary }[]
   /** run_terminal 携带的 agent-service 侧耗时（鉴权、各次模型调用、工具处理）；重连流或旧记录无此数据 */
   runTimings?: { auth_ms?: number; total_ms?: number; model_ms?: number[]; tool_ms?: number[];
     first_visible_ms?: number | null; model_first_token_ms?: number[] }
 }>()
-// 新一轮默认展开，历史记录默认收起；后续进度和完成状态不覆盖用户的选择。
-const expanded = ref(props.pending)
+// 新提问和历史记录均默认收起；后续进度和完成状态不覆盖用户的选择。
+const expanded = ref(false)
 // 状态栏复用真实工具状态；没有运行中的工具时显示模型处理阶段。
 const currentStage = computed(() => {
   if (!props.pending) return "执行过程"
@@ -40,7 +40,7 @@ const allSteps = computed(() => [
   ...(props.activities ?? []).map(item => ({ ...item, tool: "", elapsedMs: (item.elapsedMs ?? 0) >= 500 ? item.elapsedMs : undefined })),
   ...props.tools,
 ])
-const finishedSteps = computed(() => allSteps.value.filter(call => call.status !== "running"))
+const finishedSteps = computed(() => groupCatalogSteps(allSteps.value).filter(call => call.status !== "running"))
 const hasDetails = computed(() => !props.pending || finishedSteps.value.length > 0)
 const stepsId = useId()
 const statusLabels: Record<string, string> = {
@@ -198,9 +198,10 @@ function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? n
           </span>
           <div class="flex min-h-5 flex-wrap items-center gap-x-1.5 gap-y-0.5">
             <span>{{ call.label ?? toolCallLabel(call.tool) }}</span>
+            <span v-if="call.count">（累计 {{ call.count }} 次）</span>
             <span :class="call.status === 'done' || call.summary?.note ? 'sr-only' : ''">{{ statusLabels[call.status] ?? '状态未知' }}</span>
             <span v-if="call.summary?.note">· {{ call.summary.note }}</span>
-            <span v-if="call.elapsedMs !== undefined" class="text-muted-foreground/60 tabular-nums">· {{ call.elapsedMs >= 1000 ? (call.elapsedMs / 1000).toFixed(1) + ' 秒' : call.elapsedMs + ' 毫秒' }}</span>
+            <span v-if="call.elapsedMs !== undefined" class="text-muted-foreground/60 tabular-nums">· {{ call.count ? '累计耗时 ' : '' }}{{ call.elapsedMs >= 1000 ? (call.elapsedMs / 1000).toFixed(1) + ' 秒' : call.elapsedMs + ' 毫秒' }}</span>
           </div>
           <ul v-if="call.summary?.conditions?.length" class="mt-1 flex list-none flex-wrap gap-1.5" aria-label="查询条件">
             <BaseTooltip v-for="condition in call.summary.conditions" :key="condition.label" :content="`${condition.label}：${condition.value}`"><li tabindex="0" class="inline-flex min-w-0 max-w-full items-start gap-1 rounded-md bg-muted/60 px-1.5 py-0.5">

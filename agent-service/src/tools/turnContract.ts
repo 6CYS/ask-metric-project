@@ -25,7 +25,7 @@ const replyParameters = Type.Object({answer: Type.String({minLength: 1, maxLengt
   description: "无需业务操作即可交付的普通回答，不含未验证业务事实或操作计划。"})}, {additionalProperties: false});
 export function createConversationReplyTool(): AgentHarnessTool<AskMetricRequestContext, typeof replyParameters> {
   return {name: CONVERSATION_REPLY, label: "普通对话回答",
-    description: "用于问候、致谢、通用解释或尚未表达业务目标时的询问；可依据已读取的正式目录说明和口径回答指标定义，资料缺失时如实说明，不需执行数值查询；也可解释本轮business_context_read已读取的任务状态、失败原因和错误回执，不重新执行或修改原任务。需要选择/切换业务焦点、变更条件、读取数值结果、查询/计算/目录或补充业务澄清时必须使用对应业务工具，不能用此工具叙述调用计划、承诺稍后执行或声称已经完成。",
+    description: "用于问候、致谢、通用解释或尚未表达业务目标时的询问；可依据已读取的正式目录说明和口径回答指标定义。本轮已实际检索目录或业务知识，未找到适用指标且没有新的可核验线索、尚未取得正式查询结果时，直接用本工具简短交付资料缺口，这是正常结束，无需耗尽调查预算。检索有候选但口径不适用时也可据实说明，不能把无匹配说成整个目录不存在指标。不得编造金额、比例、业务原因或查询成功；已有正式查询结果（含空结果）时使用analysis_answer交付。也可解释本轮business_context_read已读取的任务状态、失败原因和错误回执，不重新执行或修改原任务。仍需执行查询、计算、读取目录或变更条件时使用对应业务工具；不能用本工具叙述调用计划或承诺稍后执行。",
     parameters: replyParameters,
     execute: async (_id, params, _update, request) => {
       const answer = missingCatalogDefinitionAnswer(await request.turnMessages?.() ?? [], params.answer) ?? params.answer;
