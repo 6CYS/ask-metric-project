@@ -99,9 +99,16 @@ def load_settings(*, validate_business_configuration: bool = True) -> Settings:
         model = {}
         if not database:
             repository = ModelConfigRepository(Path("unused"), store=store)
-            model = repository.read_document()
-            repository.load()
-    except ValueError:
+            try:
+                model = repository.read_document()
+                if validate_business_configuration:
+                    repository.load()
+            except (ConfigCenterError, ValueError, KeyError, TypeError):
+                if validate_business_configuration:
+                    raise
+                # 业务资源按请求校验；管理登录只依赖已验证的安全和数据源引导参数。
+                model = {}
+    except (ConfigCenterError, ValueError, KeyError, TypeError):
         raise ConfigCenterError("Nacos 模型配置校验失败") from None
     merged = merge_business_documents(store, model, database_configuration=database)
     validate_sensitive_fields(merged, model, key)
@@ -132,10 +139,14 @@ def load_settings(*, validate_business_configuration: bool = True) -> Settings:
 def _model_references(model, *, keys_only: bool = False) -> set[str]:
     # 仅检查文档中的引用名称及已有密文完整性，不解析停用角色的凭据。
     raw = model if isinstance(model, dict) else model.model_dump(mode="json")
+    endpoints = raw.get("models", {})
+    # 引导只提取可识别的安全引用；业务正文格式错误留给模型管理/调用接口报告。
+    if not isinstance(endpoints, dict):
+        return set()
     fields = ("api_key_env",) if keys_only else ("base_url_env", "api_key_env")
     return {
         value
-        for endpoint in raw.get("models", {}).values() if isinstance(endpoint, dict)
+        for endpoint in endpoints.values() if isinstance(endpoint, dict)
         for field in fields
         if isinstance(value := endpoint.get(field), str) and value
     }

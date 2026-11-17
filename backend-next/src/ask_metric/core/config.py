@@ -359,14 +359,8 @@ class Settings(BaseSettings):
             self.model_admin_write_enabled = environment == "development"
         if self.model_admin_token_required is None:
             self.model_admin_token_required = environment != "development"
-        if (
-            self.model_admin_write_enabled
-            and self.model_admin_token_required
-            and not self.model_admin_token
-        ):
-            raise ValueError("MODEL_ADMIN_TOKEN is required when model config writes are enabled")
-        if self.sso_enabled and not self.sso_user_info_url.strip():
-            raise ValueError("SSO_USER_INFO_URL is required when SSO_ENABLED is true")
+        # SSO 地址和配置管理令牌由对应接口校验；缺失不能阻止本地管理员登录修复。
+        # JWT、登录加密和已有密文完整性仍是整个服务的安全前提。
         if (
             self.model_admin_write_enabled
             and not self.model_admin_token_required
@@ -433,4 +427,4 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     from ask_metric.infrastructure.config_center.bootstrap import load_settings
 
-    return load_settings()
+    return load_settings(validate_business_configuration=False)

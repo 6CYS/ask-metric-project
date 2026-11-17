@@ -46,6 +46,10 @@ export function createApp(
   const app = new Hono<{ Variables: Variables; Bindings: { evaluationConfigurationVersions?: ConfigurationVersions } }>();
 
   app.onError((error, c) => {
+    // 配置快照在接纳提问时读取；缺失属于业务未就绪，不能被统一包装为未知 500。
+    if (error instanceof BackendApiError && error.status === 503 &&
+      ["CONFIG_NOT_INITIALIZED", "SKILL_CONFIG_UNAVAILABLE"].includes(error.code ?? ""))
+      return c.json({ code: error.code, detail: "问数配置尚未就绪，请联系管理员补齐配置。" }, 503);
     if (error instanceof HistoryAuthorizationError) return c.json({code: error.code, detail: error.message}, error.status);
     if (error instanceof SessionCoordinationError) return c.json({ code: error.code, detail: error.message },
       error.code === "SESSION_NOT_FOUND" ? 404 : error.code === "SESSION_BUSY" ? 409 : 503);

@@ -9,8 +9,9 @@ def runtime_config_dir() -> Path:
     configured = os.environ.get("ASK_METRIC_RUNTIME_CONFIG_DIR", "").strip()
     if configured:
         path = Path(configured)
-        if not path.is_absolute() or not path.is_dir():
-            raise ValueError("ASK_METRIC_RUNTIME_CONFIG_DIR 必须是存在的绝对目录")
+        # 业务资源存在性由使用它的导入/查询接口检查，不能阻断管理服务启动。
+        if not path.is_absolute():
+            raise ValueError("ASK_METRIC_RUNTIME_CONFIG_DIR 必须是绝对路径")
         return path
     return Path(__file__).resolve().parents[3] / "config"
 

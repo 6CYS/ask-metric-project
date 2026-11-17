@@ -20,7 +20,7 @@ import { BusinessSkillStore } from "./businessSkillStore.js";
 import { databaseBusinessSkillSnapshot } from "./databaseBusinessSkills.js";
 import { databaseInquiryTopicSnapshot } from "./databaseInquiryTopics.js";
 import { databaseAgentRuntimeSnapshot, materializeAgentRuntime } from "./databaseAgentRuntime.js";
-import { BackendClient } from "./backendClient.js";
+import { BackendApiError, BackendClient } from "./backendClient.js";
 
 async function main(): Promise<void> {
   const config = await loadRuntimeConfig();
@@ -39,8 +39,16 @@ async function main(): Promise<void> {
     }
   }
   const databaseSkills = config.businessConfigurationStorage === "database";
-  const skills = databaseSkills ? [] : await loadBusinessSkills();
-  const skillStore = databaseSkills ? undefined : new BusinessSkillStore(config.dataDir, skills);
+  let skillStore: BusinessSkillStore | undefined;
+  const skills = [] as Awaited<ReturnType<typeof loadBusinessSkills>>;
+  if (!databaseSkills) {
+    try {
+      skills.push(...await loadBusinessSkills());
+      skillStore = new BusinessSkillStore(config.dataDir, skills);
+    } catch {
+      console.error("业务 Skill 配置不可用，管理与历史访问保留，新的问数需先修复配置");
+    }
+  }
   const host = new HarnessHost(
     config,
     (authorize, runtime = config) => createAskMetricModels(runtime, authorize),
@@ -49,7 +57,10 @@ async function main(): Promise<void> {
       databaseConfiguration: databaseSkills }), createBusinessSkillReadTool(skills)],
     databaseSkills ? { getSkillSnapshot: databaseBusinessSkillSnapshot,
       getTopicSnapshot: databaseInquiryTopicSnapshot, getRuntimeSnapshot: databaseAgentRuntimeSnapshot }
-      : { getSkills: () => skillStore!.snapshot() },
+      : { getSkills: () => {
+        if (!skillStore) throw new BackendApiError(503, "业务 Skill 配置不可用，请联系管理员修复", "SKILL_CONFIG_UNAVAILABLE");
+        return skillStore.snapshot();
+      } },
   );
   // 复用同一组会话路由和鉴权；内部请求不绕开当前账号权限，也不另建 Agent。
   const evaluationClient = createSessionEvaluationClient((path, init, versions) => Promise.resolve(
