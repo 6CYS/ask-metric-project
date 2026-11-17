@@ -127,7 +127,7 @@ export interface RequestAssociation {
   /** 本请求已接纳的独立业务写意图（同一 operation 最多一个） */
   write?: WriteCommandRecord;
   input?: PromptInput;
-  timings_ms?: { model: number[]; tools: number[]; drive_total: number };
+  timings_ms?: { model: number[]; tools: number[]; drive_total: number; tool_calls?: Record<string, number> };
   /** 已接纳操作的不可变 Skill 版本，跨节点恢复也复用它。 */
   businessSkillVersion?: string;
   inquiryTopicVersion?: string;
@@ -531,6 +531,37 @@ export class HarnessHost {
     return title;
   }
 
+  /** 日志只读入口：不创建 harness、不恢复 operation，也不争用数据库写租约。 */
+  async readSession<T>(actor: BackendUser, sessionId: string,
+    read: (session: Session<JsonlSessionMetadata>) => Promise<T>): Promise<T | undefined> {
+    if (this.store.cluster) {
+      const session = await this.store.cluster.observe(actor.id, sessionId);
+      if (!session) return undefined;
+      try {
+        if ((await session.getValue(ownerValue, BACKGROUND_CONTEXT))?.value !== actor.id) return undefined;
+        return await read(session);
+      } finally { await session.close(BACKGROUND_CONTEXT); }
+    }
+    const release = this.retain(sessionId);
+    try {
+      await this.peeks.get(sessionId)?.catch(() => undefined);
+      const live = await this.liveFor(actor, sessionId);
+      if (live) return await read(live.session);
+      const metadata = await this.store.findMetadata(actor.id, sessionId);
+      if (!metadata) return undefined;
+      const peek = (async () => {
+        const session = await this.store.open(actor.id, metadata);
+        try {
+          if ((await session.getValue(ownerValue, BACKGROUND_CONTEXT))?.value !== actor.id) return undefined;
+          return await read(session);
+        } finally { if (!this.live.has(sessionId)) await this.store.release(actor.id, sessionId); }
+      })();
+      this.peeks.set(sessionId, peek);
+      try { return await peek; }
+      finally { if (this.peeks.get(sessionId) === peek) this.peeks.delete(sessionId); }
+    } finally { release(); }
+  }
+
   /** 已创建会话的打开结果登记；调用方负责 this.live 去重，这里不再查表（避免自引用死锁） */
   private async attach(
     actor: BackendUser,
@@ -791,7 +822,9 @@ export class HarnessHost {
       const timings = request.timings;
       const started = timings?.toolStartedAt?.[event.toolCallId];
       if (timings && started !== undefined) {
-        timings.tool_ms.push(Math.round(performance.now() - started));
+        const elapsed = Math.round(performance.now() - started);
+        timings.tool_ms.push(elapsed);
+        (timings.toolCallMs ??= {})[event.toolCallId] = elapsed;
         delete timings.toolStartedAt?.[event.toolCallId];
       }
       if (authenticationFailure(event.details)) return { isError: true, terminate: true };
@@ -1399,6 +1432,7 @@ export class HarnessHost {
     const summary = {
       model: timings.model_ms,
       tools: timings.tool_ms,
+      tool_calls: timings.toolCallMs ?? {},
       drive_total: Math.round(performance.now() - timings.startedAt),
       first_visible_ms:
         timings.firstVisibleAt === undefined

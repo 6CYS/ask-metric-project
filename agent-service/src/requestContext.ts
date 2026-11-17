@@ -159,6 +159,7 @@ export interface AskMetricRequestContext {
     toolStartedAt?: Record<string, number>;
     model_ms: number[];
     tool_ms: number[];
+    toolCallMs?: Record<string, number>;
   };
   /** 只用于本次观察，不写入业务状态或模型上下文；每次模型尝试（含重试）使用新的 callSeq。 */
   answerStream?: { callSeq: number; mode: "none" | "text" | "reply" };

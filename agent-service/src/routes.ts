@@ -24,6 +24,7 @@ import type { EvaluationService } from "./evaluation/service.js";
 import { createBusinessSkillRoutes } from "./businessSkillRoutes.js";
 import type { BusinessSkillStore } from "./businessSkillStore.js";
 import { SessionCoordinationError } from "./databaseSessionStorage.js";
+import { createQueryLogRoutes } from "./queryLogs.js";
 import type { ConfigurationVersions } from "./configurationVersions.js";
 import { createModelDiagnosticRoutes } from "./modelDiagnostics.js";
 
@@ -101,6 +102,11 @@ export function createApp(
 
   if (evaluations) app.route("/evaluations", createEvaluationRoutes(evaluations));
   else app.all("/evaluations/*", c => c.json({code: "EVALUATION_UNAVAILABLE", detail: "测评存储暂不可用，请联系管理员检查"}, 503));
+
+  app.route("/query-logs", createQueryLogRoutes(config, host, store,
+    (messages, token, reader) => redactInaccessibleHistory(messages, createHistoryAuthorizer(
+      new BackendClient(config.backendBaseUrl, token, config.backendTimeoutMs), reader)),
+    legacyMessagesWithVerifiableAnswers, evaluations));
 
   app.post("/sessions", async (c) => {
     const user = c.get("user");
