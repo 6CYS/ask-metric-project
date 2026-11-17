@@ -9,23 +9,25 @@ import { navigationItems } from "@/config/navigation"
 import { useAuth } from "@/composables/useAuth"
 import { resolveOrganizationBranding } from "@/config/organizationBranding"
 import BaseBadge from "@/components/ui/BaseBadge.vue"
-import { computed, ref } from "vue"
+import { computed, ref, watch } from "vue"
 import { useRouter } from "vue-router"
 
 /**
  * AppShell 同时服务普通内容页和后续问数全屏页。
  * fullBleed 开启后移除内容最大宽度与背景光晕，供聊天等需要占满空间的页面使用。
  */
-withDefaults(
+const props = withDefaults(
   defineProps<{
     fullBleed?: boolean
     contentClassName?: string
     contentPadding?: boolean
+    compactNavigation?: boolean
   }>(),
   {
     fullBleed: false,
     contentClassName: "",
     contentPadding: true,
+    compactNavigation: false,
   },
 )
 
@@ -41,7 +43,15 @@ const accountRole = computed(() => auth.user.value?.role_code === "SYSTEM_ADMIN"
 const accountScope = computed(() => auth.user.value?.can_query_all_organizations ? "全行可查" : "本机构可查")
 const accountTitle = computed(() => `账号：${auth.user.value?.username || ""}\n所属机构：${auth.user.value?.org_name || "未提供"}\n查询范围：${accountScope.value}`)
 const visibleNavigationItems = computed(() => navigationItems.filter((item) => !item.adminOnly || auth.user.value?.role_code === "SYSTEM_ADMIN"))
-const { isSidebarCollapsed, toggleSidebarCollapsed } = useSidebarPreference()
+const { isSidebarCollapsed: sidebarPreference, toggleSidebarCollapsed } = useSidebarPreference()
+// 执行详情需要横向空间；临时收起不写入用户的导航偏好，关闭后自动恢复。
+const inspectionNavigationExpanded = ref(false)
+watch(() => props.compactNavigation, () => { inspectionNavigationExpanded.value = false })
+const isSidebarCollapsed = computed(() => props.compactNavigation ? !inspectionNavigationExpanded.value : sidebarPreference.value)
+function toggleNavigation() {
+  if (props.compactNavigation) inspectionNavigationExpanded.value = !inspectionNavigationExpanded.value
+  else toggleSidebarCollapsed()
+}
 
 /** 子路由也应高亮所属的一级导航，例如 /metrics/123 仍属于指标术语。 */
 function isNavigationActive(href: string) {
@@ -87,7 +97,7 @@ async function handleLogout() {
               class="absolute inset-0 opacity-0 transition-opacity group-hover/brand:opacity-100 group-focus-within/brand:opacity-100"
               aria-label="展开侧边栏"
               :aria-pressed="isSidebarCollapsed"
-              @click="toggleSidebarCollapsed"
+              @click="toggleNavigation"
             >
               <PanelLeftOpen />
             </BaseButton>
@@ -107,7 +117,7 @@ async function handleLogout() {
               class="text-muted-foreground hover:text-foreground"
               aria-label="折叠侧边栏"
               :aria-pressed="isSidebarCollapsed"
-              @click="toggleSidebarCollapsed"
+              @click="toggleNavigation"
             >
               <PanelLeftClose />
             </BaseButton>
@@ -171,13 +181,13 @@ async function handleLogout() {
     <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
       <!-- lg 断点以下切换为原版紧凑顶部导航，当前路由同样提供选中反馈。 -->
       <header class="shrink-0 border-b bg-background/95 lg:hidden">
-        <div class="flex items-center justify-between gap-3 px-4 py-3">
+        <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
           <RouterLink to="/" class="font-semibold">Ask Metric</RouterLink>
           <div class="ml-auto flex items-center gap-2">
             <BaseTooltip :content="accountTitle"><BaseBadge tabindex="0" variant="secondary">{{ accountName }} · {{ accountScope }}</BaseBadge></BaseTooltip>
             <BaseButton variant="ghost" size="icon" aria-label="退出登录" @click="handleLogout"><LogOut /></BaseButton>
           </div>
-          <nav class="flex items-center gap-1" aria-label="移动端导航">
+          <nav class="flex w-full items-center justify-between gap-1 overflow-x-auto" aria-label="移动端导航">
             <BaseTooltip v-for="item in visibleNavigationItems" :key="item.href" :content="item.label"><RouterLink
               :to="item.href"
               class="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors"

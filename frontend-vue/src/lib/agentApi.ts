@@ -297,6 +297,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+export function listQueryLogSessions(filters: import("@/types/queryLogs").LogFilters, signal?: AbortSignal) {
+  const params = new URLSearchParams(Object.entries(filters).map(([key, value]) => [key, String(value)]))
+  return request<import("@/types/queryLogs").LogSessionList>(`/query-logs?${params}`, { cache: "no-store", signal })
+}
+
+export function getQueryLogSession(id: string, signal?: AbortSignal) {
+  return request<import("@/types/queryLogs").LogSession>(`/query-logs/${encodeURIComponent(id)}`, { cache: "no-store", signal })
+}
+
 export function createAgentSession() {
   return request<{ session_id: string; created_at: string }>("/sessions", { method: "POST" })
 }
