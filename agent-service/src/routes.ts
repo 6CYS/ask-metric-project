@@ -25,6 +25,7 @@ import { createBusinessSkillRoutes } from "./businessSkillRoutes.js";
 import type { BusinessSkillStore } from "./businessSkillStore.js";
 import { SessionCoordinationError } from "./databaseSessionStorage.js";
 import type { ConfigurationVersions } from "./configurationVersions.js";
+import { createModelDiagnosticRoutes } from "./modelDiagnostics.js";
 
 type Variables = { user: BackendUser; token: string; startedAt: number; authMs: number };
 
@@ -87,6 +88,7 @@ export function createApp(
     }
   });
 
+  app.route("/model-diagnostics", createModelDiagnosticRoutes(config));
   if (skills || config.businessConfigurationStorage === "database")
     app.route("/skills", createBusinessSkillRoutes(skills, config));
   app.use("/sessions/*", async (c, next) => {

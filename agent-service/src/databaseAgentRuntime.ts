@@ -35,8 +35,8 @@ export function validateAgentRuntime(document: unknown): AgentRuntimeDocument {
   return structuredClone(document);
 }
 
-export async function databaseAgentRuntimeSnapshot(backend: BackendClient, versionId?: string): Promise<AgentRuntimeSnapshot> {
-  const value = await backend.agentRuntimeSnapshot(versionId);
+export async function databaseAgentRuntimeSnapshot(backend: BackendClient, versionId?: string, signal?: AbortSignal): Promise<AgentRuntimeSnapshot> {
+  const value = await backend.agentRuntimeSnapshot(versionId, {signal});
   if (!value || typeof value !== "object" || !("version_id" in value) ||
     typeof value.version_id !== "string" || !value.version_id || (versionId && value.version_id !== versionId) || !("document" in value))
     throw new BackendApiError(503, "Agent 运行配置响应无效", "AGENT_RUNTIME_INVALID");

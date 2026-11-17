@@ -342,8 +342,8 @@ export class BackendClient {
     return this.request(`/api/v1/runtime-config/inquiry-topics${versionId ? `/${encodeURIComponent(versionId)}` : ""}`);
   }
 
-  agentRuntimeSnapshot(versionId?: string): Promise<unknown> {
-    return this.request(`/api/v1/runtime-config/agent-runtime${versionId ? `/${encodeURIComponent(versionId)}` : ""}`);
+  agentRuntimeSnapshot(versionId?: string, options?: CallOptions): Promise<unknown> {
+    return this.request(`/api/v1/runtime-config/agent-runtime${versionId ? `/${encodeURIComponent(versionId)}` : ""}`, {}, options);
   }
 
   businessSkillList(): Promise<unknown> {
