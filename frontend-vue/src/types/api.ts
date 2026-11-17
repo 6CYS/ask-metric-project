@@ -436,6 +436,39 @@ export type Sm2PublicKeyResponse = {
   public_key: string
 }
 
+export type ConfigurationSetupStatus = {
+  missing_resources: string[]
+  write_enabled: boolean
+  write_token_required: boolean
+}
+
+export type AgentRuntimeDocument = {
+  schema_version: 1
+  model: {
+    baseUrl: string
+    name: string
+    apiKeyEnv: "AGENT_MODEL_API_KEY"
+    authHeader: string
+    authPrefix: string
+    userMessageSuffix: string
+    extraBody: Record<string, unknown>
+    contextWindow: number
+    maxTokens: number
+  }
+  modelRetry: { enabled: boolean; maxRetries: number; baseDelayMs: number }
+  modelStreamIdleTimeoutMs: number
+  modelFirstResponseTimeoutMs: number
+  answerStreaming: boolean
+  topicQueryEnabled: boolean
+  compaction: { enabled: boolean; reserveTokens: number; keepRecentTokens: number }
+}
+
+export type AgentRuntimeSnapshot = {
+  version_id: string
+  revision: string
+  document: AgentRuntimeDocument
+}
+
 export type BackendNextConversationListItem = {
   id: string
   title: string

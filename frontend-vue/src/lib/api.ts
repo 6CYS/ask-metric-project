@@ -21,6 +21,9 @@ import type {
   BusinessKnowledgePayload,
   BusinessKnowledgeWriteResult,
   BusinessSkillItem,
+  ConfigurationSetupStatus,
+  AgentRuntimeSnapshot,
+  AgentRuntimeDocument,
 } from "@/types/api"
 import { encryptLoginPassword } from "@/lib/gm"
 import type { QuerySqlDetail, QuerySqlReference } from "@/types/querySql"
@@ -144,6 +147,29 @@ async function getSm2PublicKey(): Promise<string> {
 
 export function getLoginOptions() {
   return request<{ sso_enabled: boolean }>("/api/v1/auth/options", { cache: "no-store" }, false)
+}
+
+export function getConfigurationSetupStatus() {
+  return request<ConfigurationSetupStatus>(apiUrl(backendNextBase, "/api/v1/runtime-config/status"), { cache: "no-store" })
+}
+
+export function initializeManagementConfiguration(adminToken: string) {
+  return request<{ created_resources: string[]; missing_resources: string[] }>(
+    apiUrl(backendNextBase, "/api/v1/runtime-config/initialize"), {
+      method: "POST", headers: { "X-Model-Admin-Token": adminToken },
+    },
+  )
+}
+
+export function getAgentRuntime() {
+  return request<AgentRuntimeSnapshot>(apiUrl(backendNextBase, "/api/v1/runtime-config/agent-runtime"), { cache: "no-store" })
+}
+
+export function updateAgentRuntime(document: AgentRuntimeDocument, revision: string, adminToken: string) {
+  return request<AgentRuntimeSnapshot>(apiUrl(backendNextBase, "/api/v1/runtime-config/agent-runtime"), {
+    method: "PUT", headers: { "X-Model-Admin-Token": adminToken },
+    body: JSON.stringify({ document, revision }),
+  })
 }
 
 export async function loginUser(username: string, password: string, administrator = false) {

@@ -247,7 +247,8 @@ def _require_config_write(
         raise ApplicationError(
             "MODEL_CONFIG_UNAUTHORIZED",
             "A valid configuration administration token is required",
-            status_code=401,
+            # 登录身份仍有效；附加管理口令不通过不应被客户端当作登录失效。
+            status_code=403,
         )
 
 

@@ -7,10 +7,14 @@ from pydantic import BaseModel
 
 from ask_metric.api.configuration import shared_configuration
 from ask_metric.api.dependencies import require_actor
-from ask_metric.api.routes.model_config import _require_config_write
+from ask_metric.api.routes.model_config import _require_config_read, _require_config_write
 from ask_metric.application.agent_runtime_configuration import (
     AGENT_RUNTIME_RESOURCE,
     AgentRuntimeDocument,
+)
+from ask_metric.application.configuration_setup import (
+    initialize_management_configuration,
+    missing_resources,
 )
 from ask_metric.application.database_runtime_configuration import INQUIRY_TOPICS_RESOURCE
 from ask_metric.application.requests import ActorContext
@@ -20,6 +24,43 @@ from ask_metric.infrastructure.configuration_repository import serialize_documen
 router = APIRouter(
     prefix="/api/v1/runtime-config", tags=["runtime-config"], dependencies=[Depends(require_actor)]
 )
+
+
+def _require_database(request: Request) -> None:
+    if request.app.state.settings.business_configuration_storage != "database":
+        raise ApplicationError(
+            "CONFIG_DATABASE_DISABLED", "配置数据库来源尚未启用", status_code=503
+        )
+
+
+@router.get("/status")
+def configuration_status(
+    request: Request,
+    response: Response,
+    actor: Annotated[ActorContext, Depends(require_actor)],
+) -> dict:
+    _require_config_read(actor)
+    _require_database(request)
+    response.headers["Cache-Control"] = "no-store"
+    settings = request.app.state.settings
+    return {
+        "missing_resources": missing_resources(shared_configuration(request)),
+        "write_enabled": bool(settings.model_admin_write_enabled),
+        "write_token_required": bool(settings.model_admin_token_required),
+    }
+
+
+@router.post("/initialize")
+def initialize_configuration(
+    request: Request,
+    actor: Annotated[ActorContext, Depends(require_actor)],
+    admin_token: Annotated[str | None, Header(alias="X-Model-Admin-Token")] = None,
+) -> dict:
+    _require_config_write(request.app.state.settings, actor, admin_token)
+    _require_database(request)
+    repository = shared_configuration(request)
+    created = initialize_management_configuration(repository, actor=actor.user_id or actor.subject)
+    return {"created_resources": created, "missing_resources": missing_resources(repository)}
 
 
 @router.get("/inquiry-topics")

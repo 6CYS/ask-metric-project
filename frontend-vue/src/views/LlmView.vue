@@ -12,6 +12,7 @@ import BaseSelect from "@/components/ui/BaseSelect.vue"
 import BaseSwitch from "@/components/ui/BaseSwitch.vue"
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton.vue"
 import SkillConfigPanel from "@/components/llm/SkillConfigPanel.vue"
+import AgentRuntimePanel from "@/components/llm/AgentRuntimePanel.vue"
 import {
   getSmartConfig,
   listPromptVersions,
@@ -19,10 +20,12 @@ import {
   testSmartModel,
   updatePromptConfig,
   updateSmartModel,
+  getConfigurationSetupStatus,
+  initializeManagementConfiguration,
 } from "@/lib/api"
-import type { ConfigVersion, ModelRole, ModelRuntimeConfig, PromptTemplateConfig, SmartConfigResponse } from "@/types/api"
+import type { ConfigurationSetupStatus, ConfigVersion, ModelRole, ModelRuntimeConfig, PromptTemplateConfig, SmartConfigResponse } from "@/types/api"
 
-type Tab = "model" | "prompts" | "skills"
+type Tab = "agent" | "model" | "prompts" | "skills"
 type PromptField = "system" | "user_template" | "query_prefix" | "query_template"
 
 const activeTab = ref<Tab>("model")
@@ -41,6 +44,11 @@ const isRefreshing = ref(false)
 const testingRole = ref<ModelRole | null>(null)
 const message = ref("")
 const errorMessage = ref("")
+const setupStatus = ref<ConfigurationSetupStatus | null>(null)
+const initializing = ref(false)
+const needsSetup = computed(() => setupStatus.value?.missing_resources.some(
+  (key) => ["backend-models", "backend-prompt-index", "agent-runtime"].includes(key),
+))
 
 const promptEntries = computed(() => Object.entries(configResponse.value?.prompts.prompts ?? {}))
 const stats = computed(() => [
@@ -63,8 +71,8 @@ const currentPromptVariables = computed(() => {
   return [...new Set(values)].sort()
 })
 const canWrite = computed(() => Boolean(
-  configResponse.value?.write_enabled
-  && (!configResponse.value.write_token_required || adminToken.value.trim()),
+  (configResponse.value ?? setupStatus.value)?.write_enabled
+  && (!(configResponse.value ?? setupStatus.value)?.write_token_required || adminToken.value.trim()),
 ))
 
 function clone<T>(value: T): T {
@@ -108,7 +116,10 @@ async function loadAll(refresh = false) {
   else isLoading.value = true
   clearStatus()
   try {
-    const nextConfig = await getSmartConfig()
+    const [configResult, statusResult] = await Promise.allSettled([getSmartConfig(), getConfigurationSetupStatus()])
+    setupStatus.value = statusResult.status === "fulfilled" ? statusResult.value : null
+    if (configResult.status === "rejected") throw configResult.reason
+    const nextConfig = configResult.value
     configResponse.value = nextConfig
     setModelDraft(nextConfig.config)
     selectPrompt(selectedPromptName.value || Object.keys(nextConfig.prompts.prompts)[0] || "")
@@ -129,6 +140,21 @@ function selectPrompt(name: string) {
   versions.value = []
   clearStatus()
   void loadPromptHistory()
+}
+
+async function initializeMissing() {
+  if (!canWrite.value || initializing.value) return
+  initializing.value = true
+  clearStatus()
+  try {
+    await initializeManagementConfiguration(adminToken.value)
+    await loadAll(true)
+    if (!errorMessage.value) message.value = "已初始化缺失的模型管理配置，请填写实际模型参数。已有配置保持不变。"
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : "配置初始化失败。"
+  } finally {
+    initializing.value = false
+  }
 }
 
 async function saveModel() {
@@ -239,19 +265,24 @@ onActivated(() => loadAll())
 
     <div class="mb-5 flex flex-wrap items-center justify-between gap-3 border-b">
       <div class="flex gap-1" role="tablist">
-        <button v-for="tab in [{ key: 'model', label: '模型配置', icon: BrainCircuit }, { key: 'prompts', label: '提示词配置', icon: Braces }, { key: 'skills', label: 'skill管理', icon: BookOpenText }]" :key="tab.key" type="button" class="flex h-10 items-center gap-2 border-b-2 px-3 text-sm font-medium" :class="activeTab === tab.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'" @click="activeTab = tab.key as Tab"><component :is="tab.icon" class="size-4" />{{ tab.label }}</button>
+        <button v-for="tab in [{ key: 'agent', label: '问数模型', icon: BrainCircuit }, { key: 'model', label: '辅助模型', icon: BrainCircuit }, { key: 'prompts', label: '提示词配置', icon: Braces }, { key: 'skills', label: 'skill管理', icon: BookOpenText }]" :key="tab.key" type="button" class="flex h-10 items-center gap-2 border-b-2 px-3 text-sm font-medium" :class="activeTab === tab.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'" @click="activeTab = tab.key as Tab"><component :is="tab.icon" class="size-4" />{{ tab.label }}</button>
       </div>
-      <label v-if="configResponse?.write_enabled && configResponse.write_token_required" class="mb-2 flex items-center gap-2 text-xs text-muted-foreground"><KeyRound class="size-4" />管理令牌<input v-model="adminToken" type="password" class="h-8 w-52 rounded-md border bg-background px-2 text-sm" placeholder="保存或回滚时必填" /></label>
-      <BaseBadge v-else-if="configResponse?.write_enabled" variant="success" class="mb-2">本机管理员可直接写入</BaseBadge>
+      <label v-if="(configResponse ?? setupStatus)?.write_enabled && (configResponse ?? setupStatus)?.write_token_required" class="mb-2 flex items-center gap-2 text-xs text-muted-foreground"><KeyRound class="size-4" />管理令牌<input v-model="adminToken" type="password" class="h-8 w-52 rounded-md border bg-background px-2 text-sm" placeholder="保存或回滚时必填" /></label>
+      <BaseBadge v-else-if="(configResponse ?? setupStatus)?.write_enabled" variant="success" class="mb-2">管理员可写入</BaseBadge>
       <BaseBadge v-else variant="outline" class="mb-2">后端未启用配置写入</BaseBadge>
     </div>
 
     <BaseAlert v-if="errorMessage" class="mb-4" title="操作失败" variant="destructive"><template #icon><AlertTriangle /></template>{{ errorMessage }}</BaseAlert>
     <BaseAlert v-if="message" class="mb-4" title="操作成功"><template #icon><CheckCircle2 /></template>{{ message }}</BaseAlert>
-    <BaseAlert v-if="configResponse && !configResponse.write_enabled" class="mb-4" title="配置当前为只读">请在后端启用 MODEL_ADMIN_WRITE_ENABLED；本机开发可同时设置 MODEL_ADMIN_TOKEN_REQUIRED=false，生产环境必须使用管理令牌。</BaseAlert>
+    <BaseAlert v-if="(configResponse ?? setupStatus)?.write_enabled === false" class="mb-4" title="配置当前为只读">请在后端启用 MODEL_ADMIN_WRITE_ENABLED；本机开发可同时设置 MODEL_ADMIN_TOKEN_REQUIRED=false，生产环境必须使用管理令牌。</BaseAlert>
     <LoadingSkeleton v-if="isLoading" :rows="6" row-class="h-14" />
+    <BaseAlert v-if="!isLoading && needsSetup" class="mb-4" title="模型管理配置尚未初始化">
+      <p>初始化只补齐缺少的模型管理项和标准提示词，不覆盖已有配置。之后可填写实际模型地址与名称。</p>
+      <BaseButton class="mt-3" :disabled="!canWrite || initializing" @click="initializeMissing">{{ initializing ? "正在初始化…" : "初始化模型管理入口" }}</BaseButton>
+    </BaseAlert>
+    <AgentRuntimePanel v-if="!isLoading && activeTab === 'agent'" :key="setupStatus?.missing_resources.join(',')" :can-write="canWrite" :admin-token="adminToken" />
 
-    <section v-else-if="activeTab === 'model' && modelDraft" class="grid gap-5">
+    <section v-if="!isLoading && activeTab === 'model' && modelDraft" class="grid gap-5">
       <div class="grid gap-4 border-b pb-5 md:grid-cols-2">
         <label class="form-field">Provider 标识<input v-model="modelDraft.provider" class="form-control" placeholder="openai_compatible" /></label>
         <div class="flex items-end text-xs leading-5 text-muted-foreground">三个模型角色相互独立，可分别接入统一网关、底层模型服务或停用。密钥只写入外部环境文件，不保存到此配置。</div>
