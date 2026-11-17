@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Eye, EyeOff, LockKeyhole, ShieldCheck } from "@lucide/vue"
-import { computed, ref } from "vue"
+import { computed, onMounted, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
 import BaseAlert from "@/components/ui/BaseAlert.vue"
@@ -8,6 +8,7 @@ import BaseBadge from "@/components/ui/BaseBadge.vue"
 import BaseButton from "@/components/ui/BaseButton.vue"
 import { useAuth } from "@/composables/useAuth"
 import { consumeAuthFailureReason } from "@/lib/authSession"
+import { getLoginOptions } from "@/lib/api"
 
 const route = useRoute()
 const router = useRouter()
@@ -17,14 +18,33 @@ const password = ref("")
 const showPassword = ref(false)
 const loading = ref(false)
 const error = ref(consumeAuthFailureReason())
-const redirect = computed(() => typeof route.query.redirect === "string" ? route.query.redirect : "/chat")
+const administrator = computed(() => route.name === "admin-login")
+const ssoEnabled = ref(true)
+const optionsLoaded = ref(false)
+const showPasswordLogin = computed(() => administrator.value || (optionsLoaded.value && !ssoEnabled.value))
+const redirect = computed(() => {
+  const target = route.query.redirect
+  return typeof target === "string" && target.startsWith("/") && !target.startsWith("//")
+    ? target : administrator.value ? "/llm" : "/chat"
+})
+
+async function loadOptions() {
+  try {
+    ssoEnabled.value = (await getLoginOptions()).sso_enabled
+    optionsLoaded.value = true
+  } catch {
+    if (!administrator.value) error.value = "登录方式暂时无法读取，请刷新重试；管理员可使用独立入口。"
+  }
+}
+
+onMounted(loadOptions)
 
 async function submit() {
   if (!username.value.trim() || !password.value || loading.value) return
   loading.value = true
   error.value = ""
   try {
-    await login(username.value.trim(), password.value)
+    await login(username.value.trim(), password.value, administrator.value)
     await router.replace(redirect.value)
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : "登录失败，请检查账号和密码。"
@@ -53,10 +73,10 @@ async function submit() {
         <div class="mb-8 md:hidden">
           <BaseBadge variant="secondary" class="mb-4">驾驶舱智能问数</BaseBadge>
         </div>
-        <h2 class="text-2xl font-semibold text-[#203548]">安全登录</h2>
-        <p class="mt-2 text-sm text-muted-foreground">登录后将根据所属机构控制数据访问范围</p>
+        <h2 class="text-2xl font-semibold text-[#203548]">{{ administrator ? "管理员登录" : "用户登录" }}</h2>
+        <p class="mt-2 text-sm text-muted-foreground">{{ administrator ? "使用系统管理员账号和密码维护系统" : "通过数字农商进入智能问数，按机构权限访问数据" }}</p>
         <BaseAlert v-if="error" class="mt-5" title="无法登录" variant="destructive">{{ error }}</BaseAlert>
-        <form class="mt-7 space-y-5" @submit.prevent="submit">
+        <form v-if="showPasswordLogin" class="mt-7 space-y-5" @submit.prevent="submit">
           <label class="form-field">用户名
             <input v-model="username" class="form-control h-11" autocomplete="username" autofocus placeholder="请输入用户名">
           </label>
@@ -72,6 +92,12 @@ async function submit() {
             {{ loading ? "正在安全验证..." : "登录" }}
           </BaseButton>
         </form>
+        <p v-else class="mt-7 rounded-lg border bg-muted/30 p-4 text-sm leading-7 text-muted-foreground">
+          {{ optionsLoaded ? "请从数字农商工作台打开智能问数，系统将自动验证您的登录身份。" : "正在读取登录方式…" }}
+        </p>
+        <RouterLink :to="administrator ? '/login' : '/admin/login'" class="mt-6 block text-center text-sm text-primary underline-offset-4 hover:underline">
+          {{ administrator ? "返回用户入口" : "管理员入口" }}
+        </RouterLink>
         <p class="mt-6 text-center text-xs leading-5 text-muted-foreground">机构权限由系统管理员配置，登录页面不提供机构选择。</p>
       </div>
     </section>

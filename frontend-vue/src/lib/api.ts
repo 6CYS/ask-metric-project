@@ -142,11 +142,15 @@ async function getSm2PublicKey(): Promise<string> {
   return response.public_key
 }
 
-export async function loginUser(username: string, password: string) {
+export function getLoginOptions() {
+  return request<{ sso_enabled: boolean }>("/api/v1/auth/options", { cache: "no-store" }, false)
+}
+
+export async function loginUser(username: string, password: string, administrator = false) {
   // 国密传输：明文密码不出浏览器，SM4 加密密码、SM2 加密一次性 SM4 密钥。
   const sm2PublicKey = await getSm2PublicKey()
   const encrypted = encryptLoginPassword(password, sm2PublicKey)
-  return request<LoginResponse>("/api/v1/auth/login", {
+  return request<LoginResponse>(administrator ? "/api/v1/auth/admin/login" : "/api/v1/auth/login", {
     ...browserSessionRequest,
     method: "POST",
     body: JSON.stringify({

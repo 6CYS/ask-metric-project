@@ -94,7 +94,9 @@ class AuthenticationService:
             raise LoginFailedError()
         return password
 
-    def login(self, username: str, password: str) -> tuple[str, int, AuthenticatedUser]:
+    def login(
+        self, username: str, password: str, *, administrator: bool = False,
+    ) -> tuple[str, int, AuthenticatedUser]:
         with self.uow_factory() as uow:
             user_with_org = uow.users.get_by_username_with_org(username)
             user, org_name = user_with_org if user_with_org else (None, username)
@@ -102,6 +104,10 @@ class AuthenticationService:
                 raise LoginFailedError()
             if not user.enabled:
                 raise UserDisabledError()
+            # 管理员入口及启用统一认证后的密码入口仅接受既有系统管理员。
+            # 必须在签发令牌、更新会话版本之前判断，拒绝不会挤掉用户原登录。
+            if (administrator or self.settings.sso_enabled) and user.role_code != "SYSTEM_ADMIN":
+                raise LoginFailedError()
             legacy_rehash = (
                 hash_password(password) if needs_password_rehash(user.password_hash) else None
             )

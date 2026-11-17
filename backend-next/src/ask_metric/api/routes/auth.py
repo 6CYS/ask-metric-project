@@ -81,6 +81,12 @@ def _response(user: AuthenticatedUser) -> UserResponse:
     return UserResponse(**{key: getattr(user, key) for key in UserResponse.model_fields})
 
 
+@router.get("/options")
+def login_options(request: Request, response: Response) -> dict[str, bool]:
+    no_store(response)
+    return {"sso_enabled": request.app.state.settings.sso_enabled}
+
+
 @router.get("/sm2-public-key", response_model=Sm2PublicKeyResponse)
 def sm2_public_key(
     response: Response,
@@ -101,6 +107,20 @@ def login(
         payload.encrypted_key, payload.iv, payload.password
     )
     token, expires_in, user = service.login(payload.username.strip(), password)
+    set_session_cookie(request, response, token, expires_in)
+    return LoginResponse(access_token=token, expires_in=expires_in, user=_response(user))
+
+
+@router.post("/admin/login", response_model=LoginResponse,
+             dependencies=[Depends(check_session_opt_in)])
+def administrator_login(
+    payload: LoginRequest,
+    request: Request,
+    response: Response,
+    service: Annotated[AuthenticationService, Depends(get_authentication_service)],
+) -> LoginResponse:
+    password = service.decrypt_login_password(payload.encrypted_key, payload.iv, payload.password)
+    token, expires_in, user = service.login(payload.username.strip(), password, administrator=True)
     set_session_cookie(request, response, token, expires_in)
     return LoginResponse(access_token=token, expires_in=expires_in, user=_response(user))
 

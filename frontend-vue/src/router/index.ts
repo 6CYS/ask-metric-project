@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router"
+import type { Component } from "vue"
 
 import LlmView from "@/views/LlmView.vue"
 import MetricsView from "@/views/MetricsView.vue"
@@ -19,6 +20,7 @@ const router = createRouter({
       name: "login",
       component: LoginView,
     },
+    { path: "/admin/login", name: "admin-login", component: LoginView as Component },
     {
       path: "/",
       redirect: "/chat",
@@ -38,6 +40,12 @@ router.beforeEach(async (to) => {
   const auth = useAuth()
   await auth.initializeAuth()
   const ssoToken = typeof to.query.token === "string" ? to.query.token : ""
+  // 独立管理员入口不尝试统一认证，统一认证故障时仍能使用本地账号。
+  if (ssoToken && to.name === "admin-login") {
+    const cleanQuery = { ...to.query }
+    delete cleanQuery.token
+    return { name: "admin-login", query: cleanQuery }
+  }
   if (ssoToken) {
     const cleanQuery = { ...to.query }
     delete cleanQuery.token
@@ -62,7 +70,10 @@ router.beforeEach(async (to) => {
   if (["llm", "knowledge"].includes(String(to.name)) && auth.user.value?.role_code !== "SYSTEM_ADMIN") {
     return { name: "chat" }
   }
-  if (to.name === "login" && auth.isAuthenticated.value) return { path: "/chat" }
+  if (["login", "admin-login"].includes(String(to.name)) && auth.isAuthenticated.value) {
+    if (to.name === "admin-login" && auth.user.value?.role_code !== "SYSTEM_ADMIN") return
+    return { path: to.name === "admin-login" ? "/llm" : "/chat" }
+  }
 })
 
 export default router

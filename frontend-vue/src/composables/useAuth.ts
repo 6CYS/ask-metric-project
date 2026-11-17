@@ -52,9 +52,9 @@ async function initializeAuth() {
   await initialization
 }
 
-async function login(username: string, password: string) {
+async function login(username: string, password: string, administrator = false) {
   const revision = ++authRevision
-  const result = await loginUser(username, password)
+  const result = await loginUser(username, password, administrator)
   if (revision !== authRevision) return result.user
   setAccessToken(result.access_token)
   user.value = result.user
