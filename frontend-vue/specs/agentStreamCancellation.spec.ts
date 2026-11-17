@@ -91,13 +91,19 @@ type ChatState = {
       content: string
       status: string
       nativeAnswer: boolean
+      toolCalls?: Array<{ tool: string; status: string; summary?: { note?: string; conditions?: Array<{ label: string; value: string }> } }>
+      activities?: Array<{ id: string; label: string; status: string; startedAt: number; summary?: { note?: string; conditions?: Array<{ label: string; value: string }> } }>
+      retryable?: boolean
     }>
   }>
+  message: string
   activeConversationId: string
+  prepareQuestionRetry(message: ChatState["conversations"][number]["messages"][number]): Promise<void>
   activeConversationIsStopping: boolean
   abortControllers: Map<string, AbortController>
   markConversationSending(id: string, sending: boolean): void
   stopActiveConversation(): Promise<void>
+  failMessage(conversationId: string, messageId: string, error: unknown): void
   handleStreamEvent(id: string, assistantId: string, event: AgentStreamEvent): void
 }
 
@@ -306,5 +312,86 @@ describe("SSE观察取消", () => {
     expect(url).toBe("/agent-api/sessions/original-session/stream")
     expect(init?.method).toBe("GET")
     expect(init?.body).toBeUndefined()
+  })
+})
+
+
+describe("模型故障的消息收尾", () => {
+  it.each([
+    { run_status: "failed", answer_status: "error" },
+    { run_status: "aborted", answer_status: "idle" },
+  ])("$run_status 不将未结束步骤伪装成已完成", async (terminal) => {
+    const { state } = await chat()
+    state.conversations[0]!.messages[0]!.toolCalls = [{ tool: "metric_query", status: "running" }]
+    state.conversations[0]!.messages[0]!.activities = [{ id: "model", label: "模型服务连接恢复", status: "running", startedAt: Date.now() }]
+    state.handleStreamEvent("one", "answer", { type: "run_terminal", ...terminal })
+    expect(state.conversations[0]!.messages[0]).toMatchObject({
+      toolCalls: [{ status: "interrupted" }], activities: [{ status: "interrupted" }],
+    })
+  })
+
+  it("429 保留已正式交付正文，给出繁忙原因而不再报整轮执行失败", async () => {
+    const { state } = await chat()
+    state.conversations[0]!.messages[0]!.content = "已经核验并交付的第一部分。"
+    state.handleStreamEvent("one", "answer", {
+      type: "run_terminal", run_status: "failed", answer_status: "error", error_code: "MODEL_RATE_LIMITED",
+    })
+    expect(state.conversations[0]!.messages[0]!.content).toContain("已经核验并交付的第一部分。")
+    expect(state.conversations[0]!.messages[0]!.content).toContain("请求较多")
+    expect(state.conversations[0]!.running).toBe(false)
+  })
+
+  it("重新提问只回填末轮问题，不自动发起模型请求", async () => {
+    const { state } = await chat()
+    state.markConversationSending("one", false)
+    state.conversations[0]!.running = false
+    state.conversations[0]!.messages.unshift({ id: "question", role: "user", content: "原问题", status: "done", nativeAnswer: true })
+    const answer = state.conversations[0]!.messages[1]!
+    answer.status = "error"
+    const fetcher = vi.fn<typeof fetch>()
+    vi.stubGlobal("fetch", fetcher)
+    await state.prepareQuestionRetry(answer)
+    expect(state.message).toBe("原问题")
+    expect(fetcher).not.toHaveBeenCalled()
+    expect(state.conversations[0]!.messages).toHaveLength(2)
+    state.message = "尚未发送的草稿"
+    await state.prepareQuestionRetry(answer)
+    expect(state.message).toBe("尚未发送的草稿")
+    state.message = ""
+    state.conversations[0]!.running = true
+    await state.prepareQuestionRetry(answer)
+    expect(state.message).toBe("")
+    state.conversations[0]!.running = false
+    answer.retryable = false
+    await state.prepareQuestionRetry(answer)
+    expect(state.message).toBe("")
+    answer.retryable = true
+    state.conversations[0]!.messages.push({ id: "later-question", role: "user", content: "后续问题", status: "done", nativeAnswer: true })
+    await state.prepareQuestionRetry(answer)
+    expect(state.message).toBe("")
+  })
+})
+
+
+describe("停止后的进展文案", () => {
+  it.each(["terminal-aborted", "terminal-failed", "local-aborted", "local-failed"])("%s 清除未结束动作的动态提示，保留条件和已完成记录", async (path) => {
+    const { state } = await chat()
+    const conditions = [{ label: "机构", value: "已选机构" }]
+    const answer = state.conversations[0]!.messages[0]!
+    answer.activities = [
+      { id: "model-retry", label: "重试模型服务", status: "running", startedAt: Date.now(), summary: { note: "正在进行第 1 次重试，可停止等待。", conditions } },
+      { id: "confirmed", label: "确认条件", status: "done", startedAt: Date.now(), summary: { note: "已确认查询条件" } },
+    ]
+    answer.toolCalls = [{ tool: "metric_query", status: "running", summary: { note: "正在查询", conditions } }]
+    if (path.startsWith("terminal")) state.handleStreamEvent("one", "answer", {
+      type: "run_terminal", run_status: path.endsWith("aborted") ? "aborted" : "failed", answer_status: path.endsWith("aborted") ? "idle" : "error",
+    })
+    else state.failMessage("one", "answer", path.endsWith("aborted") ? new DOMException("停止", "AbortError") : new Error("连接中断"))
+    const result = state.conversations[0]!.messages[0]!
+    expect(result.activities?.[0]).toMatchObject({ status: "interrupted", summary: { conditions } })
+    expect(result.activities?.[0]?.summary?.note).toBeUndefined()
+    expect(result.toolCalls?.[0]).toMatchObject({ status: "interrupted", summary: { conditions } })
+    expect(result.toolCalls?.[0]?.summary?.note).toBeUndefined()
+    expect(result.activities?.[1]?.summary?.note).toBe("已确认查询条件")
   })
 })

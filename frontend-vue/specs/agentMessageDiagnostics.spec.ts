@@ -92,3 +92,30 @@ describe("执行过程展示", () => {
     expect(tools[0]?.status).toBe("error")
   })
 })
+
+
+describe("共享模型等待提示", () => {
+  it("长等待保留实际计时，说明可停止，不假称正在排队或一定会成功", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-11-17T00:00:30Z"))
+    const html = await renderToString(createSSRApp(diagnostics, {
+      question: "查询存款", taskIds: [], pending: true, startedAt: "2026-11-17T00:00:00Z", tools: [],
+    }))
+    expect(html).toContain("30 秒")
+    expect(html).toContain("本轮用时较长")
+    expect(html).toContain("停止")
+    expect(html).not.toContain("正在排队")
+  })
+
+  it("已执行工具后仍显示实际模型恢复活动，普通快请求不显示长等待提示", async () => {
+    vi.useFakeTimers()
+    const html = await renderToString(createSSRApp(diagnostics, {
+      question: "查询存款", taskIds: [], pending: true, startedAt: new Date().toISOString(),
+      tools: [{ tool: "metric_query", status: "done" }],
+      activities: [{ id: "model-retry:1", label: "模型服务繁忙，稍后重试", status: "running", summary: { note: "等待 2 秒后重试" } }],
+    }))
+    expect(html).toContain("模型服务繁忙，稍后重试")
+    expect(html).toContain("等待 2 秒后重试")
+    expect(html).not.toContain("本轮用时较长")
+  })
+})

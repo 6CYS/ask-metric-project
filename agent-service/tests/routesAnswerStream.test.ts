@@ -201,6 +201,7 @@ function fixture(snapshotAnswer = false) {
     ready: ready.promise,
     emit,
     finish,
+    drive,
     open,
     detail,
   };
@@ -234,6 +235,27 @@ afterEach(() => {
 });
 
 describe("正文 SSE 的观察边界", () => {
+  it.each(["GET", "POST"] as const)("%s 的限流终态与历史使用相同的安全错误分类", async method => {
+    const test = fixture();
+    test.snapshot.transcript.push({id: "user", parentId: null, seq: 1, timestamp: 0, type: "message",
+      message: {role: "user", content: [{type: "text", text: "查询"}], timestamp: 0, businessProtocol: "semantic_v2"}} as Entry,
+    {id: "failed", parentId: "user", seq: 2, timestamp: 1, type: "message", message: {
+      ...message, content: [], stopReason: "error", errorMessage: "429 insufficient_quota private-gateway-secret",
+    }});
+    const response = await test.open(method);
+    const body = response.text();
+    await test.ready;
+    if (method === "POST") test.drive.resolve({ok: true, operationId: "op-1", outcome: {kind: "settled", outcome: {
+      operationId: "op-1", kind: "run", status: "failed", fromTipId: null, tipId: "failed", startedAt: 0, endedAt: 1,
+    }}});
+    else await test.emit({type: "run_end", lane: "main", runId: "op-1", status: "failed", fromTipId: null,
+      tipId: "failed", endedAt: 1, error: {code: "MODEL_RESPONSE_FAILED", message: "failed"}});
+    const text = await body;
+    const terminal = text.split("\n\n").find(frame => frame.startsWith("event: run_terminal\n"));
+    expect(terminal).toContain('"error_code":"MODEL_QUOTA_EXCEEDED"');
+    expect(terminal).toContain('"retryable":false');
+    expect(text).not.toContain("private-gateway-secret");
+  });
   it("GET 活动观察在 150 秒静默期间持续发送 progress，终态后释放心跳", async () => {
     vi.useFakeTimers();
     const test = fixture();

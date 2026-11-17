@@ -174,7 +174,7 @@ export interface AskMetricRequestContext {
 export interface AgentActivity {
   activity_id: string;
   label: string;
-  status: "running" | "done";
+  status: "running" | "done" | "error" | "interrupted";
   note?: string;
   conditions?: Array<{ label: string; value: string }>;
 }

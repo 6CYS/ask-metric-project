@@ -83,6 +83,16 @@ function failedResult(error: unknown, identity?: ExecutionIdentity | null): Exec
   };
 }
 
+function cancellationFailure(error: unknown, identity?: ExecutionIdentity | null): ExecutionResult {
+  return {
+    ...failedResult(error, identity),
+    error_code: "EVALUATION_CANCEL_UNCONFIRMED",
+    error_message: authenticationFailure(error)
+      ? "停止确认时登录或权限已失效，请重新登录后再次停止"
+      : "无法确认原操作已停止，请再次停止以确认结果",
+  };
+}
+
 function runInput(value: unknown): RunInput {
   const body = evaluationRecord(value);
   return {
@@ -430,7 +440,7 @@ export class EvaluationService {
       batch.leaseLost = true;
       clearInterval(batch.maintenance);
       batch.abort.abort();
-      void this.requestCancellation(batch, batch.token).catch(() => {});
+      void this.requestTurnCancellation(batch, batch.token).catch(() => {});
       throw error;
     }
   }
@@ -483,7 +493,7 @@ export class EvaluationService {
       cancellingWriteFailed = true;
     }
     // 先发服务端取消，再中止本地等待；终态必须等待取消确认，不能仅凭 SSE 断开宣称已停止。
-    const cancellation = this.requestCancellation(batch, token);
+    const cancellation = this.requestTurnCancellation(batch, token);
     batch.abort.abort();
     await cancellation.catch(() => undefined);
     if (batch.executionSettled) {
@@ -515,28 +525,19 @@ export class EvaluationService {
     return structuredClone(batch.run);
   }
 
-  private requestCancellation(batch: ActiveBatch, token: string): Promise<void> {
+  private requestTurnCancellation(batch: ActiveBatch, token: string): Promise<void> {
     if (batch.cancellation) return batch.cancellation;
     batch.cancelFailure = null;
     batch.cancellationSettled = false;
     const turn = batch.currentTurn;
     const cancellation = Promise.resolve().then(async () => {
       try {
-        if (!batch.leaseLost)
-          await this.store.requestExecutionCancellation?.(batch.run.actor.id, batch.run.id);
+        // 单题超时或断流也会清理原生请求，不在此写入整批停止意图。
         if (!batch.cancelConfirmed && turn?.session_id && turn.request_id)
           await this.client.cancelTurn(token, turn.session_id, turn.request_id);
-        if (!batch.leaseLost)
-          await this.store.confirmExecutionCancellation?.(batch.run.actor.id, batch.run.id);
       } catch (error) {
         // 未确认原操作停止时保留执行槽；身份过期也只能由当前令牌再次确认。
-        batch.cancelFailure = {
-          ...failedResult(error, turn?.result),
-          error_code: "EVALUATION_CANCEL_UNCONFIRMED",
-          error_message: authenticationFailure(error)
-            ? "停止确认时登录或权限已失效，请重新登录后再次停止"
-            : "无法确认原操作已停止，请再次停止以确认结果",
-        };
+        batch.cancelFailure = cancellationFailure(error, turn?.result);
         throw new BackendApiError(
           503,
           batch.cancelFailure.error_message ?? "停止未确认",
@@ -594,6 +595,16 @@ export class EvaluationService {
 
   private async finishCancellation(batch: ActiveBatch): Promise<void> {
     const { run, currentTurn: turn } = batch;
+    if (!batch.leaseLost) {
+      try {
+        // 整批停止独立落盘，避免复用已完成的单题清理时遗漏停止确认。
+        await this.store.requestExecutionCancellation?.(run.actor.id, run.id);
+        if (!batch.leaseLost && !batch.cancelFailure)
+          await this.store.confirmExecutionCancellation?.(run.actor.id, run.id);
+      } catch (error) {
+        batch.cancelFailure ??= cancellationFailure(error, turn?.result);
+      }
+    }
     const now = new Date().toISOString();
     run.status = batch.cancelFailure ? "cancelling" : "cancelled";
     run.finished_at = batch.cancelFailure ? null : now;
@@ -725,7 +736,7 @@ export class EvaluationService {
               ? { configurationVersions: run.configuration_versions }
               : {}),
             signal: batch.abort.signal,
-            cancel: () => this.requestCancellation(batch, batch.token),
+            cancel: () => this.requestTurnCancellation(batch, batch.token),
             onIdentity: async (identity) => {
               // 接纳身份先落盘；正文仍只从当前授权的原生快照读取。
               turn.result = {
@@ -778,7 +789,7 @@ export class EvaluationService {
     }
     await this.checkExecution(batch);
     if (batch.abort.signal.aborted && !batch.cancellation && !batch.cancelFailure)
-      await this.requestCancellation(batch, batch.token).catch(() => {});
+      await this.requestTurnCancellation(batch, batch.token).catch(() => {});
     await batch.cancellation?.catch(() => undefined);
     if (batch.abort.signal.aborted) {
       await this.finishCancellation(batch);

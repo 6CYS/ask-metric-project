@@ -13,7 +13,7 @@ import { getLegacySession, listLegacySessions, projectLegacyMessages } from "./l
 import type { NativeSessionStore } from "./nativeSessions.js";
 import { NativeSemanticTaskStore } from "./semantic-task/store.js";
 import { normalizeAnswerInput, type ClickAnswerInput } from "./semantic-task/questions.js";
-import { projectEntries, projectSnapshot, projectWatchEvent, projectBusinessTasks, projectQuestionStates, type ProjectedMessage } from "./sessionProjection.js";
+import { projectEntries, projectSnapshot, projectWatchEvent, projectBusinessTasks, projectQuestionStates, projectedModelFailure, type ProjectedMessage } from "./sessionProjection.js";
 import {AnswerStreamProjector} from "./answerStream.js";
 import { compileInquiryReportDraft, createInquiryReportPreview } from "./inquiry/reportTool.js";
 import { receiptDelivery } from "./runtime/delivery.js";
@@ -333,7 +333,8 @@ export function createApp(
                 const finalMessages = projectEntries(await latest.lane.findEntries({order: "oldestFirst"}, BACKGROUND_CONTEXT), await storedOperationResults(latest));
                 const result = await latest.session.getValue(operationResult(operation), BACKGROUND_CONTEXT);
                 await send("snapshot", {messages: finalMessages, running: false, operation_id: null, answer_stream: null});
-                await send("run_terminal", {run_status: result?.value.status ?? "idle", answer_status: result?.value.status === "completed" ? "ok" : "idle", business_tasks: projectBusinessTasks(finalMessages)});
+                await send("run_terminal", {run_status: result?.value.status ?? "idle", answer_status: result?.value.status === "completed" ? "ok" : "idle", business_tasks: projectBusinessTasks(finalMessages),
+                  ...(result?.value.status === "failed" ? projectedModelFailure(finalMessages) : {})});
                 } finally { historyView = hosted; await host.releaseView(latest); }
               } else await send("error", {code: "SESSION_RECOVERY_REQUIRED", message: "执行节点已离线，请重新打开会话以恢复未完成操作。"});
               break;
@@ -440,6 +441,7 @@ export function createApp(
                 await send("snapshot", { messages, running: false, operation_id: null, answer_stream: null });
                 await send("run_terminal", {
                   run_status: event.status, answer_status: event.status === "completed" ? "ok" : "failed",
+                  ...(event.status === "failed" ? projectedModelFailure(messages) : {}),
                   business_tasks: projectBusinessTasks(messages),
                 });
               })().catch(recoveryFailure).finally(resolve);
@@ -587,6 +589,7 @@ export function createApp(
           error_code: record?.error?.code ?? null,
           // 错误码无法覆盖所有模型侧失败；带上服务端已脱敏的原因摘要，避免前端只看到“失败了”
           error_message: driven.ok ? null : driven.message,
+          ...(record?.status === "failed" ? projectedModelFailure(messages) : {}),
           business_tasks: projectBusinessTasks(messages),
           timings_ms: { auth_ms: c.get("authMs"), total_ms: Math.round(performance.now() - c.get("startedAt")),
             model_ms: timings?.model_ms, tool_ms: timings?.tool_ms,

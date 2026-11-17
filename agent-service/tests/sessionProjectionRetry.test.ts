@@ -2,7 +2,7 @@ import {describe, expect, it} from "vitest";
 import type {Entry, LaneSnapshot, OperationResultRecord} from "@earendil-works/pi-agent-core";
 import type {AssistantMessage} from "@earendil-works/pi-ai";
 import {MODEL_FIRST_RESPONSE_TIMEOUT} from "../src/models.js";
-import {projectEntries, projectSnapshot} from "../src/sessionProjection.js";
+import {projectEntries, projectSnapshot, projectWatchEvent} from "../src/sessionProjection.js";
 
 const usage = {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
   cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0}};
@@ -34,6 +34,43 @@ function delivery(parentId = "recovered"): Entry {
 }
 
 describe("同轮模型重试的历史投影", () => {
+  it.each([
+    ["BUSINESS_BATCH_ARGUMENTS_INVALID", "BUSINESS_BATCH_ARGUMENTS_INVALID", true, "业务参数"],
+    ["CONTEXT_ACCESS_CHANGED", "CONTEXT_ACCESS_CHANGED", false, "访问权限"],
+    ['429 {"error":{"code":"rate_limit_exceeded","message":"QPM limited private-gateway"}}', "MODEL_RATE_LIMITED", true, "请求较多"],
+    ['429 {"error":{"code":"insufficient_quota"}}', "MODEL_QUOTA_EXCEEDED", false, "额度"],
+    ["503 internal private-gateway", "MODEL_SERVICE_UNAVAILABLE", true, "暂时不可用"],
+    ["401 invalid api key secret-value", "MODEL_AUTHENTICATION_FAILED", false, "授权"],
+    ["Connection error. private-gateway", "MODEL_CONNECTION_FAILED", true, "连接中断"],
+    ["Stream ended without finish_reason", "MODEL_STREAM_FAILED", true, "中断"],
+  ])("模型故障按原因投影且不暴露原始错误：%s", (errorMessage, code, retryable, copy) => {
+    const entries = [user(), assistant("failure", "user", {stopReason: "error", errorMessage})];
+    const projected = projectEntries(entries).at(-1);
+    expect(projected).toMatchObject({role: "assistant", error_code: code, retryable});
+    expect(projected).toHaveProperty("error", expect.stringContaining(copy));
+    expect(projected).toHaveProperty("text", expect.stringContaining(copy));
+    expect(JSON.stringify(projected)).not.toMatch(/private-gateway|secret-value|finish_reason|rate_limit_exceeded/);
+  });
+
+  it("模型重试的等待、开始及结果以真实活动投影", () => {
+    const scheduled = projectWatchEvent({type: "retry_scheduled", step: "step-1", attempt: 2,
+      maxAttempts: 2, delayMs: 1500, errorMessage: "429 QPM private-gateway"});
+    expect(scheduled).toMatchObject({type: "activity", activity_id: "model-retry:step-1", status: "running"});
+    expect(scheduled).toHaveProperty("note", expect.stringContaining("2 秒后"));
+    expect(scheduled).toHaveProperty("note", expect.not.stringContaining("本轮"));
+    const started = projectWatchEvent({type: "retry_start", step: "step-1", attempt: 2});
+    expect(started).toMatchObject({type: "activity", activity_id: "model-retry:step-1", status: "running"});
+    expect(started).toHaveProperty("note", expect.stringContaining("第 1 次"));
+    const failed = projectWatchEvent({type: "retry_end", step: "step-1", attempt: 2, success: false,
+      finalError: "503 private-gateway"});
+    expect(failed).toMatchObject({type: "activity", status: "error"});
+    expect(failed).toHaveProperty("note", expect.stringContaining("暂时不可用"));
+    expect(projectWatchEvent({type: "retry_end", step: "step-1", attempt: 2, success: true}))
+      .toMatchObject({type: "activity", status: "done"});
+    expect(projectWatchEvent({type: "retry_end", step: "step-1", attempt: 2, success: false,
+      finalError: "Assistant request ended with aborted"}))
+      .toMatchObject({type: "activity", status: "interrupted", note: "已停止重试。"});
+  });
   it.each(["stop", "toolUse"] as const)("%s 的合法重试响应覆盖中间失败，保留正式报告及原生记录", stopReason => {
     const entries = [user(), failure(), recovered("failed", stopReason), delivery()];
     const original = structuredClone(entries);

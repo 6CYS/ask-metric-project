@@ -6,7 +6,8 @@
 import type { Entry, LaneSnapshot, OperationResultRecord } from "@earendil-works/pi-agent-core";
 import { businessEvidence, businessEvidences, combinedEvidenceAnswer, evidenceAnswer, presentedAnswer, type BusinessEvidence } from "./answerEvidence.js";
 import { EVIDENCE_BLOCKED_ANSWER, TOOL_LIMIT_ANSWER, mayDeliverWithoutEvidence } from "./replyGuard.js";
-import { MODEL_DEADLINE_EXCEEDED, MODEL_FIRST_RESPONSE_TIMEOUT, MODEL_STREAM_IDLE_EXCEEDED } from "./models.js";
+import { modelFailure } from "./modelFailure.js";
+import type {AgentActivity} from "./requestContext.js";
 import type { MetricAskDetails } from "./tools/shared.js";
 import {isSemanticFeedback} from "./semantic-task/feedback.js";
 import {readDirectAnswerSnapshot} from "./semantic-task/directDelivery.js";
@@ -25,7 +26,7 @@ function browserToolDetails(details: unknown): unknown {
 /** 历史消息条目（与前端 AgentSessionMessage 对齐） */
 export type ProjectedMessage =
   | { role: "user"; text: string; answer_receipts?: AnswerReceipt[]; timestamp: number | null; entry_id: string }
-  | { role: "assistant"; text: string; error?: string; tools: string[]; business_protocol?: "frame_v1"; tool_calls?: { id: string; tool: string }[]; timestamp: number | null; entry_id: string }
+  | { role: "assistant"; text: string; error?: string; error_code?: string; retryable?: boolean; tools: string[]; business_protocol?: "frame_v1"; tool_calls?: { id: string; tool: string }[]; timestamp: number | null; entry_id: string }
   | {
       role: "tool";
       tool: string;
@@ -38,6 +39,7 @@ export type ProjectedMessage =
 
 /** 浏览器 SSE 事件（协议 V3）；公共字段由路由层补齐 session/operation/request 关联 */
 export type ProjectedEvent =
+  | ({type: "activity"} & AgentActivity)
   | { type: "text_delta"; delta: string }
   | { type: "tool_start"; tool: string; tool_call_id: string }
   | { type: "tool_end"; tool: string; tool_call_id: string; details: unknown; isError: boolean;
@@ -80,17 +82,16 @@ function toolCallNames(content: unknown): string[] {
 }
 
 /** 本轮未完成时的固定说明；模型服务超时（含自动重试后仍失败）单独说明，不让用户误以为条件有误。 */
-function incompleteAnswer(errorMessage: string): string {
+function incompleteFailure(errorMessage: string) {
   if (errorMessage === "BUSINESS_BATCH_ARGUMENTS_INVALID") {
-    return "本轮业务参数批次未通过校验，原条件已保留，未执行新的查询。请重试本轮请求。";
+    return {code: errorMessage, retryable: true,
+      message: "本轮业务参数批次未通过校验，原条件已保留，未执行新的查询。请重试本轮请求。"};
   }
-  if (errorMessage.startsWith(MODEL_STREAM_IDLE_EXCEEDED)) {
-    return "模型输出长时间没有进展，本轮未完成。已确认的查询条件仍保留，无需重复输入。";
+  if (errorMessage === "CONTEXT_ACCESS_CHANGED") {
+    return {code: errorMessage, retryable: false,
+      message: "当前访问权限已变化，本轮已停止。请重新打开会话并确认访问权限后再试。"};
   }
-  if (/^402(?:\s|$)/u.test(errorMessage)) return "模型服务拒绝请求（HTTP 402），请检查模型服务额度或授权。已确认的查询条件仍保留。";
-  return errorMessage.startsWith(MODEL_FIRST_RESPONSE_TIMEOUT) || errorMessage.startsWith(MODEL_DEADLINE_EXCEEDED)
-    ? "模型服务响应超时，请稍后重试。已确认的查询条件仍保留，无需重复输入。"
-    : "本轮模型响应未完成；已取得的步骤结果仍可查看，请重试未完成部分。";
+  return modelFailure(errorMessage);
 }
 
 /** 原生重试沿父子链追加响应；仅隐藏被后续正常响应覆盖的失败，保留原始记录。 */
@@ -178,16 +179,20 @@ export function projectEntries(entries: Entry[], results: readonly OperationResu
       // 旧会话在普通回答后仍有一次模型往返，其正文已被宿主替换为同一回答；保留原记录，不重复展示。
       if (conversationAnswerAt === messages.length - 1 && !toolCallNames(message.content).length) messages.pop();
       conversationAnswerAt = undefined;
+      const failure = message.errorMessage && message.stopReason !== "aborted"
+        ? incompleteFailure(message.errorMessage) : undefined;
       messages.push({
         role: "assistant",
         text: message.stopReason === "aborted" ? "已停止生成。" : toolCallNames(message.content).length ? "" : frameTurn && message.errorMessage
-          ? incompleteAnswer(message.errorMessage)
+          ? failure?.message ?? ""
           : frameTurn ? lastReceiptDelivery(turnReceipts) ?? factualReceiptAnswer(turnReceipts) ?? RUNTIME_INCOMPLETE : visibleText(message.content) === EVIDENCE_BLOCKED_ANSWER
           ? EVIDENCE_BLOCKED_ANSWER : visibleText(message.content) === TOOL_LIMIT_ANSWER
           ? [combinedEvidenceAnswer(evidence), TOOL_LIMIT_ANSWER].filter(Boolean).join("\n\n") : evidence.length
           ? combinedEvidenceAnswer(evidence) + (message.errorMessage ? "\n\n本轮处理未完成，以上仅为已取得的结果。" : "")
           : contextClarification ? visibleText(message.content) : safeUnverifiedText(visibleText(message.content), question),
-        ...(message.errorMessage && message.stopReason !== "aborted" ? {error: incompleteAnswer(message.errorMessage)} : {}),
+        ...(failure ? {
+          error: failure.message, error_code: failure.code, retryable: failure.retryable,
+        } : {}),
         ...(frameTurn ? {business_protocol: "frame_v1" as const} : {}),
         tools: toolCallNames(message.content),
         tool_calls: Array.isArray(message.content) ? (message.content as MessageContentBlock[])
@@ -299,6 +304,17 @@ export function projectSnapshot(snapshot: LaneSnapshot, results: readonly Operat
   };
 }
 
+/** 终态提示与历史共用本轮已脱敏错误，不从上一轮或未核验草稿提取原因。 */
+export function projectedModelFailure(messages: readonly ProjectedMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message?.role === "user") break;
+    if (message?.role === "assistant" && message.error_code && message.error)
+      return {error_code: message.error_code, error_message: message.error, retryable: message.retryable};
+  }
+  return {};
+}
+
 export interface ProjectedQuestionState {question_id: string; version: number; status: QuestionStatus}
 
 function projectionSemanticFeedback(details: unknown) {
@@ -347,7 +363,26 @@ export function projectWatchEvent(event: {
   toolCallId?: string;
   result?: { details?: unknown };
   isError?: boolean;
+  step?: string;
+  attempt?: number;
+  maxAttempts?: number;
+  delayMs?: number;
+  errorMessage?: string;
+  finalError?: string;
+  success?: boolean;
 }): ProjectedEvent | null {
+  if (["retry_scheduled", "retry_start", "retry_end"].includes(event.type)) {
+    const attempt = Math.max(1, (event.attempt ?? 2) - 1);
+    const interrupted = event.type === "retry_end" && !event.success
+      && /^(?:Aborted|Assistant request ended with aborted)$/u.test(event.finalError ?? "");
+    return {type: "activity", activity_id: `model-retry:${event.step ?? "generation"}`,
+      label: "重试模型服务",
+      status: event.type !== "retry_end" ? "running" : event.success ? "done" : interrupted ? "interrupted" : "error",
+      note: event.type === "retry_scheduled"
+        ? `${modelFailure(event.errorMessage ?? "").reason}，${Math.ceil((event.delayMs ?? 0) / 1000)} 秒后自动进行第 ${attempt} 次重试。可以停止等待。`
+        : event.type === "retry_start" ? `正在进行第 ${attempt} 次重试，可停止等待。`
+          : event.success ? "模型已恢复响应。" : interrupted ? "已停止重试。" : modelFailure(event.finalError ?? "").message};
+  }
   if (event.type === "message_update") {
     // 原生帧不作为正式正文；开启一期时由 AnswerStreamProjector 单独投影可撤回的临时文本。
     return null;

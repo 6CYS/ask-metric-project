@@ -80,7 +80,7 @@ type ToolCallDisplay = {
 type ActivityDisplay = {
   id: string
   label: string
-  status: "running" | "done"
+  status: "running" | "done" | "error" | "interrupted"
   startedAt: number
   elapsedMs?: number
   summary?: ToolCallSummary
@@ -96,6 +96,7 @@ type DisplayMessage = {
   provisionalCharts?: BusinessReportChart[]
   /** 本轮已展示的失败说明，快照和收尾事件不得重复追加。 */
   failureNotice?: string
+  retryable?: boolean
   response?: ChatResponse
   status?: "pending" | "done" | "error"
   toolCalls?: ToolCallDisplay[]
@@ -419,7 +420,7 @@ function executionStatus(chatMessage: DisplayMessage) {
   if (chatMessage.status === "error") {
     return {
       kind: "failed",
-      title: "问数执行失败",
+      title: "本轮未完成",
       titleClass: "text-muted-foreground",
     }
   }
@@ -687,6 +688,7 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
         last.toolCalls = [...(last.toolCalls ?? []), ...calls]
         if (failure) {
           last.status = "error"
+          last.retryable = "retryable" in item ? item.retryable : undefined
           last.response = undefined
         } else if (text.trim()) {
           // 历史最终成功正文覆盖失败attempt；诊断仍保留在原工具/模型事件中。
@@ -702,6 +704,7 @@ function conversationFromDetail(detail: AgentSessionDetail): Pick<DisplayConvers
           failureNotice: projected.failureNotice,
           toolCalls: calls,
           status: failure ? "error" : "done",
+          retryable: "retryable" in item ? item.retryable : undefined,
           createdAt: historyTimestamp(item.timestamp),
         })
       }
@@ -906,6 +909,23 @@ function updateConversation(conversationId: string, updater: (conversation: Disp
   return true
 }
 
+const questionComposer = ref<{ focus(): void } | null>(null)
+
+function canPrepareQuestionRetry(chatMessage: DisplayMessage) {
+  const conversation = activeConversation.value
+  return chatMessage.status === "error" && chatMessage.retryable !== false
+    && conversation?.messages[conversation.messages.length - 1]?.id === chatMessage.id && !conversation.legacy
+    && Boolean(questionForMessage(chatMessage))
+}
+
+async function prepareQuestionRetry(chatMessage: DisplayMessage) {
+  if (!canPrepareQuestionRetry(chatMessage) || message.value.trim()
+    || activeConversationIsSending.value || activeConversation.value?.running || isDeletingConversation.value) return
+  message.value = questionForMessage(chatMessage)
+  await nextTick()
+  questionComposer.value?.focus()
+}
+
 function questionForMessage(chatMessage: DisplayMessage) {
   const messages = activeConversation.value?.messages ?? []
   const index = messages.findIndex((item) => item.id === chatMessage.id)
@@ -1072,6 +1092,12 @@ async function streamPrompt(conversationId: string, serverId: string, input: Age
   })
 }
 
+/** 终态只收拢尚未结束的动作；动态等待提示失效，已取得的条件和已完成步骤原样保留。 */
+function finishRunningStep<T extends { status: string; summary?: ToolCallSummary }>(step: T, status: "done" | "interrupted"): T {
+  if (step.status !== "running") return step
+  return { ...step, status, ...(step.summary ? { summary: { ...step.summary, note: undefined } } : {}) }
+}
+
 function handleStreamEvent(conversationId: string, assistantId: string, event: AgentStreamEvent) {
   if (presentationDisposed) return
   if (event.type === "run_terminal" || event.type === "error" || event.type === "snapshot" && !event.running) {
@@ -1127,7 +1153,7 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
       const note = event.note?.trim()
       const next: ActivityDisplay = {
         id: event.activity_id, label: event.label, status: event.status, startedAt,
-        ...(event.status === "done" ? { elapsedMs: Date.now() - startedAt } : {}),
+        ...(event.status !== "running" ? { elapsedMs: Date.now() - startedAt } : {}),
         ...(note || event.conditions?.length ? { summary: { ...(note ? { note } : {}), ...(event.conditions?.length ? { conditions: event.conditions } : {}) } } : {}),
       }
       if (index >= 0) activities[index] = next
@@ -1138,6 +1164,7 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
   }
   if (event.type === "run_terminal") {
     const failed = event.run_status !== "aborted" && !["ok", "idle"].includes(event.answer_status)
+    const unfinishedStatus = failed || event.run_status === "aborted" ? "interrupted" as const : "done" as const
     updateAssistantMessage(conversationId, assistantId, (item) => {
       let finalized = finalizeAssistantMessage({ ...clearProvisionalAnswer(item), status: failed || item.failureNotice ? "error" : "done" })
       // 快照中的失败说明已是本轮正式展示内容，终态事件只补充缺失的提示。
@@ -1146,9 +1173,10 @@ function handleStreamEvent(conversationId: string, assistantId: string, event: A
       }
       return {
         ...finalized,
+        retryable: event.retryable ?? item.retryable,
         runTimings: event.timings_ms ?? item.runTimings,
-        toolCalls: item.toolCalls?.map((call) => call.status === "running" ? { ...call, status: "done" } : call),
-        activities: item.activities?.map((activity) => activity.status === "running" ? { ...activity, status: "done" as const } : activity),
+        toolCalls: item.toolCalls?.map((call) => finishRunningStep(call, unfinishedStatus)),
+        activities: item.activities?.map((activity) => finishRunningStep(activity, unfinishedStatus)),
       }
     })
     const finished = conversations.value
@@ -1302,7 +1330,8 @@ function failMessage(conversationId: string, messageId: string, error: unknown) 
       // 已有结果表时仍显示末轮模型失败提示，不能被结构化 response 遮住。
       response: finalized.response ? { ...finalized.response, answer } : undefined,
       status: aborted ? "done" : "error",
-      toolCalls: finalized.toolCalls?.map((call) => call.status === "running" ? { ...call, status: "interrupted" } : call),
+      activities: finalized.activities?.map((activity) => finishRunningStep(activity, "interrupted")),
+      toolCalls: finalized.toolCalls?.map((call) => finishRunningStep(call, "interrupted")),
     }
   })
   updateConversation(conversationId, (conversation) => ({ ...conversation, preview: content, running: false }))
@@ -1492,6 +1521,10 @@ function pendingAnswer(chatMessage: DisplayMessage): string | undefined {
                     <QuerySqlButton :references="chatMessage.querySqlReferences" />
                   </template>
                 </ChatResultContent>
+                <div v-if="canPrepareQuestionRetry(chatMessage)" class="mt-2 flex flex-wrap items-center gap-2">
+                  <BaseButton variant="outline" size="sm" :disabled="Boolean(message.trim()) || activeConversationIsSending || Boolean(activeConversation?.running) || !queryReady || isDeletingConversation" @click="prepareQuestionRetry(chatMessage)">重新提问</BaseButton>
+                  <span class="text-xs text-muted-foreground">{{ message.trim() ? '输入框已有内容，发送或清空后可重新提问。' : '将原问题填入输入框，确认后发送。' }}</span>
+                </div>
                 <template v-if="chatMessage.status !== 'pending' && chatMessage.queryResults && chatMessage.queryResults.length > 1">
                   <ChatResultContent v-for="result in chatMessage.queryResults" :key="result.task_id" :response="{ ...responseFromMetricAsk(result, ''), answer: '', answer_blocks: undefined }" :question="questionForMessage(chatMessage)" />
                 </template>
@@ -1524,7 +1557,7 @@ function pendingAnswer(chatMessage: DisplayMessage): string | undefined {
         <p v-else-if="activeConversation?.legacy" class="mb-3 text-sm text-muted-foreground">旧格式会话仅支持查看，请新建对话继续提问。</p>
         <p v-else-if="activeConversation?.running && !activeConversationIsSending" class="mb-3 text-sm text-muted-foreground">该会话正在其他窗口运行，请稍候或新建对话。</p>
         <p v-if="activeConversationIsStopping" role="status" class="mb-3 text-sm text-muted-foreground">正在停止，请稍候。</p>
-        <CatalogQuestionComposer :key="auth.user.value?.id" v-model="message" :context-key="`${activeConversationId}:${activeClarificationMessage?.clarification?.id ?? activeConversation?.messages.length ?? 0}`" :clarification="activeClarificationMessage?.clarification" :auto-open-clarification-id="autoOpenClarificationId" :is-submitting="activeConversationIsSending" :disabled="isDeletingConversation || !queryReady || Boolean(activeConversation?.legacy) || Boolean(activeConversation?.running && !activeConversationIsSending)" :placeholder="composerPlaceholder" @submit="handleSubmit" @stop="stopActiveConversation" />
+        <CatalogQuestionComposer ref="questionComposer" :key="auth.user.value?.id" v-model="message" :context-key="`${activeConversationId}:${activeClarificationMessage?.clarification?.id ?? activeConversation?.messages.length ?? 0}`" :clarification="activeClarificationMessage?.clarification" :auto-open-clarification-id="autoOpenClarificationId" :is-submitting="activeConversationIsSending" :disabled="isDeletingConversation || !queryReady || Boolean(activeConversation?.legacy) || Boolean(activeConversation?.running && !activeConversationIsSending)" :placeholder="composerPlaceholder" @submit="handleSubmit" @stop="stopActiveConversation" />
       </div>
     </div>
   </section>

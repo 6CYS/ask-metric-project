@@ -31,6 +31,9 @@ export function friendlyQueryError(message?: string | null, errorCode?: string |
     MODEL_CONNECTION_FAILED: "暂时无法连接模型服务。请稍后重新查询。",
     MODEL_HTTP_ERROR: "模型服务返回异常状态。请稍后重试或联系管理员。",
     MODEL_CONFIGURATION_MISSING: "模型服务配置异常。请联系管理员检查。",
+    MODEL_RATE_LIMITED: "当前模型服务请求较多，本次回答未完成。请稍后重新提问。",
+    MODEL_QUOTA_EXCEEDED: "模型服务可用额度不足，本次回答未完成。请联系管理员处理。",
+    MODEL_AUTHENTICATION_FAILED: "模型服务连接配置异常，本次回答未完成。请联系管理员检查。",
     MODEL_CONCURRENCY_LIMIT: "当前问数请求较多。请稍后重新查询。",
     MODEL_SERVICE_UNAVAILABLE: "模型服务暂时不可用。请稍后重新查询。",
   }

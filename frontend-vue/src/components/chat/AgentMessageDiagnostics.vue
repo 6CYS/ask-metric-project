@@ -25,12 +25,13 @@ const props = defineProps<{
 }>()
 // 新提问和历史记录均默认展开；后续进度和完成状态不覆盖用户的选择。
 const expanded = ref(true)
+const currentActivity = computed(() => props.activities?.find(item => item.status === "running"))
 // 状态栏复用真实工具状态；没有运行中的工具时显示模型处理阶段。
 const currentStage = computed(() => {
   if (!props.pending) return "执行过程"
   const running = props.tools.find(call => call.status === "running")
-  const activity = props.activities?.find(item => item.status === "running")
-  if (!running && activity && !props.tools.length) return activity.label.includes("正在") ? activity.label : `正在${activity.label}`
+  const activity = currentActivity.value
+  if (!running && activity) return activity.label
   if (!running) return props.hasAnswer ? "正在生成回答" : props.tools.length ? "正在整理结果" : "正在理解问题"
   return `正在${toolCallLabel(running.tool)}`
 })
@@ -188,6 +189,8 @@ function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? n
       <span v-if="!pending && allSteps.length">· {{ allSteps.length }} 个步骤</span>
       <span v-if="elapsed !== undefined" class="tabular-nums">· {{ pending ? '' : '用时 ' }}{{ readableDuration(elapsed) }}</span>
     </button>
+    <p v-if="pending && currentActivity?.summary?.note" role="status" class="ml-5 mt-1 leading-5">{{ currentActivity.summary.note }}</p>
+    <p v-else-if="pending && (elapsed ?? 0) >= 30000" role="status" class="ml-5 mt-1 leading-5">本轮用时较长，可以继续等待，也可以停止后稍后再试。</p>
     <div v-if="expanded && hasDetails" :id="stepsId" class="pt-1">
       <ol class="ml-1.5 list-none border-l border-border/60 pl-4">
         <li v-for="(call, index) in finishedSteps" :key="call.id ?? index" class="relative py-1">

@@ -56,7 +56,7 @@ export interface AgentSessionItem {
 /** 历史消息条目：用户提问、助手回答（含调用过的工具名）、工具结果明细。 */
 export type AgentSessionMessage =
   | { role: "user"; text: string; timestamp: number | null }
-  | { role: "assistant"; business_protocol?: "frame_v1"; text: string; error?: string; tools?: string[]; tool_calls?: { id?: string; tool: string }[]; timestamp: number | null }
+  | { role: "assistant"; business_protocol?: "frame_v1"; text: string; error?: string; error_code?: string; retryable?: boolean; tools?: string[]; tool_calls?: { id?: string; tool: string }[]; timestamp: number | null }
   | { role: "tool"; tool: string; details: unknown; is_error: boolean; tool_call_id?: string; elapsed_ms?: number; timestamp: number | null }
   | { role: string; text?: string; timestamp: number | null }
 
@@ -233,12 +233,13 @@ export type AgentStreamEvent =
   /** 执行期心跳：模型重试与工具执行期间没有可投影事件，用于区分“仍在执行”与“卡死”。 */
   | { type: "progress"; elapsed_ms?: number }
   /** “理解问题”阶段的非工具步骤（读取上下文、识别指标、模型分析）；同一 activity_id 覆盖更新，只在实时流中出现。 */
-  | { type: "activity"; activity_id: string; label: string; status: "running" | "done"; note?: string; conditions?: { label: string; value: string }[] }
+  | { type: "activity"; activity_id: string; label: string; status: "running" | "done" | "error" | "interrupted"; note?: string; conditions?: { label: string; value: string }[] }
   | {
       type: "run_terminal"
       run_status: string
       answer_status: string
       error_code?: string | null
+      retryable?: boolean
       /** 服务端已脱敏的失败原因摘要，error_code 为空时用于给出可读提示。 */
       error_message?: string | null
       business_tasks?: Array<{ task_id: string; status: string; result_id?: string | null; error_code?: string | null }>

@@ -10,6 +10,7 @@ import type { BackendNextClarification } from "@/types/api"
 const props = defineProps<{ modelValue: string; contextKey: string; placeholder?: string; isSubmitting?: boolean; disabled?: boolean; clarification?: BackendNextClarification; autoOpenClarificationId?: string }>()
 const emit = defineEmits<{ "update:modelValue": [value: string]; submit: [text: string, entities: ComposerEntity[]]; stop: [] }>()
 const input = ref<HTMLTextAreaElement | null>(null)
+defineExpose({ focus: () => input.value?.focus() })
 const searchInput = ref<HTMLInputElement | null>(null)
 const kind = ref<ComposerEntity["kind"] | null>(null)
 const mentions = ref<ComposerMention[]>([])

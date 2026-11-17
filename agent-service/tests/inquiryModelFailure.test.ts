@@ -10,7 +10,7 @@ import {loadConfig} from "../src/config.js";
 import {HarnessHost} from "../src/harnessHost.js";
 import {NativeSessionStore} from "../src/nativeSessions.js";
 import type {AskMetricRequestContext} from "../src/requestContext.js";
-import {projectEntries} from "../src/sessionProjection.js";
+import {projectEntries, projectWatchEvent, type ProjectedEvent} from "../src/sessionProjection.js";
 import {createPartialAnalysisTool, PARTIAL_ANALYSIS} from "../src/tools/partialAnalysis.js";
 import {createConversationReplyTool} from "../src/tools/turnContract.js";
 import {TEST_ACTOR} from "../src/tools/testUtils.js";
@@ -20,7 +20,7 @@ const model: Model<"openai-completions"> = {id: "isolated", name: "isolated", ap
   contextWindow: 128000, maxTokens: 1000, cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}};
 const confirmed = "2026-07-31甲行存款余额12元。";
 type Scenario = "fresh" | "mixed" | "no-source" | "historical" | "cancelled" | "reference-error"
-  | "denied" | "unauthenticated" | "unavailable" | "retry-exhausted";
+  | "denied" | "unauthenticated" | "unavailable" | "retry-exhausted" | "rate-limited" | "quota";
 
 // 真实宿主、原生错误事件和既有部分交付工具；只隔离模型服务与业务 HTTP。
 async function runScenario(scenario: Scenario) {
@@ -34,7 +34,7 @@ async function runScenario(scenario: Scenario) {
   const payloads: Record<string, unknown>[] = [];
   const stream: ProviderStreams["streamSimple"] = (_model, context, options) => {
     if (++modelCalls > 3) throw new Error("UNEXPECTED_RECOVERY_LOOP");
-    const query = modelCalls === 1 && scenario !== "no-source";
+    const query = modelCalls === 1 && !["no-source", "rate-limited", "quota"].includes(scenario);
     const report = scenario === "reference-error" && modelCalls === 2;
     const failed = !query && !report;
     const message: AssistantMessage = {role: "assistant",
@@ -43,7 +43,9 @@ async function runScenario(scenario: Scenario) {
           : [{type: "text", text: "未核验的模型草稿987654元。"}],
       api: model.api, provider: model.provider, model: model.id, timestamp: Date.now(),
       stopReason: failed ? scenario === "cancelled" ? "aborted" : "error" : "toolUse",
-      ...(failed ? {errorMessage: scenario === "retry-exhausted" ? "503 service unavailable" : "upstream unavailable"} : {}),
+      ...(failed ? {errorMessage: scenario === "retry-exhausted" ? "503 service unavailable"
+        : scenario === "rate-limited" ? "429 rate_limit_exceeded QPM"
+          : scenario === "quota" ? "429 insufficient_quota" : "upstream unavailable"} : {}),
       usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
         cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0}}};
     const events = createAssistantMessageEventStream();
@@ -94,26 +96,46 @@ async function runScenario(scenario: Scenario) {
   });
   const config = loadConfig({AGENT_MODEL_API_KEY: "unused", AGENT_MODEL_BASE_URL: model.baseUrl,
     AGENT_MODEL_NAME: model.id, AGENT_DATA_DIR: directory, AGENT_COMPACTION_ENABLED: "false",
-    AGENT_MODEL_RETRY_ENABLED: scenario === "retry-exhausted" ? "true" : "false",
+    AGENT_MODEL_RETRY_ENABLED: ["retry-exhausted", "rate-limited", "quota"].includes(scenario) ? "true" : "false",
     AGENT_MODEL_MAX_RETRIES: "1", AGENT_MODEL_RETRY_BASE_DELAY_MS: "1"});
   const host = new HarnessHost(config, () => ({models, model}), store, tools);
   try {
     const session = await host.createSession(TEST_ACTOR);
+    const activities: ProjectedEvent[] = [];
+    const watch = await host.watch(session);
+    watch.start(event => {const projected = projectWatchEvent(event); if (projected?.type === "activity") activities.push(projected);});
     const pending = host.runPrompt(session, {protocol_version: 3, request_id: scenario, message: "看看存款情况和原因"},
       {actor: TEST_ACTOR, backend: {analysisReport} as unknown as BackendClient});
     if (scenario === "cancelled") {await modelWaiting; await host.abort(session, operationId);}
     const result = await pending;
+    watch.unsubscribe();
     expect(await host.isRunning(session.sessionId)).toBe(false);
     const entries = await session.lane.findEntries({type: "message", order: "oldestFirst"}, BACKGROUND_CONTEXT);
     const receipts = entries.flatMap(entry => entry.type === "message" && entry.message.role === "toolResult" ? [entry.message] : []);
     const answers = projectEntries(entries).filter(message => message.role === "assistant").map(message => message.text).join("\n");
     expect(answers).not.toMatch(/987654|O_SECRET|internal upstream/);
     for (const payload of payloads) expect(JSON.stringify(payload.tools)).not.toContain(PARTIAL_ANALYSIS);
-    return {result, modelCalls, queryCalls, reports: analysisReport.mock.calls, receipts, answers};
+    return {result, modelCalls, queryCalls, reports: analysisReport.mock.calls, receipts, answers, activities};
   } finally {await host.close(); await store.close(); log.mockRestore(); await rm(directory, {recursive: true, force: true});}
 }
 
 describe("问数中途模型异常的有界交付", () => {
+  it.each(["rate-limited", "quota"] as const)("%s真实宿主按预算重试，额度故障立即收尾", async scenario => {
+    const result = await runScenario(scenario);
+    expect(result.modelCalls).toBe(scenario === "rate-limited" ? 2 : 1);
+    expect(result.queryCalls).toBe(0);
+    expect(result.reports).toHaveLength(0);
+    expect(result.result).toMatchObject({ok: true, outcome: {kind: "settled", outcome: {status: "failed"}}});
+    expect(result.answers).toContain(scenario === "rate-limited" ? "请求较多" : "额度");
+    if (scenario === "rate-limited") {
+      expect(result.activities).toHaveLength(3);
+      expect(result.activities[0]).toMatchObject({status: "running"});
+      expect(result.activities[0]).toHaveProperty("note", expect.stringContaining("自动进行第 1 次重试"));
+      expect(result.activities[1]).toMatchObject({status: "running"});
+      expect(result.activities[1]).toHaveProperty("note", expect.stringContaining("正在进行第 1 次重试"));
+      expect(result.activities[2]).toMatchObject({status: "error"});
+    } else expect(result.activities).toHaveLength(0);
+  });
   it.each(["fresh", "mixed", "retry-exhausted"] as const)("%s只重验本轮新查询，交付事实并明确分析未完成", async scenario => {
     const result = await runScenario(scenario);
     expect(result.modelCalls).toBe(scenario === "retry-exhausted" ? 3 : 2);
