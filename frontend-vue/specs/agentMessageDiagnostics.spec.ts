@@ -91,6 +91,28 @@ describe("执行过程展示", () => {
     expect(html.match(/<li class="relative py-1">/g)).toHaveLength(2)
     expect(tools[0]?.status).toBe("error")
   })
+
+  it.each([true, false])("后续查询确实取到数据时在异常步骤交代进展（执行中 %s）", async (pending) => {
+    const evidence = { kind: "analysis_evidence", status: "succeeded", row_count: 60 }
+    const query = (details: object, tool = "metric_query", status = "done") =>
+      ({ tool, status, summary: toolCallSummary(details, status === "error") })
+    const before = [query({ ...evidence, result_reused: true }),
+      query({ kind: "inquiry_query_error", status: "error" }, "metric_query", "error")]
+    const render = (after: typeof before) => renderToString(createSSRApp(diagnostics, {
+      question: "净利润排名前五的机构", taskIds: [], pending, tools: [...before, ...after],
+    }))
+    const html = await render([query(evidence),
+      query({ kind: "business_report", status: "succeeded" }, "analysis_answer")])
+    expect(html).toContain("这一步没有返回结果，后续查询已取得数据")
+    expect(html).toContain("已取得 60 条数据")
+    for (const after of [[], [query({ ...evidence, row_count: 0 })], [query(evidence, "analysis_read")],
+      [query({ ...evidence, result_reused: true })], [query(evidence, "metric_query", "running")],
+      [query(evidence, "metric_query", "error")]]) {
+      const unconfirmed = await render(after)
+      expect(unconfirmed).toContain("这一步没有返回结果")
+      expect(unconfirmed).not.toContain("后续查询已取得数据")
+    }
+  })
 })
 
 

@@ -4,6 +4,8 @@ export type ToolCallSummary = {
   note?: string
   /** 部分历史回执未同步传输失败标记，按已知回执状态恢复展示。 */
   failed?: boolean
+  /** 用于同一条消息内关联后续取数进展；读取历史结果不计入新取数。 */
+  queryOutcome?: "returned_data" | "unspecified_error"
   /** 目录状态用于合并进度，不从展示文案或累计候选快照反推结果。 */
   catalogSearch?: CatalogSearchSummary
 }
@@ -68,6 +70,25 @@ const toolLabels: Record<string, string> = {
 const issueFieldLabels: Record<string, string> = { metrics: "指标", organizations: "机构", time: "日期" }
 
 const metricResultKinds = new Set(["metric_ask", "metric_query_structured", "metric_read"])
+
+const queryFailureNotes = new Map([
+  ["ANALYSIS_BINDING_INVALID", "指标选择需调整，本次未执行"],
+  ["INQUIRY_TARGET_REQUIRED", "这一步尚未确定要查询的对象"],
+  ["INQUIRY_TARGET_INCOMPLETE", "补充查询需要等主问题的数据查完"],
+  ["INQUIRY_TARGET_INVALID", "这一步的查询条件还需核对"],
+  ["INQUIRY_TARGET_STALE", "这一步沿用的查询条件还需核对"],
+  ["INQUIRY_TARGET_CHANGED", "这一步的查询条件与已确定的条件不一致"],
+  ["ANALYSIS_SCOPE_INVALID", "这一步尚未确定要查询的机构"],
+  ["ANALYSIS_SCOPE_UNRESOLVED", "这一步尚未确定要查询的机构"],
+  ["INQUIRY_TARGET_SCOPE_CHANGED", "这一步的机构与已确定的查询范围不一致"],
+  ["ANALYSIS_DATE_UNRESOLVED", "这一步尚未确定统计日期"],
+  ["ANALYSIS_RANGE_LIMIT", "这一步的统计期间超出了单次查询范围"],
+  ["ANALYSIS_DATE_AMBIGUOUS", "这一步尚未确定统计日期"],
+  ["ANALYSIS_DATE_GROUPS_REQUIRED", "这一步需要按各项数据的统计期间分别查询"],
+  ["INQUIRY_TARGET_METHOD_REQUIRED", "这一步需要按机构排名查询"],
+  ["INQUIRY_FORBIDDEN", "当前账号无权查询这项数据"],
+  ["BACKEND_UNAVAILABLE", "查询服务暂时不可用"],
+])
 
 const calculationFailureNotes = new Map([
   ["ANALYSIS_CALCULATION_SOURCE", "指标口径或数据来源不符合计算要求"],
@@ -278,15 +299,18 @@ function resultNote(details: Details) {
   return "查询未成功"
 }
 
-function analysisResultNote(details: Details) {
+function analysisRowCount(details: Details) {
+  const rows = details.kind === "analysis_evidence" ? details.rows : details.table_rows
+  return typeof details.row_count === "number" && Number.isInteger(details.row_count) && details.row_count >= 0
+    ? details.row_count : Array.isArray(rows) ? rows.length : undefined
+}
+
+function analysisResultNote(details: Details, count: number | undefined) {
   if (details.kind === "business_report") {
     if (details.status !== "succeeded") return "回答尚未生成"
     return details.partial_analysis === true ? "已生成部分结果说明" : "回答与数据明细已生成"
   }
   if (details.status !== "succeeded") return "查询未完成"
-  const rows = details.kind === "analysis_evidence" ? details.rows : details.table_rows
-  const count = typeof details.row_count === "number" && Number.isInteger(details.row_count) && details.row_count >= 0
-    ? details.row_count : Array.isArray(rows) ? rows.length : undefined
   const reused = details.result_reused === true
   if (count === 0 && details.complete === false && (details.topic_execution as { completed?: unknown } | undefined)?.completed !== true) return "本次未取得可用数据，部分查询尚未完成"
   let note = reused ? "已读取已有查询结果" : "查询完成"
@@ -329,11 +353,16 @@ export function toolCallSummary(details: unknown, isError = false): ToolCallSumm
   const kind = typeof value.kind === "string" ? value.kind : ""
   let conditions: ToolCallSummary["conditions"] = conditionsOf(value)
   let note: string | undefined
+  let queryOutcome: ToolCallSummary["queryOutcome"]
   let catalogSearch: CatalogSearchSummary | undefined
   if (metricResultKinds.has(kind)) note = resultNote(value)
   else if (["business_overview", "business_report", "analysis_evidence"].includes(kind)) {
     conditions = queryConditions(value)
-    note = analysisResultNote(value)
+    const count = analysisRowCount(value)
+    note = analysisResultNote(value, count)
+    if (kind === "analysis_evidence" && value.status === "succeeded" && !isError
+      && value.result_reused !== true && value.reused !== true && count !== undefined && count > 0)
+      queryOutcome = "returned_data"
     if (kind === "business_report" && value.status === "succeeded" && value.partial_analysis === true) {
       // 报告 gaps 已经由服务端转换为可见业务说明，与正式正文使用相同来源。
       const gaps = stringsOf(value.gaps)
@@ -341,8 +370,13 @@ export function toolCallSummary(details: unknown, isError = false): ToolCallSumm
     }
   }
   else if (kind === "semantic_results") note = batchResultNote(value)
-  else if (kind === "inquiry_query_error") note = value.code === "ANALYSIS_BINDING_INVALID"
-    ? "指标选择需调整，本次未执行" : "本次查询未完成"
+  else if (kind === "inquiry_query_error") {
+    note = typeof value.code === "string" ? queryFailureNotes.get(value.code) : undefined
+    if (!note) {
+      note = "这一步没有返回结果"
+      queryOutcome = "unspecified_error"
+    }
+  }
   else if (kind === "inquiry_query_reuse") note = value.status === "succeeded" ? "已读取已有查询结果" : "结果读取未完成"
   else if (kind === "analysis_catalog") {
     if (value.status === "succeeded" && !isError) {
@@ -375,5 +409,6 @@ export function toolCallSummary(details: unknown, isError = false): ToolCallSumm
     || (Boolean(note) && typeof value.status === "string" && ["error", "failed", "ARGUMENT_ERROR"].includes(value.status))
   return conditions || note ? { ...(conditions ? { conditions } : {}), ...(note ? { note } : {}),
     ...(catalogSearch ? { catalogSearch } : {}),
+    ...(queryOutcome ? { queryOutcome } : {}),
     ...(failed ? { failed: true } : {}) } : undefined
 }

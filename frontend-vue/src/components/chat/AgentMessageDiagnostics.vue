@@ -42,6 +42,15 @@ const allSteps = computed(() => [
   ...props.tools,
 ])
 const finishedSteps = computed(() => groupCatalogSteps(allSteps.value).filter(call => call.status !== "running"))
+const lastQueryWithData = computed(() => finishedSteps.value
+  .map(call => call.tool === "metric_query" && call.status === "done" && call.summary?.queryOutcome === "returned_data")
+  .lastIndexOf(true))
+function stepNote(call: ToolCallStep, index: number) {
+  const summary = call.summary
+  if (call.tool === "metric_query" && call.status === "error" && summary?.queryOutcome === "unspecified_error"
+    && index < lastQueryWithData.value) return `${summary.note}，后续查询已取得数据`
+  return summary?.note
+}
 const hasDetails = computed(() => !props.pending || finishedSteps.value.length > 0)
 const stepsId = useId()
 const statusLabels: Record<string, string> = {
@@ -203,7 +212,7 @@ function toggle(next: "timing" | "debug") { mode.value = mode.value === next ? n
             <span>{{ call.label ?? toolCallLabel(call.tool) }}</span>
             <span v-if="call.count">（累计 {{ call.count }} 次）</span>
             <span v-if="!call.summary?.note" :class="call.status === 'done' ? 'sr-only' : ''">{{ statusLabels[call.status] ?? '状态未知' }}</span>
-            <span v-if="call.summary?.note">· {{ call.summary.note }}</span>
+            <span v-if="call.summary?.note">· {{ stepNote(call, index) }}</span>
             <span v-if="call.elapsedMs !== undefined" class="text-muted-foreground/60 tabular-nums">· {{ call.count ? '累计耗时 ' : '' }}{{ call.elapsedMs >= 1000 ? (call.elapsedMs / 1000).toFixed(1) + ' 秒' : call.elapsedMs + ' 毫秒' }}</span>
           </div>
           <ul v-if="call.summary?.conditions?.length" class="mt-1 flex list-none flex-wrap gap-1.5" aria-label="查询条件">

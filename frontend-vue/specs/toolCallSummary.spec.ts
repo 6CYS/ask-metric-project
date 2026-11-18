@@ -20,11 +20,27 @@ describe("工具回执进度摘要", () => {
     }
   })
 
-  it("其他查询异常不误报指标问题，也不暴露内部错误内容", () => {
-    for (const code of ["INQUIRY_FORBIDDEN", "BACKEND_UNAVAILABLE", "UNKNOWN_ERROR", undefined]) {
+  it.each([
+    ["INQUIRY_TARGET_REQUIRED", "这一步尚未确定要查询的对象"],
+    ["INQUIRY_TARGET_INCOMPLETE", "补充查询需要等主问题的数据查完"],
+    ["ANALYSIS_SCOPE_UNRESOLVED", "这一步尚未确定要查询的机构"],
+    ["INQUIRY_TARGET_SCOPE_CHANGED", "这一步的机构与已确定的查询范围不一致"],
+    ["ANALYSIS_DATE_UNRESOLVED", "这一步尚未确定统计日期"],
+    ["ANALYSIS_RANGE_LIMIT", "这一步的统计期间超出了单次查询范围"],
+    ["ANALYSIS_DATE_GROUPS_REQUIRED", "这一步需要按各项数据的统计期间分别查询"],
+    ["INQUIRY_TARGET_METHOD_REQUIRED", "这一步需要按机构排名查询"],
+    ["INQUIRY_FORBIDDEN", "当前账号无权查询这项数据"],
+    ["BACKEND_UNAVAILABLE", "查询服务暂时不可用"],
+  ])("按查询回执 %s 说明具体原因", (code, note) => {
+    expect(toolCallSummary({ kind: "inquiry_query_error", status: "error", code }))
+      .toMatchObject({ note, failed: true })
+  })
+
+  it("原因未知时只说明当前步骤，也不暴露内部错误内容", () => {
+    for (const code of ["INQUIRY_QUERY_FAILED", "UNKNOWN_ERROR", undefined]) {
       expect(toolCallSummary({ kind: "inquiry_query_error", status: "error", code,
         message: "内部 SQL 与连接信息" }, true))
-        .toEqual({ note: "本次查询未完成", failed: true })
+        .toMatchObject({ note: "这一步没有返回结果", failed: true })
     }
     expect(toolCallSummary(undefined, true)).toEqual({ note: "执行失败" })
   })
@@ -144,7 +160,7 @@ describe("工具回执进度摘要", () => {
       org_names: ["江苏农商联合银行（全省汇总）"], actual_dates: ["2026-07-31"],
       requested_date: "2026-10-30", analysis_date: "2026-07-31",
       plan: { objective: "我行机构保证金存款利息支出金额较上月是多少", steps: [{ method: "observe" }] } }
-    expect(toolCallSummary(details)).toEqual({ note: "已取得 1 条数据", conditions: [
+    expect(toolCallSummary(details)).toEqual({ note: "已取得 1 条数据", queryOutcome: "returned_data", conditions: [
       { label: "指标", value: "保证金存款利息支出金额较上月" },
       { label: "机构", value: "江苏农商联合银行（全省汇总）" },
       { label: "数据日期", value: "2026-07-31" },
