@@ -25,7 +25,7 @@ import {
   type ComponentPublicInstance,
 } from "vue"
 
-import { formatResultCellValue } from "@/lib/resultColumns"
+import { formatResultCellValue, resultValuePresentation } from "@/lib/resultColumns"
 import type { ResultView, VisualizationDecision } from "@/lib/resultVisualization"
 import {
   businessChartOption,
@@ -159,10 +159,9 @@ const chartOption = computed<EChartsCoreOption | null>(() => {
         { dataIndex?: number; axisValueLabel?: string; value?: unknown } | undefined
       const point = typeof item?.dataIndex === "number" ? points[item.dataIndex] : undefined
       const value = point?.value ?? item?.value
-      const formatted =
-        formatResultCellValue(value, valueField, point?.row ?? {}) ??
-        new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(Number(value))
-      return `<div style="min-width:120px"><div style="margin-bottom:6px;color:#71717a">${escapeHtml(categoryLabel)}：${escapeHtml(point?.label ?? item?.axisValueLabel ?? "-")}</div><div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#64748b;margin-right:7px"></span>${escapeHtml(valueLabel)}：<strong>${escapeHtml(formatted)}${unit ? ` ${escapeHtml(unit)}` : ""}</strong></div></div>`
+      const formatted = formatResultCellValue(value, valueField, point?.row ?? {})
+        ?? new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(Number(value))
+      return `<div style="min-width:120px"><div style="margin-bottom:6px;color:#71717a">${escapeHtml(categoryLabel)}：${escapeHtml(point?.label ?? item?.axisValueLabel ?? "-")}</div><div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#64748b;margin-right:7px"></span>${escapeHtml(valueLabel)}：<strong>${escapeHtml(formatted)}${unit && !resultValuePresentation(point?.row ?? {}) ? ` ${escapeHtml(unit)}` : ""}</strong></div></div>`
     },
   }
   const series = {

@@ -1156,7 +1156,7 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
     label: "检索业务指标",
     parameters: searchParameters,
     description:
-      "按业务目标检索正式指标，返回名称、定义、单位、可用方法与k引用。已有符合业务目标与口径的正式候选即可metric_query，无需翻完目录；exact仅表示名称、编码或别名匹配，不代表口径适用。同一对象存在不同业务口径且用户条件不足以区分时，使用已有候选澄清，不必穷尽目录；重复检索不会补全候选中缺失的定义。仅候选不足且has_more=true时继续分页，has_more=false时该关键词没有下一页；缺少其他目标指标时可另行检索。合理的完整替代表达合并到一次检索，不把同义词拼成一个关键词反复组合。没有新增候选或可核验目录线索时，简短说明本次未找到可回答的指标，不穷举换词或扩大页大小；不能据此断言整个目录不存在该指标。semantic_suggestions只有推荐含义，须再按名称或编码检索取得正式引用；semantic_retrieval.status=disabled表示未启用推荐，不是需要重试的故障。",
+      "按业务目标检索正式指标，返回名称、定义、原值口径、可用方法与k引用。已有符合业务目标与口径的正式候选即可metric_query，无需翻完目录；exact仅表示名称、编码或别名匹配，不代表口径适用。同一对象存在不同业务口径且用户条件不足以区分时，使用已有候选澄清，不必穷尽目录；重复检索不会补全候选中缺失的定义。仅候选不足且has_more=true时继续分页，has_more=false时该关键词没有下一页；缺少其他目标指标时可另行检索。合理的完整替代表达合并到一次检索，不把同义词拼成一个关键词反复组合。没有新增候选或可核验目录线索时，简短说明本次未找到可回答的指标，不穷举换词或扩大页大小；不能据此断言整个目录不存在该指标。semantic_suggestions只有推荐含义，须再按名称或编码检索取得正式引用；semantic_retrieval.status=disabled表示未启用推荐，不是需要重试的故障。",
     execute: async (_id, input, _update, request, _invocation, context) => {
       context.abortSignal?.throwIfAborted();
       const messages = (await request.turnMessages?.()) ?? [];

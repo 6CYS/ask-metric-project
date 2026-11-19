@@ -325,7 +325,7 @@ class _DialectAdapter:
 
 
 class _MySqlAdapter(_DialectAdapter):
-    """mysql 方言：直接读 metric_values 视图，左连 metric_terms 取正式名称与单位。"""
+    """mysql 方言：直接读 metric_values 视图，左连 metric_terms 取正式名称。"""
 
     name = "mysql"
     read_dialect = "mysql"
@@ -353,7 +353,6 @@ class _MySqlAdapter(_DialectAdapter):
         return [
             "mv.metric_code",
             "COALESCE(mt.metric_name, mv.metric_name) AS metric_name",
-            "mt.unit",
             "mv.org_code",
             "mv.org_name",
             "mv.metric_value",
@@ -361,7 +360,7 @@ class _MySqlAdapter(_DialectAdapter):
         ]
 
     def _value_from(self) -> Select:
-        # 事实表左连目录表取正式名称与单位；目录缺失不丢行。
+        # 事实表左连目录表取正式名称；目录缺失不丢行。
         return (
             exp.select(*self._value_columns(), dialect=self.read_dialect)
             .from_("metric_values AS mv", dialect=self.read_dialect)
@@ -421,7 +420,6 @@ class _MySqlAdapter(_DialectAdapter):
             exp.select(
                 "ranked.metric_code",
                 "COALESCE(mt.metric_name, ranked.metric_name) AS metric_name",
-                "mt.unit",
                 "ranked.org_code",
                 "ranked.org_name",
                 "ranked.metric_value",
@@ -490,7 +488,7 @@ class _MySqlAdapter(_DialectAdapter):
             "FROM candidate_values AS mv"
         )
         query = exp.select(
-            "metric_code", "metric_name", "unit", "org_code", "org_name",
+            "metric_code", "metric_name", "org_code", "org_name",
             "metric_value", "stat_date", "`rank`", "rank_population", "rank_data_conflict",
             dialect=self.read_dialect,
         ).with_("candidate_values", as_=candidates)
@@ -557,7 +555,6 @@ class _MySqlAdapter(_DialectAdapter):
             exp.select(
                 "selected.metric_code",
                 "COALESCE(mt.metric_name, selected.metric_name) AS metric_name",
-                "mt.unit",
                 "selected.org_code",
                 "selected.org_name",
                 "selected.metric_value",

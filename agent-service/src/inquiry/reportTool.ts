@@ -20,6 +20,7 @@ import {
   findingDependencies,
 } from "../analysis/verifiedFindings.js";
 import {
+  presentReportCharts,
   reportChartHasNarrativeEvidence,
   reportChartSchema,
   type BusinessReportChart,
@@ -40,7 +41,7 @@ const parameters = Type.Object(
         // 旧正文传输边界保持兼容；模板附表另有独立预算。
         maxLength: 24000,
         description:
-          "自然回答原问题。精确数字使用{{e1.v1}}，最终显示该事实的数值和单位；机构、指标、日期按引用所属结果表述。{{e1.v1|cite}}只关联来源，不显示值，也不证明整句判断已经核验。可自然概括已有且口径确认的比例，不为措辞补查、计算或逐段重复引用；新增运算结果仍通过计算工具取得。先给业务结论，再用关键数据说明，不逐项抄表。缺数如实说明，口径未确认的比例暂不用于分析。",
+          "自然回答原问题。数值用受控引用：{{e1.v1|format=money}}金额（新查询原值默认元，正文统一转换为万元，最多2位），{{e1.v1|format=count|unit=户}}计数（支持个户人笔家张台次天），{{e1.v1|format=ranking}}名次，{{e1.v1|format=ratio}}比例，{{e1.v1|format=number}}其他或平均值。同指标格式一致；引用已含完整单位和口径说明，不再加元/%/第/名；不添加“约”，正文及补充说明都沿用万元，不另写亿元、万亿元等换算数值。比例由来源编码确定：percent最多2位，ratio原值不乘100最多4位，未知编码注明待确认且不加%；工具增幅按已确认百分数最多2位。旧数据库单位不使用，不能从大小猜源单位。格式化保留源精度，不代替业务计算。{{e1.v1|format=money|cite}}关联已写明且与确定展示一致的数值；优先占位符。机构、指标、日期按引用归属表述。先给结论，用关键数据说明；缺数如实说明，口径未确认的比例暂不用于分析。",
       }),
     ),
     report: Type.Optional(structuredReportSchema),
@@ -284,9 +285,12 @@ async function prepareInquiryReport(
     metric_code: string;
     date: string;
   }> = [];
+  const valueFormats: Array<{ref: string; kind: string; unit?: string}> = [];
   const summary = narrative.summary.replace(/\{\{([^{}]+)\}\}/gu, (_full, value: string) => {
-    const { ref, citation, binding } = parseNarrativeReference(value);
+    const { ref, citation, binding, format } = parseNarrativeReference(value);
     if (binding) factBindings.push({ ...binding, ref: rawRef(ref) });
+    if (format && !valueFormats.some(item => item.ref === rawRef(ref)
+      && item.kind === format.kind && item.unit === format.unit)) valueFormats.push({ref: rawRef(ref), ...format});
     return `{{${rawRef(ref)}${citation ? "|cite" : ""}}}`;
   });
   const availability = preview
@@ -360,6 +364,7 @@ async function prepareInquiryReport(
     focus_refs: reuseOnly ? focusRefs : fallbackFocus,
     summary,
     fact_bindings: factBindings,
+    ...(valueFormats.length ? {value_formats: valueFormats} : {}),
     sections: narrative.sections,
     ...(selectedCalculations.length
       ? {
@@ -514,7 +519,7 @@ export function createInquiryReportPreview() {
             signal,
             reportPlan,
           );
-          result = { text, charts: layoutReportCharts(generated.charts, report, true) };
+          result = { text, charts: layoutReportCharts(presentReportCharts(generated.charts, details.value_presentations), report, true) };
         } else if (previous?.bodyEvidence) {
           // 映射中途不可用时明确撤下旧图，避免旧图继续附着于无法定位的新正文。
           result = { text, charts: [] };
@@ -689,7 +694,7 @@ export async function executeInquiryReport(
     const finalReport = details.report as Record<string, unknown>;
     details = {
       ...details,
-      report: { ...finalReport, charts: layoutReportCharts(charts, finalReport, automaticCharts) },
+      report: { ...finalReport, charts: layoutReportCharts(presentReportCharts(charts, details.value_presentations), finalReport, automaticCharts) },
     };
     return {
       content: [{ type: "text" as const, text: details.public_answer as string }],

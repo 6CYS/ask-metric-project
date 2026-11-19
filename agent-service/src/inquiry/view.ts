@@ -24,6 +24,7 @@ export interface InquiryMetadataBlocker {
 }
 
 function metadataReason(atom: Row, metric: Row): InquiryMetadataBlocker["reason"] | undefined {
+  if (atom.value_policy === "source_raw_v1" || metric.value_policy === "source_raw_v1") return undefined;
   const unit = text(atom.unit) || text(metric.unit), encoding = atom.value_encoding ?? metric.value_encoding;
   return !unit ? "unknown_unit" : unit === "%" && !["ratio", "percent"].includes(text(encoding))
     ? "unknown_percentage_encoding" : undefined;
@@ -113,7 +114,7 @@ export function inquiryEvidenceView(evidence: Row, evidenceRef: string): object 
     const role = atom.comparison_role ?? hint.comparison_role;
     const header = {metric_code: metricCode, metric_name: text(atom.metric_name) || text(metric.name), date, unit,
       ...pick(metric, ["source_metric_code", "base_name", "description", "explanation", "quantity_kind", "frequency",
-        "semantic_source", "semantic_status", "limitations"]),
+        "semantic_source", "semantic_status", "limitations", "value_policy", "source_value_encoding"]),
       ...(basis !== undefined ? {basis} : {}), ...(role !== undefined ? {comparison_role: role} : {}),
       ...(encoding !== undefined ? {value_encoding: encoding} : {})};
     const key = JSON.stringify([metricCode, date, unit, basis, role]), reason = unavailable.get(ref);

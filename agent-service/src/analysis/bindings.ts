@@ -96,13 +96,13 @@ export function catalogBindingView(request: AskMetricRequestContext, value: unkn
     const suggestion = "match_type" in item && item.match_type === "semantic";
     const descriptor = !suggestion && "binding_ref" in item && typeof item.binding_ref === "string" && !!item.binding_ref.trim();
     if (descriptor && "code" in item && typeof item.code === "string" && typeof item.binding_ref === "string")
-      registry!.set(`code:${item.code}`, item.binding_ref);
-    const modelKeys = new Set(["binding_ref", "code", "name", "unit", "aliases", "description", "explanation", "value_encoding", "frequency", "quantity_kind", "business_direction", "methods", "match_type", "semantic_source", "semantic_status", "limitations", "analysis_hint", "value_basis", "base_name", "source_metric_code"]);
+      registry.set(`code:${item.code}`, item.binding_ref);
+    const modelKeys = new Set(["binding_ref", "code", "name", "unit", "aliases", "description", "explanation", "value_encoding", "value_policy", "source_value_encoding", "frequency", "quantity_kind", "business_direction", "methods", "match_type", "semantic_source", "semantic_status", "limitations", "analysis_hint", "value_basis", "base_name", "source_metric_code"]);
     const output = Object.fromEntries(Object.entries(item).filter(([key, field]) =>
-      (key !== "binding_ref" || descriptor) && (!descriptor || modelKeys.has(key) && field != null)).map(([key, field]) => {
+      (key !== "binding_ref" || descriptor) && (!descriptor || modelKeys.has(key) && field !== null && field !== undefined)).map(([key, field]) => {
       if (key !== "binding_ref" || typeof field !== "string") return [key, visit(field)];
-      let alias = [...registry!.entries()].find(([key, signed]) => /^k\d+$/.test(key) && signed === field)?.[0];
-      if (!alias) {alias = `k${[...registry!.keys()].filter(key => /^k\d+$/.test(key)).length + 1}`; registry!.set(alias, field);}
+      let alias = [...registry.entries()].find(([key, signed]) => /^k\d+$/.test(key) && signed === field)?.[0];
+      if (!alias) {alias = `k${[...registry.keys()].filter(key => /^k\d+$/.test(key)).length + 1}`; registry.set(alias, field);}
       return [key, alias];
     }));
     if (descriptor && typeof output.code === "string" && typeof output.name === "string") {

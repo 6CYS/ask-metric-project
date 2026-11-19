@@ -12,7 +12,7 @@ def display_value(
     money_unit: str | None = None,
 ) -> str:
     if item.get("value_policy") == "source_raw_v1":
-        return f"{item['value']}（原始值，单位未提供）"
+        return str(item["value"])
     value = item.get("reply_value", item.get("display_value", item.get("value")))
     unit = item.get("reply_unit", item.get("unit", ""))
     with localcontext() as context:

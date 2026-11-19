@@ -624,7 +624,7 @@ def _as_date(value: Any) -> date | None:
 
 
 def _metric_state(term: MetricTerm) -> tuple[Any, ...]:
-    return (term.metric_name, term.enabled, term.unit, term.source_metric_code,
+    return (term.metric_name, term.enabled, term.source_metric_code,
             term.base_name, term.value_basis)
 
 

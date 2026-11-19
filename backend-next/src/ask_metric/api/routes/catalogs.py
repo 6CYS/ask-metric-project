@@ -60,7 +60,10 @@ class MetricPayload(BaseModel):
     metric_name: str = Field(min_length=1, max_length=300)
     metric_explanation: str = ""
     description: str = ""
-    unit: str | None = Field(default=None, max_length=64)
+    unit: str | None = Field(
+        default=None, max_length=64, deprecated=True,
+        description="兼容旧客户端接收，不再读取或写入指标单位；新查询由模型按指标名称表达单位。",
+    )
     synonyms: list[str] = Field(default_factory=list)
     enabled: bool = True
 
@@ -123,12 +126,14 @@ def catalog_overview(
                 select(func.count()).select_from(MetricTerm).where(MetricTerm.enabled.is_(True))
             ) or 0
             codes = list(dict.fromkeys(settings.catalog_overview_metric_codes))
-            terms = uow.session.scalars(select(MetricTerm).where(
+            terms = uow.session.execute(select(
+                MetricTerm.metric_code, MetricTerm.metric_name,
+            ).where(
                 MetricTerm.enabled.is_(True), MetricTerm.metric_code.in_(codes)
             )).all() if codes else []
             by_code = {term.metric_code: term for term in terms}
             examples = [
-                {"name": by_code[code].metric_name, "unit": by_code[code].unit}
+                {"name": by_code[code].metric_name, "unit": None}
                 for code in codes if code in by_code
             ][:limit]
         else:
@@ -182,7 +187,7 @@ def list_metrics(
                 "metric_name": item.metric_name,
                 "metric_explanation": item.metric_explanation,
                 "description": item.description,
-                "unit": item.unit,
+                "unit": None,
                 "synonyms": aliases.get(item.metric_code, []),
                 "enabled": item.enabled,
             }
@@ -296,7 +301,7 @@ def _metric_response(term: MetricTerm, synonyms: list[str]) -> dict[str, object]
         "metric_name": term.metric_name,
         "metric_explanation": term.metric_explanation,
         "description": term.description,
-        "unit": term.unit,
+        "unit": None,
         "synonyms": synonyms,
         "enabled": term.enabled,
     }
@@ -320,7 +325,6 @@ def create_metric(
             metric_name=payload.metric_name,
             metric_explanation=payload.metric_explanation,
             description=payload.description,
-            unit=payload.unit,
             enabled=payload.enabled,
         )
         uow.session.add(term)
@@ -349,7 +353,6 @@ def update_metric(
         term.metric_name = payload.metric_name
         term.metric_explanation = payload.metric_explanation
         term.description = payload.description
-        term.unit = payload.unit
         term.enabled = payload.enabled
         uow.session.execute(delete(MetricSynonym).where(MetricSynonym.metric_code == metric_code))
         for value in synonyms:

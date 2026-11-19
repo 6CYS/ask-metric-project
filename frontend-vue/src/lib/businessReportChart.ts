@@ -121,6 +121,8 @@ export function businessReportDimensions(chart: BusinessReportChart): {
 }
 
 function valueScale(unit: string, values: string[]) {
+  // 新正文固定万元，历史原始金额图继续沿用原有缩放。
+  if (unit === "万元") return { unit, factor: 1 }
   const powers = new Map([
     ["元", 1],
     ["万元", 10000],
@@ -144,7 +146,11 @@ function valueAxis(unit: string) {
     name: unit,
     nameTextStyle: { fontSize: 12, color: businessChartTextColor },
     nameGap: 16,
-    axisLabel: { fontSize: 12, color: businessChartTextColor, margin: 12 },
+    axisLabel: { fontSize: 12, color: businessChartTextColor, margin: 12,
+      formatter: (value: number) => new Intl.NumberFormat("zh-CN", {
+        maximumFractionDigits: unit === "比值" || unit === "原值" ? 4 : 2,
+      }).format(value) },
+    ...(["名", "个", "户", "人", "笔", "家", "张", "台", "次", "天"].includes(unit) ? { minInterval: 1 } : {}),
     axisLine: { show: false },
     axisTick: { show: false },
     splitLine: { lineStyle: { color: businessChartGridColor } },

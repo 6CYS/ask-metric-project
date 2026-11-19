@@ -180,7 +180,8 @@ function tableBuilder(plan: SelectedReportPlan, sources: ReportSource[]) {
           const { atom, metric: descriptor } = entries[0]!;
           const unit = text(atom.unit) || text(descriptor.unit),
             encoding = atom.value_encoding ?? descriptor.value_encoding;
-          if (!unit || (unit === "%" && !["ratio", "percent"].includes(text(encoding))))
+          const raw = atom.value_policy === "source_raw_v1" || descriptor.value_policy === "source_raw_v1";
+          if (!raw && (!unit || (unit === "%" && !["ratio", "percent"].includes(text(encoding)))))
             return "口径待确认";
           if (atom.value === null || atom.value === undefined || atom.value === "") return "未取得";
           factCells += 1;

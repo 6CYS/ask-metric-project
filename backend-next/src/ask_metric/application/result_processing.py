@@ -11,6 +11,9 @@ def process_query_result(
     plan: QueryExecutionPlan,
     rows: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    # 新执行统一保留源数值，旧目录或 SQL 返回的单位不参与新结果；历史快照不经过此入口。
+    rows = [{**{key: value for key, value in row.items() if key != "unit"},
+             "value_policy": "source_raw_v1"} for row in rows]
     safe_rows = [json_safe(row) for row in rows]
     if plan.shape.value == "metric_period_compare":
         safe_rows = _process_period_compare(rows)
@@ -54,7 +57,8 @@ def _process_period_compare(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "metric_code": metric_code,
                     "metric_name": sample.get("metric_name"),
                     "unit": sample.get("unit"),
-                    **({"value_policy": sample["value_policy"]} if "value_policy" in sample else {}),
+                    **({"value_policy": sample["value_policy"]}
+                       if "value_policy" in sample else {}),
                     "org_name": org_name,
                     "current_date": current.get("stat_date") if current else None,
                     "current_value": current_value,

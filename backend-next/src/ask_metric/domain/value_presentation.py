@@ -30,7 +30,7 @@ def money_reply_fields(value: Decimal, unit: str | None) -> dict[str, str]:
 
 def display_number(value: str, metric: dict, *, difference: bool = False) -> str:
     if metric.get("value_policy") == "source_raw_v1":
-        return f"{value}（原始值，单位未提供）"
+        return value
     amount = Decimal(value)
     unit = metric.get("unit") or "（单位未提供）"
     money = money_reply_fields(amount, unit)

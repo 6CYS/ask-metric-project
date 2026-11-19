@@ -24,11 +24,12 @@ from ask_metric.application.data_availability import AvailabilityRequest, execut
 from ask_metric.application.ports import PermissionDeniedError
 from ask_metric.application.report_quantities import (
     QUANTITY_PATTERN,
-    matches_quantity,
+    matches_fact_quantity,
     parse_quantity,
 )
 from ask_metric.application.verified_findings import analysis_comparison
 from ask_metric.core.errors import ApplicationError
+from ask_metric.domain.value_formatting import ValueFormat, value_presentations
 
 # 宿主每轮最多调查16次；每次最多100指标、按32项分批，最多产生4个运行。
 # 此处容纳既有调查预算内的完整来源，不增加调查次数。
@@ -83,6 +84,7 @@ class AnalysisReportRequest(BaseModel):
     presentation: PresentationRequest | None = None
     fallback: bool = False
     preview: bool = False
+    value_formats: list[ValueFormat] = Field(default_factory=list, max_length=100)
 
 
 def _presentation_plan(
@@ -477,6 +479,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
         coverage_sources = sources
     atoms = {item["ref"]: item for source in sources for item in source["evidence_items"]}
     metrics = {item["code"]: item for source in sources for item in source["metric_descriptors"]}
+    presentations = value_presentations(sources, request.value_formats)
     unconfirmed_codes = {code for code, metric in metrics.items() if unconfirmed_ratio(metric)}
     expanded_refs(atoms)
     unconfirmed_refs = (
@@ -666,7 +669,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
                         atoms[ref] for ref in bound
                         if ref not in unconfirmed_refs
                         and atoms[ref]["type"] in {"fact", "calculation"}
-                        and matches_quantity(quantity[0], atoms[ref]["display"])
+                        and matches_fact_quantity(quantity[0], atoms[ref], presentations.get(ref))
                     ]
                     if not matching:
                         reject_number(quantity[0], unbound_table=not refs)
@@ -712,17 +715,18 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             if match[2]:
                 return ""
             atom = atoms[match[1]]
-            display = atom["display"]
+            display = presentations.get(match[1], {}).get("display", atom["display"])
+            negative_display = re.fullmatch(r"(约?)-(.+)", display)
             # 减量可用正幅度排版；余额等其他负值不能因此丢失自身符号。
             if (
-                display.startswith("-")
+                negative_display
                 and analysis_comparison(atom, metrics.get(atom.get("metric_code"), {}))
                 and re.search(
                     r"(?:减少|下降|降低|回落|降|减)\s*(?:了|约为|约|为)?\s*(?:\*\*|__)?\s*$",
                     value_text[: match.start()],
                 )
             ):
-                return display[1:]
+                return negative_display[1] + negative_display[2]
             return display
 
         # 仅整理同量纲的重复展示；名次、户数等与金额相邻不代表同一个值。
@@ -742,12 +746,15 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
                 ref, value = right_ref[1], left
             else:
                 return match[0]
-            literal, actual = parse_quantity(value), parse_quantity(atoms[ref]["display"])
+            literal = parse_quantity(value)
+            actual = parse_quantity(
+                presentations.get(ref, {}).get("display", atoms[ref]["display"])
+            )
             if literal and actual and literal.unit != actual.unit:
                 money_units = {"元", "万元", "亿元"}
                 if not {literal.unit, actual.unit} <= money_units:
                     return match[0]
-            if not matches_quantity(value, atoms[ref]["display"]):
+            if not matches_fact_quantity(value, atoms[ref], presentations.get(ref)):
                 reject_number(value)
             return first if left_ref else first + "{{" + ref + "|cite}}"
 
@@ -885,6 +892,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             "status": "succeeded",
             "preview_text": summary,
             "body_evidence": body_evidence,
+            **({"value_presentations": presentations} if presentations else {}),
         }
     # 原始子问题不会因最后一次补查缩小而消失；报告必须实际引用各子问题的证据。
     for rendered_section in sections:
@@ -983,7 +991,7 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
                 "sections": titles,
             }
         )
-    rows = report_rows(sources)
+    rows = report_rows(sources, presentations)
     metric_names = {code: item.name for code, item in semantics.items.items()}
     gaps = list(
         dict.fromkeys(
@@ -1175,5 +1183,6 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
             item for source in coverage_sources for item in source["requirement_dispositions"]
         ],
         "evidence_items": list(atoms.values()),
+        **({"value_presentations": presentations} if presentations else {}),
         "source_notice": first["source_notice"],
     }

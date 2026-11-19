@@ -455,13 +455,15 @@ def fact_narrative(
             "evidence_refs": list(dict.fromkeys(references)), "missing_count": len(missing)}
 
 
-def report_rows(sources: list[dict]) -> list[dict]:
+def report_rows(sources: list[dict], presentations: dict[str, dict] | None = None) -> list[dict]:
     """表格保留原展示文本，图表另取同一事实的原始值和单位，不解析带单位文案。"""
     values: dict[tuple, set[tuple[str, str | None, str | None, str | None]]] = {}
+    formatted: dict[tuple, list[dict]] = {}
     for source in sources:
         for atom in source["evidence_items"]:
             # 百分比原值还依赖 ratio/percent 编码；缺少编码时不向图表猜测换算。
-            if atom.get("type") != "fact" or (atom.get("value_policy") != "source_raw_v1"
+            if atom.get("type") != "fact" or (not (presentations and atom["ref"] in presentations)
+                and atom.get("value_policy") != "source_raw_v1"
                 and atom.get("unit") not in {
                 "元", "万元", "亿元", "户", "个", "家", "笔",
             }):
@@ -474,6 +476,8 @@ def report_rows(sources: list[dict]) -> list[dict]:
                 continue
             value_key = (atom.get("metric_name"), atom.get("org_name"),
                    atom.get("date"), atom.get("display"))
+            if presentations and atom["ref"] in presentations:
+                formatted.setdefault(value_key, []).append(presentations[atom["ref"]])
             values.setdefault(value_key, set()).add((
                 value, atom.get("unit"), atom.get("value_policy"), atom.get("metric_code"),
             ))
@@ -490,6 +494,9 @@ def report_rows(sources: list[dict]) -> list[dict]:
                 result.update(raw_value=raw_value, unit=unit)
                 if policy == "source_raw_v1":
                     result.update(value_policy=policy, metric_code=code)
+                displays = formatted.get((*row_key, row["metric_value"]), [])
+                if displays and all(item == displays[0] for item in displays):
+                    result["value_presentation"] = displays[0]
             rows[(*row_key, row["value_role"])] = result
     return list(rows.values())
 

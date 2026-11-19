@@ -38,6 +38,33 @@ export interface BusinessGroupedChart {
   series: Array<{name: string; points: Array<{value: string; display: string}>}>;
 }
 export type BusinessReportChart = BusinessPieChart | BusinessSeriesChart | BusinessGroupedChart;
+
+/** 来源和可比性核验后才应用展示；来源顺序与分组矩阵保持一致。 */
+export function presentReportCharts(charts: BusinessReportChart[], presentations: unknown): BusinessReportChart[] {
+  const formats = record(presentations);
+  return charts.map(chart => {
+    const refs = chart.type === "pie" ? chart.source_refs.slice(1) : chart.source_refs;
+    const values = refs.map(ref => record(formats[ref]));
+    const points = chart.type === "grouped_bar" ? chart.series.flatMap(series => series.points) : chart.points;
+    if (values.length !== points.length || !values.length || values.some(value =>
+      typeof value.value !== "string" || !numeric.test(value.value) || !Number.isFinite(Number(value.value))
+      || typeof value.display !== "string" || !value.display || !value.unit || value.unit !== values[0]?.unit)) return chart;
+    const formatted = <T extends {value: string; display: string}>(point: T, index: number): T => ({
+      ...point, value: String(values[index]!.value), display: String(values[index]!.display),
+    });
+    if (chart.type === "grouped_bar") {
+      let offset = 0;
+      return {...chart, unit: String(values[0]!.unit), series: chart.series.map(series => {
+        const updated = {...series, points: series.points.map((point, index) => formatted(point, offset + index))};
+        offset += series.points.length;
+        return updated;
+      })};
+    }
+    return chart.type === "pie"
+      ? {...chart, unit: String(values[0]!.unit), points: chart.points.map(formatted)}
+      : {...chart, unit: String(values[0]!.unit), points: chart.points.map(formatted)};
+  });
+}
 type Source = {ref: string; evidence: object};
 type Row = Record<string, unknown>;
 type Point = {ref: string; name: string; metric: string; org: string; orgName: string; date: string;

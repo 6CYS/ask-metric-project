@@ -105,10 +105,21 @@ function groupThousands(text: string) {
   return `${sign}${integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${fraction}`
 }
 
-/** 表格保持原单位与有效精度，仅去掉普通十进制小数末尾的零并加千分位，不转 Number。 */
-export function formatResultTableValue(value: unknown, column: string, _row: Record<string, unknown>) {
+/** 正文与图表使用的服务端展示；明细中的指标值独立读取原始数值。 */
+export function resultValuePresentation(row: Record<string, unknown>) {
+  const value = row.value_presentation
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const presentation = value as Record<string, unknown>
+  return typeof presentation.display === "string" && typeof presentation.value === "string"
+    && typeof presentation.unit === "string" ? presentation as { display: string; value: string; unit: string } : null
+}
+
+export function formatResultTableValue(value: unknown, column: string, row: Record<string, unknown>) {
   const normalized = normalizeResultColumn(column)
   if (!isResultValueColumn(normalized) && normalized !== "rank") return null
+  if (normalized === "metric_value" && (typeof row.raw_value === "string" || typeof row.raw_value === "number")) {
+    return String(row.raw_value)
+  }
   if (typeof value !== "string" && typeof value !== "number") return null
   const text = String(value)
   if (!/^[+-]?\d+\.\d+$/.test(text)) return groupThousands(text)
@@ -170,6 +181,8 @@ export function formatResultCellValue(
   column: string,
   row: Record<string, unknown>,
 ) {
+  const presentation = normalizeResultColumn(column) === "metric_value" ? resultValuePresentation(row) : null
+  if (presentation) return presentation.display
   const numeric = typeof value === "number" ? value : Number(value)
   if (!Number.isFinite(numeric)) return null
   const normalizedColumn = column.trim().replace(/`/g, "").toLowerCase()

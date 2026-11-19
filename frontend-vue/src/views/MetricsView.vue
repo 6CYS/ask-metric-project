@@ -97,7 +97,6 @@ const refreshingWorkspace = ref(false)
 const form = reactive({
   metricCode: "",
   metricName: "",
-  unit: "",
   metricExplanation: "",
   description: "",
   synonyms: "",
@@ -210,7 +209,6 @@ function openCreateDialog() {
   Object.assign(form, {
     metricCode: "",
     metricName: "",
-    unit: "",
     metricExplanation: "",
     description: "",
     synonyms: "",
@@ -226,7 +224,6 @@ function openEditDialog(metric: MetricItem) {
   Object.assign(form, {
     metricCode: metric.metric_code,
     metricName: metric.metric_name,
-    unit: metric.unit ?? "",
     metricExplanation: metric.metric_explanation,
     description: metric.description,
     synonyms: metric.synonyms.join("，"),
@@ -240,7 +237,6 @@ function buildPayload(enabled: boolean): MetricPayload {
   return {
     metric_code: form.metricCode.trim(),
     metric_name: form.metricName.trim(),
-    unit: form.unit.trim() || undefined,
     metric_explanation: form.metricExplanation.trim(),
     description: form.description.trim(),
     synonyms: [
@@ -280,7 +276,6 @@ async function toggleEnabled(metric: MetricItem) {
   const payload: MetricPayload = {
     metric_code: metric.metric_code,
     metric_name: metric.metric_name,
-    unit: metric.unit ?? undefined,
     metric_explanation: metric.metric_explanation,
     description: metric.description,
     synonyms: metric.synonyms,
@@ -530,7 +525,6 @@ onActivated(async () => {
           <div class="min-w-0 flex-1">
             <h2 class="break-words text-lg font-semibold">{{ selectedMetric.metric_name }}</h2>
             <div class="mt-2 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-              <span>原始单位：{{ selectedMetric.unit || "未维护" }}</span>
               <BaseBadge variant="secondary">{{
                 selectedMetric.enabled ? "已启用" : "已停用"
               }}</BaseBadge>
@@ -722,14 +716,6 @@ onActivated(async () => {
             required
             :disabled="resource.isMutating.value"
         /></label>
-        <label class="form-field"
-          >原始单位<input
-            v-model="form.unit"
-            class="form-control"
-            placeholder="例如：元、户、%"
-            :disabled="resource.isMutating.value"
-          /><span class="field-help">填写源数据单位；展示为万元、亿元时由系统换算。</span></label
-        >
         <label class="form-field"
           >同义词<input
             v-model="form.synonyms"

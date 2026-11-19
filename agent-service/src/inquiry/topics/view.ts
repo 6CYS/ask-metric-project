@@ -251,6 +251,8 @@ export function topicEvidenceView(
           unit: table.unit,
           basis: table.basis,
           value_encoding: table.value_encoding,
+          value_policy: table.value_policy,
+          source_value_encoding: table.source_value_encoding,
         },
       ]),
     ),

@@ -444,7 +444,7 @@ async function changePage(page: number) {
                     }}
                   </p>
                   <p class="my-3 text-xs leading-5 text-slate-500">
-                    按查询单位展示原始数值，未进行金额单位换算。
+                    展示已保存的原始数值，不进行单位换算。
                   </p>
                   <ListPagination
                     v-if="!result.truncated && result.row_count > result.limit"

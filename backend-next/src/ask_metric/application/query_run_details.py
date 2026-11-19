@@ -150,9 +150,12 @@ def _result_page(result: dict[str, Any], *, offset: int, limit: int) -> SavedQue
     rows = result.get("rows") or []
     page = rows[offset : offset + limit]
     end = offset + len(page)
+    # 原值策略属于内部证据契约，不作为 SQL 数据列展示；历史单位按原快照保留。
+    raw = bool(rows) and all(row.get("value_policy") == "source_raw_v1" for row in rows)
+    hidden = {"unit", "value_policy"} if raw else set()
     return SavedQueryRows(
-        columns=result.get("columns") or [],
-        rows=page,
+        columns=[column for column in result.get("columns", []) if column not in hidden],
+        rows=[{key: value for key, value in row.items() if key not in hidden} for row in page],
         row_count=result.get("row_count", len(rows)),
         truncated=result.get("truncated", False),
         offset=offset,

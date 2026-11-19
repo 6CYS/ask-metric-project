@@ -6,7 +6,7 @@ from threading import Lock
 from typing import Protocol, TypedDict
 
 from sqlalchemy import func, inspect, or_, select
-from sqlalchemy.orm import Session, undefer_group
+from sqlalchemy.orm import Session, defer, undefer_group
 from sqlalchemy.sql.elements import ColumnElement
 
 from ask_metric.application.org_aliases import derive_org_aliases
@@ -78,10 +78,12 @@ class SqlAlchemyMetricCatalogRepository:
 
     def list_disabled(self) -> list[MetricCatalogItem]:
         source_available = self._has_source_structure()
-        query = select(MetricTerm).where(MetricTerm.enabled.is_(False))
+        query = (select(MetricTerm).options(defer(MetricTerm.unit))
+                 .where(MetricTerm.enabled.is_(False)))
         if source_available:
             query = query.options(undefer_group("metric_source"))
-        return [MetricCatalogItem(code=term.metric_code, name=term.metric_name, unit=term.unit,
+        return [MetricCatalogItem(code=term.metric_code, name=term.metric_name, unit=None,
+                                  value_policy="source_raw_v1",
                                   **self._source_fields(term, source_available))
                 for term in self.session.execute(query).scalars()]
 
@@ -125,7 +127,7 @@ class SqlAlchemyMetricCatalogRepository:
         # 正文预览需要实时复核目录，但无需逐行加载时间戳等管理字段及完整 ORM 实体。
         columns = [
             MetricTerm.metric_code, MetricTerm.metric_name, MetricTerm.description,
-            MetricTerm.unit, MetricTerm.metric_explanation,
+            MetricTerm.metric_explanation,
         ]
         if source_available:
             columns.extend([
@@ -161,7 +163,8 @@ class SqlAlchemyMetricCatalogRepository:
                 value_basis=term.get("value_basis"),
                 aliases=aliases[term["metric_code"]],
                 description=term["description"],
-                unit=term["unit"],
+                unit=None,
+                value_policy="source_raw_v1",
                 explanation=term["metric_explanation"],
             )
             for term in terms

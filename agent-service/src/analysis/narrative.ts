@@ -66,6 +66,8 @@ export function parseNarrativeReference(value: string) {
   if (!ref) throw new NarrativeReferenceError("引用缺少事实编号。");
   const coordinates: Record<string, string> = {};
   let citation = false;
+  let format: "money" | "count" | "ranking" | "ratio" | "number" | undefined;
+  let unit: "个" | "户" | "人" | "笔" | "家" | "张" | "台" | "次" | "天" | undefined;
   for (const field of fields) {
     if (field === "cite" && !citation) {
       citation = true;
@@ -74,6 +76,14 @@ export function parseNarrativeReference(value: string) {
     const separator = field.indexOf("=");
     const key = field.slice(0, separator),
       content = field.slice(separator + 1);
+    if (key === "format" && !format && ["money", "count", "ranking", "ratio", "number"].includes(content)) {
+      format = content as NonNullable<typeof format>;
+      continue;
+    }
+    if (key === "unit" && !unit && ["个", "户", "人", "笔", "家", "张", "台", "次", "天"].includes(content)) {
+      unit = content as NonNullable<typeof unit>;
+      continue;
+    }
     if (
       separator < 1 ||
       !["org", "metric", "date"].includes(key) ||
@@ -81,15 +91,17 @@ export function parseNarrativeReference(value: string) {
       coordinates[key] !== undefined
     )
       throw new NarrativeReferenceError(
-        "数字引用使用 {{ref}}，已写数值紧随 {{ref|cite}} 关联依据；不要添加其他字段。",
+        "数字引用使用{{ref}}或{{ref|format=money/count/ranking/ratio/number}}；只有count可加unit=户等量词，已写数值用cite关联依据。",
       );
     coordinates[key] = content;
   }
   if (Object.keys(coordinates).length && Object.keys(coordinates).length !== 3)
     throw new NarrativeReferenceError("旧坐标声明不完整；请改用工具结果中的 {{ref}} 引用。");
+  if (unit && format !== "count") throw new NarrativeReferenceError("只有count格式可指定量词unit。");
   return {
     ref,
     citation,
+    ...(format ? {format: {kind: format, ...(unit ? {unit} : {})}} : {}),
     binding: coordinates.org
       ? {
           ref,

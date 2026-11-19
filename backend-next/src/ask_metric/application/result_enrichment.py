@@ -23,11 +23,11 @@ class CatalogResultEnricher:
         with self.session_factory() as session:
             metrics = (
                 session.execute(
-                    select(MetricTerm).where(
+                    select(MetricTerm.metric_code, MetricTerm.metric_name).where(
                         MetricTerm.metric_code.in_(metric_codes), MetricTerm.enabled.is_(True)
                     )
                 )
-                .scalars()
+                .mappings()
                 .all()
                 if metric_codes
                 else []
@@ -44,7 +44,7 @@ class CatalogResultEnricher:
                 if org_codes
                 else []
             )
-        metric_map = {item.metric_code: item for item in metrics}
+        metric_map = {item["metric_code"]: item for item in metrics}
         org_map = {item.org_code: item for item in organizations}
         enriched: list[dict[str, Any]] = []
         for source in rows:
@@ -55,8 +55,9 @@ class CatalogResultEnricher:
             organization = org_map.get(org_code)
             # Never trust the fact table's indcr_nm; the data-lake template does not
             # select it and names are sourced exclusively from the application catalog.
-            row["metric_name"] = metric.metric_name if metric else "未登记指标"
-            row["unit"] = metric.unit if metric else None
+            row["metric_name"] = metric["metric_name"] if metric else "未登记指标"
+            row.pop("unit", None)
+            row["value_policy"] = "source_raw_v1"
             row["org_name"] = organization.org_name if organization else "未登记机构"
             enriched.append(row)
         return enriched

@@ -1,5 +1,5 @@
 import type { ChatResponse } from "@/types/api"
-import { getResultColumnLabel } from "@/lib/resultColumns"
+import { getResultColumnLabel, resultValuePresentation } from "@/lib/resultColumns"
 
 export type ResultView = "line" | "vertical_bar" | "horizontal_bar" | "table"
 
@@ -190,6 +190,16 @@ function buildDecision(input: {
   reason: string
 }): VisualizationDecision {
   const sample = input.points[0]?.row ?? {}
+  const presentations = input.points.map(point => resultValuePresentation(point.row))
+  if (presentations.length && presentations.every(value => value && value.unit === presentations[0]!.unit
+    && /^[+-]?\d+(?:\.\d+)?$/.test(value.value) && Number.isFinite(Number(value.value)))) {
+    const metricNames = uniqueText(input.points.map(point => point.row), "metric_name")
+    return { defaultView: input.defaultView, allowedViews: input.allowedViews,
+      categoryLabel: getResultColumnLabel(input.categoryField), valueField: input.valueField,
+      valueLabel: metricNames.length === 1 ? metricNames[0] : getResultColumnLabel(input.valueField),
+      unit: presentations[0]!.unit,
+      points: input.points.map((point, index) => ({...point, value: Number(presentations[index]!.value)})), reason: input.reason }
+  }
   const rawUnit = String(sample.unit ?? "").trim()
   const monetaryScale = rawUnit === "元" ? 1 : rawUnit === "万元" ? 10000 : rawUnit === "亿元" ? 100000000 : null
   const maxAmount = monetaryScale === null ? 0 : Math.max(...input.points.map(point => Math.abs(point.value) * monetaryScale))
