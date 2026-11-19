@@ -199,6 +199,7 @@ export function createTopicQueryTool(
         )
         .digest("hex");
       const messages = (await request.turnMessages?.()) ?? [];
+      const sources = (await request.answerEvidence?.()) ?? [];
       const prior = [...currentTurnMessages(messages)]
         .reverse()
         .find(
@@ -206,12 +207,15 @@ export function createTopicQueryTool(
             message.role === "toolResult" &&
             message.toolName === "topic_query" &&
             !message.isError &&
+            record(message.details).status === "succeeded" &&
             record(record(message.details).topic_execution).key === key &&
-            record(record(message.details).topic_execution).completed === true,
+            record(record(message.details).topic_execution).completed === true &&
+            sources.some(({ evidence }) => evidence.kind === "analysis_evidence" &&
+              evidence.status === "succeeded" &&
+              record(evidence).run_ref === record(message.details).run_ref),
         );
       if (prior?.role === "toolResult") {
-        const receipt = record(prior.details),
-          sources = (await request.answerEvidence?.()) ?? [];
+        const receipt = record(prior.details);
         const source = sources.find(
           (source) => string(record(source.evidence).run_ref) === receipt.run_ref,
         );

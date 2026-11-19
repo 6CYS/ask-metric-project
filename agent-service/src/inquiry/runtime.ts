@@ -241,7 +241,8 @@ export function inquiryPayload(
   const closing =
     receipts(messages).length >= MAX_INVESTIGATION_CALLS ||
     inquiryAttempts(messages).deliveryStalled;
-  const deliveryTool = hasInquiryEvidence(messages) ? "analysis_answer" : CONVERSATION_REPLY;
+  const hasEvidence = hasInquiryEvidence(messages);
+  const deliveryTool = hasEvidence ? "analysis_answer" : CONVERSATION_REPLY;
   const calculationAvailable = inquiryCalculationAvailable(messages);
   const tools = Array.isArray(payload.tools)
     ? payload.tools.filter((raw) => {
@@ -257,9 +258,9 @@ export function inquiryPayload(
   return {
     ...payload,
     tools,
-    // 流式正文使用工具 body 协议；模型仍自行选择查询、计算或交付动作。
-    tool_choice:
-      answerStreaming && tools.length && toolChoicePolicy !== "auto" ? "required" : "auto",
+    // 未取数时须由模型显式选择调查或普通回复，避免把澄清正文送入需来源的报告入口。
+    // 已有来源的非流式正文仍可直接进入同一报告校验，不按措辞判断回答类型。
+    tool_choice: tools.length && toolChoicePolicy !== "auto" && (answerStreaming || !hasEvidence) ? "required" : "auto",
   };
 }
 
@@ -550,7 +551,7 @@ export function inquirySystemPrompt(
   return `你是面向银行业务人员的只读数据分析助手。基于工具验证的数据，给出准确、易懂、可复核的回答。当前日期${date}只是日历日期；数据截至日以实际结果为准。
 本轮需求以【本轮用户输入】及已授权历史为准，前面的账号机构和参考资料不是用户提出的查询任务，不能据此自行选择业务主题。
 用户确实要求经营评价、差异或原因分析且匹配分析方法时，先用business_skill_read读取；可以与首次指标检索同一轮调用。当前上下文已经保留的相同版本不重复读取。方法是分析指导，不提供业务数值或代替正式口径。
-按问题选择最短路径：简单查值直接取所问值；目录或定义问题只读目录；分析问题根据原问题和本轮适用业务知识确定范围，选择足够支撑回答的正式指标。${topicsEnabled ? "业务知识中batch_query_enabled=true的条目是管理员开启的分析方案，按标题、内容和关联指标语义选择。完整方案与所需范围一致时优先以条目id调用topic_query一次批量取数，无需逐项检索；没有适用方案则自主查询，资料不足按需business_knowledge_search。未开启批量取数的知识只指导自主分析，不借内置主题绕过开关。明确限定指标或口径时使用metric_query，不为匹配方案扩大范围。" : ""}${answerChannel}不要输出内部规划或自我讨论。
+按问题选择最短路径：简单查值直接取所问值；目录或定义问题只读目录；分析问题根据原问题和本轮适用业务知识确定范围，选择足够支撑回答的正式指标。${topicsEnabled ? "业务知识中batch_query_enabled=true的条目是管理员开启的分析方案，按标题、内容和关联指标语义选择。完整方案与所需范围一致时优先以条目id调用topic_query一次批量取数，无需逐项检索；没有适用方案则自主查询，资料不足按需business_knowledge_search。未开启批量取数的知识只指导自主分析，不借内置主题绕过开关。明确限定指标或口径时使用metric_query，不为匹配方案扩大范围。" : ""}${answerChannel}尚无本轮来源时，查询、读取或澄清都须显式选择工具；问候、口径澄清和通用解释通过respond_without_business_action的answer交付，不直接输出普通assistant正文。不要输出内部规划或自我讨论。
 ${topicsEnabled ? "主题执行契约：机构和期间仍依据原问题。主题完成标记只代表该方案关联指标取数结束，不代表用户要求的全部分析已完成。对照用户目标与适用方案说明，检查已有证据覆盖哪些主题；完整报告或多维分析仍缺必要主题时，按主题合并检索和补查代表指标，再进入最终交付。已取得的数据直接复用，单项问题不扩大范围。正常缺数与未知单位不代表执行失败，不为理想措辞重新调查。保留已得结果，相同来源只使用一次，不在主题与单项查询之间重跑。宽泛好坏评价须说明采用的维度；相关变化是线索，不能称唯一原因或严格贡献。" : ""}
 使用metric_query时，本轮linked_catalog已有适用的正式候选就直接使用其binding_ref；候选缺失或不适用时再用metric_search。一次检索多个所需指标，每项保留完整主体与口径；同机构、期间和方法的指标合并取数，已有核心结果只补尚缺的必要事实。评价已有结果或要求不重查时，先用analysis_read重验当前会话真实run_ref，依据已有事实回答；必要的同指标计算用analysis_calculate，不自动扩大调查范围。没有来源不能给业务数值。
 比较时优先复用查询回执已提供的事实、正式变化和comparisons大小关系；只有回答确实需要尚未提供的差额或增幅时，才用analysis_calculate计算，不为每个指标逐项重算已有比较。历史事实先analysis_read，本轮刚取得且已完整展示的结果直接复用。计算跨机构对齐日期、跨日期保持机构一致；算术比较不证明机构贡献或业务原因，后者仍需相应依据。
