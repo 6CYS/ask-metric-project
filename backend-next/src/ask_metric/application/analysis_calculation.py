@@ -10,6 +10,7 @@ from ask_metric.application.analysis_report_view import validated_report_atoms
 from ask_metric.application.metric_semantics import MetricSemantics, digest
 from ask_metric.core.errors import ApplicationError
 from ask_metric.domain.calculation import CalculationScope
+from ask_metric.domain.metric_value_semantics import comparison_encoding_confirmed
 from ask_metric.domain.value_presentation import display_number
 
 
@@ -69,11 +70,9 @@ def comparison_inputs(
     current_semantics = semantics if semantics is not None else service.semantics(actor)
     current_semantics.resolve(metric["binding_ref"])
     if (
-        not metric.get("unit") and metric.get("value_policy") != "source_raw_v1"
+        not comparison_encoding_confirmed(metric)
         or current.get("unit") != metric["unit"]
         or base.get("unit") != metric["unit"]
-        or metric["unit"] == "%"
-        and metric.get("value_encoding") not in {"ratio", "percent"}
     ):
         reject(
             "指标单位或百分比编码未确认，不能据名称或显示文字计算。",
@@ -177,6 +176,11 @@ def calculate_analysis_results(service, actor, request: AnalysisCalculationReque
             for name, fact in (("current", current), ("base", base))
         },
         "limitations": ["差额或增幅是算术比较，不代表业务原因或机构贡献。"]
+        + (
+            ["差额按同一正式指标的原值相减，未做单位或比例换算，不能解释为百分点；"
+             "相对变化率仅表示原值相对正基期的变化，不是原指标的百分数编码。"]
+            if metric.get("value_policy") == "source_raw_v1" else []
+        )
         + (
             []
             if any(item["name"] == "change_rate" for item in result["results"])

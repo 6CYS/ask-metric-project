@@ -12,7 +12,7 @@ export interface InquiryCalculation extends BusinessEvidence {
   kind: "metric_calculate";
   calculation_ref: {task_id: string; calculation_id: string};
   run_refs: string[];
-  evidence_items: Array<{ref: string; type: "calculation"; name: string; value: string; unit: string;
+  evidence_items: Array<{ref: string; type: "calculation"; name: string; value: string; unit: string | null;
     display: string; input_refs: string[]; formula?: string}>;
   inputs: Record<string, Record<string, unknown>>;
   limitations: string[];
@@ -28,7 +28,8 @@ export function isInquiryCalculation(value: unknown): value is InquiryCalculatio
     || !Array.isArray(value.limitations) || !value.limitations.every(item => typeof item === "string")
     || !Array.isArray(value.evidence_items) || !value.evidence_items.length) return false;
   return value.evidence_items.every(item => record(item) && item.type === "calculation"
-    && [item.ref, item.name, item.value, item.unit, item.display].every(field => typeof field === "string")
+    && [item.ref, item.name, item.value, item.display].every(field => typeof field === "string")
+    && (typeof item.unit === "string" || item.unit === null && item.value_policy === "source_raw_v1")
     && Array.isArray(item.input_refs) && item.input_refs.every(ref => typeof ref === "string"));
 }
 
@@ -45,7 +46,7 @@ function factConditions(value: unknown): Record<string, string> {
 
 export function createInquiryCalculationTool(): AgentHarnessTool<AskMetricRequestContext, typeof parameters> {
   return {name: "analysis_calculate", label: "计算已有结果", parameters,
-    description: "复用已查询或本轮已鉴权读取的两条同指标事实，计算差额及支持的增幅，不重复取数。同机构可以比较不同日期，同日可以比较不同机构；两者同时变化须先对齐。不同类别的余额可直接描述规模结构，已有正式占比直接引用；本工具不计算跨指标差额或占比。比例编码不明时不可计算；零或负基期不提供相对增幅。输入和结果都有正式引用，不能把差额称为机构贡献或业务原因。",
+    description: "复用已查询或本轮已鉴权读取的两条同指标、同正式口径事实，计算差额及支持的相对变化，不重复取数。同机构可以比较不同日期，同日可以比较不同机构；两者同时变化须先对齐。不同类别的余额可直接描述规模结构，已有正式占比直接引用；本工具不计算跨指标差额或占比。source_raw_v1按原值计算差额，正基期可计算相对变化，未知比例编码不妨碍这两类运算，但不得将原值或差额换算为百分数、百分点；派生变化率不代表原指标编码。旧单位协议的百分比编码未确认时不可计算；零、负基期及名次指标不提供相对增幅。输入和结果都有正式引用，不能把差额称为机构贡献或业务原因。",
     execute: async (_id, input, _update, request, _invocation, context) => {
       let calculationKey: string | undefined;
       let inputs: Record<string, Record<string, string>> = {};

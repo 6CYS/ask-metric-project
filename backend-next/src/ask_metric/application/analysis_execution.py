@@ -37,6 +37,10 @@ from ask_metric.domain.calculation import (
     CalculationScope,
     FactBinding,
 )
+from ask_metric.domain.metric_value_semantics import (
+    comparison_encoding_confirmed,
+    is_ordinal_metric,
+)
 from ask_metric.domain.organization_scope import OrganizationScopeSpec
 from ask_metric.domain.value_presentation import display_number
 from ask_metric.infrastructure.db.models import ChatConversation, ChatMessage
@@ -513,11 +517,7 @@ class GeneralAnalysisService:
 
     def _calculate(self, context, metric, current, base, label, *, share=False,
                    snapshots=False, scope_policy=None, request_key=None):
-        if (
-            not metric.get("unit") and metric.get("value_policy") != "source_raw_v1"
-            or metric["unit"] == "%"
-            and metric.get("value_encoding") not in {"ratio", "percent"}
-        ):
+        if not comparison_encoding_confirmed(metric):
             return None
         expressions = [
             CalculationExpression(
@@ -535,8 +535,10 @@ class GeneralAnalysisService:
                     display="percent",
                 )
             ]
-        elif (metric.get("value_policy") == "source_raw_v1"
-              or metric["unit"] in {"元", "万元", "亿元"}) and Decimal(base["value"]) > 0:
+        elif (not is_ordinal_metric(metric)
+              and (metric.get("value_policy") == "source_raw_v1"
+                   or metric["unit"] in {"元", "万元", "亿元"})
+              and Decimal(base["value"]) > 0):
             expressions.append(
                 CalculationExpression(
                     name="change_rate",
@@ -733,7 +735,7 @@ class GeneralAnalysisService:
                 for day in dates:
                     rows = [fact for fact in current_facts if fact["date"] == str(day)]
                     reverse = step.position == "top"
-                    if metric["unit"] == "名":
+                    if is_ordinal_metric(metric):
                         reverse = not reverse
                     # 同值始终按机构编码升序；不随榜单方向反转，保证重复查询稳定。
                     ranked = sorted(
