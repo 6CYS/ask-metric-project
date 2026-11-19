@@ -54,6 +54,7 @@ import { useAuth } from "@/composables/useAuth"
 import { useQueryReadiness } from "@/composables/useQueryReadiness"
 import { copyText } from "@/lib/clipboard"
 import { archiveClarificationResponse, archiveTimeVariantsResponse } from "@/lib/conversationMessages"
+import { formatConversationDate } from "@/lib/conversationHistory"
 import { composeQuestion, selectedClarificationAnswer, type ComposerEntity } from "@/lib/composerEntities"
 import { friendlyQueryError, withFailureNotice } from "@/lib/queryErrors"
 import { toolCallLabel, toolCallSummary, type ToolCallSummary } from "@/lib/toolCallSummary"
@@ -140,8 +141,7 @@ type DisplayConversation = {
   loaded: boolean
   persisted: boolean
   running: boolean
-  createdAt?: string | null
-  lastActiveAt?: string | null
+  createdAt?: string | number | null
   /** 旧格式只读会话：不可提问，仅供查看 */
   legacy?: boolean
   /** 当前活动原生 operation，用于显式停止 */
@@ -283,10 +283,11 @@ const composerPlaceholder = computed(() => {
 const sortedConversations = computed(() => conversations.value
   .filter((item) => item.persisted || item.messages.length > 0)
   .sort((left, right) => {
-    if (left.persisted !== right.persisted) return left.persisted ? 1 : -1
-    const leftTime = new Date(left.lastActiveAt ?? left.createdAt ?? 0).getTime()
-    const rightTime = new Date(right.lastActiveAt ?? right.createdAt ?? 0).getTime()
-    return rightTime - leftTime
+    // 与卡片显示的创建时间一致；追问、改名和重新加载均不改变历史位置。
+    // 缺失或无效时间排在末尾，同一时刻按持久会话 ID 保持刷新前后顺序稳定。
+    const leftTime = new Date(left.createdAt ?? 0).getTime() || 0
+    const rightTime = new Date(right.createdAt ?? 0).getTime() || 0
+    return rightTime - leftTime || (left.serverId ?? left.id).localeCompare(right.serverId ?? right.id)
   }))
 // 会话接口一次返回全量列表，沿用“显示更多”交互做前端分页。
 const visibleConversations = computed(() => sortedConversations.value.slice(0, historyVisibleCount.value))
@@ -353,7 +354,9 @@ watch(() => auth.user.value?.id ?? null, (userId) => {
   void synchronizeAuthenticatedUser(userId)
 })
 
-onMounted(() => void synchronizeAuthenticatedUser(auth.user.value?.id ?? null))
+onMounted(() => {
+  void synchronizeAuthenticatedUser(auth.user.value?.id ?? null)
+})
 onBeforeUnmount(() => {
   if (managementNoticeTimer) clearTimeout(managementNoticeTimer)
   management.reset()
@@ -363,7 +366,9 @@ onBeforeUnmount(() => {
   for (const controller of abortControllers.values()) controller.abort()
 })
 
-onActivated(() => void activateAuthenticatedUser())
+onActivated(() => {
+  void activateAuthenticatedUser()
+})
 
 function activateAuthenticatedUser() {
   if (isDeletingConversation.value) return Promise.resolve()
@@ -444,15 +449,7 @@ function executionStatus(chatMessage: DisplayMessage) {
 }
 
 function createConversation(id = createId()): DisplayConversation {
-  return { id, serverId: null, title: "新的问数会话", preview: "尚未开始", messages: [], loaded: true, persisted: false, running: false, createdAt: null, lastActiveAt: null, questionStates: [] }
-}
-
-function formatConversationDate(value?: string | null) {
-  if (!value) return "刚刚"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ""
-  const pad = (part: number) => String(part).padStart(2, "0")
-  return `${date.getFullYear()}年${pad(date.getMonth() + 1)}月${pad(date.getDate())}日 ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  return { id, serverId: null, title: "新的问数会话", preview: "尚未开始", messages: [], loaded: true, persisted: false, running: false, createdAt: null, questionStates: [] }
 }
 
 function persistActiveConversation() {
@@ -779,10 +776,8 @@ async function loadHistory(expectedUserId = auth.user.value?.id ?? null) {
         running: item.running,
         legacy: item.legacy === true,
         createdAt: item.created_at,
-        lastActiveAt: item.last_active_at,
         questionStates: [],
       }))
-      .sort((left, right) => new Date(right.lastActiveAt ?? 0).getTime() - new Date(left.lastActiveAt ?? 0).getTime())
     // 列表没有正文；保留本地当前会话，避免再次激活把已加载消息或未发送草稿覆盖为空。
     conversations.value = currentActive
       ? [currentActive, ...loadedHistory.filter(item => item.id !== currentActive.id)]
@@ -871,7 +866,7 @@ function showMoreConversations() {
   }, 150)
 }
 
-/** 历史会话滚动到底部附近时自动加载下一批，替代手动点击“显示更多”。 */
+/** 滚动到底部附近自动加载；短列表没有滚动条时仍可点击“显示更多”。 */
 function onHistoryScroll(event: Event) {
   const container = event.currentTarget as HTMLElement
   if (container.scrollTop + container.clientHeight >= container.scrollHeight - 48) showMoreConversations()
@@ -1024,7 +1019,6 @@ async function runQuestion(conversationId: string, question: string, kind: strin
       { id: assistantId, role: "assistant", content: "", nativeAnswer: true, createdAt: new Date().toISOString(), status: "pending", toolCalls: [] },
     ],
     createdAt: conversation.createdAt ?? new Date().toISOString(),
-    lastActiveAt: new Date().toISOString(),
   }))
   markConversationSending(conversationId, true)
   const controller = new AbortController()
@@ -1423,9 +1417,9 @@ function pendingAnswer(chatMessage: DisplayMessage): string | undefined {
 
 <template>
   <section ref="panelRoot" class="grid min-h-0 flex-1 overflow-hidden border-x border-b bg-background" :class="isHistoryCollapsed ? 'grid-cols-[44px_minmax(0,1fr)] grid-rows-1' : 'grid-rows-[minmax(0,18rem)_minmax(0,1fr)] sm:grid-cols-[260px_minmax(0,1fr)] sm:grid-rows-1 lg:grid-cols-[300px_minmax(0,1fr)]'">
-    <aside v-if="!isHistoryCollapsed" class="flex min-h-0 flex-col border-b bg-muted/30 sm:border-r sm:border-b-0">
+    <aside v-if="!isHistoryCollapsed" aria-label="历史对话" class="flex min-h-0 flex-col border-b bg-background sm:border-r sm:border-b-0">
       <div class="flex h-[var(--workspace-header-height)] shrink-0 items-center gap-2 border-b px-3">
-        <BaseButton variant="outline" class="min-w-0 flex-1 justify-start border-border/70 bg-background/70 text-foreground shadow-none hover:bg-muted/70" :disabled="isDeletingConversation" @click="handleNewConversation"><Plus />新建对话</BaseButton>
+        <BaseButton variant="ghost" class="min-w-0 flex-1 justify-start text-foreground" :disabled="isDeletingConversation" @click="handleNewConversation"><Plus />新建对话</BaseButton>
         <BaseButton data-conversation-manage variant="ghost" :disabled="isHistoryLoading || isDeletingConversation || isRenaming" :aria-pressed="isManagingConversations" @click="management.setManaging(!isManagingConversations)">{{ isManagingConversations ? '完成' : '管理' }}</BaseButton>
         <BaseTooltip content="收起历史对话"><BaseButton variant="ghost" size="icon" class="shrink-0 text-muted-foreground" aria-label="收起历史对话" @click="isHistoryCollapsed = true"><PanelLeftClose /></BaseButton></BaseTooltip>
       </div>
@@ -1442,13 +1436,13 @@ function pendingAnswer(chatMessage: DisplayMessage): string | undefined {
       <div class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-2.5 py-2 [scrollbar-gutter:stable]" @scroll="onHistoryScroll">
         <LoadingSkeleton v-if="isHistoryLoading" :rows="3" row-class="h-14" />
         <div v-else class="flex flex-col gap-1.5">
-          <div v-for="conversation in visibleConversations" :key="conversation.id" class="group/history flex min-h-[82px] w-full min-w-0 shrink-0 items-start gap-1.5 rounded-xl border border-border/70 bg-background px-2.5 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:border-muted-foreground/35 hover:bg-background" :class="(isManagingConversations ? selectedConversationIds.has(conversation.id) : conversation.id === activeConversation?.id) && 'border-primary/35 bg-primary/[0.025] ring-1 ring-primary/10'">
+          <div v-for="conversation in visibleConversations" :key="conversation.id" :data-conversation-row="conversation.id" class="group/history flex min-h-[82px] w-full min-w-0 shrink-0 items-start gap-1.5 rounded-xl border border-border/70 bg-background px-2.5 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:border-muted-foreground/35 hover:bg-background" :class="(isManagingConversations ? selectedConversationIds.has(conversation.id) : conversation.id === activeConversation?.id) && 'border-primary/35 bg-primary/[0.025] ring-1 ring-primary/10'">
             <BaseCheckbox v-if="isManagingConversations" class="mt-1" :model-value="selectedConversationIds.has(conversation.id) && management.canDelete(conversation)" :disabled="!management.canDelete(conversation) || isDeletingConversation" :aria-label="`选择会话：${conversation.title}`" @update:model-value="management.toggleSelected(conversation, $event)" />
             <ConversationRenameField v-if="renameTargetId === conversation.id && renameSource === 'list'" :title="conversation.title" :busy="isRenaming" :error="renameError" @save="management.saveRename" @cancel="management.cancelRename" />
-            <BaseTooltip v-else :content="`${conversation.title} · ${formatConversationDate(conversation.createdAt)}`"><button type="button" class="min-w-0 flex-1 px-1 text-left text-sm" :data-conversation-open="conversation.id" :disabled="isDeletingConversation || (isManagingConversations && !management.canDelete(conversation))" @click="isManagingConversations ? management.toggleSelected(conversation, !selectedConversationIds.has(conversation.id)) : selectConversation(conversation.id)" @keydown.f2.prevent="openRenameConversation(conversation)">
-              <span class="flex items-center gap-1.5"><span class="line-clamp-1 min-w-0 flex-1 font-medium" @dblclick.stop="!isManagingConversations && openRenameConversation(conversation)">{{ conversation.title }}</span><span v-if="conversation.legacy" class="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">旧会话</span><LoaderCircle v-if="sendingConversationIds.has(conversation.id) || conversation.running" class="size-3.5 animate-spin" /></span>
-              <span class="mt-0.5 block h-4 truncate text-xs text-muted-foreground">{{ conversation.preview || conversation.title }}</span>
-              <span class="mt-1.5 block text-[11px] text-muted-foreground/80">{{ formatConversationDate(conversation.createdAt) }}</span>
+            <BaseTooltip v-else :content="`${conversation.title} · ${formatConversationDate(conversation.createdAt)}`"><button type="button" class="min-w-0 flex-1 px-1 text-left text-sm" :data-conversation-open="conversation.id" :aria-current="conversation.id === activeConversation?.id ? 'true' : undefined" :disabled="isDeletingConversation || (isManagingConversations && !management.canDelete(conversation))" @click="isManagingConversations ? management.toggleSelected(conversation, !selectedConversationIds.has(conversation.id)) : selectConversation(conversation.id)" @keydown.f2.prevent="openRenameConversation(conversation)">
+              <span class="flex items-center gap-1.5"><span data-conversation-title class="line-clamp-1 min-w-0 flex-1 font-medium" @dblclick.stop="!isManagingConversations && openRenameConversation(conversation)">{{ conversation.title }}</span><span v-if="conversation.legacy" class="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">旧会话</span><LoaderCircle v-if="sendingConversationIds.has(conversation.id) || conversation.running" role="status" aria-label="分析中" class="size-3.5 animate-spin" /></span>
+              <span data-conversation-preview class="mt-0.5 block h-4 truncate text-xs text-muted-foreground">{{ conversation.preview || conversation.title }}</span>
+              <span data-conversation-time class="mt-1.5 block text-[11px] text-muted-foreground/80">{{ formatConversationDate(conversation.createdAt) }}</span>
             </button></BaseTooltip>
             <PopoverRoot v-if="!conversation.legacy && !isManagingConversations && renameTargetId !== conversation.id" :open="conversationMenuId === conversation.id" @update:open="conversationMenuId = $event ? conversation.id : ''">
               <PopoverTrigger as-child><BaseTooltip content="会话操作">
@@ -1463,7 +1457,8 @@ function pendingAnswer(chatMessage: DisplayMessage): string | undefined {
               </PopoverPortal>
             </PopoverRoot>
           </div>
-          <p v-if="isHistoryLoadingMore" class="flex items-center justify-center gap-1.5 py-2 text-xs text-muted-foreground"><LoaderCircle class="size-3.5 animate-spin" />正在加载更多会话…</p>
+          <p v-if="!visibleConversations.length" class="px-3 py-8 text-center text-xs text-muted-foreground">暂无历史会话</p>
+          <BaseButton v-if="hasMoreConversations" variant="ghost" size="sm" class="mx-auto text-xs text-muted-foreground" :disabled="isHistoryLoadingMore" @click="showMoreConversations"><LoaderCircle v-if="isHistoryLoadingMore" class="size-3.5 animate-spin" />{{ isHistoryLoadingMore ? '正在加载更多会话…' : '显示更多会话' }}</BaseButton>
         </div>
       </div>
       <div v-if="isManagingConversations" class="shrink-0 space-y-2 border-t bg-background p-3">

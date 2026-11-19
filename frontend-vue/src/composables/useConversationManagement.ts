@@ -8,7 +8,7 @@ export interface ManagedConversation {
   title: string
   running: boolean
   legacy?: boolean
-  createdAt?: string | null
+  createdAt?: string | number | null
 }
 
 export interface ConversationDeleteFailure {

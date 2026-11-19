@@ -47,8 +47,9 @@ export interface AgentSessionItem {
   session_id: string
   title?: string
   preview?: string
-  created_at: string
-  last_active_at: string
+  /** 服务端返回毫秒时间戳；兼容已有 ISO 日期输入。 */
+  created_at: number | string
+  last_active_at: number | string
   running: boolean
   legacy?: boolean
 }
@@ -126,7 +127,7 @@ export interface AgentSessionDetail {
   session_id: string
   title?: string
   preview?: string
-  created_at: string
+  created_at: number | string
   running: boolean
   /** 当前活动原生 operation；重连后用于显式停止 */
   operation_id?: string | null
@@ -307,7 +308,7 @@ export function getQueryLogSession(id: string, signal?: AbortSignal) {
 }
 
 export function createAgentSession() {
-  return request<{ session_id: string; created_at: string }>("/sessions", { method: "POST" })
+  return request<{ session_id: string; created_at: number | string }>("/sessions", { method: "POST" })
 }
 
 export function listAgentSessions() {

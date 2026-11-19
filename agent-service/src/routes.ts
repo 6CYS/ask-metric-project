@@ -152,7 +152,12 @@ export function createApp(
         legacy: true,
       });
     }
-    items.sort((a, b) => Number(b.last_active_at) - Number(a.last_active_at));
+    // 历史列表与卡片创建时间一致，不因追问、改名或文件修改时间变化而重排。
+    items.sort(
+      (a, b) =>
+        (Number(b.created_at) || 0) - (Number(a.created_at) || 0) ||
+        String(a.session_id).localeCompare(String(b.session_id)),
+    );
     return c.json({ items });
   });
 
