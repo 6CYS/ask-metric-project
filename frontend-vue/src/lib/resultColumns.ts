@@ -93,8 +93,17 @@ const monetaryValueColumns = new Set([
   "right_value",
 ])
 
+const numericResultColumns = new Set([...monetaryValueColumns, "rank", "change_rate"])
+
 export function isResultValueColumn(column: string) {
   return monetaryValueColumns.has(normalizeResultColumn(column))
+}
+
+/** 原值展示仅省略全零小数部分，不经 Number 换算，保留大数和非零小数精度。 */
+export function formatRawResultValue(value: unknown, column: string) {
+  if (!numericResultColumns.has(normalizeResultColumn(column))) return null
+  if (typeof value !== "string" && typeof value !== "number") return null
+  return String(value).replace(/^([+-]?\d+)\.0+$/, "$1")
 }
 
 /** 按字符串给整数部分加千分位，不经过 Number，避免大数或长小数丢精度；非普通十进制文本原样返回。 */
@@ -118,15 +127,13 @@ export function formatResultTableValue(value: unknown, column: string, row: Reco
   const normalized = normalizeResultColumn(column)
   if (!isResultValueColumn(normalized) && normalized !== "rank") return null
   if (normalized === "metric_value" && (typeof row.raw_value === "string" || typeof row.raw_value === "number")) {
-    return String(row.raw_value)
+    return formatRawResultValue(row.raw_value, normalized)
   }
   if (typeof value !== "string" && typeof value !== "number") return null
   const text = String(value)
   if (!/^[+-]?\d+\.\d+$/.test(text)) return groupThousands(text)
   return groupThousands(text.replace(/0+$/, "").replace(/\.$/, ""))
 }
-
-const numericResultColumns = new Set([...monetaryValueColumns, "rank", "change_rate"])
 
 /** 数值列右对齐并使用等宽数字，便于纵向比较大小；表头与单元格共用同一对齐。 */
 export function getResultColumnAlignClass(column: string) {

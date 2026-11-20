@@ -23,6 +23,7 @@ import { useQuerySqlDetail } from "@/composables/useQuerySqlDetail"
 import { ApiError, getQuerySqlDetail } from "@/lib/api"
 import { copyText } from "@/lib/clipboard"
 import {
+  formatRawResultValue,
   getResultCellValue,
   getResultColumnAlignClass,
   getResultColumnLabel,
@@ -174,6 +175,11 @@ function rawValue(value: unknown): string {
   if (typeof value === "number" || typeof value === "boolean") return String(value)
   if (typeof value === "object") return JSON.stringify(value)
   return "—"
+}
+
+function resultCellValue(row: Record<string, unknown>, column: string): string {
+  const value = getResultCellValue(row, column)
+  return formatRawResultValue(value, column) ?? rawValue(value)
 }
 
 function conditionValue(value: unknown): string {
@@ -430,7 +436,7 @@ async function changePage(page: number) {
                             :key="column"
                             :class="getResultColumnAlignClass(column)"
                           >
-                            {{ rawValue(getResultCellValue(row, column)) }}
+                            {{ resultCellValue(row, column) }}
                           </td>
                         </tr>
                       </tbody>
