@@ -10,6 +10,8 @@ import { MAX_INVESTIGATION_CALLS } from "./limits.js";
 import { businessKey } from "../business-context/service.js";
 import { inquiryMetadataBlockers } from "./view.js";
 import { inquiryRepeatedInvestigation } from "./queryTools.js";
+import { currentInquiryTarget } from "./target.js";
+import { visibleBusinessSkills } from "../businessSkills.js";
 
 export const INQUIRY_TOOLS = new Set([
   "metric_search",
@@ -237,6 +239,7 @@ export function inquiryPayload(
   messages: AgentMessage[],
   answerStreaming = false,
   toolChoicePolicy: "native" | "auto" = "native",
+  request?: Pick<AskMetricRequestContext, "operationId" | "inquiryTargetContext" | "inquiryAdmission" | "businessSkills">,
 ): Record<string, unknown> {
   const closing =
     receipts(messages).length >= MAX_INVESTIGATION_CALLS ||
@@ -244,20 +247,46 @@ export function inquiryPayload(
   const hasEvidence = hasInquiryEvidence(messages);
   const deliveryTool = hasEvidence ? "analysis_answer" : CONVERSATION_REPLY;
   const calculationAvailable = inquiryCalculationAvailable(messages);
-  const tools = Array.isArray(payload.tools)
+  // 本轮完整工具回执仍在发送上下文中时，不再提供已全部读取的方法入口。
+  // 不用历史全文判断可见性，避免压缩后方法正文已不在上下文却无法重读。
+  const skills = request?.businessSkills ?? [];
+  const readSkills = visibleBusinessSkills(currentTurnMessages(messages), skills);
+  const tools: unknown[] = Array.isArray(payload.tools)
     ? payload.tools.filter((raw) => {
         const tool = raw as { name?: string; function?: { name?: string } };
         const name = tool.function?.name ?? tool.name ?? "";
         return closing
           ? name === deliveryTool
           : INQUIRY_TOOLS.has(name) &&
+              (name !== "business_skill_read" || !skills.length || skills.some(skill => !readSkills.has(skill.name))) &&
               (name !== "analysis_calculate" || calculationAvailable) &&
               (!["analysis_answer", CONVERSATION_REPLY].includes(name) || name === deliveryTool);
       })
     : [];
+  // 生成阶段就公开当前协议的必填项，避免可选 schema 与执行层必填约束互相矛盾。
+  // 只改发送副本；历史在途请求、点击确认及无目标旧协议继续由原工具校验。
+  const target = request && currentInquiryTarget(messages, request.operationId);
+  const visibleTools = !request?.inquiryTargetContext || request.inquiryAdmission ? tools : tools.map(raw => {
+    const wrapper = inputRecord(raw), fn = inputRecord(wrapper.function);
+    const definition = typeof fn.name === "string" ? fn : wrapper;
+    if (!["metric_query", "metric_availability"].includes(String(definition.name))) return raw;
+    const field = definition.input_schema ? "input_schema" : "parameters";
+    const schema = inputRecord(definition[field]), properties = inputRecord(schema.properties);
+    if (!properties.target_change) return raw;
+    const required: unknown[] = Array.isArray(schema.required) ? schema.required : [];
+    const parameters = target
+      ? {...schema, properties: {...properties, target_change: {
+          type: "object", properties: {mode: {type: "string", const: "continue"},
+            base_ref: {type: "string", const: target.ref}}, required: ["mode", "base_ref"], additionalProperties: false,
+          description: "本轮主目标已经声明，后续取数省略此项；查询机构范围及期间使用scope/org_names/date。",
+        }}}
+      : {...schema, required: [...new Set([...required.filter((field): field is string => typeof field === "string"), "target_change"])]};
+    const updated = {...definition, [field]: parameters};
+    return definition === fn ? {...wrapper, function: updated} : updated;
+  });
   return {
     ...payload,
-    tools,
+    tools: visibleTools,
     // 未取数时须由模型显式选择调查或普通回复，避免把澄清正文送入需来源的报告入口。
     // 已有来源的非流式正文仍可直接进入同一报告校验，不按措辞判断回答类型。
     tool_choice: tools.length && toolChoicePolicy !== "auto" && (answerStreaming || !hasEvidence) ? "required" : "auto",
@@ -557,7 +586,7 @@ ${topicsEnabled ? "主题执行契约：机构和期间仍依据原问题。主�
 比较时优先复用查询回执已提供的事实、正式变化和comparisons大小关系；只有回答确实需要尚未提供的差额或增幅时，才用analysis_calculate计算，不为每个指标逐项重算已有比较。历史事实先analysis_read，本轮刚取得且已完整展示的结果直接复用。计算跨机构对齐日期、跨日期保持机构一致；算术比较不证明机构贡献或业务原因，后者仍需相应依据。
 当前业务资料不足时，可用business_knowledge_search在取数前查相关含义、方法或案例。结合本轮问题和已授权历史明确检索主题，尤其是省略追问；已有适用资料无需重复检索。知识检索返回linked_catalog时，结合本轮问题选择其中适用指标的binding_ref引用直接取数，不强制查询全部关联指标；候选缺失或不适用时继续metric_search。知识辅助选指标和调查方向，正式口径以metric_search或知识检索linked_catalog中的正式目录候选为准，案例不代表当前机构的实际原因。
 指定日期没有数据时，用metric_availability确认相关期间的真实可用日期，避免反复试查或猜日期。清楚说明原统计期无法回答；其他日期只能作为明确标注的参考，不能把月中数说成月末数，也不能用最新值替代历史问题。
-${targetContextEnabled ? "普通问数参考资料中的current_target是当前业务目标，历史sources只是回答依据。每轮首次metric_query或metric_availability使用target_change：新主题用new并声明topic、机构replace及time。time先保留用户指定的完整期间原表达expression，可附calendar换算；只有未指定期间才time:null并selection:latest。selection仅选数据，限定期间内取最新使用latest_in_range，不得用全局latest替换期间。旧冻结请求未标记time_contract:2时仍兼容date/date_calendar；追问用update与base_ref，只填用户本轮改变的字段；完全沿用用continue。切换对象使用replace，追加比较使用add，只改日期不重填机构；未改字段由宿主继承。同轮后续查询不重复声明目标。明确目标后，scope/org_names/date只选择本次取数的机构子集及期间，省略则继承主目标，不改变会话主目标。主目标之外的参考机构补查使用independent=true。存量会话没有current_target时，根据问题和已授权历史明确声明一次，不能把全部历史来源合并成目标。" : "本轮使用原有查询协议：用scope/org_names/date明确提交机构和期间，不填写target_change。连续追问仅改变用户明确条件；已接纳可信选择使用target_ref，不能覆盖确认条件。"}
+${targetContextEnabled ? "普通问数参考资料中的current_target是当前业务目标，历史sources只是回答依据。每轮首次metric_query或metric_availability使用target_change：新主题用new并声明topic、机构replace及time。time先保留用户指定的完整期间原表达expression，可附calendar换算；只有未指定期间才time:null并selection:latest。selection仅选数据，限定期间内取最新使用latest_in_range，不得用全局latest替换期间。旧冻结请求未标记time_contract:2时仍兼容date/date_calendar；追问用update与base_ref，只填用户本轮改变的字段；完全沿用用continue。切换对象使用replace，追加比较使用add，只改日期不重填机构；未改字段由宿主继承。同轮后续查询不重复声明目标。明确目标后，scope/org_names/date只选择本次取数的机构子集及期间，省略则继承主目标，不改变会话主目标。排名的比较范围用scope=all_banks；单机构主目标未提交比较范围时默认同一授权农商行集合，后端确认包含主机构，主目标仍保留所问机构；其他主目标之外的参考机构补查使用independent=true。存量会话没有current_target时，根据问题和已授权历史明确声明一次，不能把全部历史来源合并成目标。" : "本轮使用原有查询协议：用scope/org_names/date明确提交机构和期间，不填写target_change。连续追问仅改变用户明确条件；已接纳可信选择使用target_ref，不能覆盖确认条件。"}
 指标选择依据用户问题、已确认上下文、适用业务知识和正式定义；检索排名只代表相关性，不是默认口径。候选存在不可互换的统计口径，且现有条件无法区分时，先简短确认；已明确所需口径就查询对应正式指标。分析可分批调查不同指标，不把首批指标清单当作整个分析主题。继承最新期间时，跨机构比较须检查实际统计日是否一致，不同日期不能直接作同日比较。历史助手正文不能代替证据；本轮涉及历史数值时先analysis_read，拿到本轮引用再回答。
 目录识别的current_question_metrics和previous_question_metrics是原文提到的正式候选。逐项区分用户要查、排除和仅作背景的指标。延续分析只换机构或期间时，依据上一轮原始分析要求保留全部所问维度；用户缩小或改变指标时，在target_change的topic写明新的指标范围。每个明确要分析变化的指标都需相应基期或正式差额证据；分项不能代替总额。有匹配基期的comparisons时直接用对应正式引用取差额（yoy同比、mom环比、ytd较年初），没有就按所问基期查询或说明缺口。
 默认上下文只保留最近三轮；较早回指所需条件不在其中时，用session_history_read按页定位并读取本会话旧记录。正文仅帮助找回问题和真实run_ref，旧数值仍须analysis_read重新核验；无需把旧会话全文塞回上下文。

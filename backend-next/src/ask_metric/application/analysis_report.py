@@ -716,6 +716,17 @@ def compose_analysis_report(service, actor, request: AnalysisReportRequest):
                 return ""
             atom = atoms[match[1]]
             display = presentations.get(match[1], {}).get("display", atom["display"])
+            # “第{{名次引用}}位”是引用的排版包装，只去掉展示中的重复量词，不改变名次。
+            presentation = presentations.get(match[1], {})
+            if (
+                presentation.get("kind") == "ranking"
+                and re.search(r"第\s*$", value_text[: match.start()])
+            ):
+                return (
+                    presentation["value"]
+                    if re.match(r"\s*[名位]", value_text[match.end() :])
+                    else display.removeprefix("第")
+                )
             negative_display = re.fullmatch(r"(约?)-(.+)", display)
             # 减量可用正幅度排版；余额等其他负值不能因此丢失自身符号。
             if (

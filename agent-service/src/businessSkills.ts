@@ -82,11 +82,13 @@ export function createBusinessSkillReadTool(skills: readonly Skill[]): AgentHarn
     name: "business_skill_read", label: "读取业务知识",
     description: "用途：按目录名称查阅相关业务判断，包括指标查询口径、记录覆盖、公式计算和能力边界。可组合参考；当前上下文已有正文无需重读。详细参数及合法值以工具/能力Schema为准。读取只提供知识，不查询数据、不启用或切换工具，也不是执行业务目标的前置步骤。",
     parameters: readParameters,
-    execute: (_id, params, _onUpdate, request) => {
+    execute: async (_id, params, _onUpdate, request) => {
       const skill = (request.businessSkills ?? skills).find(item => item.name === params.name);
-      return Promise.resolve(skill
-        ? { content: [{type: "text", text: skill.content}], details: {kind: "business_skill_read", status: "ok", name: skill.name} }
-        : { content: [{type: "text", text: "该业务方法未注册，请使用目录中的名称。"}], details: {kind: "business_skill_read", status: "error"} });
+      const repeated = skill && visibleBusinessSkills(await request.turnMessages?.() ?? [], [skill]).has(skill.name);
+      return skill
+        ? { content: [{type: "text", text: skill.content}], details: {kind: "business_skill_read", status: "ok", name: skill.name,
+            ...(repeated ? {no_new_evidence: true} : {})} }
+        : { content: [{type: "text", text: "该业务方法未注册，请使用目录中的名称。"}], details: {kind: "business_skill_read", status: "error"} };
     },
   };
 }

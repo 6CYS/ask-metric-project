@@ -781,6 +781,7 @@ export class HarnessHost {
             this.runtimeConfig(request).answerStreaming,
             // 兼容仅支持 auto 的行内网关；参数随本轮数据库模型快照生效。
             this.runtimeConfig(request).model.extraBody.tool_choice === "auto" ? "auto" : "native",
+            request,
           );
       const diagnostics = modelPayloadDiagnostics(payload);
       if (request.modelCall) request.modelCall.finalPayloadBytes = diagnostics.final_payload_bytes;

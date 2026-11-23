@@ -92,7 +92,7 @@ const queryParameters = Type.Object(
     scope: Type.Optional(
       Type.Union([Type.Literal("all_banks"), Type.Literal("named")], {
         description:
-          "本次取数的机构范围，省略时继承普通主目标；named配合org_names，可在主目标机构内选子集；all_banks为有权农商行集合。已接纳target_ref仍由宿主绑定。",
+          "本次取数的机构范围，通常省略时继承主目标。单机构目标执行ranking且未指定scope/org_names时默认比较包含该机构的授权农商行集合，主机构不变；显式范围优先。named配合org_names选择目标子集，all_banks为授权农商行集合；其他目标外取数用independent。已接纳target_ref仍由宿主绑定。",
       }),
     ),
     org_names: Type.Optional(
@@ -888,7 +888,7 @@ async function executeWithInquiryTarget(
   input: Pick<
     QueryInput,
     "target_change" | "independent" | "date" | "date_calendar" | "scope" | "org_names"
-  >,
+  > & { method?: QueryInput["method"] },
   request: AskMetricRequestContext,
   signal: AbortSignal | undefined,
   execute: (
@@ -1019,14 +1019,22 @@ async function executeWithInquiryTarget(
   let result: AgentToolResult<unknown>;
   try {
     // 主目标用于连续追问；本次取数可以聚焦其中的机构或另一个期间，不反写主目标。
+    const defaultRankingCohort = input.method === "ranking" && input.scope === undefined &&
+      input.org_names === undefined && target.organizations.codes.length === 1 && !target.organizations.scope;
     const organizations =
       input.scope !== undefined || input.org_names !== undefined
         ? await queryOrganizations(input, request, signal)
+        : defaultRankingCohort
+          ? await queryOrganizations({scope: "all_banks"}, request, signal)
         : target.organizations;
     if ("isError" in organizations) {
       result = organizations;
     } else {
-      if (organizations.codes.some((code) => !target.organizations.codes.includes(code)))
+      // 排名的比较集合与所问机构职责不同；集合仍由后端授权解析，且须包含所问对象。
+      const rankingCohort = input.method === "ranking" && (input.scope === "all_banks" || defaultRankingCohort) &&
+        organizations.scope?.kind === "authorized_cohort" &&
+        target.organizations.codes.every(code => organizations.codes.includes(code));
+      if (!rankingCohort && organizations.codes.some((code) => !target.organizations.codes.includes(code)))
         throw new InquiryTargetError(
           "INQUIRY_TARGET_SCOPE_CHANGED",
           "本次机构超出主目标范围。用户改变对象时通过target_change替换或追加；仅作目标之外参考的取数使用independent。",
@@ -1286,7 +1294,7 @@ export function createInquiryQueryTools(): AgentHarnessTool<AskMetricRequestCont
     label: "查询指标数据",
     parameters: queryParameters,
     description:
-      "使用metric_search或业务知识linked_catalog的正式binding_ref直接取数；按原问题选择指标和方法，可依据结果继续补查。参考资料有已接纳目标时，多目标须选target_ref、单目标可省略；宿主重新绑定已确认指标、机构和日期，模型参数不能覆盖。目标都已完成取数后可用independent=true独立补查。普通问数每轮首次调用通过target_change声明会话主目标；后续省略声明。scope/org_names/date只选择本次取数的机构和期间，省略时继承主目标；可选择主目标内的部分机构或其他期间，不改写主目标。主目标之外的参考机构使用independent=true，不携带target_change。旧无目标协议显式提交机构，date可指定期间，省略时按所选机构和指标沿用已确认期间；不同期间返回date_groups，按对应分组分别查询。正文机构以回执为准，不能把全省汇总、账号机构和用户指定机构互称别名。observe也适用于正式差额/同比指标直接取值；compare用于同指标基期计算。",
+      "使用metric_search或业务知识linked_catalog的正式binding_ref直接取数；按原问题选择指标和方法，可依据结果继续补查。参考资料有已接纳目标时，多目标须选target_ref、单目标可省略；宿主重新绑定已确认指标、机构和日期，模型参数不能覆盖。目标都已完成取数后可用independent=true独立补查。普通问数每轮首次调用通过target_change声明会话主目标；后续省略声明。scope/org_names/date只选择本次取数的机构和期间，省略时继承主目标；可选择主目标内的部分机构或其他期间，不改写主目标。ranking可用scope=all_banks查询包含主目标的授权同业排名，保留原主机构；其他主目标之外的参考机构使用independent=true，不携带target_change。旧无目标协议显式提交机构，date可指定期间，省略时按所选机构和指标沿用已确认期间；不同期间返回date_groups，按对应分组分别查询。正文机构以回执为准，不能把全省汇总、账号机构和用户指定机构互称别名。observe也适用于正式差额/同比指标直接取值；compare用于同指标基期计算。",
     execute: async (_id, input, _update, request, _invocation, context) => {
       const result = await executeWithInquiryTarget(
         input,

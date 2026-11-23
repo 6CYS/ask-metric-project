@@ -56,7 +56,23 @@ def _display(value: Decimal, places: int, unit: str, *, prefix="", notice="") ->
     }
 
 
+def _ranking_judgment(atom: dict) -> bool:
+    return (
+        atom.get("type") == "observation"
+        and atom.get("judgment_kind") == "ranking"
+        and type(atom.get("rank")) is int
+        and atom["rank"] > 0
+    )
+
+
 def format_value(atom: dict, metric: dict, spec: ValueFormat | None) -> dict | None:
+    # 排名是执行器产生的结论，不是金额事实；只展示已授权的名次，报告仍核验比较依据。
+    if _ranking_judgment(atom):
+        return (
+            {**_display(Decimal(atom["rank"]), 0, "名", prefix="第"), "kind": "ranking"}
+            if spec and spec.kind == "ranking"
+            else None
+        )
     value = _decimal(atom.get("value"))
     if value is None or atom.get("type") not in {"fact", "calculation"}:
         return None
@@ -143,10 +159,17 @@ def value_presentations(sources: list[dict], formats: list[ValueFormat]) -> dict
                 and atom.get("unit") == "%"
                 and atom.get("value_policy") != "source_raw_v1"
             )
-            identities[ref] = (metric.get("code"), metric.get("binding_ref"), derived_percent)
+            identities[ref] = (
+                ("ranking_judgment", ref)
+                if _ranking_judgment(atom)
+                else (metric.get("code"), metric.get("binding_ref"), derived_percent)
+            )
     selected: dict[tuple, ValueFormat] = {}
     for spec in formats:
-        if spec.ref not in atoms or atoms[spec.ref].get("type") not in {"fact", "calculation"}:
+        if spec.ref not in atoms or (
+            atoms[spec.ref].get("type") not in {"fact", "calculation"}
+            and not (_ranking_judgment(atoms[spec.ref]) and spec.kind == "ranking")
+        ):
             raise ApplicationError(
                 "ANALYSIS_REPORT_REFERENCE", "展示格式须引用本次已授权数值事实。", status_code=422
             )
