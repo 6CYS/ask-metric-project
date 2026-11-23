@@ -141,6 +141,10 @@ function inquiryCalculationAvailable(messages: AgentMessage[]): boolean {
 function inquiryCallKey(tool: string, args: unknown, bindings: ReadonlyMap<string, string>) {
   if (!args || typeof args !== "object" || Array.isArray(args)) return undefined;
   const input = { ...inputRecord(args) };
+  if (tool === "metric_query") {
+    // purpose 只说明查询意图，不改变实际取数条件，避免改写描述绕过重复保护。
+    delete input.purpose;
+  }
   if (
     (tool === "metric_query" || tool === "metric_availability") &&
     Array.isArray(input.metric_refs) &&
@@ -289,7 +293,8 @@ export function inquiryPayload(
     tools: visibleTools,
     // 未取数时须由模型显式选择调查或普通回复，避免把澄清正文送入需来源的报告入口。
     // 已有来源的非流式正文仍可直接进入同一报告校验，不按措辞判断回答类型。
-    tool_choice: tools.length && toolChoicePolicy !== "auto" && (answerStreaming || !hasEvidence) ? "required" : "auto",
+    // 非流式请求允许模型先澄清或声明目标，避免无证据时被强制推入不完整查询。
+    tool_choice: tools.length && toolChoicePolicy !== "auto" && answerStreaming ? "required" : "auto",
   };
 }
 

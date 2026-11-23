@@ -9,9 +9,9 @@ export interface OrgCatalog {items: OrgCatalogItem[]; status?: "temporary_error"
  * 只缓存成功结果，临时失败不缓存（同轮后续调用和重试重新拉取）。
  * 目录不可用是降级而非失败：本轮注入“暂不可用”提示，模型仍可按原文名称提交机构字段。
  */
-export function orgCatalog(request: AskMetricRequestContext): Promise<OrgCatalog> {
+export function orgCatalog(request: AskMetricRequestContext, signal?: AbortSignal): Promise<OrgCatalog> {
   if (request.orgCatalog) return request.orgCatalog;
-  const pending = fetchOrgCatalog(request);
+  const pending = fetchOrgCatalog(request, signal);
   request.orgCatalog = pending;
   const forget = () => { if (request.orgCatalog === pending) delete request.orgCatalog; };
   pending.then(result => { if (result.status === "temporary_error") forget(); }, forget);
@@ -34,9 +34,11 @@ export async function orgCatalogTurnState(request: AskMetricRequestContext): Pro
     + catalog.items.map(item => `${item.code}|${item.name}|${item.aliases.join(",")}`).join("\n");
 }
 
-async function fetchOrgCatalog(request: AskMetricRequestContext): Promise<OrgCatalog> {
+async function fetchOrgCatalog(request: AskMetricRequestContext, signal?: AbortSignal): Promise<OrgCatalog> {
   try {
-    const result = await request.backend.orgCatalog();
+    const result = signal
+      ? await request.backend.orgCatalog({signal})
+      : await request.backend.orgCatalog();
     if (!result || !Array.isArray(result.items) || result.items.length > 1000
       || !result.items.every(item => item && typeof item.code === "string" && !!item.code
         && typeof item.name === "string" && !!item.name

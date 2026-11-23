@@ -934,7 +934,7 @@ export class HarnessHost {
             businessKnowledgeContextTerms(history.authorizedMessages),
             context.abortSignal,
           ),
-          typeof request.backend.orgCatalog === "function" ? orgCatalog(request) : undefined,
+          typeof request.backend.orgCatalog === "function" ? orgCatalog(request, context.abortSignal) : undefined,
         ]);
         const messages = projectBusinessSkillContext(
           projectInquiryMessages(history.messages),

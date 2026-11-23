@@ -1009,6 +1009,29 @@ describe("连续无进展的原生工具批次", () => {
     expect(inquiryToolAdmission(messages, "metric_query")).toBeUndefined();
   });
 
+  it("查询失败时忽略purpose变化，避免同一业务请求绕过重复保护", () => {
+    const query = {
+      metric_refs: ["k1"],
+      method: "observe",
+      date: "2026-08-27",
+      target_change: {mode: "new", topic: "不良率"},
+    };
+    const failure = {
+      kind: "inquiry_query_error",
+      status: "error",
+      error_code: "INQUIRY_TARGET_REQUIRED",
+    };
+    const messages = [
+      ...batch("first", [{args: {...query, purpose: "读取两家机构不良率"}, failed: true, details: failure}]),
+      ...batch("second", [{args: {...query, purpose: "比较机构不良率"}, failed: true, details: failure}]),
+    ];
+
+    expect(inquiryToolAdmission(messages, "metric_query", {
+      ...query,
+      purpose: "完成不良率对比",
+    })).toMatchObject({block: {terminate: false}});
+  });
+
   it("同批重复与尚未完成的批次不算两次尝试", () => {
     const args = { metric_refs: ["k1"] },
       result = { args };
