@@ -24,11 +24,30 @@ VITE_BACKEND_NEXT_BASE_URL=http://localhost:8010
 开发环境中 `VITE_BACKEND_NEXT_BASE_URL` 仅作为 Vite 的代理上游，浏览器请求保持同源，避免登录成功但目录和就绪检查跨域失败。
 生产构建默认通过 Nginx 使用同源 `/api` 访问后端，发布产物不得包含本机回环地址。
 
+部署在一期行内网关子路径时，静态页面基址、公共接口前缀和 Agent 子路径分别配置：
+
+```sh
+VITE_BACKEND_NEXT_BASE_URL=/bgwblj/znws VITE_AGENT_API_PATH=/api/agent npm run build -- --base /bgwblj/znws/static/
+```
+
+此时登录及 SSO 请求使用 `/bgwblj/znws/api/...`，聊天、Skill、测评和模型诊断使用
+`/bgwblj/znws/api/agent/...`；Vue 路由与静态资源使用页面基址。一期 Nginx 已将整个
+`/bgwblj/znws/api/` 去掉系统前缀后转发至 Gateway，因此可沿用其规则。Gateway 必须新增
+优先于原 `/api/**` 的 `/api/agent/**` 路由，去掉 `/api/agent` 后转给 Agent，并配置实际
+后端节点的负载均衡。仅替换前端不会自动修改 Gateway。浏览器认证仍保持同源。
+
+一期数字农商已登记的 `/bgwblj/znws/static/sso-entry?token=...` 保持可用，复用登录页的
+SSO 校验；登录成功进入聊天页并移除地址中的 token，无需改变数字农商登记入口。
+
+`VITE_AGENT_API_PATH` 是相对于公共接口前缀的路径，网关版固定为 `/api/agent`。
+未设置时保持原 `/agent-api`，适用于已有单体代理；开发模式始终使用 `/agent-api`，不受
+此构建参数影响。根路径单体构建将公共接口前缀留空；不要将开发代理的本机地址带入生产构建。
+
 ## 聊天交互
 
 登录有效期默认 8 小时，由后端 `JWT_EXPIRE_MINUTES` 决定。有效期内刷新会通过后端 HttpOnly
 Cookie 恢复原会话，不延长到期时间；过期、退出或服务端撤销后需要重新登录。访问令牌只在页面
-内存中使用，不写入 Web Storage。所有认证请求固定走同源 `/api/v1/auth/`，开发时由 Vite 代理，
+内存中使用，不写入 Web Storage。所有认证请求走同源接口前缀下的 `/api/v1/auth/`，开发时由 Vite 代理，
 生产由 Nginx/网关代理，不能改为浏览器跨域携带 Cookie。生产入口要求 HTTPS；升级及来源配置
 见 [后端登录说明](../backend-next/README.md#登录有效期与刷新恢复)。
 
@@ -80,7 +99,7 @@ VITE_BACKEND_NEXT_BASE_URL= npm run build
 
 “执行详情”在右侧展示该轮实际执行步骤、重试及耗时；“请求信息”展示请求关联、模型和已记录的查询条件。含查询任务时可展开实际 SQL 与参数，一轮的多个任务集中展示。打开详情临时收起桌面导航，关闭后恢复原有偏好；窄屏详情在对话上方展示。筛选、分页、所选会话、轮次及详情页签保存在地址中，刷新可恢复。日志只读，不重新调用模型或执行查询；历史未保存的耗时、条件明确显示未记录。
 
-列表和会话详情分别读取 Agent 的 `GET /query-logs`、`GET /query-logs/{session_id}`，浏览器经 `/agent-api` 同源代理。SQL 详情复用后端现有受权限控制的读取接口。只展示当前登录账号的会话，结果按当前权限重新核验。没有会话账本的独立后端任务不拼造为会话。升级时先部署配套 Agent，再部署前端；无需数据库结构迁移。
+列表和会话详情分别读取 Agent 的 `GET /query-logs`、`GET /query-logs/{session_id}`，浏览器经公共 Agent 基址同源访问（单体 `/agent-api`，网关 `/api/agent`）。SQL 详情复用后端现有受权限控制的读取接口。只展示当前登录账号的会话，结果按当前权限重新核验。没有会话账本的独立后端任务不拼造为会话。升级时先部署配套 Agent，再部署前端；无需数据库结构迁移。
 
 模型调用失败、输出截断或未返回有效回答时，聊天显示明确提示；历史恢复保留失败状态，不再显示为空白的成功回复。
 

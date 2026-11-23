@@ -1,4 +1,5 @@
 import { clearCatalogCaches, metricCatalogCache, organizationCatalogCache } from "@/lib/catalogCache"
+import { agentApiBase, backendApiBase as backendNextBase } from "@/lib/apiBase"
 import type {
   QueryReadiness,
   BackendNextTaskResult,
@@ -138,7 +139,7 @@ export function getBackendNextQueryReadiness(signal?: AbortSignal) {
 /** 每次登录获取当前公钥，避免后端重启或密钥轮换后仍使用旧公钥。 */
 async function getSm2PublicKey(): Promise<string> {
   const response = await request<Sm2PublicKeyResponse>(
-    "/api/v1/auth/sm2-public-key",
+    apiUrl(backendNextBase, "/api/v1/auth/sm2-public-key"),
     { cache: "no-store" },
     false
   )
@@ -146,7 +147,7 @@ async function getSm2PublicKey(): Promise<string> {
 }
 
 export function getLoginOptions() {
-  return request<{ sso_enabled: boolean }>("/api/v1/auth/options", { cache: "no-store" }, false)
+  return request<{ sso_enabled: boolean }>(apiUrl(backendNextBase, "/api/v1/auth/options"), { cache: "no-store" }, false)
 }
 
 export function getConfigurationSetupStatus() {
@@ -176,7 +177,7 @@ export async function loginUser(username: string, password: string, administrato
   // 国密传输：明文密码不出浏览器，SM4 加密密码、SM2 加密一次性 SM4 密钥。
   const sm2PublicKey = await getSm2PublicKey()
   const encrypted = encryptLoginPassword(password, sm2PublicKey)
-  return request<LoginResponse>(administrator ? "/api/v1/auth/admin/login" : "/api/v1/auth/login", {
+  return request<LoginResponse>(apiUrl(backendNextBase, administrator ? "/api/v1/auth/admin/login" : "/api/v1/auth/login"), {
     ...browserSessionRequest,
     method: "POST",
     body: JSON.stringify({
@@ -189,7 +190,7 @@ export async function loginUser(username: string, password: string, administrato
 }
 
 export function ssoLoginUser(token: string) {
-  return request<LoginResponse>("/api/v1/auth/sso", {
+  return request<LoginResponse>(apiUrl(backendNextBase, "/api/v1/auth/sso"), {
     ...browserSessionRequest,
     method: "POST",
     body: JSON.stringify({ token }),
@@ -197,12 +198,12 @@ export function ssoLoginUser(token: string) {
 }
 
 export function getCurrentUser() {
-  return request<AuthUser>("/api/v1/auth/me")
+  return request<AuthUser>(apiUrl(backendNextBase, "/api/v1/auth/me"))
 }
 
 export function restoreBrowserSession() {
   // 页面刷新后内存令牌为空，浏览器自动携带 HttpOnly Cookie；前端不读取 Cookie。
-  return request<LoginResponse>("/api/v1/auth/session", {
+  return request<LoginResponse>(apiUrl(backendNextBase, "/api/v1/auth/session"), {
     ...browserSessionRequest,
     method: "POST",
   }, false)
@@ -210,14 +211,13 @@ export function restoreBrowserSession() {
 
 export function logoutUser() {
   clearCatalogCaches()
-  return request<void>("/api/v1/auth/logout", {
+  return request<void>(apiUrl(backendNextBase, "/api/v1/auth/logout"), {
     ...browserSessionRequest,
     method: "POST",
   })
 }
 
 // 开发地址由 Vite 代理使用；浏览器保持同源，避免登录成功但目录/就绪检查跨域失败。
-const backendNextBase = import.meta.env.DEV ? "" : (import.meta.env.VITE_BACKEND_NEXT_BASE_URL ?? "").replace(/\/$/, "")
 
 function apiUrl(base: string, path: string) {
   return `${base}${path}`
@@ -251,18 +251,18 @@ export function getSmartConfig() {
 }
 
 export function listBusinessSkills(signal?: AbortSignal) {
-  return request<{ items: BusinessSkillItem[] }>("/agent-api/skills", { cache: "no-store", ...(signal ? { signal } : {}) })
+  return request<{ items: BusinessSkillItem[] }>(`${agentApiBase}/skills`, { cache: "no-store", ...(signal ? { signal } : {}) })
 }
 
 export function updateBusinessSkill(skill: BusinessSkillItem, content: string, adminToken: string) {
-  return request<BusinessSkillItem>(`/agent-api/skills/${encodeURIComponent(skill.name)}`, {
+  return request<BusinessSkillItem>(`${agentApiBase}/skills/${encodeURIComponent(skill.name)}`, {
     method: "PUT", headers: configAdminHeaders(adminToken),
     body: JSON.stringify({ content, revision: skill.revision }),
   })
 }
 
 export function restoreBusinessSkill(skill: BusinessSkillItem, adminToken: string) {
-  return request<BusinessSkillItem>(`/agent-api/skills/${encodeURIComponent(skill.name)}/restore`, {
+  return request<BusinessSkillItem>(`${agentApiBase}/skills/${encodeURIComponent(skill.name)}/restore`, {
     method: "POST", headers: configAdminHeaders(adminToken),
     body: JSON.stringify({ revision: skill.revision }),
   })

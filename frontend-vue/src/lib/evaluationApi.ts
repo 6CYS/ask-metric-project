@@ -1,4 +1,5 @@
 import { clearAccessToken, getAccessToken, setAuthFailureReason } from "./authSession"
+import { agentApiBase } from "./apiBase"
 import { isRecord, parseDatasetInput } from "./evaluation"
 import type { AgentSessionMessage } from "./agentApi"
 import type {
@@ -226,7 +227,7 @@ async function request(path: string, init: RequestInit = {}): Promise<unknown> {
   if (init.signal?.aborted) controller.abort()
   const timer = setTimeout(cancel, 30_000)
   try {
-    const response = await fetch(`/agent-api/evaluations${path}`, {
+    const response = await fetch(`${agentApiBase}/evaluations${path}`, {
       ...init,
       signal: controller.signal,
       headers: {

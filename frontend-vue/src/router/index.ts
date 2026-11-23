@@ -17,6 +17,8 @@ const router = createRouter({
   routes: [
     {
       path: "/login",
+      // 保留一期数字农商已登记入口，复用登录页的 token 校验和跳转守卫。
+      alias: "/sso-entry",
       name: "login",
       component: LoginView,
     },

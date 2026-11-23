@@ -1,4 +1,5 @@
 import { clearAccessToken, getAccessToken, setAuthFailureReason } from "./authSession"
+import { agentApiBase } from "./apiBase"
 import type {
   DiagnosticModelResponse,
   DiagnosticProgress,
@@ -147,7 +148,7 @@ async function request(method: "GET" | "POST", signal: AbortSignal) {
   const token = getAccessToken()
   let response: Response
   try {
-    response = await fetch("/agent-api/model-diagnostics", {
+    response = await fetch(`${agentApiBase}/model-diagnostics`, {
       method,
       signal,
       headers: {

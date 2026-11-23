@@ -1,13 +1,13 @@
 import { clearAccessToken, getAccessToken, setAuthFailureReason } from "@/lib/authSession"
+import { agentApiBase } from "@/lib/apiBase"
 import type { AssistantBlock } from "@/lib/assistantText"
 import type { BackendNextClarification, BusinessReportChart, TimeVariant } from "@/types/api"
 
 /**
  * 智能助手（agent-service）接口封装。
- * 使用同源相对路径 /agent-api：开发环境由 vite proxy 代理到本机 agent-service，
- * 生产环境由 Nginx 同源代理，产物代码不写入任何固定服务地址。
+ * 使用公共同源接口基址：开发/单体沿用 /agent-api，行内网关构建使用 /api/agent。
+ * 网关模式沿用一期 Nginx 的 /api/ 转发，由 Gateway 分发，产物不写入固定服务地址。
  */
-const agentApiBase = "/agent-api"
 
 /** 流空闲上限：服务端 drive 挂起（模型重试、工具卡死）时超过此时长即判定中断。 */
 const STREAM_IDLE_TIMEOUT_MS = 150_000
