@@ -27,7 +27,8 @@ export function summarizeToolArguments(args: unknown): Record<string, unknown> {
 
 export function auditToolCall(request: AskMetricRequestContext, toolCallId: string, tool: string,
   stage: "proposed" | "admitted" | "blocked" | "executed" | "finished", args: unknown,
-  timing?: {duration_ms: number; execution_outcome: "returned" | "threw" | "aborted"}): void {
+  timing?: {duration_ms: number; execution_outcome: "returned" | "threw" | "aborted";
+    result_status?: string; error_code?: string}): void {
   console.info(JSON.stringify({event: "agent_tool_call", request_id: request.requestId,
     session_id: request.sessionId, operation_id: request.operationId, tool_call_id: toolCallId,
     tool, stage, ...summarizeToolArguments(args), ...timing}));
@@ -39,8 +40,19 @@ export function withToolExecutionAudit(tool: AgentHarnessTool<AskMetricRequestCo
     auditToolCall(args[3], args[0], tool.name, "executed", args[1]);
     const started = performance.now();
     let outcome: "returned" | "threw" = "returned";
+    let diagnostic: {result_status?: string; error_code?: string} = {};
     try {
-      return await tool.execute(...args);
+      const result = await tool.execute(...args);
+      const details = result.details as {status?: unknown; code?: unknown; error_code?: unknown} | undefined;
+      const status = details?.status, code = details?.error_code ?? details?.code;
+      // 删除会话后仍能区分执行错误与参数拒绝；不保留正文、业务条件或异常消息。
+      diagnostic = {
+        ...(typeof status === "string" && ["succeeded", "partial", "failed", "error", "ARGUMENT_ERROR"].includes(status)
+          ? {result_status: status} : {}),
+        ...(typeof code === "string" && /^(?:INQUIRY|ANALYSIS|AUTH|QUERY|MODEL|BACKEND)_[A-Z0-9_]{1,72}$/u.test(code)
+          ? {error_code: code} : {}),
+      };
+      return result;
     } catch (error) {
       outcome = "threw";
       throw error;
@@ -49,6 +61,7 @@ export function withToolExecutionAudit(tool: AgentHarnessTool<AskMetricRequestCo
       auditToolCall(args[3], args[0], tool.name, "finished", args[1], {
         duration_ms: Math.round(performance.now() - started),
         execution_outcome: args[5].abortSignal?.aborted ? "aborted" : outcome,
+        ...diagnostic,
       });
     }
   }};
