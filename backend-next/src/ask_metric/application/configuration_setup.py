@@ -26,11 +26,16 @@ MANAGED_RESOURCES = (
     "semantic-runtime",
     "inquiry-topics",
 )
+MODEL_RESOURCES = {"backend-models", "agent-runtime"}
 
 
-def missing_resources(repository: DatabaseConfigRepository) -> list[str]:
+def missing_resources(
+    repository: DatabaseConfigRepository, *, models_in_database: bool = True
+) -> list[str]:
     missing = []
     for key in MANAGED_RESOURCES:
+        if not models_in_database and key in MODEL_RESOURCES:
+            continue
         try:
             repository.read(key)
         except ApplicationError as error:
@@ -44,10 +49,13 @@ def initialize_management_configuration(
     repository: DatabaseConfigRepository,
     *,
     actor: str,
+    models_in_database: bool = True,
 ) -> list[str]:
     created: list[str] = []
 
     def ensure(key: str, initialize: Callable[[], object]) -> None:
+        if not models_in_database and key in MODEL_RESOURCES:
+            return
         try:
             repository.read(key)
             return

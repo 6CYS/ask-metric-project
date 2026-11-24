@@ -62,19 +62,22 @@ def model_repositories(
         DatabasePromptConfigRepository,
     )
     from ask_metric.core.config import PROJECT_DIR
+    from ask_metric.infrastructure.config_center.nacos import require_config_store
     from ask_metric.infrastructure.model.configuration import (
         ModelConfigRepository,
         PromptConfigRepository,
         resolve_config_path,
     )
+    from ask_metric.infrastructure.model.nacos_configuration import NacosModelConfigRepository
 
     settings = request.app.state.settings
     if getattr(settings, "business_configuration_storage", "file") == "database":
         repository = shared_configuration(request)
-        return (
-            DatabaseModelConfigRepository(repository, actor=actor),
-            DatabasePromptConfigRepository(repository),
-        )
+        prompts = DatabasePromptConfigRepository(repository)
+        if getattr(settings, "model_configuration_storage", "inherit") == "nacos":
+            center = require_config_store(settings._config_center)
+            return NacosModelConfigRepository(center), prompts
+        return DatabaseModelConfigRepository(repository, actor=actor), prompts
     return (
         ModelConfigRepository(
             resolve_config_path(PROJECT_DIR, settings.model_config_path),

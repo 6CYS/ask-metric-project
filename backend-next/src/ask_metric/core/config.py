@@ -143,6 +143,7 @@ class Settings(BaseSettings):
     business_knowledge_path: Path = default_business_knowledge_path()
     # 分阶段迁移开关；数据库模式不回退文件。全部资源切换后退出文件模式。
     business_configuration_storage: Literal["file", "database"] = "file"
+    model_configuration_storage: Literal["inherit", "nacos"] = "inherit"
     analysis_semantics_path: Path = PROJECT_DIR / "config" / "analysis-semantics.json"
     config_history_dir: Path = PROJECT_DIR / ".runtime" / "config-history"
     query_result_limit: int = Field(default=1000, gt=0, le=10_000)
@@ -343,6 +344,12 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def require_production_token_secret(self) -> "Settings":
         environment = self.app_env.lower()
+        if self.model_configuration_storage == "nacos" and (
+            not self.nacos_config_enabled or self.business_configuration_storage != "database"
+        ):
+            raise ValueError(
+                "MODEL_CONFIGURATION_STORAGE=nacos requires Nacos and database business storage"
+            )
         if self.log_file_enabled is None:
             self.log_file_enabled = environment not in {"development", "test"}
         if self.log_console_enabled is None:

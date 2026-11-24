@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import logging
 import os
+from collections.abc import Mapping
 from time import perf_counter
 from typing import Annotated, Literal
 from uuid import uuid4
@@ -25,6 +26,12 @@ from ask_metric.core.config_crypto import (
 )
 from ask_metric.core.env_file import update_env_file
 from ask_metric.core.errors import ApplicationError
+from ask_metric.infrastructure.config_center.nacos import (
+    SECURITY_DATA_ID,
+    ConfigCenterConflict,
+    ConfigCenterError,
+    require_config_store,
+)
 from ask_metric.infrastructure.model.configuration import (
     ConfigHistoryRepository,
     ConfigVersion,
@@ -35,6 +42,7 @@ from ask_metric.infrastructure.model.configuration import (
     PromptTemplate,
     resolve_config_path,
 )
+from ask_metric.infrastructure.model.nacos_configuration import NacosModelConfigRepository
 from ask_metric.infrastructure.model.provider import (
     ConfigurableModelService,
     InvalidModelResponse,
@@ -96,7 +104,7 @@ def _credential_status(settings: Settings, config: ModelRuntimeConfig) -> dict[s
 def _update_model_credentials(
     settings: Settings,
     config: ModelRuntimeConfig,
-    api_keys: dict[str, str],
+    api_keys: Mapping[Literal["chat", "embedding", "reranker"], str],
 ) -> None:
     endpoints = {
         "chat": config.models.chat,
@@ -142,12 +150,32 @@ def _update_model_credentials(
     }
     if settings._config_center:
         store = settings._config_center
-        document = store.read_json("sznsznws_backend_security.yaml")
-        # 保持中心为唯一来源，不把新密钥注入进程或本地 dotenv。
-        for name, value in stored_updates.items():
-            document = {k: v for k, v in document.items() if k.upper() != name.upper()}
-            document[name.lower()] = value
-        store.publish_json("sznsznws_backend_security.yaml", document)
+        try:
+            center = (
+                require_config_store(store)
+                if getattr(settings, "model_configuration_storage", "inherit") == "nacos"
+                else None
+            )
+            if center is not None:
+                document, revision = center.read_json_with_revision(SECURITY_DATA_ID)
+            else:
+                document = store.read_json(SECURITY_DATA_ID)
+                revision = None
+            for name, value in stored_updates.items():
+                document = {k: v for k, v in document.items() if k.upper() != name.upper()}
+                document[name.lower()] = value
+            if center is not None:
+                center.publish_json(SECURITY_DATA_ID, document, expected_revision=revision)
+            else:
+                store.publish_json(SECURITY_DATA_ID, document)
+        except ConfigCenterConflict:
+            raise ApplicationError(
+                "CONFIG_VERSION_CONFLICT", "安全配置已被更新，请刷新后重新编辑。", status_code=409
+            ) from None
+        except ConfigCenterError:
+            raise ApplicationError(
+                "MODEL_CREDENTIAL_PUBLISH_FAILED", "Nacos 密钥发布未确认。", status_code=503
+            ) from None
     else:
         update_env_file(
             resolve_config_path(PROJECT_DIR, settings.model_secret_env_path), stored_updates
@@ -267,8 +295,11 @@ def _actor_name(actor: ActorContext) -> str:
 
 def _config_revisions(models: ModelConfigRepository, prompts: PromptConfigRepository) -> dict:
     return {
-        "model_revision": models.revision
-        if isinstance(models, DatabaseModelConfigRepository) else None,
+        "model_revision": (
+            models.revision
+            if isinstance(models, (DatabaseModelConfigRepository, NacosModelConfigRepository))
+            else None
+        ),
         "prompt_revisions": prompts.revisions
         if isinstance(prompts, DatabasePromptConfigRepository) else {},
     }
@@ -280,13 +311,17 @@ def _save_models(
     settings: Settings,
 ) -> ModelRuntimeConfig:
     config = payload.config
-    if isinstance(repository, DatabaseModelConfigRepository):
+    if isinstance(repository, (DatabaseModelConfigRepository, NacosModelConfigRepository)):
+        if isinstance(repository, NacosModelConfigRepository) and not payload.config_revision:
+            raise ApplicationError(
+                "CONFIG_VERSION_REQUIRED", "请刷新后以当前 Nacos 配置版本保存。", status_code=409
+            )
         repository.expected_revision = payload.config_revision
         # 先检查版本再处理凭据；过期编辑不能修改共享密钥。
         if payload.config_revision and payload.config_revision != repository.revision:
             raise ApplicationError("CONFIG_VERSION_CONFLICT", "配置已被更新，请刷新后重新编辑。",
                                    status_code=409)
-        # 安全配置与应用库不能共用事务。先写新的独立凭据引用，成功后再条件发布模型配置；
+        # 密钥和模型是两个资源。先写独立凭据引用，成功后再条件发布模型配置；
         # 失败最多留下未被引用的密文，不改变当前模型正在使用的凭据。
         if any(secret.strip() for secret in payload.api_keys.values()):
             config = config.model_copy(deep=True)

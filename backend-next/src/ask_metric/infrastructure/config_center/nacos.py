@@ -23,6 +23,7 @@ RUNTIME_DATA_ID = "sznsznws_backend_runtime.yaml"
 DATASOURCE_DATA_ID = "sznsznws_backend_datasource.yaml"
 SECURITY_DATA_ID = "sznsznws_backend_security.yaml"
 AGENT_RUNTIME_DATA_ID = "sznsznws_agent_runtime.json"
+AGENT_MODEL_DATA_ID = "sznsznws_agent_model.json"
 AGENT_SECURITY_DATA_ID = "sznsznws_agent_security.json"
 DATA_IDS = (
     RUNTIME_DATA_ID,
@@ -47,6 +48,16 @@ logging.getLogger("httpx").addFilter(_ConfigRequestLogFilter())
 
 class ConfigCenterError(RuntimeError):
     """错误信息只包含固定提示和配置名。"""
+
+
+class ConfigCenterConflict(ConfigCenterError):
+    """配置中心拒绝基于过期版本发布。"""
+
+
+def require_config_store(store: object | None) -> NacosConfigStore:
+    if isinstance(store, NacosConfigStore):
+        return store
+    raise ConfigCenterError("Nacos 配置连接未初始化")
 
 
 class DocumentSnapshot:
@@ -159,7 +170,7 @@ class NacosConfigStore:
                 raise ConfigCenterError(f"Nacos 发布接口返回配置不存在（20004）：{data_id}")
             raise ConfigCenterError(f"Nacos 缺少配置：{data_id}")
         if code == 20005 or response.status_code == 409:
-            raise ConfigCenterError(f"配置已被其他发布修改，请刷新后重试：{data_id}")
+            raise ConfigCenterConflict(f"配置已被其他发布修改，请刷新后重试：{data_id}")
         if code == 10001 or response.status_code in {401, 403}:
             raise ConfigCenterError(f"Nacos 配置访问被拒绝，请核对账号权限：{data_id}")
         if response.status_code == 404:
@@ -187,7 +198,10 @@ class NacosConfigStore:
             raise ConfigCenterError(f"Nacos 未确认发布成功：{data_id}")
         return "true"
 
-    def _request(self, method: str, data_id: str, content: str | None = None) -> str:
+    def _request(
+        self, method: str, data_id: str, content: str | None = None, *,
+        expected_revision: str | None = None,
+    ) -> str:
         # GET 探测并记住每个节点的 API 版本；POST 不进行接口探测或失败重发。
         servers = list(self._servers)
         read_server = self._read_servers.get(data_id)
@@ -241,11 +255,8 @@ class NacosConfigStore:
                             "type": "yaml" if data_id.endswith(".yaml") else "json",
                         }
                         # Nacos 2.x 和 3.x 均从 HTTP header 读取 casMd5。
-                        headers = (
-                            {"casMd5": self._versions[data_id]}
-                            if data_id in self._versions
-                            else {}
-                        )
+                        revision = expected_revision or self._versions.get(data_id)
+                        headers = {"casMd5": revision} if revision else {}
                         response = client.post(server + path, data=payload, headers=headers)
                     self._api_versions[server] = version
                     result = self._content(response, version, method, data_id)
@@ -267,16 +278,24 @@ class NacosConfigStore:
         raise ConfigCenterError(f"无法从 Nacos 读取配置（{failure}）：{data_id}")
 
     def read_json(self, data_id: str) -> dict[str, Any]:
+        return self.read_json_with_revision(data_id)[0]
+
+    def read_json_with_revision(self, data_id: str) -> tuple[dict[str, Any], str]:
         with self._lock:
             content = self._request("GET", data_id)
             value = decode_document(content, data_id)
-            self._versions[data_id] = hashlib.md5(content.encode("utf-8")).hexdigest()
-            return value
+            revision = hashlib.md5(content.encode("utf-8")).hexdigest()
+            self._versions[data_id] = revision
+            return value, revision
 
-    def publish_json(self, data_id: str, value: dict[str, Any]) -> None:
+    def publish_json(
+        self, data_id: str, value: dict[str, Any], *, expected_revision: str | None = None
+    ) -> str:
         content = encode_document(value, data_id)
         with self._lock:
-            if data_id not in self._versions:
+            if expected_revision is None and data_id not in self._versions:
                 self.read_json(data_id)
-            self._request("POST", data_id, content)
-            self._versions[data_id] = hashlib.md5(content.encode("utf-8")).hexdigest()
+            self._request("POST", data_id, content, expected_revision=expected_revision)
+            revision = hashlib.md5(content.encode("utf-8")).hexdigest()
+            self._versions[data_id] = revision
+            return revision

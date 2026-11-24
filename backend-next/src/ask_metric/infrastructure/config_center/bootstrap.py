@@ -14,6 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from ask_metric.core.config import PROJECT_DIR, Settings
 from ask_metric.core.config_crypto import decrypt_config_value, load_config_sm4_key
 from ask_metric.infrastructure.config_center.nacos import (
+    AGENT_MODEL_DATA_ID,
     DATASOURCE_DATA_ID,
     MODEL_DATA_ID,
     PROMPTS_DATA_ID,
@@ -23,6 +24,7 @@ from ask_metric.infrastructure.config_center.nacos import (
     ConfigCenterError,
     DocumentSnapshot,
     NacosConfigStore,
+    require_config_store,
 )
 
 # 节点身份、监听和本地状态路径是启动引导项；业务参数只从 Nacos 读取。
@@ -38,6 +40,7 @@ NODE_FIELDS = {
     "backend_next_allow_schema_changes",
     "backend_next_allow_non_test_database",
     "business_configuration_storage",
+    "model_configuration_storage",
 }
 FILE_FIELDS = {
     "model_config_path",
@@ -93,11 +96,12 @@ def load_settings(*, validate_business_configuration: bool = True) -> Settings:
     }
     local.update({k.lower(): v for k, v in os.environ.items()})
     database = local.get("business_configuration_storage") == "database"
+    nacos_models = local.get("model_configuration_storage") == "nacos"
     from ask_metric.infrastructure.model.configuration import ModelConfigRepository
 
     try:
         model = {}
-        if not database:
+        if not database or nacos_models:
             repository = ModelConfigRepository(Path("unused"), store=store)
             try:
                 model = repository.read_document()
@@ -193,6 +197,7 @@ def validate_resources(settings: Settings) -> None:
     if settings.business_configuration_storage == "database":
         from sqlalchemy import create_engine
 
+        from ask_metric.application.agent_runtime_configuration import AgentRuntimeDocument
         from ask_metric.application.database_model_configuration import (
             DatabaseModelConfigRepository,
             DatabasePromptConfigRepository,
@@ -204,10 +209,22 @@ def validate_resources(settings: Settings) -> None:
         engine = create_engine(settings.app_database_url, pool_pre_ping=True)
         try:
             repository = DatabaseConfigRepository(engine)
-            DatabaseModelConfigRepository(repository).load()
+            if settings.model_configuration_storage == "nacos":
+                center = require_config_store(settings._config_center)
+                ModelConfigRepository(
+                    settings.model_config_path, store=center
+                ).load()
+                AgentRuntimeDocument.model_validate(center.read_json(AGENT_MODEL_DATA_ID))
+            else:
+                DatabaseModelConfigRepository(repository).load()
             DatabasePromptConfigRepository(repository).load()
         except (ApplicationError, ValueError, KeyError):
-            raise ConfigCenterError("数据库模型或提示词配置校验失败") from None
+            message = (
+                "Nacos 模型或应用库提示词校验失败"
+                if settings.model_configuration_storage == "nacos"
+                else "数据库模型或提示词配置校验失败"
+            )
+            raise ConfigCenterError(message) from None
         finally:
             engine.dispose()
         return

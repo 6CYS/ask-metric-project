@@ -19,6 +19,12 @@ from ask_metric.application.configuration_setup import (
 from ask_metric.application.database_runtime_configuration import INQUIRY_TOPICS_RESOURCE
 from ask_metric.application.requests import ActorContext
 from ask_metric.core.errors import ApplicationError
+from ask_metric.infrastructure.config_center.nacos import (
+    AGENT_MODEL_DATA_ID,
+    ConfigCenterConflict,
+    ConfigCenterError,
+    require_config_store,
+)
 from ask_metric.infrastructure.configuration_repository import serialize_document
 
 router = APIRouter(
@@ -44,7 +50,10 @@ def configuration_status(
     response.headers["Cache-Control"] = "no-store"
     settings = request.app.state.settings
     return {
-        "missing_resources": missing_resources(shared_configuration(request)),
+        "missing_resources": missing_resources(
+            shared_configuration(request),
+            models_in_database=settings.model_configuration_storage != "nacos",
+        ),
         "write_enabled": bool(settings.model_admin_write_enabled),
         "write_token_required": bool(settings.model_admin_token_required),
     }
@@ -59,8 +68,14 @@ def initialize_configuration(
     _require_config_write(request.app.state.settings, actor, admin_token)
     _require_database(request)
     repository = shared_configuration(request)
-    created = initialize_management_configuration(repository, actor=actor.user_id or actor.subject)
-    return {"created_resources": created, "missing_resources": missing_resources(repository)}
+    models_in_database = request.app.state.settings.model_configuration_storage != "nacos"
+    created = initialize_management_configuration(
+        repository, actor=actor.user_id or actor.subject, models_in_database=models_in_database
+    )
+    return {
+        "created_resources": created,
+        "missing_resources": missing_resources(repository, models_in_database=models_in_database),
+    }
 
 
 @router.get("/inquiry-topics")
@@ -84,10 +99,33 @@ def inquiry_topics(request: Request, response: Response, version_id: str | None 
 @router.get("/agent-runtime/{version_id}")
 def agent_runtime(request: Request, response: Response, version_id: str | None = None) -> dict:
     response.headers["Cache-Control"] = "no-store"
-    if request.app.state.settings.business_configuration_storage != "database":
-        raise ApplicationError(
-            "CONFIG_DATABASE_DISABLED", "配置数据库来源尚未启用", status_code=503
-        )
+    _require_database(request)
+    settings = request.app.state.settings
+    if settings.model_configuration_storage == "nacos":
+        try:
+            store = require_config_store(settings._config_center)
+            raw, revision = store.read_json_with_revision(AGENT_MODEL_DATA_ID)
+        except ConfigCenterError:
+            raise ApplicationError(
+                "AGENT_RUNTIME_UNAVAILABLE", "请核对 Nacos 中的 Agent 模型配置。", status_code=503
+            ) from None
+        if version_id is not None and version_id != revision:
+            raise ApplicationError(
+                "CONFIG_VERSION_NOT_FOUND",
+                "本轮绑定的 Agent 模型配置已变更，请重新发起本轮或测评。",
+                status_code=409,
+            )
+        try:
+            document = AgentRuntimeDocument.model_validate(raw)
+        except ValueError:
+            raise ApplicationError(
+                "AGENT_RUNTIME_INVALID", "Nacos 中的 Agent 模型配置无效。", status_code=503
+            ) from None
+        return {
+            "version_id": revision,
+            "revision": revision,
+            "document": document.model_dump(mode="json"),
+        }
     repository = shared_configuration(request)
     snapshot = (
         repository.version(AGENT_RUNTIME_RESOURCE, version_id)
@@ -120,10 +158,28 @@ def update_agent_runtime(
     admin_token: Annotated[str | None, Header(alias="X-Model-Admin-Token")] = None,
 ) -> dict:
     _require_config_write(request.app.state.settings, actor, admin_token)
-    if request.app.state.settings.business_configuration_storage != "database":
-        raise ApplicationError(
-            "CONFIG_DATABASE_DISABLED", "配置数据库来源尚未启用", status_code=503
-        )
+    _require_database(request)
+    settings = request.app.state.settings
+    if settings.model_configuration_storage == "nacos":
+        if not body.revision:
+            raise ApplicationError(
+                "CONFIG_VERSION_REQUIRED", "请刷新后以当前 Nacos 配置版本保存。", status_code=409
+            )
+        document = body.document.model_dump(mode="json")
+        try:
+            store = require_config_store(settings._config_center)
+            revision = store.publish_json(
+                AGENT_MODEL_DATA_ID, document, expected_revision=body.revision
+            )
+        except ConfigCenterConflict:
+            raise ApplicationError(
+                "CONFIG_VERSION_CONFLICT", "配置已被更新，请刷新后重新编辑。", status_code=409
+            ) from None
+        except ConfigCenterError:
+            raise ApplicationError(
+                "AGENT_RUNTIME_PUBLISH_FAILED", "Nacos Agent 模型配置发布未确认。", status_code=503
+            ) from None
+        return {"version_id": revision, "revision": revision, "document": document}
     snapshot = shared_configuration(request).publish(
         AGENT_RUNTIME_RESOURCE,
         serialize_document(body.document.model_dump(mode="json")),
