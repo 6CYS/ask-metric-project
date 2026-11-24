@@ -169,6 +169,21 @@ Skill 全文留在首次可见的读取回执，动态业务状态仅放在发�
 更新后重启 Agent 服务生效，无需数据库或会话迁移。回滚旧版本前核对保留的环境文件：旧版本会重新按总时限
 解释 `AGENT_MODEL_TIMEOUT_MS`，且不识别新空闲变量；旧 `MODEL_DEADLINE_EXCEEDED` 历史记录仍兼容展示。
 
+### 通过 Nacos 服务发现接入 Gateway
+
+Agent 支持通过 Nacos 3.x Client API 自行注册临时实例。需使用服务发现的节点在各自的
+`agent.env` 中设置 `NACOS_REGISTER_ENABLED=true`，填写 Gateway 可访问的
+`NACOS_INSTANCE_IP`，并让 `AGENT_SERVICE_HOST` 监听对应网卡。注册端口默认使用
+`AGENT_SERVICE_PORT`。只有对外端口与监听端口不同时才设置 `NACOS_INSTANCE_PORT`。
+Nacos 地址、命名空间、账号和 SM4 密码复用已有引导配置。服务名默认 `ask-metric-agent`，
+分组默认 `DEFAULT_GROUP`，集群默认 `DEFAULT`，与 Gateway 的服务发现配置保持一致。
+
+Agent 监听并通过现有就绪检查后注册，每 5 秒续约。实例过期后会重新注册，正常停机时注销。
+Nacos 中的健康状态表示临时实例仍在续约，应用就绪状态通过 `/health/ready` 检查。
+切换 Gateway 前，从 Nacos 服务列表确认各节点已健康注册，并验证 Gateway 将
+`/api/agent/**` 优先转发给 `lb://ask-metric-agent`，剥掉两级前缀后访问 `/health/ready`。
+单体代理部署默认关闭实例注册。读取 Nacos 启动配置仍由 `NACOS_CONFIG_ENABLED` 控制。
+
 ## 接口（协议 V3）
 
 - `GET /health`：健康检查（无需鉴权）。

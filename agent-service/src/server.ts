@@ -5,6 +5,7 @@
 import { loadBusinessSkills, createBusinessSkillReadTool } from "./businessSkills.js";
 import { serve } from "@hono/node-server";
 import { loadRuntimeConfig } from "./nacosConfig.js";
+import { createNacosRegistration } from "./nacosRegistration.js";
 import { createAskMetricModels } from "./models.js";
 import { HarnessHost } from "./harnessHost.js";
 import { acquireWriterLock, NativeSessionStore } from "./nativeSessions.js";
@@ -24,6 +25,7 @@ import { BackendApiError, BackendClient } from "./backendClient.js";
 
 async function main(): Promise<void> {
   const config = await loadRuntimeConfig();
+  const nacos = createNacosRegistration(config.port, (signal) => ready(signal));
   // 单数据根单写实例：多副本共写 JSONL 会破坏原生存储，直接拒绝启动
   const sharedSessions = config.sessionStorage?.mode === "database";
   const releaseLock = sharedSessions ? () => {} : acquireWriterLock(config.dataDir);
@@ -89,33 +91,46 @@ async function main(): Promise<void> {
     // 独立维护模块不可用时保留现有问数服务，测评接口明确返回不可用。
     console.error("测评存储初始化失败，测评接口暂不可用");
   }
-  const app = createApp(config, host, store, evaluations, skillStore, async () => {
+  const ready = async (signal = AbortSignal.timeout(config.backendTimeoutMs)) => {
     await store.cluster?.ready();
     if (sharedSessions && (!evaluations || !databaseEvaluations)) return false;
     await databaseEvaluations?.ready();
     const response = await fetch(`${config.backendBaseUrl.replace(/\/+$/, "")}/health/ready`, {
-      signal: AbortSignal.timeout(config.backendTimeoutMs),
+      signal,
     });
     return response.ok;
-  });
+  };
+  const app = createApp(config, host, store, evaluations, skillStore, ready);
 
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
     console.log(`ask-metric-agent-service listening on ${info.address}:${info.port}`);
+    nacos?.start();
   });
 
+  let stopping = false;
   const shutdown = () => {
+    if (stopping) return;
+    stopping = true;
+    const deregistration = nacos?.stop();
     const evaluationShutdown = evaluations?.shutdown().catch(() => {
       console.warn(sharedSessions ? "测评任务未能在停机前完全结束，需确认停止，不会自动重跑" : "测评任务未能在停机前完全结束，下次启动将标记为中断");
     });
-    server.close(async () => {
+    const close = async () => {
+      await deregistration;
       await evaluationShutdown;
       // 正确关闭：停止接纳并关闭原生句柄，不删除任何历史
       await host.close();
       await store.close();
       releaseLock();
       process.exit(0);
+    };
+    server.close(() => {
+      void close().catch(() => {
+        console.error("Agent 停机清理失败");
+        process.exit(1);
+      });
     });
-    setTimeout(() => process.exit(0), 3000).unref();
+    setTimeout(() => process.exit(0), nacos?.shutdownTimeoutMs ?? 3000).unref();
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);

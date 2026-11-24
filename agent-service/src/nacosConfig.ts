@@ -1,6 +1,7 @@
 /** Nacos 仅加载启动配置；中心故障时拒绝启动，不回退本机业务变量。 */
 import { loadConfig, type AgentServiceConfig } from "./config.js";
-import { decryptConfigValue, isEncryptedConfigValue, loadConfigSm4Key } from "./sm4ConfigCrypto.js";
+import { isEncryptedConfigValue } from "./sm4ConfigCrypto.js";
+import { loginNacos, readNacosConnection } from "./nacosConnection.js";
 
 const runtimeId = "sznsznws_agent_runtime.json";
 const securityId = "sznsznws_agent_security.json";
@@ -28,36 +29,14 @@ export async function loadRuntimeConfig(
   if (enabled === "false" || enabled === "0") return loadConfig(env);
   const group = env.NACOS_CONFIG_GROUP?.trim();
   if (!group) throw new Error("必须填写 NACOS_CONFIG_GROUP");
-  const namespace = env.NACOS_NAMESPACE?.trim() || "public";
-  const timeout = Number(env.NACOS_REQUEST_TIMEOUT_MS ?? 5000);
-  if (!Number.isSafeInteger(timeout) || timeout <= 0) throw new Error("Nacos 超时必须为正整数");
-  const servers = (env.NACOS_SERVER_ADDR ?? "").split(",").filter((v) => v.trim()).map((value) => {
-    const raw = value.trim().replace(/\/+$/, "");
-    const url = new URL(raw.includes("://") ? raw : `http://${raw}`);
-    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-      throw new Error("NACOS_SERVER_ADDR 格式无效");
-    }
-    return `${url.origin}${url.pathname.replace(/\/+$/, "") || "/nacos"}`;
-  });
-  if (!servers.length) throw new Error("必须填写 NACOS_SERVER_ADDR");
-  const encryptedPassword = env.NACOS_PASSWORD ?? "";
-  const password = isEncryptedConfigValue(encryptedPassword)
-    ? decryptConfigValue(encryptedPassword, loadConfigSm4Key(env)) : encryptedPassword;
+  const connection = readNacosConnection(env);
+  const { servers, namespace, timeout, username } = connection;
 
   async function readDocument(dataId: string): Promise<Record<string, unknown>> {
     for (const server of servers) {
       try {
-        let token = "";
-        if (env.NACOS_USERNAME) {
-          const response = await request(`${server}/v1/auth/users/login`, {
-            method: "POST", body: new URLSearchParams({ username: env.NACOS_USERNAME, password }),
-            signal: AbortSignal.timeout(timeout),
-          });
-          if (!response.ok) throw new Error("鉴权失败");
-          const login = await response.json() as { accessToken?: string };
-          if (typeof login.accessToken !== "string" || !login.accessToken) throw new Error("鉴权响应无效");
-          token = login.accessToken;
-        }
+        const token = username
+          ? (await loginNacos(server, connection, request, AbortSignal.timeout(timeout))).token : "";
         const params = new URLSearchParams({ dataId, groupName: group!, namespaceId: namespace });
         if (token) params.set("accessToken", token);
         let response = await request(`${server}/v3/client/cs/config?${params.toString()}`, { signal: AbortSignal.timeout(timeout) });
