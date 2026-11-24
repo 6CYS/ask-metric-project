@@ -1,0 +1,55 @@
+server:
+  port: ${SERVER_PORT:9000}
+  forward-headers-strategy: framework
+spring:
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: 5000
+            response-timeout: 200s
+          default-filters:
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin RETAIN_FIRST
+            - AddResponseHeader=X-Gateway-Name, ask-metric-intent-gateway-local
+          globalcors:
+            add-to-simple-url-handler-mapping: true
+            cors-configurations:
+              '[/**]':
+                allowedOriginPatterns:
+                  - http://localhost:8080
+                  - http://localhost:5173
+                allowedMethods:
+                  - GET
+                  - POST
+                  - PUT
+                  - PATCH
+                  - DELETE
+                  - OPTIONS
+                allowedHeaders:
+                  - '*'
+                exposedHeaders:
+                  - Content-Disposition
+                  - Authorization
+                allowCredentials: true
+                maxAge: 3600
+          routes:
+            - id: ask-metric-agent-api
+              order: -100
+              uri: lb://ask-metric-agent
+              predicates:
+                - Path=/api/agent,/api/agent/**
+              filters:
+                - StripPrefix=2
+            - id: ask-metric-backend-api
+              uri: lb://ask-metric-python
+              predicates:
+                - Path=/api/**
+            - id: ask-metric-backend-health
+              uri: lb://ask-metric-python
+              predicates:
+                - Path=/health,/health/**
+management:
+  endpoint:
+    gateway:
+      enabled: true
